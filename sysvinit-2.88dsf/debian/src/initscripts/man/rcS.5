@@ -1,0 +1,128 @@
+.TH rcS 5 "16 Jan 2006" "" "Debian Administrator's Manual"
+.SH NAME
+rcS \- variables that affect the behavior of boot scripts
+.SH DESCRIPTION
+The
+.I /etc/default/rcS
+file contains variable settings in POSIX format:
+.IP "" .5i
+VAR=VAL
+.PP
+Only one assignment is allowed per line.
+Comments (starting with '#') are also allowed.
+
+.SH OPTIONS
+The following variables can be set.
+For the default values please see \fI/usr/share/initscripts/default.rcS\fP.
+
+.IP \fBTMPTIME\fP
+On boot the files in /tmp will be deleted if their modification time
+is more than TMPTIME days ago.
+A value of 0 means that files are removed regardless of age.
+If you don't want the system to clean /tmp
+then set TMPTIME to a negative value (e.g., \-1)
+or to the word \fIinfinite\fP.
+
+.IP \fBSULOGIN\fB
+Setting this to
+.B yes
+causes init to spawn a
+.B sulogin
+on the console early in the boot process.
+If the administrator does not login
+then the sulogin session will time out
+after 30 seconds and the boot process will continue.
+
+.IP \fBDELAYLOGIN\fB
+Normally the system will not let non-root users log in
+until the boot process is complete
+and the system has finished switching
+to the default runlevel (usually level 2).
+However, in theory it is safe to log in a bit earlier,
+namely, as soon as \fBinetd\fP has started.
+Setting the variable to \fBno\fP allows earlier login;
+setting the variable to \fByes\fP prevents it.
+
+Some details:
+The \fBDELAYLOGIN\fP variable controls whether or not the
+file \fI/var/lib/initscripts/nologin\fP is created during
+the boot process and deleted at the end of it.
+\fI/etc/nologin\fP is normally a symbolic link to the latter location,
+and the \fBlogin\fP(1) program refuses to allow non-root logins so long
+as (the target of) \fI/etc/nologin\fP exists.
+If you set the variable to \fBno\fP then it is advisable to ensure
+that \fI/var/lib/initscripts/nologin\fP does not exist.
+
+.IP \fBUTC\fP
+This is used to govern how the hardware real time clock is interpreted
+when it is read (e.g., at boot time, for the purpose of setting the
+system clock) and when it is written (e.g., at shutdown).
+If this option is set to \fBno\fP
+then the system clock is assumed to be set to local time.
+If the option is set to \fByes\fP
+then the system clock is assumed to be set to something approximating
+Coordinated Universal Time (UTC).
+(POSIX systems keep a variant of UTC, without leap seconds.)
+
+On contemporary Debian systems
+(although change has been requested at
+\fIhttp://bugs.debian.org/346342\fP),
+if UTC is set to \fBno\fP then \fI/usr/share/zoneinfo\fP
+must be readable early in the boot process.
+If you want to keep \fI/usr\fP on a separate filesystem then
+you must still ensure that the target of \fI/etc/localtime\fP
+points to the correct zone information file for the time zone
+of the time kept in your hardware real time clock.
+
+.IP \fBVERBOSE\fP
+Setting this option to \fBno\fP (in lower case) will make the boot process
+a bit less verbose.
+Setting this option to \fByes\fP will make the boot process
+a bit more verbose.
+
+.IP \fBFSCKFIX\fP
+When the root and all other file systems are checked,
+.B fsck
+is invoked with the \fB\-a\fP option
+which means "autorepair".
+If there are major inconsistencies
+then the fsck process will bail out.
+The system will print a message
+asking the administrator to repair the file system manually
+and will present a root shell prompt
+(actually a \fIsulogin\fP prompt)
+on the console.
+Setting this option to \fByes\fP causes the fsck commands
+to be run with the \fB\-y\fP option instead of the \fB\-a\fP option.
+This will tell fsck always to repair the file systems
+without asking for permission.
+
+.IP \fBRAMRUN\fP
+Make /var/run/ available as a ram file system (tmpfs).  Will also disable
+cleaning of /var/run/ during boot.  Set to 'yes' to enable, to 'no' to disable.
+The size of the tmpfs can be controlled using TMPFS_SIZE and RUN_SIZE in
+/etc/default/tmpfs.  Because of this, packages can not expect directories in /var/run
+to exist after boot.  Packages expecting this are buggy and need to be fixed.
+
+.IP \fBRAMLOCK\fP
+Make /var/lock/ available as a ram file system (tmpfs).  Will also disable
+cleaning of /var/lock/ during boot.  Set to 'yes' to enable, to 'no' to disable.
+The size of the tmpfs can be controlled using TMPFS_SIZE and LOCK_SIZE in
+/etc/default/tmpfs.  Because of this, packages can not expect directories in /var/lock
+to exist after boot.  Packages expecting this are buggy and need to be fixed.
+
+.IP \fBASYNCMOUNTNFS\fP
+Set this to 'no' to disable asynchronous mounting of network drives
+when the network interfaces are mounted, and instead do it only once when
+the machine boot.  The default is 'yes'.  It is useful to disable this
+on machines with the root file system in NFS until ifup from ifupdown work
+properly in such setup.
+
+.SH NOTE
+The \fBEDITMOTD\fP variable is no longer used.
+
+.SH AUTHOR
+Miquel van Smoorenburg <miquels@cistron.nl>
+
+.SH SEE ALSO
+.BR inetd "(8), " init "(8), " inittab "(5), " login "(1)."

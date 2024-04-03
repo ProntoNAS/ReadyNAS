@@ -1,0 +1,272 @@
+2010-03-27  Ulrich Drepper  <drepper@redhat.com>
+
+	* posix/glob.c (glob): Initialize oldcount early, too.
+
+2010-03-24  Ulrich Drepper  <drepper@redhat.com>
+	    Andreas Schwab  <andreas@redhat.com>
+
+	* posix/glob.c (glob): Clean up gl_pathc and gl_pathv earlier.
+	If pattern is "" bail out early
+
+---
+ posix/glob.c        |   52 ++++++++++++++++++++----------------
+ posix/tst-gnuglob.c |   75 +++++++++++++++++++++++++++++++++++++---------------
+ 2 files changed, 83 insertions(+), 44 deletions(-)
+
+--- a/posix/glob.c
++++ b/posix/glob.c
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 1991-2002, 2003, 2004, 2005, 2006, 2007, 2008
++/* Copyright (C) 1991-2002, 2003, 2004, 2005, 2006, 2007, 2008, 2010
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -421,6 +421,26 @@
+ 	}
+     }
+ 
++  if (!(flags & GLOB_APPEND))
++    {
++      pglob->gl_pathc = 0;
++      if (!(flags & GLOB_DOOFFS))
++	pglob->gl_pathv = NULL;
++      else
++	{
++	  size_t i;
++	  pglob->gl_pathv = (char **) malloc ((pglob->gl_offs + 1)
++					      * sizeof (char *));
++	  if (pglob->gl_pathv == NULL)
++	    return GLOB_NOSPACE;
++
++	  for (i = 0; i <= pglob->gl_offs; ++i)
++	    pglob->gl_pathv[i] = NULL;
++	}
++    }
++
++  oldcount = pglob->gl_pathc + pglob->gl_offs;
++
+   /* Find the filename.  */
+   filename = strrchr (pattern, '/');
+ #if defined __MSDOS__ || defined WINDOWS32
+@@ -448,6 +468,12 @@
+ 	}
+       else
+ 	{
++	  if (__builtin_expect (pattern[0] == '\0', 0))
++	    {
++	      dirs.gl_pathv = NULL;
++	      goto no_matches;
++	    }
++
+ 	  filename = pattern;
+ #ifdef _AMIGA
+ 	  dirname = "";
+@@ -495,7 +521,7 @@
+ 
+       if (filename[0] == '\0'
+ #if defined __MSDOS__ || defined WINDOWS32
+-          && dirname[dirlen - 1] != ':'
++	  && dirname[dirlen - 1] != ':'
+ 	  && (dirlen < 3 || dirname[dirlen - 2] != ':'
+ 	      || dirname[dirlen - 1] != '/')
+ #endif
+@@ -532,26 +558,6 @@
+ 	}
+     }
+ 
+-  if (!(flags & GLOB_APPEND))
+-    {
+-      pglob->gl_pathc = 0;
+-      if (!(flags & GLOB_DOOFFS))
+-        pglob->gl_pathv = NULL;
+-      else
+-	{
+-	  size_t i;
+-	  pglob->gl_pathv = (char **) malloc ((pglob->gl_offs + 1)
+-					      * sizeof (char *));
+-	  if (pglob->gl_pathv == NULL)
+-	    return GLOB_NOSPACE;
+-
+-	  for (i = 0; i <= pglob->gl_offs; ++i)
+-	    pglob->gl_pathv[i] = NULL;
+-	}
+-    }
+-
+-  oldcount = pglob->gl_pathc + pglob->gl_offs;
+-
+ #ifndef VMS
+   if ((flags & (GLOB_TILDE|GLOB_TILDE_CHECK)) && dirname[0] == '~')
+     {
+@@ -567,7 +573,7 @@
+ # else
+ #  ifdef WINDOWS32
+ 	  if (home_dir == NULL || home_dir[0] == '\0')
+-            home_dir = "c:/users/default"; /* poor default */
++	    home_dir = "c:/users/default"; /* poor default */
+ #  else
+ #   if ! _LIBC || __OPTION_EGLIBC_GETLOGIN
+ 	  if (home_dir == NULL || home_dir[0] == '\0')
+--- a/posix/tst-gnuglob.c
++++ b/posix/tst-gnuglob.c
+@@ -1,6 +1,6 @@
+ /* Test the GNU extensions in glob which allow the user to provide callbacks
+    for the filesystem access functions.
+-   Copyright (C) 2001-2002, 2007 Free Software Foundation, Inc.
++   Copyright (C) 2001-2002, 2007, 2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Ulrich Drepper <drepper@redhat.com>, 2001.
+ 
+@@ -61,9 +61,9 @@
+       { "..", 3, DT_DIR },
+       { ".foo", 3, DT_REG },
+       { "dir1lev3", 3, DT_DIR },
+-        { ".", 4, DT_DIR },
+-        { "..", 4, DT_DIR },
+-        { "file1lev4", 4, DT_REG },
++	{ ".", 4, DT_DIR },
++	{ "..", 4, DT_DIR },
++	{ "file1lev4", 4, DT_REG },
+       { "file1lev3", 3, DT_REG },
+       { "file2lev3", 3, DT_REG },
+     { "file2lev2", 2, DT_REG },
+@@ -81,9 +81,9 @@
+       { "..", 3, DT_DIR },
+       { ".foo", 3, DT_REG },
+       { ".dir", 3, DT_DIR },
+-        { ".", 4, DT_DIR },
+-        { "..", 4, DT_DIR },
+-        { "hidden", 4, DT_REG }
++	{ ".", 4, DT_DIR },
++	{ "..", 4, DT_DIR },
++	{ "hidden", 4, DT_REG }
+ };
+ #define nfiles (sizeof (filesystem) / sizeof (filesystem[0]))
+ 
+@@ -283,7 +283,7 @@
+ static const char *
+ flagstr (int flags)
+ {
+-  const char *strs[] =
++  static const char *const strs[] =
+   {
+     "GLOB_ERR", "GLOB_MARK", "GLOB_NOSORT", "GLOB_DOOFSS", "GLOB_NOCHECK",
+     "GLOB_APPEND", "GLOB_NOESCAPE", "GLOB_PERIOD", "GLOB_MAGCHAR",
+@@ -312,6 +312,29 @@
+     }
+ 
+   return buf;
++#undef nstrs
++}
++
++
++static const char *
++errstr (int val)
++{
++  static const char *const strs[] =
++    {
++      [GLOB_NOSPACE] = "GLOB_NOSPACE",
++      [GLOB_ABORTED] = "GLOB_ABORTED",
++      [GLOB_NOMATCH] = "GLOB_NOMATCH",
++      [GLOB_NOSYS] = "GLOB_NOSYS"
++    };
++#define nstrs (sizeof (strs) / sizeof (strs[0]))
++  static char buf[100];
++  if (val < 0 || val >= nstrs || strs[val] == NULL)
++    {
++      snprintf (buf, sizeof (buf), "GLOB_??? (%d)", val);
++      return buf;
++    }
++  return strs[val];
++#undef nstrs
+ }
+ 
+ 
+@@ -376,28 +399,34 @@
+   gl.gl_lstat = my_stat;
+   gl.gl_stat = my_stat;
+ 
+-#define test(a, b, c...) \
++#define test(a, b, r, c...) \
+   fmt = a;								      \
+-  flags = b;								      \
++  flags = GLOB_ALTDIRFUNC | b;						      \
+   errval = glob (fmt, flags, NULL, &gl);				      \
+-  if (errval != 0)							      \
++  if (errval != r)							      \
+     {									      \
+-      printf ("glob (\"%s\", %s) failed: %s\n", fmt, flagstr (flags),	      \
+-	      errval >= 0 && errval < nglob_errstring			      \
+-	      ? glob_errstring[errval] : "???");			      \
++      if (r == 0)							      \
++	printf ("glob (\"%s\", %s) failed: %s\n", fmt, flagstr (flags),	      \
++		errval >= 0 && errval < nglob_errstring			      \
++		? glob_errstring[errval] : "???");			      \
++      else								      \
++	printf ("glob (\"%s\", %s) did not fail\n", fmt, flagstr (flags));    \
+       result = 1;							      \
+     }									      \
++  else if (r == 0)							      \
++    result |= test_result (fmt, flags, &gl, (const char *[]) { c, NULL });    \
+   else									      \
+-    result |= test_result (fmt, flags, &gl, (const char *[]) { c, NULL })
++    printf ("result for glob (\"%s\", %s) = %s\n\n", fmt, flagstr (flags),    \
++	    errstr (errval))
+ 
+-  test ("*/*/*", GLOB_ALTDIRFUNC,
++  test ("*/*/*", 0, 0,
+ 	"dir1lev1/dir2lev2/dir1lev3",
+ 	"dir1lev1/dir2lev2/file1lev3",
+ 	"dir1lev1/dir2lev2/file2lev3",
+ 	"dir1lev1/dir3lev2/file3lev3",
+ 	"dir1lev1/dir3lev2/file4lev3");
+ 
+-  test ("*/*/*", GLOB_ALTDIRFUNC | GLOB_PERIOD,
++  test ("*/*/*", GLOB_PERIOD, 0,
+ 	"dir1lev1/dir1lev2/.",
+ 	"dir1lev1/dir1lev2/..",
+ 	"dir1lev1/dir2lev2/.",
+@@ -415,7 +444,7 @@
+ 	"dir2lev1/dir1lev2/.dir",
+ 	"dir2lev1/dir1lev2/.foo");
+ 
+-  test ("*/*/.*", GLOB_ALTDIRFUNC,
++  test ("*/*/.*", 0, 0,
+ 	"dir1lev1/dir1lev2/.",
+ 	"dir1lev1/dir1lev2/..",
+ 	"dir1lev1/dir2lev2/.",
+@@ -428,7 +457,7 @@
+ 	"dir2lev1/dir1lev2/.dir",
+ 	"dir2lev1/dir1lev2/.foo");
+ 
+-  test ("*1*/*2*/.*", GLOB_ALTDIRFUNC,
++  test ("*1*/*2*/.*", 0, 0,
+ 	"dir1lev1/dir1lev2/.",
+ 	"dir1lev1/dir1lev2/..",
+ 	"dir1lev1/dir2lev2/.",
+@@ -441,7 +470,7 @@
+ 	"dir2lev1/dir1lev2/.dir",
+ 	"dir2lev1/dir1lev2/.foo");
+ 
+-  test ("*1*/*1*/.*", GLOB_ALTDIRFUNC,
++  test ("*1*/*1*/.*", 0, 0,
+ 	"dir1lev1/dir1lev2/.",
+ 	"dir1lev1/dir1lev2/..",
+ 	"dir2lev1/dir1lev2/.",
+@@ -449,12 +478,16 @@
+ 	"dir2lev1/dir1lev2/.dir",
+ 	"dir2lev1/dir1lev2/.foo");
+ 
+-  test ("\\/*", GLOB_ALTDIRFUNC,
++  test ("\\/*", 0, 0,
+ 	"/dir1lev1",
+ 	"/dir2lev1",
+ 	"/file1lev1",
+ 	"/file2lev1");
+ 
++  test ("", 0, GLOB_NOMATCH, NULL);
++
++  test ("", GLOB_NOCHECK, 0, "");
++
+   globfree (&gl);
+ 
+   return result;

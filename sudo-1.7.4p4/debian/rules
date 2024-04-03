@@ -1,0 +1,147 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE=1
+
+CFLAGS = -O2 -Wall -Wno-comment
+ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+CFLAGS += -g
+endif
+export CFLAGS
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	cp -f /usr/share/misc/config.sub config.sub
+	cp -f /usr/share/misc/config.guess config.guess
+
+	# simple version
+	mkdir -p build-simple
+	cd build-simple && NROFFPROG=/usr/bin/nroff $(CURDIR)/configure \
+		--prefix=/usr -v \
+		--with-all-insults \
+		--with-devel \
+		--with-pam \
+		--with-fqdn \
+		--with-logging=syslog \
+		--with-logfac=authpriv \
+		--with-env-editor \
+		--with-editor=/usr/bin/editor \
+		--with-timeout=15 \
+		--with-password-timeout=0 \
+		--with-passprompt="[sudo] password for %p: " \
+		--with-timedir=/var/lib/sudo \
+		--disable-root-mailer \
+		--disable-setresuid \
+		--with-sendmail=/usr/sbin/sendmail \
+		--mandir=/usr/share/man \
+		--libexecdir=/usr/lib/sudo \
+		--with-secure-path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/X11R6/bin"
+
+	# LDAP version
+	mkdir -p build-ldap
+	cd build-ldap && NROFFPROG=/usr/bin/nroff $(CURDIR)/configure \
+		--prefix=/usr -v \
+		--with-all-insults \
+		--with-devel \
+		--with-pam \
+		--with-ldap \
+		--with-fqdn \
+		--with-logging=syslog \
+		--with-logfac=authpriv \
+		--with-env-editor \
+		--with-editor=/usr/bin/editor \
+		--with-timeout=15 \
+		--with-password-timeout=0 \
+		--with-passprompt="[sudo] password for %p: " \
+		--disable-root-mailer \
+		--disable-setresuid \
+		--with-sendmail=/usr/sbin/sendmail \
+		--with-ldap-conf-file=/etc/sudo-ldap.conf \
+		--mandir=/usr/share/man \
+		--libexecdir=/usr/lib/sudo \
+		--with-secure-path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/X11R6/bin"
+
+	touch config-stamp
+
+build: build-stamp
+build-stamp: configure-stamp
+	dh_testdir
+
+	# ensure our pod changes get picked up
+	$(MAKE) sudoers.man.in sudo.man.in visudo.man.in
+
+	$(MAKE) -C build-simple
+	$(MAKE) -C build-ldap
+
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f config-stamp build-stamp
+	rm -rf build-simple build-ldap
+	rm -f config.cache
+	dh_clean
+
+install: build-stamp
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+
+	$(MAKE) -C build-simple install DESTDIR=$(CURDIR)/debian/sudo
+	$(MAKE) -C build-ldap   install DESTDIR=$(CURDIR)/debian/sudo-ldap
+
+	# remove stuff we don't want
+	rm -f	debian/sudo/etc/sudoers \
+		debian/sudo-ldap/etc/sudoers \
+		debian/sudo/usr/share/doc/sudo/LICENSE* \
+		debian/sudo-ldap/usr/share/doc/sudo/LICENSE*
+
+	# move upstream-installed docs to the right place for ldap package
+	mv	debian/sudo-ldap/usr/share/doc/sudo/* \
+		debian/sudo-ldap/usr/share/doc/sudo-ldap/
+	rmdir	debian/sudo-ldap/usr/share/doc/sudo
+
+	# and install things we do want that make install doesn't know about
+	install -o root -g root -m 0644 debian/sudo.pam \
+		debian/sudo/etc/pam.d/sudo
+	install -o root -g root -m 0644 debian/sudo.pam \
+		debian/sudo-ldap/etc/pam.d/sudo
+
+	install -o root -g root -m 0644 debian/sudo.lintian \
+		debian/sudo/usr/share/lintian/overrides/sudo
+	install -o root -g root -m 0644 debian/sudo-ldap.lintian \
+		debian/sudo-ldap/usr/share/lintian/overrides/sudo-ldap
+
+	install -o root -g root -m 0440 debian/README \
+		debian/sudo/etc/sudoers.d/README
+	install -o root -g root -m 0440 debian/README \
+		debian/sudo-ldap/etc/sudoers.d/README
+
+binary-indep: build install
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installdocs -A
+	dh_installexamples -A sample.sudoers
+	dh_installinit -psudo -psudo-ldap --name=sudo
+	dh_installman -A
+	dh_installinfo -A
+	dh_installchangelogs ChangeLog 
+	dh_strip
+	dh_compress
+	dh_fixperms
+	chown root.root debian/sudo/usr/bin/sudo debian/sudo-ldap/usr/bin/sudo
+	chmod 4755 debian/sudo/usr/bin/sudo debian/sudo-ldap/usr/bin/sudo
+	chmod 0440	debian/sudo/etc/sudoers.d/README \
+			debian/sudo-ldap/etc/sudoers.d/README
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: configure build clean binary-indep binary-arch binary install

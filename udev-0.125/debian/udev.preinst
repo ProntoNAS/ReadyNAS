@@ -1,0 +1,306 @@
+#!/bin/sh -e
+
+# Hack to get the dpkg process' PID despite using debconf
+if [ -z "$PARENT_PID" ]; then
+  export PARENT_PID=$PPID
+fi
+
+. /usr/share/debconf/confmodule
+
+supported_kernel() {
+  local version
+  if [ "$1" ]; then
+    version="$1"
+  else
+    version="$(uname -r)"
+  fi
+
+  case "$version" in
+    2.[012345].*|2.6.[0-9]|2.6.[0-9][!0-9]*) return 1 ;;
+    2.6.1[0-7]|2.6.1[0-7][!0-9]*) return 1 ;;
+  esac
+  return 0
+}
+
+check_installed_kernel() {
+  for ver in /lib/modules/*; do
+    ver=${ver##*/}
+    [ "$ver" = '*' ] && return 1
+    supported_kernel "$ver" && return 0
+  done
+  return 1
+}
+
+check_installing_kernel() {
+  for pkg in $(ps hp $PARENT_PID -o args); do
+    ver=$(echo $pkg | sed -nr "s/^.*linux-image-(2\.6\.[0-9]+)-[0-9]+-.*_.*_.*\.deb$/\1/p")
+    [ "$ver" ] && supported_kernel "$ver" && return 0
+  done
+  return 1
+}
+
+check_kernel_version() {
+  # skip the check if udev is not already active
+  [ -d /dev/.udev/ ] || return 0
+
+  supported_kernel && return
+
+  if [ -e /etc/udev/kernel-upgrade ]; then
+    echo "This version of udev requires a kernel >= 2.6.18, but the upgrade was forced."
+    # restart udevd which was killed by the old prerm
+    /sbin/udevd -d || true
+    return 0
+  fi
+  
+  db_title Upgrading udev
+
+  if check_installed_kernel || check_installing_kernel; then
+    db_fset udev/reboot_needed seen false
+    db_input high udev/reboot_needed || true
+    db_go
+    db_stop
+    echo "A reboot is needed, but proceeding with the upgrade."
+    touch /etc/udev/kernel-upgrade
+    # restart udevd which was killed by the old prerm
+    /sbin/udevd -d || true
+    return 0
+  fi
+
+  db_fset udev/new_kernel_needed seen false
+  db_reset udev/new_kernel_needed
+  db_input critical udev/new_kernel_needed || true
+  db_go
+  db_get udev/new_kernel_needed
+  if [ "$RET" = true ]; then
+    db_stop
+    echo "This version of udev requires a kernel >= 2.6.18, but the upgrade was forced."
+    touch /etc/udev/kernel-upgrade
+    # restart udevd which was killed by the old prerm
+    /sbin/udevd -d || true
+    return 0
+  fi
+  db_stop
+  exit 1
+}
+
+check_devfs_names() {
+  [ -e /etc/udev/rules.d/devfs.rules ] || return 0
+
+  cat <<END
+Since release 0.124-1 udev does not support anymore devfs-like names.
+Please convert to standard names before upgrading:
+
+rm -f /etc/udev/rules.d/devfs.rules /etc/udev/rules.d/compat-full.rules /etc/udev/rules.d/compat.rules
+ln -s ../udev.rules /etc/udev/rules.d/
+
+END
+  exit 1
+}
+
+have_rules_link() {
+  local arg="$1"
+
+  local link
+  for link in /etc/udev/rules.d/*.rules; do
+    test -L $link || continue
+    local target=$(readlink --quiet --canonicalize $link)
+    if [ "$target" = "/etc/udev/$arg" ]; then
+      echo "$link"
+      return
+    fi
+  done
+}
+
+# create a new link in rules.d/ if it does not already exist
+add_rules_link() {
+  local name=$1
+  local target=${name#*_}
+
+  [ -e /etc/udev/rules.d/$name -o -L /etc/udev/rules.d/$name ] || \
+    ln -s ../$target /etc/udev/rules.d/$name
+}
+
+rm_conffile() {
+  local package='udev'
+  local name="$1"
+  local oldmd5="$2"
+
+  [ -e "$name" ] || return 0
+
+  local md5="$(md5sum $name | sed -e 's/ .*//')"
+  if [ -z "$oldmd5" ]; then
+    oldmd5="$(dpkg-query -W -f='${Conffiles}' $package | \
+      sed -n -e "\' $name ' { s/ obsolete$//; s/.* //; p }")"
+  fi
+
+  if [ "$md5" = "$oldmd5" ]; then
+    rm -f $name
+  else
+    mv $name $name.dpkg-bak
+  fi
+}
+
+upgrade_generated_rules_098() {
+  # suppress logging because the old udevd which does not understand the
+  # new syntax is still running and will complain about it
+  # also, releases < 0.124-1 lack udevadm
+  udevcontrol log_priority= 2> /dev/null || \
+  udevadm control --log_priority= 2> /dev/null || true
+
+  local D=/etc/udev/rules.d/
+  if [ -f $D/z25_persistent-cd.rules ]; then
+    sed -e 's/BUS==/SUBSYSTEMS==/g' -e 's/ID==/KERNELS==/' \
+	< $D/z25_persistent-cd.rules > $D/z25_persistent-cd.rules.tmp
+    mv $D/z25_persistent-cd.rules.tmp $D/z25_persistent-cd.rules
+  fi
+  if [ -f $D/z25_persistent-net.rules ]; then
+    sed -e 's/DRIVER==/DRIVERS==/' \
+	< $D/z25_persistent-net.rules > $D/z25_persistent-net.rules.tmp
+    mv $D/z25_persistent-net.rules.tmp $D/z25_persistent-net.rules
+  fi
+}
+
+check_version() {
+  [ "$2" ] || return 0
+
+  if dpkg --compare-versions $2 lt 0.124-1; then
+
+  # These needs to be checked first to allow aborting before changing anything
+  check_kernel_version
+  check_devfs_names
+
+  if dpkg --compare-versions $2 lt 0.098-1; then
+  if dpkg --compare-versions $2 lt 0.097-1; then
+  if dpkg --compare-versions $2 lt 0.090-1; then
+  if dpkg --compare-versions $2 lt 0.084-4; then
+  if dpkg --compare-versions $2 lt 0.080-1; then
+  if dpkg --compare-versions $2 lt 0.076-1; then
+  if dpkg --compare-versions $2 lt 0.072-1; then
+  if dpkg --compare-versions $2 lt 0.070-1; then
+  if dpkg --compare-versions $2 lt 0.060-1; then
+  if dpkg --compare-versions $2 lt 0.056-3; then
+    echo 'Upgrading udev from packages older than 0.056-3 is not supported.'
+    echo 'Please purge the package and then reinstall it.'
+    exit 1
+  fi
+
+  # lt 0.060-1
+  rm -f /etc/dev.d/net/hotplug.dev /etc/udev/udev.permissions
+
+  fi
+
+  # lt 0.070-1
+  rm -f /etc/udev/scripts/dvb.sh /etc/udev/scripts/ide-model.sh \
+	/etc/udev/cdsymlinks.conf /etc/udev/scripts/cdsymlinks.sh \
+	/etc/udev/simple-cd-aliases.rules
+
+  fi
+
+  # lt 0.072-1
+  rm -f /etc/udev/scripts/scsi-devfs.sh /etc/udev/scripts/ide-devfs.sh \
+	/etc/udev/scripts/raid-devfs.sh /etc/udev/scripts/inputdev.sh
+
+  fi
+
+  # lt 0.076-1
+  if [ -d /dev/.udevdb/ -a ! -d /dev/.udev/db/ ]; then
+    mkdir -p /dev/.udev/
+    mv /dev/.udevdb /dev/.udev/db
+    mkdir -p /dev/.udevdb/
+  fi
+
+  fi
+
+  # lt 0.080-1
+  [ -e /etc/rcS.d/S04udev ] && mv /etc/rcS.d/S04udev /etc/rcS.d/S03udev
+
+  fi
+
+  # lt 0.084-4
+  rm_conffile /etc/scsi_id.config a1e107dda17adaa2063b139ef50a428c
+
+  fi
+
+  # lt 0.090-1
+  : > /etc/udev/run-write_net_rules
+
+  fi
+
+  # lt 0.097-1
+  rm_conffile /etc/udev/cd-aliases.rules
+
+  fi
+
+  # lt 0.098-1
+  upgrade_generated_rules_098
+
+  fi
+
+  # lt 0.124-1
+  rm_conffile /etc/udev/cd-aliases-generator.rules
+  rm_conffile /etc/udev/compat-full.rules
+  rm_conffile /etc/udev/compat.rules
+  rm_conffile /etc/udev/devfs.rules
+  rm_conffile /etc/udev/hotplug.rules
+  rm_conffile /etc/udev/permissions.rules
+  rm_conffile /etc/udev/persistent-input.rules
+  rm_conffile /etc/udev/persistent-net-generator.rules
+  rm_conffile /etc/udev/persistent.rules
+  rm_conffile /etc/udev/run.rules
+  rm_conffile /etc/udev/udev.rules
+  # removed in 0.113-1
+  rm_conffile /etc/udev/hotplugd.rules
+
+  (
+  cd /etc/udev/rules.d/
+
+  # delete dangling symlinks
+  find -L . -type l -print0 | xargs --no-run-if-empty --null rm
+
+  # rename the generated files
+  if [ -e z25_persistent-cd.rules  -a ! -e 70-persistent-cd.rules  ]; then
+    mv z25_persistent-cd.rules  70-persistent-cd.rules
+  fi
+  if [ -e z25_persistent-net.rules -a ! -e 70-persistent-net.rules ]; then
+    mv z25_persistent-net.rules 70-persistent-net.rules
+  fi
+  )
+
+  fi # 0.124-1
+}
+
+disable_hotplug() {
+    # ugly, but what else could I do?
+    if [ -e /etc/hotplug.d/default/default.hotplug ]; then
+	rm -f /etc/hotplug.d/default/default.hotplug
+    fi
+    if [ -e /etc/init.d/hotplug ]; then
+	echo
+	echo "**************************************************************"
+	echo "* Please purge the hotplug package!"
+        echo "* (/etc/init.d/hotplug has been found on this system)"
+	echo "**************************************************************"
+	echo
+    fi
+}
+
+case "$1" in
+    install)
+    # $2 is non-empty when installing from the "config-files" state
+    check_version "$@"
+    disable_hotplug
+    ;;
+
+    upgrade|abort-upgrade)
+    check_version "$@"
+    disable_hotplug
+    ;;
+
+    *)
+    echo "$0 called with unknown argument '$1'" >&2
+    exit 1
+    ;;
+esac
+
+#DEBHELPER#
+

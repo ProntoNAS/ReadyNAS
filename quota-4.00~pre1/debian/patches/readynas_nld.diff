@@ -1,0 +1,355 @@
+* Change the netlink daemon suite our needs by calling a helper agent to send
+* out email alerts on quota violations.
+--- a/quota_nld.c	2010-01-05 15:39:45.000000000 +0000
++++ b/quota_nld.c	2011-01-18 03:52:59.000000000 +0000
+@@ -25,12 +25,12 @@
+ #include <string.h>
+ #include <fcntl.h>
+ #include <limits.h>
++#include <ctype.h>
++#include <time.h>
+ 
+ #include <netlink/genl/genl.h>
+ #include <netlink/genl/ctrl.h>
+ 
+-#include <dbus/dbus.h>
+-
+ #include "pot.h"
+ #include "common.h"
+ #include "quotasys.h"
+@@ -47,6 +47,23 @@ struct quota_warning {
+ 	uint64_t caused_id;
+ };
+ 
++struct saved_warning {
++	struct quota_warning warn;
++	time_t expiry;
++};
++
++struct dqblk {
++	uint64_t dqb_bhardlimit;   /* absolute limit on disk quota blocks alloc */
++	uint64_t dqb_bsoftlimit;   /* preferred limit on disk quota blocks */
++	uint64_t dqb_curspace;     /* current quota block count */
++	uint64_t dqb_ihardlimit;   /* maximum # allocated inodes */
++	uint64_t dqb_isoftlimit;   /* preferred inode limit */
++	uint64_t dqb_curinodes;    /* current # allocated inodes */
++	uint64_t dqb_btime;        /* time limit for excessive disk use */
++	uint64_t dqb_itime;        /* time limit for excessive files */
++	uint32_t dqb_valid;        /* bitmask of QIF_* constants */
++};
++
+ static struct nla_policy quota_nl_warn_cmd_policy[QUOTA_NL_A_MAX+1] = {
+ 	[QUOTA_NL_A_QTYPE] = { .type = NLA_U32 },
+ 	[QUOTA_NL_A_EXCESS_ID] = { .type = NLA_U64 },
+@@ -57,19 +74,14 @@ static struct nla_policy quota_nl_warn_c
+ };
+ 
+ /* User options */
+-#define FL_NODBUS 1
+-#define FL_NOCONSOLE 2
+ #define FL_NODAEMON 4
+ #define FL_PRINTBELOW 8
+ 
+ int flags;
+-DBusConnection *dhandle;
+ 
+ static const struct option options[] = {
+ 	{ "version", 0, NULL, 'V' },
+ 	{ "help", 0, NULL, 'h' },
+-	{ "no-dbus", 0, NULL, 'D' },
+-	{ "no-console", 0, NULL, 'C' },
+ 	{ "foreground", 0, NULL, 'F' },
+ 	{ "print-below", 0, NULL, 'b' },
+ 	{ NULL, 0, NULL, 0 }
+@@ -80,9 +92,7 @@ void show_help(void)
+ 	errstr(_("Usage: %s [options]\nOptions are:\n\
+  -h --help         shows this text\n\
+  -V --version      shows version information\n\
+- -C --no-console   do not try to write messages to console\n\
+- -b --print-below  write to console also information about getting below hard/soft limits\n\
+- -D --no-dbus      do not try to write messages to DBUS\n\
++ -b --print-below  write also information about getting below hard/soft limits\n\
+  -F --foreground   run daemon in foreground\n"), progname);
+ }
+ 
+@@ -98,12 +108,6 @@ static void parse_options(int argc, char
+ 			case 'h':
+ 				show_help();
+ 				exit(0);
+-			case 'D':
+-				flags |= FL_NODBUS;
+-				break;
+-			case 'C':
+-				flags |= FL_NOCONSOLE;
+-				break;
+ 			case 'F':
+ 				flags |= FL_NODAEMON;
+ 				break;
+@@ -116,14 +120,9 @@ static void parse_options(int argc, char
+ 				exit(1);
+ 		}
+ 	}
+-	if (flags & FL_NODBUS && flags & FL_NOCONSOLE) {
+-		errstr(_("No possible destination for messages. Nothing to do.\n"));
+-		exit(0);
+-	}
+ }
+ 
+-static void write_console_warning(struct quota_warning *warn);
+-static void write_dbus_warning(struct DBusConnection *dhandle, struct quota_warning *warn);
++static void send_quota_event(struct quota_warning *warn);
+ 
+ /* Parse netlink message and process it. */
+ static int quota_nl_parser(struct nl_msg *msg, void *arg)
+@@ -160,10 +159,7 @@ static int quota_nl_parser(struct nl_msg
+ 	warn.dev_minor = nla_get_u32(attrs[QUOTA_NL_A_DEV_MINOR]);
+ 	warn.caused_id = nla_get_u64(attrs[QUOTA_NL_A_CAUSED_ID]);
+ 
+-	if (!(flags & FL_NOCONSOLE))
+-		write_console_warning(&warn);
+-	if (!(flags & FL_NODBUS))
+-		write_dbus_warning(dhandle, &warn);
++	send_quota_event(&warn);
+ 	return 0;
+ }
+ 
+@@ -196,165 +192,117 @@ static struct nl_handle *init_netlink(vo
+ 	return handle;
+ }
+ 
+-static DBusConnection *init_dbus(void)
+-{
+-	DBusConnection *handle;
+-	DBusError err;
+-
+-	dbus_error_init(&err);
+-	handle = dbus_bus_get(DBUS_BUS_SYSTEM, &err);
+-	if (dbus_error_is_set(&err))
+-		die(2, _("Cannot connect to system DBUS: %s\n"), err.message);
+-
+-	dbus_connection_set_exit_on_disconnect(handle, FALSE);
+-	return handle;
+-}
+-
+-static int write_all(int fd, char *buf, int len)
+-{
+-	int ret;
+-
+-	while (len) {
+-		ret = write(fd, buf, len);
+-		if (ret < 0)
+-			return -1;
+-		buf += ret;
+-		len -= ret;
+-	}
+-	return 0;
+-}
+-
+ #define WARN_BUF_SIZE 512
+ 
+-/* Scan through utmp, find latest used controlling tty and write to it */
+-static void write_console_warning(struct quota_warning *warn)
++/* Call our external quota handler agent */
++static void send_quota_event(struct quota_warning *warn)
+ {
+-	struct utmp *uent;
+ 	char user[MAXNAMELEN];
+-	struct stat st;
+-	char dev[PATH_MAX];
+-	time_t max_atime = 0;
+-	char max_dev[PATH_MAX];
+-	int fd;
+ 	char warnbuf[WARN_BUF_SIZE];
++	char dev[PATH_MAX] = {'\0'};
++	char vol[PATH_MAX] = {'\0'};
++	char cmd[4096];
+ 	char *level, *msg;
++	FILE *mnttab;
++	struct mntent *mntent;
++	struct stat st;
++	struct dqblk quota;
++	long ret;
++	static struct saved_warning last_warn;
+ 
+ 	if ((warn->warntype == QUOTA_NL_IHARDBELOW ||
+ 	    warn->warntype == QUOTA_NL_ISOFTBELOW ||
+ 	    warn->warntype == QUOTA_NL_BHARDBELOW ||
+ 	    warn->warntype == QUOTA_NL_BSOFTBELOW) && !(flags & FL_PRINTBELOW))
+ 		return;
+-	uid2user(warn->caused_id, user);
+-	strcpy(dev, "/dev/");
+ 
+-	setutent();
+-	endutent();
+-	while ((uent = getutent())) {
+-		if (uent->ut_type != USER_PROCESS)
+-			continue;
+-		/* Entry for a different user? */
+-		if (strcmp(user, uent->ut_user))
+-			continue;
+-		sstrncpy(dev+5, uent->ut_line, PATH_MAX-5);
+-		if (stat(dev, &st) < 0)
+-			continue;	/* Failed to stat - not a good candidate for warning... */
+-		if (max_atime < st.st_atime) {
+-			max_atime = st.st_atime;
+-			strcpy(max_dev, dev);
+-		}
+-	}
+-	if (!max_atime) {
+-		errstr(_("Failed to find tty of user %llu to report warning to.\n"), (unsigned long long)warn->caused_id);
+-		return;
+-	}
+-	fd = open(max_dev, O_WRONLY);
+-	if (fd < 0) {
+-		errstr(_("Failed to open tty %s of user %llu to report warning.\n"), dev, (unsigned long long)warn->caused_id);
++	if (memcmp(warn, &last_warn.warn, sizeof(struct quota_warning)) == 0
++	    && time(NULL) <= last_warn.expiry)
++	{
++		last_warn.expiry = time(NULL) + 60;
+ 		return;
+ 	}
++	memcpy(&last_warn.warn, warn, sizeof(struct quota_warning));
++	last_warn.expiry = time(NULL) + 60;
++
++	memset(&quota, '\0', sizeof(quota));
++
+ 	id2name(warn->excess_id, warn->qtype, user);
++
+ 	if (warn->warntype == QUOTA_NL_ISOFTWARN ||
+ 	    warn->warntype == QUOTA_NL_BSOFTWARN)
+-		level = _("Warning");
++		level = "Warning";
+ 	else if (warn->warntype == QUOTA_NL_IHARDWARN ||
+ 		 warn->warntype == QUOTA_NL_BHARDWARN)
+-		level = _("Error");
++		level = "Error";
+ 	else
+-		level = _("Info");
++		level = "Info";
+ 	switch (warn->warntype) {
+ 		case QUOTA_NL_IHARDWARN:
+-			msg = _("file limit reached");
++			msg = "file limit reached";
+ 			break;
+ 		case QUOTA_NL_ISOFTLONGWARN:
+-			msg = _("file quota exceeded too long");
++			msg = "file quota exceeded too long";
+ 			break;
+ 		case QUOTA_NL_ISOFTWARN:
+-			msg = _("file quota exceeded");
++			msg = "file quota exceeded";
+ 			break;
+ 		case QUOTA_NL_BHARDWARN:
+-			msg = _("block limit reached");
++			msg = "block limit reached";
+ 			break;
+ 		case QUOTA_NL_BSOFTLONGWARN:
+-			msg = _("block quota exceeded too long");
++			msg = "block quota exceeded too long";
+ 			break;
+ 		case QUOTA_NL_BSOFTWARN:
+-			msg = _("block quota exceeded");
++			msg = "block quota exceeded";
+ 			break;
+ 		case QUOTA_NL_IHARDBELOW:
+-			msg = _("got below file limit");
++			msg = "got below file limit";
+ 			break;
+ 		case QUOTA_NL_ISOFTBELOW:
+-			msg = _("got below file quota");
++			msg = "got below file quota";
+ 			break;
+ 		case QUOTA_NL_BHARDBELOW:
+-			msg = _("got below block limit");
++			msg = "got below block limit";
+ 			break;
+ 		case QUOTA_NL_BSOFTBELOW:
+-			msg = _("got below block quota");
++			msg = "got below block quota";
+ 			break;
+ 		default:
+-			msg = _("unknown quota warning");
++			msg = "unknown quota warning";
+ 	}
+-	sprintf(warnbuf, "%s: %s %s %s.\r\n", level, type2name(warn->qtype), user, msg);
+-	if (write_all(fd, warnbuf, strlen(warnbuf)) < 0)
+-		errstr(_("Failed to write quota message for user %llu to %s: %s\n"), (unsigned long long)warn->caused_id, dev, strerror(errno));
+-	close(fd);
+-}
+-
+-/* Send warning through DBUS */
+-static void write_dbus_warning(struct DBusConnection *dhandle, struct quota_warning *warn)
+-{
+-	DBusMessage* msg;
+-	DBusMessageIter args;
+ 
+-	msg = dbus_message_new_signal("/", "com.system.quota.warning", "warning");
+-	if (!msg) {
+-no_mem:
+-		errstr(_("Cannot create DBUS message: No enough memory.\n"));
+-		goto out;
+-	}
+-	dbus_message_iter_init_append(msg, &args);
+-	if (!dbus_message_iter_append_basic(&args, DBUS_TYPE_UINT32, &warn->qtype))
+-		goto no_mem;
+-	if (!dbus_message_iter_append_basic(&args, DBUS_TYPE_UINT64, &warn->excess_id))
+-		goto no_mem;
+-	if (!dbus_message_iter_append_basic(&args, DBUS_TYPE_UINT32, &warn->warntype))
+-		goto no_mem;
+-	if (!dbus_message_iter_append_basic(&args, DBUS_TYPE_UINT32, &warn->dev_major))
+-		goto no_mem;
+-	if (!dbus_message_iter_append_basic(&args, DBUS_TYPE_UINT32, &warn->dev_minor))
+-		goto no_mem;
+-	if (!dbus_message_iter_append_basic(&args, DBUS_TYPE_UINT64, &warn->caused_id))
+-		goto no_mem;
+-
+-	if (!dbus_connection_send(dhandle, msg, NULL)) {
+-		errstr(_("Failed to write message to dbus: No enough memory.\n"));
+-		goto out;
++	/* Find the device node by major/minor numbers */
++	mnttab = setmntent("/proc/mounts", "r");
++	if (!mnttab)
++		return;
++	while ((mntent = getmntent(mnttab))) {
++		if (stat(mntent->mnt_fsname, &st) == 0 && S_ISBLK(st.st_mode)) {
++			if (major(st.st_rdev) == warn->dev_major && minor(st.st_rdev) == warn->dev_minor) {
++				strcpy(dev, mntent->mnt_fsname);
++				strcpy(vol, mntent->mnt_dir+1);
++				vol[0] = toupper(vol[0]);
++				break;
++			}
++		}
+ 	}
+-	dbus_connection_flush(dhandle);
+-out:
+-	if (msg)
+-		dbus_message_unref(msg);
++	endmntent(mnttab);
++
++	/* Get the current quota stats */
++	ret = quotactl(QCMD(Q_GETQUOTA, warn->qtype), dev, warn->excess_id, (caddr_t)&quota);
++	if (ret != 0) {
++		perror("quotactl");
++	}
++
++	sprintf(warnbuf, "%s: %s %s %s on %s.\n", level, type2name(warn->qtype), user, msg, vol);
++	errstr("%s", warnbuf);
++	snprintf(cmd, sizeof(cmd), "VOLUME=%s ACTION=%s REASON='%s' TYPE=%s NAME=%s"
++	                           " QUOTA=%llu:%llu:%llu:%llu:%llu:%llu:%llu:%llu /etc/hotplug/quota.agent",
++				vol, level, msg, type2name(warn->qtype), user,
++				quota.dqb_bhardlimit, quota.dqb_bsoftlimit, toqb(quota.dqb_curspace),
++				quota.dqb_ihardlimit, quota.dqb_isoftlimit, quota.dqb_curinodes,
++				quota.dqb_btime, quota.dqb_itime);
++	system(cmd);
+ }
+ 
+ static void run(struct nl_handle *nhandle)
+@@ -378,8 +326,6 @@ int main(int argc, char **argv)
+ 	parse_options(argc, argv);
+ 
+ 	nhandle = init_netlink();
+-	if (!(flags & FL_NODBUS))
+-		dhandle = init_dbus();
+ 	if (!(flags & FL_NODAEMON)) {
+ 		use_syslog();
+ 		daemon(0, 0);

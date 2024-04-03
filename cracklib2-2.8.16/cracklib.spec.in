@@ -1,0 +1,124 @@
+%define root crack
+%define maj 2
+%define libname %mklibname %root %maj
+%define libnamedev %libname-devel
+
+Summary:	A password strength-checking library.
+Name:		cracklib
+Version:	@VERSION@
+Release:	1
+Group:		System/Libraries
+Source:		cracklib-%{version}.tar.gz
+Source1:        cracklib-words.gz
+URL:		http://sourceforge.net/projects/cracklib/
+License:	GPL
+Buildroot:	%{_tmppath}/%{name}-root
+
+%description
+CrackLib tests passwords to determine whether they match certain
+security-oriented characteristics. You can use CrackLib to stop
+users from choosing passwords which would be easy to guess. CrackLib
+performs certain tests: 
+
+* It tries to generate words from a username and gecos entry and 
+  checks those words against the password;
+* It checks for simplistic patterns in passwords;
+* It checks for the password in a dictionary.
+
+CrackLib is actually a library containing a particular
+C function which is used to check the password, as well as
+other C functions. CrackLib is not a replacement for a passwd
+program; it must be used in conjunction with an existing passwd
+program.
+
+Install the cracklib package if you need a program to check users'
+passwords to see if they are at least minimally secure. If you
+install CrackLib, you'll also want to install the cracklib-dicts
+package.
+
+%package -n	%libname
+Summary:	A password-checking library.
+Group:		System/Libraries
+Provides:	lib%{root}-devel %{root}-devel = %{version}-%{release}
+Obsoletes:	cracklib
+
+%description -n %libname
+
+%{see_base}
+
+%package	dicts
+Summary:	The standard CrackLib dictionaries.
+Group:		System/Libraries
+
+%description	dicts
+The cracklib-dicts package includes the CrackLib dictionaries.
+CrackLib will need to use the dictionary appropriate to your system,
+which is normally put in /usr/share/dict/words.  Cracklib-dicts also contains
+the utilities necessary for the creation of new dictionaries.
+
+If you are installing CrackLib, you should also install cracklib-dicts.
+
+%package -n	%libnamedev
+Summary:	Cracklib link library & header file
+Group:		Development/C
+Provides:	lib%{root}-devel %{root}-devel = %{version}-%{release}
+Provides:	%{root}lib-devel = %{version}-%{release}
+Requires:	%{libname} = %{version}-%{release}
+Obsoletes:	cracklib-devel
+
+%description -n	%libnamedev
+The cracklib devel package include the needed library link and
+header files for development.
+
+%prep
+
+%setup -q -n cracklib-%{version}
+chmod -R og+rX .
+mkdir -p dicts
+install %{SOURCE1} dicts/
+
+%build
+
+CFLAGS="$RPM_OPT_FLAGS" ./configure \
+  --prefix=%{_prefix} \
+  --mandir=%{_mandir} \
+  --libdir=%{_libdir} \
+  --libexecdir=%{_libdir} \
+  --datadir=%{_datadir}
+
+make
+
+%install
+rm -rf $RPM_BUILD_ROOT
+make install DESTDIR=$RPM_BUILD_ROOT/
+util/cracklib-format dicts/cracklib* | cracklib-packer $RPM_BUILD_ROOT/%{_datadir}/cracklib/pw_dict
+
+
+%clean
+rm -rf $RPM_BUILD_ROOT
+
+%post -n %libname -p /sbin/ldconfig
+
+%postun -n %libname -p /sbin/ldconfig
+
+%files -n %{libname}
+%defattr(-,root,root)
+%doc README README-DAWG doc
+%{_datadir}/cracklib/cracklib.magic
+%{_libdir}/libcrack.so.*
+
+%files -n %{libnamedev}
+%defattr(-,root,root)
+%{_includedir}/*
+%{_libdir}/libcrack.so
+%{_libdir}/libcrack.la
+%{_libdir}/libcrack.a
+
+%files dicts
+%defattr(-,root,root)
+%{_sbindir}/*
+%{_datadir}/cracklib/pw_dict*
+
+%changelog
+
+

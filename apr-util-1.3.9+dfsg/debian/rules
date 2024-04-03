@@ -1,0 +1,129 @@
+#!/usr/bin/make -f
+
+# Turn on VERBOSE output
+#export DH_VERBOSE=1
+export DH_OPTIONS
+
+#enable dpatch
+include /usr/share/dpatch/dpatch.make
+
+# These are used for cross-compiling and for saving the configure script
+# # from having to guess our platform (since we know it already)
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+# get cflags frpm apr-config but remove -O2
+CFLAGS := $(CFLAGS) $(shell apr-1-config --cflags |perl -p -e 's!-O.( |$$)!!')
+LDFLAGS := $(LDFLAGS) $(shell apr-1-config --ldflags)
+
+# hardening options
+H_CFLAGS := -Wformat -Wformat-security -D_FORTIFY_SOURCE=2 -fstack-protector
+H_LDFLAGS := -Wl,-z,relro
+
+# Enable debug builds
+ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+  CFLAGS += -O0
+else
+  ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+    CFLAGS += -O0
+  else
+    CFLAGS += -O2
+  endif
+endif
+
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+  NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+  MAKEFLAGS += -j$(NUMJOBS)
+endif
+
+ifeq (,$(findstring notest,$(DEB_BUILD_OPTIONS))$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
+	TEST_TARGET = test
+else
+	TEST_TARGET =
+endif
+
+# disable tests on hurd until they are fixed (see #530287)
+DEB_HOST_ARCH_OS := $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+ifeq (hurd, $(DEB_HOST_ARCH_OS))
+	TEST_TARGET =
+endif
+
+ifeq ($(DEB_BUILD_ARCH),i386)
+        CONFFLAGS=apr_lock_method=USE_PROC_PTHREAD_SERIALIZE
+else
+        CONFFLAGS=ac_cv_func_pthread_mutexattr_setpshared=no ac_cv_func_sem_open=no
+endif
+
+CONFFLAGS += ac_cv_prog_AWK=mawk
+
+SHELL=/bin/bash
+
+config.status: configure.in patch-stamp
+	dh_testdir
+	./buildconf --with-apr=$(shell apr-1-config --srcdir)
+	$(CONFFLAGS) ./configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) --enable-layout=Debian --with-apr=/usr/bin/apr-1-config --with-ldap=yes --with-dbm=db46 --with-sqlite3 --with-pgsql=/usr --without-gdbm --without-sqlite2 --with-berkeley-db --with-mysql=/usr --with-freetds=/usr --with-odbc=/usr
+
+build: patch-stamp build-stamp
+
+build-stamp: config.status
+	dh_testdir
+
+	# LDFLAGS=-Wl,--as-needed does not work since it affects only libraries
+	# given _after_ it on the command line, but apr's libtool puts the 
+	# "-l..." _before_ the "-Wl,--as-needed"
+	$(MAKE) CFLAGS="$(CFLAGS) $(H_CFLAGS)" LDFLAGS="$(LDFLAGS) $(H_LDFLAGS)" EXTRA_CFLAGS=""
+	$(MAKE) dox
+
+	touch $@
+
+clean: unpatch
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp test-stamp
+	[ ! -f Makefile ] || $(MAKE) distclean
+	rm -f test/data/test-db test/data/test-sdbm.dir test/data/test-sdbm.pag
+	rm -f xml/expat/aclocal.m4 xml/expat/configure xml/expat/conftools/ltmain.sh
+	rm -f build-outputs.mk build/apr_common.m4 build/config.guess build/config.sub config.nice configure config.log
+	rm -rf docs/dox
+
+	dh_clean
+
+test: test-stamp
+
+test-stamp: build
+	dh_testdir
+	$(MAKE) -j 1 check
+
+	touch $@
+
+install: build $(TEST_TARGET)
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs -a
+
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp
+
+binary-indep: build install
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs CHANGES
+	dh_installdocs
+	dh_lintian
+	dh_install -a
+	dh_link
+	dh_strip --dbg-package=libaprutil1-dbg
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs -plibaprutil1
+	dh_makeshlibs -n -Nlibaprutil1
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install

@@ -1,0 +1,161 @@
+.\"*******************************************************************
+.\"
+.\" This file was generated with po4a. Translate the source file.
+.\"
+.\"*******************************************************************
+.TH dpkg\-maintscript\-helper 1 16\-04\-2010 "Projet Debian" "suite dpkg"
+.SH NOM
+dpkg\-maintscript\-helper \- contournement des limitations connues de dpkg dans
+les scripts du responsable
+.
+.SH SYNOPSIS
+\fBdpkg\-maintscript\-helper\fP \fIcommande\fP [\fIparamètres\fP...] \-\-
+\fIparamètres\-script\-responsable\fP
+.
+.SH "COMMANDES ET PARAMÈTRES"
+.P
+\fBrm_conffile\fP \fIfichier\-de\-configuration\fP [\fIdernière\-version\fP [\fIpaquet\fP]]
+.P
+\fBmv_conffile\fP \fIancien\-fichier\-de\-configuration\fP
+\fInouveau\-fichier\-de\-configuration\fP [\fIdernière\-version\fP [\fIpaquet\fP]]
+.
+.SH DESCRIPTION
+.P
+Ce programme est prévu pour être exécuté dans les scripts du responsable
+afin de réaliser certaines tâches que dpkg ne peut pas (encore) prendre en
+charge directement à cause de limites de conception ou de limitations
+actuelles.
+.P
+La plupart de ces tâches nécessitent la coordination de plusieurs script du
+responsable (\fBpreinst\fP, \fBpostinst\fP, \fBprerm\fP, \fBpostrm\fP). Pour éviter des
+erreurs, le même appel a simplement besoin d'être placé dans tous les
+scripts. Le programme adaptera alors con comportement en fonction de la
+variable d'environnement
+.
+.SH "TÂCHES LIÉES AUX FICHIERS DE CONFIGURATION"
+.P
+Lors de la mise à jour d'un paquet, dpkg ne supprime pas automatiquement les
+fichiers de configuration (comportant des modifications locales à préserver)
+s'il n'est pas présent dans la nouvelle version. Il existe deux raisons
+principales à cela. En premier lieu, le fichier de configuration peut avoir
+été supprimé par accident, être réintégré dans la version suivante et il
+peut être nécessaire de retrouver les modifications locales. Ensuite,
+l'objectif est également de permettre d'effectuer la transition depuis des
+fichiers de configuration gérés par dpkg vers un fichier géré via les
+scripts du responsable, en général à l'aide d'un outil comme debconf ou ucf.
+.P
+Cela signifie que si un paquet a besoin de renommer ou supprimer un fichier
+de configuration, il doit le faire explicitement. L'objectif de
+\fBdpkg\-maintscript\-helper\fP est donc de fournir des méthodes de suppression
+ou renommage de fichiers de configuration via les scripts du responsable.
+.
+.SS "SUPPRESSION D'UN FICHIER DE CONFIGURATION"
+.P
+Si un fichier de configuration est complètement supprimé, il doit être
+effacé du disque sauf si l'administrateur local l'a modifié. Les éventuelles
+modifications locales doivent être conservées. Si la mise à jour du paquet
+est interrompue, le fichier de configuration rendu obsolète ne doit pas
+avoir disparu.
+.P
+L'ensemble de ces pré\-requis est mis en oeuvre en utilisant les commandes
+shell suivantes dans les scripts \fBpreinst\fP, \fBpostinst\fP et \fBpostrm\fP\ :
+.P
+    dpkg\-maintscript\-helper rm_conffile \e
+        \fIfichier\-de\-configuration\fP \fIdernière\-version\fP \fIpaquet\fP \-\- "$@"
+.P
+\fIfichier\-de\-configuration\fP est le nom du fichier de configuration à
+supprimer. \fIdernière\-version\fP est la dernière version du paquet qui le
+fournissait (ou la dernière version du paquet qui ne prenait pas soin de
+supprimer le fichier de configuration obsolète si la suppression correcte
+n'a pas été immédiatement mise en oeuvre). Si \fIdernière\-version\fP est vide
+ou est omis, cette suppression sera tenté pour toute mise à jour. \fIpaquet\fP
+est le nom du paquet. Ce paramètre est optionnel, la valeur par défaut étant
+$DPKG_MAINTSCRIPT_PACKAGE (cette variable est positionnée par dpkg sur le
+nom du paquet sur lequel il travaille). Tous les paramètres des scripts du
+responsable doivent être redirigés au programme après «\ \-\-\ ».
+.P
+Détails de la mise en oeuvre actuelle\ :\ dans le script \fBpreinst\fP, il est
+vérifié si le fichier de configuration a été modifié. Celui\-ci est alors
+renommé, soit en \fIfichier\-de\-configuration\fP\fB.dpkg\-remove\fP s'il n'a pas été
+modifié, soit en \fIfichier\-de\-configuration\fP\fB.dpkg\-backup\fP s'il l'a
+été. Dans le script \fBpostinst\fP, ce dernier fichier est ensuite renommé en
+\fIfichier\-de\-configuration\fP\fB.dpkg\-bak\fP et conservé pour référence puisqu'il
+contient des modifications locales, mais le premier est supprimé. Si la mise
+à jour du paquet est interrompue, le script \fBpostrm\fP remet en place le
+fichier de configuration d'origine. À la purge du paquet, le script
+\fBpostrm\fP supprimera également le fichier \fB.dpkg\-bak\fP qui avait été
+conservé jusque là.
+.
+.SS "RENOMMAGE D'UN FICHIER DE CONFIGURATION"
+.P
+Si un fichier de configuration est déplacé à un autre endroit, il est
+nécessaire de garantir la préservation des modifications locales. À première
+vue, cela peut sembler être une simple modification dans le script
+\fBpreinst\fP, mais cela risque de résultat dans une demande, par dpkg,
+d'approbation de modifications locales qui n'existent pas réellement.
+.P
+Un renommage élégant peut être mis en oeuvre avec les extraits shell qui
+suivent, dans les scripts \fBpreinst\fP, \fBpostinst\fP et \fBpostrm\fP.
+.P
+    dpkg\-maintscript\-helper mv_conffile \e
+        \fIancien\-fichier\fP \fInouveau\-fichier\fP \fIdernière\-version\fP \fIpaquet\fP \-\- "$@"
+.P
+\fIancien\-fichier\fP et \fInouveau\-fichier\fP sont les deux noms successifs du
+fichier de configuration. \fIdernière\-version\fP est la dernière version du
+paquet qui contenait le fichier de configuration avec l'ancien nnom. Si
+\fIdernière\-version\fP est vide ou manquant, l'opération sera tentée à chaque
+mise à jour (il est plus sûr d'indiquer la bonne version afin qe l'opération
+ne soit tentée qu'une fois). \fIpaquet\fP est le nom du paquet. Ce paramètre
+est optionnel, la valeur par défaut étant $DPKG_MAINTSCRIPT_PACKAGE (cette
+variable est positionnée par dpkg sur le nom du paquet sur lequel il
+travaille). Tous les paramètres des scripts du responsable doivent être
+redirigés au programme après «\ \-\-\ ».
+.P
+Détails de la mise en oeuvre actuelle\ :\ dans le script \fBpreinst\fP, il est
+vérifié si le fichier de configuration a été modifié. Celui\-ci est alors
+soit laissé en place s'il a été modifié, soit renommé en
+\fIancien\-fichier\fP\fB.dpkg\-remove\fP s'il ne l'a pas été. Lors de la
+configurations, le script \fBpostinst\fP supprime
+\fIancien\-fichier\fP\fB.dpkg\-remove\fP et renomme \fIancien\-fichier\fP and
+\fInouveau\-fichier\fP si \fIancien\-fichier\fP existe toujours Si la mise à jour ou
+l'installation sont interrompues, le script \fBpostrm\fP renomme
+\fIancien\-fichier\fP\fB.dpkg\-remove\fP en \fIancien\-fichier\fP si c'est
+indispensable.
+.
+.SH "INTÉGRATION DANS LES PAQUETS"
+.P
+Comme \fBdpkg\-maintscript\-helper\fP est utilisé dans le script \fBpreinst\fP,
+l'utiliser sans conditions impose une pré\-dépendance afin de garantir que la
+version minimale nécessaire de dpkg et bien été préalablement configurée. La
+version nécessaire dépend de la commande utilisée. La version minimale
+dépend de la commande à utiliser\ : ainsi pour \fBrm_conffile\fP et
+\fBmw_conffile\fP, cette version est 1.15.7.2\ :
+.P
+    Pre\-Depends: dpkg (>= 1.15.7.2)
+.P
+Cependant, dans de nombreux cas, l'opération réalisée par le programme n'est
+pas critique pour le paquet et au lieu d'utiliser une pré\-dépendance, il est
+possible de ne lancer le programme que si on a la certitude que la commande
+nécessaire est gérée par la version actuellement installée de dpkg\ :
+.P
+    if dpkg\-maintscript\-helper supports <command>; then
+        dpkg\-maintscript\-helper <command> ...
+    fi
+.
+.SH AUTEURS
+Copyright \(co 2010 Rapha\[:e]l Hertzog
+.br
+Copyright \(co 2008 Joey Hess
+.br
+Copyright \(co 2007 Guillem Jover
+.br
+Copyright \(co 2005 Scott James Remnant
+.sp
+Ce programme est un logiciel libre\ ; voyez la «\ GNU General Public Licence\ »
+version 2 ou supérieure pour le copyright. Il n'y a PAS de garantie.
+
+.SH TRADUCTION
+Ariel VARDI <ariel.vardi@freesbee.fr>, 2002.
+Philippe Batailler, 2006.
+Nicolas François, 2006.
+Veuillez signaler toute erreur à <debian\-l10n\-french@lists.debian.org>.

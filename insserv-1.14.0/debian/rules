@@ -1,0 +1,106 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+PACKAGE = insserv
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS = -g -O0
+else
+	CFLAGS = -g -O2
+endif
+
+#CFLAGS += -DDEBUG=1
+
+INSTALL = install
+INSTALL_DATA = $(INSTALL) -m644
+DESTDIR = $(CURDIR)/debian/$(PACKAGE)
+
+pkgdatadir = /usr/share/$(PACKAGE)
+sbindir = /usr/sbin
+
+include /usr/share/quilt/quilt.make
+
+build: build-stamp
+
+build-stamp: $(QUILT_STAMPFN)
+	dh_testdir
+
+	# Add here commands to compile the package.
+	$(MAKE) COPTS="$(CFLAGS)"
+
+	chmod a+rx debian/run-testsuite
+	debian/run-testsuite
+
+	touch build-stamp
+
+clean:
+	dh_testdir
+	rm -f build-stamp
+
+	# Add here commands to clean up after the build process.
+	$(MAKE) clean
+
+	# Remove patches after doing 'make clean', to allow patches to adjust the clean target
+	$(MAKE) -f debian/rules unpatch
+
+	dh_clean 
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k 
+	dh_installdirs
+
+	# Add here commands to install the package into debian/$(PACKAGE).
+	$(MAKE) install COPTS="$(CFLAGS)" DESTDIR=$(DESTDIR)
+
+	# Install overrides if present
+	for data in debian/overrides/* ; do \
+		test -f $$data || continue ; \
+		$(INSTALL_DATA) $$data $(DESTDIR)$(pkgdatadir)/overrides/. ;\
+	done
+
+	$(INSTALL) debian/check-initd-order $(DESTDIR)$(pkgdatadir)/.
+	$(INSTALL) debian/check-archive-initd-scripts \
+		$(DESTDIR)$(pkgdatadir)/.
+	$(INSTALL) debian/seq-changes $(DESTDIR)$(pkgdatadir)/.
+	$(INSTALL) debian/make-testsuite $(DESTDIR)$(pkgdatadir)/.
+	$(INSTALL) debian/update-bootsystem-insserv $(DESTDIR)$(sbindir)/.
+	$(INSTALL) debian/update-rc.d-insserv $(DESTDIR)$(sbindir)/.
+
+	# Install bash(1) completion
+	$(INSTALL_DATA) debian/bash-completion $(DESTDIR)/etc/bash_completion.d/insserv
+
+	dh_lintian
+
+# Build architecture-independent files here.
+binary-indep: build install
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs CHANGES
+	dh_installdocs
+	dh_installexamples
+	dh_installdebconf
+#	dh_install
+	dh_installman
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install
+
+.PHONY: phony

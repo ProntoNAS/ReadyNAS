@@ -1,0 +1,42 @@
+From: Paul Martin <pm@debian.org>
+Date: Thu, 16 Sep 2010 08:19:44 +0000 (+0900)
+Subject: arping: Set correct broadcast address.
+X-Git-Tag: s20101006~4
+X-Git-Url: http://www.linux-ipv6.org/gitweb/gitweb.cgi?p=gitroot%2Fiputils.git;a=commitdiff_plain;h=c5ccadd1f5251400d7f8382cd39f45e68940033c;hp=fe342ca3148541f3ed00eb0c36c8632664fb5068
+
+arping: Set correct broadcast address.
+
+There seems to have been introduced a bug in iputils release s20100418.
+
+This patch is based upon git://www.linux-ipv6.org/gitroot/iputils.git
+(git commit fe342ca3148)
+
+The regression is caused by commit 56018bf1b3
+ arping: Support link-layer type with larger link-layer address.
+
+As reported by: Paul Martin <pm@debian.org> in Debian bugreport #585591.
+
+ There's a logic error in the function that parses the interface's
+ broadcast address, causing it not to fill the broadcast address array
+ correctly.
+
+Bug-Debian: http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=585591
+Reported-by: Paul Martin <pm@debian.org>
+Tested-by: Jesper Dangaard Brouer <hawk@comx.dk>
+Signed-off-by: Jesper Dangaard Brouer <hawk@comx.dk>
+Signed-off-by: YOSHIFUJI Hideaki <yoshfuji@linux-ipv6.org>
+---
+
+Index: trunk/arping.c
+===================================================================
+--- trunk.orig/arping.c	2010-10-13 22:46:28.000000000 -0700
++++ trunk/arping.c	2010-10-13 22:47:15.000000000 -0700
+@@ -341,7 +341,7 @@
+ 	}
+ 
+ 	for (p = ba, ch = 0; p < ba + balen; p++, ch += 3)
+-		*p++ = strtoul(brdcast->value + ch * 3, NULL, 16);
++		*p = strtoul(brdcast->value + ch, NULL, 16);
+ 
+ 	return;
+ }

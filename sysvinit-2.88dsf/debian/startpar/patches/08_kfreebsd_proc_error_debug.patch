@@ -1,0 +1,28 @@
+Purpose: Debian GNU/kFreeBSD does not have procs_running/procs_blocked
+         fields in /proc/stat. Avoid frequent messages about it.
+Fixes:   #590560
+Authour: Petr Salinger <Petr.Salinger@seznam.cz>
+Status:  Not yet submitted upstream.
+
+--- a/proc.c
++++ b/proc.c
+@@ -35,7 +35,9 @@ static unsigned long int scan_one(const
+     unsigned long val = 0;
+ 
+     if (!b) {
++#if DEBUG
+ 	fprintf(stderr, "ERROR: no hit for %s\n", key);
++#endif
+ 	return ~0UL;
+     }
+     if (sscanf(b + strlen(key), " %lu", &val) != 1)
+@@ -69,7 +71,8 @@ int read_proc(unsigned long int * const
+     }
+     fclose(stat);
+     
+-    /* These fields are not present in /proc/stat for 2.4 kernels */
++    /* These fields are not present in /proc/stat for 2.4 kernels
++       or GNU/kFreeBSD */
+     running = scan_one(StatBuf, "procs_running");
+     blocked = scan_one(StatBuf, "procs_blocked");
+ 

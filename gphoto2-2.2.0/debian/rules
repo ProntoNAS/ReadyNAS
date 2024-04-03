@@ -1,0 +1,80 @@
+#!/usr/bin/make -f
+# Sample debian/rules that uses debhelper.
+# GNU copyright 1997 to 1999 by Joey Hess.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+DEB_HOST_ARCH_OS ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+ifeq ($(DEB_HOST_ARCH_OS),)
+  DEB_HOST_ARCH_OS := $(subst -gnu,,$(shell dpkg-architecture -qDEB_HOST_GNU_SYSTEM))
+  ifeq ($(DEB_HOST_ARCH_OS),gnu)
+      DEB_HOST_ARCH_OS := hurd
+  endif
+endif
+
+CFLAGS = -g
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+    CFLAGS += -O0
+else
+    CFLAGS += -O2
+endif
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+    INSTALL_PROGRAM += -s
+endif
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	CFLAGS="$(CFLAGS)" ./configure --prefix=/usr --sysconfdir=/etc --mandir=\$${prefix}/share/man --without-aalib --without-cdk --disable-nls --without-pthread --without-jpeg --without-libexif
+	touch configure-stamp
+
+build: build-stamp
+build-stamp: configure-stamp 
+	dh_testdir
+	$(MAKE)
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp configure-stamp
+	-$(MAKE) distclean
+	-rm -rf `pwd`/debian/gphoto2
+	sed -e "s/@linux-gnu@/`type-handling any linux-gnu`/g" < debian/control.in > debian/control
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	$(MAKE) install prefix=`pwd`/debian/gphoto2/usr
+
+	# remove upstream 0-byte files to make lintian happy
+	-find debian/gphoto2/ -size 0 -exec rm '{}' ';'
+
+
+binary-indep: build install
+# We have nothing to do by default.
+
+binary-arch: build install
+	dh_testdir -a
+	dh_testroot -a
+	dh_installdocs
+	dh_installchangelogs ChangeLog
+	dh_link -a
+	dh_strip -a
+	dh_compress -a
+	dh_fixperms -a
+	dh_makeshlibs -a -V
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure

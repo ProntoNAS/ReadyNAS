@@ -1,0 +1,47 @@
+commit cb652f30b0aa17e65803962305e052e509a5316d
+Author: Ulrich Drepper <drepper@redhat.com>
+Date:   Sun Apr 4 02:08:37 2010 -0700
+
+    Handle POSIX-compliant errno value of unlink in remove.
+
+---
+ sysdeps/posix/remove.c           |   10 ++++++++--
+ sysdeps/unix/sysv/linux/remove.c |    2 ++
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+--- a/sysdeps/posix/remove.c
++++ b/sysdeps/posix/remove.c
+@@ -1,5 +1,5 @@
+ /* ANSI C `remove' function to delete a file or directory.  POSIX.1 version.
+-   Copyright (C) 1995,96,97,2002,2003 Free Software Foundation, Inc.
++   Copyright (C) 1995,96,97,2002,2003,2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -21,6 +21,12 @@
+ #include <stdio.h>
+ #include <unistd.h>
+ 
++
++#ifndef IS_NO_DIRECTORY_ERROR
++# define IS_NO_DIRECTORY_ERROR errno != EPERM
++#endif
++
++
+ int
+ remove (file)
+      const char *file;
+@@ -28,7 +34,7 @@
+   /* First try to unlink since this is more frequently the necessary action. */
+   if (__unlink (file) != 0
+       /* If it is indeed a directory...  */
+-      && (errno != EISDIR
++      && (IS_NO_DIRECTORY_ERROR
+ 	  /* ...try to remove it.  */
+ 	  || __rmdir (file) != 0))
+     /* Cannot remove the object for whatever reason.  */
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/remove.c
+@@ -0,0 +1,2 @@
++#define IS_NO_DIRECTORY_ERROR errno != EISDIR
++#include <sysdeps/posix/remove.c>

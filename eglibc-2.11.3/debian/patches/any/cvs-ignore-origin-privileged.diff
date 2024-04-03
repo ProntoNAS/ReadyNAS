@@ -1,0 +1,20 @@
+2010-12-13  Andreas Schwab  <schwab@redhat.com>
+
+	* elf/dl-object.c (_dl_new_object): Ignore origin of privileged
+	program.
+
+ 	* posix/fnmatch_loop.c (NEW_PATTERN): Fix use of alloca.
+diff --git a/elf/dl-object.c b/elf/dl-object.c
+index 5d15ce1..a34e902 100644
+--- a/elf/dl-object.c
++++ b/elf/dl-object.c
+@@ -220,6 +220,9 @@ _dl_new_object (char *realname, const char *libname, int type,
+     out:
+       new->l_origin = origin;
+     }
++  else if (INTUSE(__libc_enable_secure) && type == lt_executable)
++    /* The origin of a privileged program cannot be trusted.  */
++    new->l_origin = (char *) -1;
+ 
+   return new;
+ }

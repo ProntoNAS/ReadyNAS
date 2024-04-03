@@ -1,0 +1,172 @@
+#! /usr/bin/make -f
+
+#   Copyright 1994-98,2001   joey@infodrom.org (Martin Schulze)
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 2 dated June, 1991.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program;  if not, write to the Free Software
+#   Foundation Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA
+#
+SHELL=/bin/bash
+
+# The name and version of the source
+#
+source = $(shell grep "^Source: " debian/control|head -n 1|sed 's/Source: \(.*\)/\1/g')
+package = $(shell grep "^Package: " debian/control|head -n 1|sed 's/Package: \(.*\)/\1/g')
+version = $(shell grep "^$(source) " debian/changelog|head -n 1 |sed 's/.*(\(.*\)\-[^\-]*).*/\1/g')
+revision = $(shell grep "^$(source) " debian/changelog|head -n 1 |sed 's/.*([^\-]*\-\(.*\)).*/\1/g')
+
+installbin = install -g root -o root -m 755
+installdoc = install -g root -o root -m 644
+
+ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+CFLAGS = -g -O2 -Wall $(shell getconf LFS_CFLAGS)
+else
+CFLAGS = -O2 -Wall $(shell getconf LFS_CFLAGS)
+endif
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+STRIP = -s
+endif
+
+build:
+	$(MAKE) DEB="-DDEBRELEASE=\\\"$(revision)\\\"" \
+		SKFLAGS="$(CFLAGS) -DSYSV -fomit-frame-pointer -fno-strength-reduce" \
+		LDFLAGS=""
+	pod2man --section=8 --lax --center="Debian GNU/Linux" \
+	  --release="Debian Project" debian/syslog-facility.pod \
+	  > syslog-facility.8
+	(cat README.linux; printf "\n\n"; cat README.1st; \
+	  printf "\n\nThe following important changes have been reported by the developers:\n\n"; \
+	  cat NEWS debian/readme) \
+	  > readme.txt
+	(cat debian/copyright; \
+	  printf "Syslogd stays under the following copyright:\n\n"; \
+	    sed -e '/^$$/,$$d' < syslogd.c; \
+	  printf "\nKlogd has the following copyright notice:\n\n"; \
+	    sed -e '/^$$/,$$d' < klogd.c ) \
+	  > copyright
+	touch stamp-build
+
+clean: debclean
+	rm -f stamp-build
+	$(MAKE) clobber
+	rm -rf *~ debian/*~ syslog-facility.8 readme.txt copyright
+
+debclean:
+# Cleans debian binary directories to allow binary creation
+	rm -rf debian/tmp.sysklogd debian/tmp.klogd
+	rm -f debian/{files,substvars}
+
+binary-indep:
+# Nothing to be done here
+
+binary-arch-sysklogd: debclean
+	test -f stamp-build || $(MAKE) -f debian/rules build
+	$(installbin) -d debian/tmp.sysklogd/DEBIAN
+	chown -R root:root debian/tmp.sysklogd
+	chmod -R g-ws debian/tmp.sysklogd
+	$(installbin) -d debian/tmp.sysklogd/usr/share/doc/$(package)
+	$(installbin) debian/{postinst,postrm,prerm} debian/tmp.sysklogd/DEBIAN/
+	$(installdoc) debian/conffiles debian/tmp.sysklogd/DEBIAN/
+	$(installdoc) debian/changelog debian/tmp.sysklogd/usr/share/doc/$(package)/changelog.Debian
+	#
+	$(installbin) -d debian/tmp.sysklogd/usr/share/$(package)
+	$(installdoc) debian/dummy debian/tmp.sysklogd/usr/share/$(package)
+	#
+	$(installdoc) copyright debian/tmp.sysklogd/usr/share/doc/$(package)/
+	$(installdoc) readme.txt debian/tmp.sysklogd/usr/share/doc/$(package)/
+	$(installdoc) CHANGES debian/tmp.sysklogd/usr/share/doc/$(package)/changelog
+	gzip -9f debian/tmp.sysklogd/usr/share/doc/$(package)/{changelog.Debian,changelog,readme.txt}
+	#
+	$(installbin) -d debian/tmp.sysklogd/{usr/,}sbin
+	$(installbin) $(STRIP) syslogd debian/tmp.sysklogd/sbin
+	$(installbin) debian/syslogd-listfiles debian/tmp.sysklogd/usr/sbin
+	$(installbin) debian/syslog-facility debian/tmp.sysklogd/usr/sbin
+	#
+	$(installbin) -d debian/tmp.sysklogd/etc/{init.d,cron.{daily,weekly},default}
+	$(installdoc) debian/default debian/tmp.sysklogd/etc/default/syslogd
+	$(installbin) debian/rc debian/tmp.sysklogd/etc/init.d/sysklogd
+	$(installbin) debian/cron.weekly debian/tmp.sysklogd/etc/cron.weekly/sysklogd
+	$(installbin) debian/cron.daily debian/tmp.sysklogd/etc/cron.daily/sysklogd
+	$(installdoc) debian/syslog.conf debian/tmp.sysklogd/etc/syslog.conf
+	$(installbin) -d debian/tmp.sysklogd/var/log
+	#
+	$(installbin) -d debian/tmp.sysklogd/usr/share/man/man{5,8}
+	$(installdoc) syslog.conf.5 debian/tmp.sysklogd/usr/share/man/man5
+	$(installdoc) {sysklogd,syslogd,debian/syslogd-listfiles}.8 debian/tmp.sysklogd/usr/share/man/man8
+	$(installdoc) syslog-facility.8 debian/tmp.sysklogd/usr/share/man/man8
+	gzip -9 debian/tmp.sysklogd/usr/share/man/man?/*
+	#
+	dpkg-shlibdeps debian/tmp.sysklogd/sbin/syslogd
+	dpkg-gencontrol -psysklogd -Pdebian/tmp.sysklogd -isp
+	dpkg --build debian/tmp.sysklogd ..
+
+binary-arch-klogd: debclean
+	test -f stamp-build || $(MAKE) -f debian/rules build
+	$(installbin) -d debian/tmp.klogd/DEBIAN
+	chown -R root:root debian/tmp.klogd
+	chmod -R g-ws debian/tmp.klogd
+	$(installbin) -d debian/tmp.klogd/usr/share/doc/klogd
+	$(installbin) debian/postinst.klogd debian/tmp.klogd/DEBIAN/postinst
+	$(installbin) debian/postrm.klogd debian/tmp.klogd/DEBIAN/postrm
+	$(installbin) debian/prerm.klogd debian/tmp.klogd/DEBIAN/prerm
+	$(installdoc) debian/conffiles.klogd debian/tmp.klogd/DEBIAN/conffiles
+	$(installdoc) debian/changelog debian/tmp.klogd/usr/share/doc/klogd/changelog.Debian
+	#
+	$(installdoc) copyright debian/tmp.klogd/usr/share/doc/klogd/
+	$(installdoc) readme.txt debian/tmp.klogd/usr/share/doc/klogd/
+	$(installdoc) CHANGES debian/tmp.klogd/usr/share/doc/klogd/changelog
+	gzip -9f debian/tmp.klogd/usr/share/doc/klogd/{changelog.Debian,changelog,readme.txt}
+	$(installdoc) modutils.patch debian/tmp.klogd/usr/share/doc/klogd
+	#
+	$(installbin) -d debian/tmp.klogd/sbin
+	$(installbin) $(STRIP) klogd debian/tmp.klogd/sbin
+	#
+	$(installbin) -d debian/tmp.klogd/etc/{init.d,default}
+	$(installdoc) debian/default.klogd debian/tmp.klogd/etc/default/klogd
+	$(installbin) debian/rc.klogd debian/tmp.klogd/etc/init.d/klogd
+	#
+	$(installbin) -d debian/tmp.klogd/usr/share/man/man8
+	$(installdoc) klogd.8 debian/tmp.klogd/usr/share/man/man8
+	gzip -9 debian/tmp.klogd/usr/share/man/man?/*
+	#
+	dpkg-shlibdeps debian/tmp.klogd/sbin/klogd
+	dpkg-gencontrol -pklogd -Pdebian/tmp.klogd -isp
+	dpkg --build debian/tmp.klogd ..
+
+binary-arch: binary-arch-sysklogd binary-arch-klogd
+
+binary: binary-indep binary-arch
+
+source diff:
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b' or dsc; false
+
+dsc:
+	-test -d debian/tmp.sysklogd -o -d debian/tmp.klogd \
+		&& $(MAKE) -f debian/rules clean
+	if [ ! -f ../$(source)_$(version).orig.tar.gz -a -f ../orig/$(source)_$(version).orig.tar.gz ]; \
+	then \
+	  ln -s orig/$(source)_$(version).orig.tar.gz ../$(source)_$(version).orig.tar.gz; \
+	  touch /tmp/stamp-$(source)-link; \
+	fi; \
+	cd .. && dpkg-source -b $(source)-$(version)
+	if [ -f /tmp/stamp-$(source)-link ]; then \
+	  rm ../$(source)_$(version).orig.tar.gz /tmp/stamp-$(source)-link; \
+	fi
+
+checkroot:
+	$(checkdir)
+	test root = "`whoami`"
+
+dist: binary dsc
+
+.PHONY: binary binary-arch binary-indep clean checkroot
+

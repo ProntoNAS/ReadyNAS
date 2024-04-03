@@ -1,0 +1,73 @@
+#!/usr/bin/make -f 					
+# 							-*- makefile -*-
+# debian/rules file for the Debian/GNU Linux time package
+# Copyright 1995-98 by Dirk Eddelbuettel <edd@debian.org>
+
+package	= time
+debtmp	:= $(shell pwd)/debian/tmp
+arch 	:= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+
+# Uncomment this to turn on verbose mode.
+# export DH_VERBOSE=1
+
+get-orig-source: upstream
+upstream:
+	links http://ftp.gnu.org/pub/gnu/time
+
+build:
+	dh_testdir
+	./configure	--prefix=/usr			\
+			--infodir=/usr/share/info	\
+			--mandir=/usr/share/man		\
+			--build $(arch)
+	$(MAKE) CC=gcc CFLAGS="-O2 -g -Wall" LDFLAGS=
+	texi2html -verbose -monolithic $(package).texi
+	touch build
+
+clean:
+	dh_testdir
+	dh_testroot
+	-$(MAKE) -i distclean
+	dh_clean build $(package).html 
+
+binary-indep: build
+# We have nothing to do by default.
+
+binary-arch: build
+#	dh_testversion
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+	$(MAKE) INSTALL_PROGRAM="install -s" 		\
+		prefix=$(debtmp)/usr 			\
+		infodir=$(debtmp)/usr/share/info	\
+		mandir=$(debtmp)/usr/share/man		install
+	dh_installdocs		README NEWS $(package).html
+#	dh_installexamples
+#	dh_installmenu
+#	dh_installinit
+#	dh_installcron
+	dh_installmanpages
+#	dh_undocumented
+	dh_installchangelogs	ChangeLog
+	dh_strip
+	dh_compress
+	dh_fixperms
+#	dh_suidregister
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+#	dh_makeshlibs
+#	dh_md5sums
+	dh_builddeb
+
+# Below here is fairly generic really
+
+binary:	binary-indep binary-arch
+
+source diff:
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+.PHONY: binary binary-arch binary-indep clean checkroot
+

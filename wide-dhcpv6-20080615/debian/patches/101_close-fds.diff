@@ -1,0 +1,65 @@
+wide-dhcpv6 binaries should close inherited fds.
+
+Index: wide-dhcpv6/dhcp6c.c
+===================================================================
+--- wide-dhcpv6.orig/dhcp6c.c
++++ wide-dhcpv6/dhcp6c.c
+@@ -159,6 +159,7 @@
+ 	char *progname;
+ 	FILE *pidfp;
+ 	struct dhcp6_if *ifp;
++	int fd;
+ 
+ #ifndef HAVE_ARC4RANDOM
+ 	srandom(time(NULL) & getpid());
+@@ -205,8 +206,12 @@
+ 		exit(0);
+ 	}
+ 
+-	if (foreground == 0)
++	if (foreground == 0) {
++		for (fd = 3; fd < 1024; fd++)
++			close(fd);
++
+ 		openlog(progname, LOG_NDELAY|LOG_PID, LOG_DAEMON);
++	}
+ 
+ 	setloglevel(debug);
+ 
+Index: wide-dhcpv6/dhcp6relay.c
+===================================================================
+--- wide-dhcpv6.orig/dhcp6relay.c
++++ wide-dhcpv6/dhcp6relay.c
+@@ -207,8 +207,14 @@
+ 	}
+ 
+ 	if (foreground == 0) {
++		int fd;
++
+ 		if (daemon(0, 0) < 0)
+ 			err(1, "daemon");
++
++		for (fd = 3; fd < 1024; fd++)
++			close(fd);
++
+ 		openlog(progname, LOG_NDELAY|LOG_PID, LOG_DAEMON);
+ 	}
+ 	setloglevel(debug);
+Index: wide-dhcpv6/dhcp6s.c
+===================================================================
+--- wide-dhcpv6.orig/dhcp6s.c
++++ wide-dhcpv6/dhcp6s.c
+@@ -316,8 +316,13 @@
+ 	}
+ 
+ 	if (foreground == 0) {
++		int fd;
++
+ 		if (daemon(0, 0) < 0)
+ 			err(1, "daemon");
++
++		for (fd = 3; fd < 1024; fd++)
++			close(fd);
+ 	}
+ 
+ 	/* dump current PID */

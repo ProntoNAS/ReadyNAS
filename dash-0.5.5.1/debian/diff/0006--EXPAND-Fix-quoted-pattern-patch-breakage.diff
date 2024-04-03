@@ -1,0 +1,87 @@
+From cd02edadb694c029a5dae31ee66fc2a98a4dd365 Mon Sep 17 00:00:00 2001
+From: Gerrit Pape <pape@smarden.org>
+Date: Wed, 26 May 2010 10:59:45 +0000
+Subject: [PATCH] [EXPAND] Fix quoted pattern patch breakage
+
+The change
+
+   [EXPAND] Do not quote back slashes in parameter expansions outside quotes
+
+broke quote removal after parameter expansion.  This is because
+its effecte extended beyond that of quoted patterns.
+
+This patch fixes this by limiting the change to just quoted
+patterns.
+
+Signed-off-by: Herbert Xu <herbert@gondor.apana.org.au>
+(cherry picked from commit 0d7d66039b614b642c775432fd64aa8c11f9a64d)
+
+Conflicts:
+
+	ChangeLog
+---
+ src/expand.c   |    4 +++-
+ src/mksyntax.c |    5 ++---
+ src/parser.c   |    1 -
+ 3 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/src/expand.c b/src/expand.c
+index e4c4c8b..7995d40 100644
+--- a/src/expand.c
++++ b/src/expand.c
+@@ -869,7 +869,9 @@ memtodest(const char *p, size_t len, const char *syntax, int quotes) {
+ 		int c = (signed char)*p++;
+ 		if (c) {
+ 			if ((quotes & QUOTES_ESC) &&
+-			    (syntax[c] == CCTL || syntax[c] == CDBACK))
++			    ((syntax[c] == CCTL) ||
++			     (((quotes & EXP_FULL) || syntax != BASESYNTAX) &&
++			      syntax[c] == CBACK)))
+ 				USTPUTC(CTLESC, q);
+ 		} else if (!(quotes & QUOTES_KEEPNUL))
+ 			continue;
+diff --git a/src/mksyntax.c b/src/mksyntax.c
+index 9ecbb45..7a8a9ae 100644
+--- a/src/mksyntax.c
++++ b/src/mksyntax.c
+@@ -53,7 +53,6 @@ struct synclass synclass[] = {
+ 	{ "CWORD",	"character is nothing special" },
+ 	{ "CNL",	"newline character" },
+ 	{ "CBACK",	"a backslash character" },
+-	{ "CDBACK",	"a backslash character in double quotes" },
+ 	{ "CSQUOTE",	"single quote" },
+ 	{ "CDQUOTE",	"double quote" },
+ 	{ "CENDQUOTE",	"a terminating quote" },
+@@ -176,7 +175,7 @@ main(int argc, char **argv)
+ 	init();
+ 	fputs("\n/* syntax table used when in double quotes */\n", cfile);
+ 	add("\n", "CNL");
+-	add("\\", "CDBACK");
++	add("\\", "CBACK");
+ 	add("\"", "CENDQUOTE");
+ 	add("`", "CBQUOTE");
+ 	add("$", "CVAR");
+@@ -194,7 +193,7 @@ main(int argc, char **argv)
+ 	init();
+ 	fputs("\n/* syntax table used when in arithmetic */\n", cfile);
+ 	add("\n", "CNL");
+-	add("\\", "CDBACK");
++	add("\\", "CBACK");
+ 	add("`", "CBQUOTE");
+ 	add("$", "CVAR");
+ 	add("}", "CENDVAR");
+diff --git a/src/parser.c b/src/parser.c
+index dad1037..28a46c0 100644
+--- a/src/parser.c
++++ b/src/parser.c
+@@ -901,7 +901,6 @@ readtoken1(int firstc, char const *syntax, char *eofmark, int striptabs)
+ 				break;
+ 			/* backslash */
+ 			case CBACK:
+-			case CDBACK:
+ 				c = pgetc2();
+ 				if (c == PEOF) {
+ 					USTPUTC(CTLESC, out);
+-- 
+1.6.0.3
+

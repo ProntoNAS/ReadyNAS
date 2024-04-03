@@ -1,0 +1,58 @@
+#!/bin/sh
+# postinst script for avahi-daemon
+
+set -e
+
+# summary of how this script can be called:
+#        * <postinst> `configure' <most-recently-configured-version>
+#        * <old-postinst> `abort-upgrade' <new version>
+#        * <conflictor's-postinst> `abort-remove' `in-favour' <package>
+#          <new-version>
+#        * <deconfigured's-postinst> `abort-deconfigure' `in-favour'
+#          <failed-install-package> <version> `removing'
+#          <conflicting-package> <version>
+# for details, see http://www.debian.org/doc/debian-policy/ or
+# the debian-policy package
+
+case "$1" in
+  configure)
+    if ! getent passwd avahi >/dev/null; then
+      adduser --disabled-password  --quiet --system \
+        --home /var/run/avahi-daemon --no-create-home \
+        --gecos "Avahi mDNS daemon" --group avahi
+    fi
+    # If the Avahi user has the old home, change it
+    if ! getent passwd avahi | grep -q /var/run/avahi-daemon; then
+        usermod -d /var/run/avahi-daemon avahi
+    fi
+
+    # Add the netdev group unless it's already there
+    if ! getent group netdev >/dev/null; then
+      addgroup --quiet --system netdev || true
+    fi
+
+    # update init script symlinks for new runlevels and priorities for upgrades
+    # from older versions
+    if dpkg --compare-versions "$2" lt-nl 0.6.22-4 && \
+       [ -e /etc/rc2.d/S??avahi-daemon ]; then
+      echo "Reinstalling init script for new runlevels and priorities ..." >&2
+      # remove old init script symlinks; dh_installinit adds the proper
+      # update-rc.d snippet later on
+      update-rc.d -f avahi-daemon remove >/dev/null
+    fi
+ 
+    # Ask the bus to reload the config file
+    if [ -x "/etc/init.d/dbus" ]; then
+      invoke-rc.d dbus force-reload || true
+    fi
+  ;;
+  abort-upgrade|abort-remove|abort-deconfigure)
+  ;;
+  *)
+    echo "postinst called with unknown argument \`$1'" >&2
+    exit 1
+  ;;
+esac
+
+#DEBHELPER#
+

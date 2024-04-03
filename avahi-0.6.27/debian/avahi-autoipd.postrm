@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -e
+
+#DEBHELPER#
+
+if [ "$1" = "purge" ]; then
+    deluser --quiet --system avahi-autoipd > /dev/null || true
+    delgroup --quiet --system avahi-autoipd > /dev/null || true
+    # Cleanup /var/lib/avahi-autoipd, see #527925
+    f=/var/lib/avahi-autoipd
+    if [ -d "$f" ]; then
+        rm -f "$f"/??\:??\:??\:??\:??\:??
+        rmdir "$f" || { chown root:root "$f" && chmod 00700 "$f"; }
+    fi
+    # Remove compat symlinks for dhcp3-client
+    rm -f /etc/dhcp3/dhclient-enter-hooks.d/avahi-autoipd
+    rm -f /etc/dhcp3/dhclient-exit-hooks.d/zzz_avahi-autoipd
+fi
+

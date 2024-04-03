@@ -1,0 +1,61 @@
+# DP: Build a tri-arch compiler on mips-linux-gnu.
+# DP: http://gcc.gnu.org/ml/gcc-patches/2009-03/msg01047.html
+
+2009-23-03  Arthur Loiret  <aloiret@debian.org>
+
+	* config.gcc (mips*-*-linux*): If 'enabled_targets' is 'all', build
+	a tri-arch compiler defaulting to 32-bit (ABI o32). In this case:
+	(tm_file): Add mips/linux64.h.
+	(tmake_file): Add mips/t-linux64.
+	(tm_defines): Add MIPS_ABI_DEFAULT=ABI_32.
+	* config/mips/linux64.h (DRIVER_SELF_SPECS): Use MULTILIB_ABI_DEFAULT
+	instead of hardcoded mabi=n32.
+	* config/mips/t-linux64 (MULTILIB_DIRNAMES): Set to 'n32 . 64' if
+	tm_defines contains MIPS_ABI_DEFAULT ABI_32, to follow the glibc
+	convention.
+---
+ gcc/config.gcc            |    7 ++++++-
+ gcc/config/mips/linux64.h |    2 +-
+ gcc/config/mips/t-linux64 |    4 ++++
+ 3 files changed, 11 insertions(+), 2 deletions(-)
+
+--- a/src/gcc/config.gcc
++++ b/src/gcc/config.gcc
+@@ -1571,8 +1571,13 @@ mips64*-*-linux* | mipsisa64*-*-linux*)
+ 	test x$with_llsc != x || with_llsc=yes
+ 	;;
+ mips*-*-linux*)				# Linux MIPS, either endian.
+-        tm_file="dbxelf.h elfos.h svr4.h linux.h ${tm_file} mips/linux.h"
++	tm_file="dbxelf.h elfos.h svr4.h linux.h ${tm_file} mips/linux.h"
+ 	tmake_file="${tmake_file} mips/t-libgcc-mips16"
++	if test x$enable_targets = xall; then
++		tm_file="${tm_file} mips/linux64.h"
++		tmake_file="${tmake_file} mips/t-linux64"
++		tm_defines="${tm_defines} MIPS_ABI_DEFAULT=ABI_32"
++	fi
+ 	case ${target} in
+         mipsisa32r2*)
+ 		tm_defines="${tm_defines} MIPS_ISA_DEFAULT=33"
+--- a/src/gcc/config/mips/linux64.h
++++ b/src/gcc/config/mips/linux64.h
+@@ -26,7 +26,7 @@ along with GCC; see the file COPYING3.  If not see
+   BASE_DRIVER_SELF_SPECS, \
+   LINUX_DRIVER_SELF_SPECS \
+   " %{!EB:%{!EL:%(endian_spec)}}" \
+-  " %{!mabi=*: -mabi=n32}"
++  " %{!mabi=*: -" MULTILIB_ABI_DEFAULT "}"
+ 
+ #undef LIB_SPEC
+ #define LIB_SPEC "\
+--- a/src/gcc/config/mips/t-linux64
++++ b/src/gcc/config/mips/t-linux64
+@@ -1,5 +1,9 @@
+ MULTILIB_OPTIONS = mabi=n32/mabi=32/mabi=64
++ifneq ($(filter MIPS_ABI_DEFAULT=ABI_32,$(tm_defines)),)
++MULTILIB_DIRNAMES = n32 . 64
++else
+ MULTILIB_DIRNAMES = n32 32 64
++endif
+ MULTILIB_OSDIRNAMES = ../lib32 ../lib ../lib64
+ 
+ EXTRA_MULTILIB_PARTS=crtbegin.o crtend.o crtbeginS.o crtendS.o crtbeginT.o

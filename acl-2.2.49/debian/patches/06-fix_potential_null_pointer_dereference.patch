@@ -1,0 +1,44 @@
+commit 2e8f820c8c5ab0ab9444398cc122e3a63fa4bc3e
+Author: Brandon Philips <brandon@ifup.org>
+Date:   Thu Dec 17 16:30:43 2009 -0800
+
+    libacl: fix potential null pointer dereference
+    
+    stanse found that acl_copy_int() derefences ext_acl when initializing
+    ent_p and then later checks if ext_acl is NULL.
+    
+    Delay initializing ent_p and size until the NULL check has been made on
+    ext_acl.
+    
+    Fix this bug:
+     https://bugzilla.novell.com/show_bug.cgi?id=564733
+    
+    Signed-off-by: Brandon Philips <bphilips@suse.de>
+
+diff --git a/libacl/acl_copy_int.c b/libacl/acl_copy_int.c
+index e58bbe3..7bcb0c9 100644
+--- a/libacl/acl_copy_int.c
++++ b/libacl/acl_copy_int.c
+@@ -27,17 +27,18 @@ acl_t
+ acl_copy_int(const void *buf_p)
+ {
+ 	const struct __acl *ext_acl = (struct __acl *)buf_p;
+-	const struct __acl_entry *ent_p = ext_acl->x_entries, *end_p;
+-	size_t size = ext_acl ? ext_acl->x_size : 0;
++	const struct __acl_entry *ent_p, *end_p;
++	size_t size;
+ 	int entries;
+ 	acl_obj *acl_obj_p;
+ 	acl_entry_obj *entry_obj_p;
+ 
+-	if (!ext_acl || size < sizeof(struct __acl)) {
++	if (!ext_acl || ext_acl->x_size < sizeof(struct __acl)) {
+ 		errno = EINVAL;
+ 		return NULL;
+ 	}
+-	size -= sizeof(struct __acl);
++	ent_p = ext_acl->x_entries;
++	size = ext_acl->x_size - sizeof(struct __acl);
+ 	if (size % sizeof(struct __acl_entry)) {
+ 		errno = EINVAL;
+ 		return NULL;

@@ -1,0 +1,180 @@
+#! /bin/sh
+# postinst script for quota
+#
+# see: dh_installdeb(1)
+
+set -e
+
+# summary of how this script can be called:
+#        * <postinst> `configure' <most-recently-configured-version>
+#        * <old-postinst> `abort-upgrade' <new version>
+#        * <conflictor's-postinst> `abort-remove' `in-favour' <package>
+#          <new-version>
+#        * <deconfigured's-postinst> `abort-deconfigure' `in-favour'
+#          <failed-install-package> <version> `removing'
+#          <conflicting-package> <version>
+# for details, see /usr/doc/packaging-manual/
+#
+# quoting from the policy:
+#     Any necessary prompting should almost always be confined to the
+#     post-installation script, and should be protected with a conditional
+#     so that unnecessary prompting doesn't happen if a package's
+#     installation fails and the `postinst' is called with `abort-upgrade',
+#     `abort-remove' or `abort-deconfigure'.
+
+if [ "$1" = "configure" ]; then
+  . /usr/share/debconf/confmodule
+  #
+  # generate the config files if they don't exist
+  #
+
+  if [ ! -f /etc/warnquota.conf ]; then
+    db_get quota/mailfrom
+    mailfrom="$RET"
+    db_get quota/supportemail
+    supportemail="$RET"
+    db_get quota/supportphone
+    supportphone="$RET"
+    db_get quota/message
+    message="$RET"
+    db_get quota/signature
+    signature="$RET"
+    db_get quota/subject
+    subject="$RET"
+    db_get quota/cc
+    cc="$RET"
+    db_get quota/charset
+    charset="$RET"
+    db_get quota/cc_before
+    cc_before="$RET"
+
+    temp=`mktemp /etc/warnquota.conf.XXXXXX`
+    cat <<EOF >"$temp"
+# Debian configuration 
+# generated from debconf on `date`
+#
+# Command used to send email
+MAIL_CMD 	= "/usr/sbin/sendmail -t"
+# From email used in generated emails
+FROM 		= "$mailfrom"
+# Subject line
+SUBJECT 	= $subject
+# Send a copy to this address
+CC_TO 		= "$cc"
+# Support email for assistance (included in generated mail)
+SUPPORT 	= "$supportemail"
+# Support phone for assistance (included in generated mail)
+PHONE 		= "$supportphone"
+EOF
+
+    if [ -n "$message" ]; then
+	cat <<EOF >>"$temp"
+# The message to send
+MESSAGE		= "$message"
+EOF
+    fi
+
+    if [ -n "$signature" ]; then
+	cat <<EOF >>"$temp"
+# The signature of the mail
+SIGNATURE	= "$signature"
+EOF
+    fi
+    
+    if [ -n "$charset" ]; then
+	cat <<EOF >>"$temp"
+# character set the email is to be send in 
+CHARSET		= "$charset"
+EOF
+    fi
+
+    if [ -n "$cc_before" ]; then
+	cat <<EOF >>"$temp"
+# CC admin this time before the end of grace period
+CC_BEFORE	= "$cc_before"
+EOF
+    fi
+
+    mv $temp /etc/warnquota.conf
+  fi
+
+  if [ ! -f /etc/default/quota ]; then
+    db_get quota/run_warnquota
+    run_warnquota="$RET"
+    temp=`mktemp /etc/default/quota.XXXXXX`
+    cat <<EOF >"$temp"
+# Configuration for quota scripts
+# generated from debconf on `date`
+#
+# Set to "true" if warnquota should be run in cron.daily
+run_warnquota="$run_warnquota"
+EOF
+    mv $temp /etc/default/quota
+  fi
+
+  #
+  # stop debconf
+  #
+  db_stop
+fi
+
+case "$1" in
+    configure)
+	# if we have a recenty configured package, do nothing
+	if test ! -f /var/run/quota.upgrade; then
+		if [ -f /etc/fstab ]; then
+			fs=`awk '/quota/ {print $2}' /etc/fstab`;
+			# enable quota if already configured
+			if [ "$fs" ]; then
+				if [ -x "`which invoke-rc.d 2>/dev/null`" ]; then
+					invoke-rc.d quota start
+				else
+					/etc/init.d/quota start > /dev/null 2>&1 &
+				fi
+			fi
+		fi
+
+		# set quota_is_new file
+		touch /var/lib/quota/new
+	fi
+	# if the old /var/state/quota dir exists, move the files to the new location
+	if [ -d /var/state/quota ]; then
+		[ -f /var/state/quota/off ] && touch /var/lib/quota/off
+	        [ -f /var/state/quota/new ] && touch /var/lib/quota/new
+		rm -rf /var/state/quota
+	fi
+    ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+
+    ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 0
+    ;;
+esac
+
+#
+# remove old links
+#
+if test -f /var/run/quota.upgrade 
+then
+	if dpkg --compare-versions "$2" lt 3.00pre01-10
+	then
+		update-rc.d -f quota remove 2>/dev/null > /dev/null  
+	elif dpkg --compare-versions "$2" lt 3.12-3
+	then
+		update-rc.d -f quotarpc remove 2>/dev/null > /dev/null
+	elif dpkg --compare-versions "$2" lt 3.17-4
+	then
+		rm -f /etc/rcS.d/S*quotarpc
+	fi
+fi
+
+rm -f /var/run/quota.upgrade
+
+#DEBHELPER#
+
+exit 0
+

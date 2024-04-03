@@ -1,0 +1,100 @@
+From 32e3ed647a7d0d28663be916ce9bec28624ead87 Mon Sep 17 00:00:00 2001
+From: Gerrit Pape <pape@smarden.org>
+Date: Wed, 26 May 2010 11:06:42 +0000
+Subject: [PATCH] [ARITH] Fix binary operator parsing
+
+Jilles Tjoelker reported that binary operator parsing doesn't
+respect operator precedence correctly in the case where a lower-
+precedence operator is followed by a higher-precedence operator,
+and then by a lower-precedence operator.
+
+This patch fixes this by stopping when we encounter a binary
+oeprator with a precedence lower than one that we have already
+encountered.
+
+Signed-off-by: Herbert Xu <herbert@gondor.apana.org.au>
+(cherry picked from commit 9655c1ac5646bde1007ecba7c6271d3aa98f294b)
+
+Conflicts:
+
+	ChangeLog
+---
+ src/arith_yacc.c |   30 ++++++++++++++++++++----------
+ 1 files changed, 20 insertions(+), 10 deletions(-)
+
+diff --git a/src/arith_yacc.c b/src/arith_yacc.c
+index f4857fe..74b95f8 100644
+--- a/src/arith_yacc.c
++++ b/src/arith_yacc.c
+@@ -74,6 +74,8 @@ static const char prec[ARITH_BINOP_MAX - ARITH_BINOP_MIN] = {
+ 	ARITH_PRECEDENCE(ARITH_BOR, 7),
+ };
+ 
++#define ARITH_MAX_PREC 8
++
+ static void yyerror(const char *s) __attribute__ ((noreturn));
+ static void yyerror(const char *s)
+ {
+@@ -81,9 +83,14 @@ static void yyerror(const char *s)
+ 	/* NOTREACHED */
+ }
+ 
++static inline int arith_prec(int op)
++{
++	return prec[op - ARITH_BINOP_MIN];
++}
++
+ static inline int higher_prec(int op1, int op2)
+ {
+-	return prec[op1 - ARITH_BINOP_MIN] < prec[op2 - ARITH_BINOP_MIN];
++	return arith_prec(op1) < arith_prec(op2);
+ }
+ 
+ static intmax_t do_binop(int op, intmax_t a, intmax_t b)
+@@ -174,7 +181,7 @@ again:
+ 	}
+ }
+ 
+-static intmax_t binop2(intmax_t a, int op, int noeval)
++static intmax_t binop2(intmax_t a, int op, int prec, int noeval)
+ {
+ 	for (;;) {
+ 		union yystype val;
+@@ -188,15 +195,18 @@ static intmax_t binop2(intmax_t a, int op, int noeval)
+ 		b = primary(token, &val, yylex(), noeval);
+ 
+ 		op2 = last_token;
+-		if (op2 < ARITH_BINOP_MIN || op2 >= ARITH_BINOP_MAX)
+-			return noeval ? b : do_binop(op, a, b);
+-
+-		if (higher_prec(op2, op)) {
+-			b = binop2(b, op2, noeval);
+-			return noeval ? b : do_binop(op, a, b);
++		if (op2 >= ARITH_BINOP_MIN && op2 < ARITH_BINOP_MAX &&
++		    higher_prec(op2, op)) {
++			b = binop2(b, op2, arith_prec(op), noeval);
++			op2 = last_token;
+ 		}
+ 
+-		a = do_binop(op, a, b);
++		a = noeval ? b : do_binop(op, a, b);
++
++		if (op2 < ARITH_BINOP_MIN || op2 >= ARITH_BINOP_MAX ||
++		    arith_prec(op2) >= prec)
++			return a;
++
+ 		op = op2;
+ 	}
+ }
+@@ -209,7 +219,7 @@ static intmax_t binop(int token, union yystype *val, int op, int noeval)
+ 	if (op < ARITH_BINOP_MIN || op >= ARITH_BINOP_MAX)
+ 		return a;
+ 
+-	return binop2(a, op, noeval);
++	return binop2(a, op, ARITH_MAX_PREC, noeval);
+ }
+ 
+ static intmax_t and(int token, union yystype *val, int op, int noeval)
+-- 
+1.6.0.3
+

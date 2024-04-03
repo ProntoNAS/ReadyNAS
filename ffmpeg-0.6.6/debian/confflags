@@ -1,0 +1,257 @@
+# -*- mode: makefile -*-
+# vim:syntax=make
+
+# build a static version on every architecture in the 'debian' ffmpeg package
+FLAVORS := static
+
+# shared is generic, i.e. without arch specific opcodes
+FLAVORS += shared
+
+export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+export DEB_HOST_ARCH      ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+export DEB_HOST_ARCH_CPU  ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_CPU)
+export DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+
+SVNREVISION=$(shell cat .svnrevision 2>/dev/null || echo "UNKNOWN")
+
+CROSS :=
+ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+    CROSS :=  $(DEB_HOST_GNU_TYPE)-
+endif
+
+# this outputs 0 or 1 depending on whether a macro appears in the *default* cpp
+# -dM -P output; this is used to test the toolchain *default* configuration
+check_cpp = $(shell $(CROSS)cpp -dM -P /dev/null | grep -q '^\#define $(1)' && echo 1 || echo 0)
+
+# this outputs 0 or 1 depending on whether a piece of assembly can be compiled
+# with the *default* gcc flags; this is used to test the toolchain *default*
+# configuration
+check_asm = $(shell echo 'void foo(void) { __asm__ volatile("$(1)"); }' | $(CROSS)gcc -x c -c - -o /dev/null 2>/dev/null && echo 1 || echo 0)
+
+# the other flavors always build dynamic versions
+# Also, disable architecture-specific optimizations for default shared build
+ifeq ($(DEB_HOST_ARCH_CPU),arm)
+    # whether the toolchain *default* configuration includes vfp
+    vfp_asm := fadds s0, s0, s0
+    has_vfp := $(call check_asm, $(vfp_asm))
+    # whether the toolchain *default* configuration includes neon
+    neon_asm := vadd.i16 q0, q0, q0
+    has_neon := $(call check_asm, $(neon_asm))
+    # whether the toolchain *default* configuration enables ARMv7
+    v7_asm := dmb
+    has_v7 := $(call check_asm, $(v7_asm))
+    # whether the toolchain *default* configuration uses -mfloat-abi=soft
+    has_soft := $(call check_cpp,__SOFTFP__ 1)
+
+    # only build a VFP flavour if the toolchain doesn't enable VFP by default
+    ifneq ($(has_vfp),1)
+    FLAVORS += vfp
+    endif
+    # only build a NEON flavour if the toolchain doesn't enable NEON by default
+    ifneq ($(has_neon),1)
+    FLAVORS += neon
+    endif
+    # calling-conventions for VFP and NEON flavours: if the toolchain uses
+    # -mfloat-abi=soft, we want to use softfp, otherwise we want to use the
+    # toolchain default (either softfp or hardfp)
+    ifeq ($(has_soft),1)
+    float_abi := -mfloat-abi=softfp
+    else
+    float_abi :=
+    endif
+else ifeq ($(DEB_HOST_ARCH),i386)
+    FLAVORS += cmov
+else ifeq ($(DEB_HOST_ARCH),powerpc)
+    FLAVORS += altivec
+    nooptflags += --disable-altivec
+else ifeq ($(DEB_HOST_ARCH),sparc)
+    FLAVORS += vis
+    nooptflags += --disable-vis
+endif
+
+$(info Building FLAVORS=$(FLAVORS))
+
+define cond_enable
+	$(shell test -r $(1) && echo --enable-$(2) )
+endef
+
+# variant that also require --enable-version3
+define cond_enable_v3
+	$(shell test -r $(1) && echo --enable-$(2) --enable-version3 )
+endef
+
+# variant that also require --enable-nonfree
+define cond_enable_nf
+	$(shell test -r $(1) && echo --enable-$(2) --enable-nonfree )
+endef
+
+# Configuration flags causing the libs to be GPL tainted
+gpl_confflags += --enable-gpl
+gpl_confflags += --enable-postproc
+gpl_confflags += --enable-x11grab
+
+# Common configuration flags
+confflags += --extra-version='$(DEB_VERSION)'
+confflags += --prefix=/usr
+confflags += --disable-stripping
+confflags += --enable-runtime-cpudetect
+
+# for mysterical reasons, the aac decoder seem to cause the bss segment
+# to grow to big on ia64, disable it until the toolchain gets fixed
+ifeq      ($(DEB_HOST_ARCH),ia64)
+confflags += --disable-decoder=aac --disable-encoder=aac
+endif
+
+ifeq      ($(DEB_HOST_ARCH),powerpc)
+confflags += --enable-pic
+endif
+
+confflags += $(extra_common_confflags)
+
+# vaapi is not available on s390 and on the hurd
+confflags += $(call cond_enable,/usr/include/va/va.h,vaapi)
+
+# this part below is intended for the 'ffmpeg' package in ubuntu/multiverse
+gpl_confflags += $(call cond_enable,/usr/include/dirac/libdirac_decoder/dirac_parser.h,libdirac)
+gpl_confflags += $(call cond_enable,/usr/include/faad.h,libfaad)
+gpl_confflags += $(call cond_enable,/usr/include/lame/lame.h,libmp3lame)
+gpl_confflags += $(call cond_enable,/usr/include/librtmp/http.h,librtmp)
+gpl_confflags += $(call cond_enable,/usr/include/x264.h,libx264)
+gpl_confflags += $(call cond_enable,/usr/include/xvid.h,libxvid)
+
+confflags += $(call cond_enable,/usr/include/openjpeg.h,libopenjpeg)
+
+# Opencore-amr requires GPL v3
+v3_confflags += $(call cond_enable_v3,/usr/include/opencore-amrnb/interf_dec.h,libopencore-amrnb)
+v3_confflags += $(call cond_enable_v3,/usr/include/opencore-amrwb/dec_if.h,libopencore-amrwb)
+
+# AAC is considered non-free upstream
+confflags += $(call cond_enable_nf,/usr/include/faac.h,libfaac)
+
+# comment out following line for LGPL versions of the libraries
+#confflags += $(gpl_confflags)
+#confflags += $(v3_confflags)
+
+# Sanitize injected compiler in linker flags
+CFLAGS :=
+LDFLAGS :=
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+# Various parts of ffmpeg (and swscale) FTBFS when compiling with -fPIC
+# and with mmx code enabled.
+  confflags += --disable-optimizations
+  confflags += --disable-mmx
+endif
+
+# Configuration flags for the static libraries
+static_build_confflags += $(confflags)
+
+# Configuration flags for the non-optimized shared libraries
+shared_build_confflags += $(confflags)
+# amd64 has no problems with optimized shared libs. i386 and arm do.
+ifneq      ($(DEB_HOST_ARCH),amd64)
+shared_build_confflags += $(nooptflags)
+endif
+shared_build_confflags += --enable-shared
+shared_build_confflags += --disable-static
+
+## specific to arm architectures
+# Configuration flags for the optimised shared libraries
+vfp_build_confflags += $(confflags)
+vfp_build_confflags += --shlibdir=/usr/lib/vfp
+vfp_build_confflags += --enable-shared
+vfp_build_confflags += --disable-static
+vfp_build_confflags += --extra-cflags="-mfpu=vfp $(float_abi)"
+vfp_build_confflags += --disable-ffmpeg
+vfp_build_confflags += --disable-ffplay
+# NB: NEON always implies v7+ and ffmpeg's NEON implementation requires VFP
+neon_build_confflags += $(confflags)
+neon_build_confflags += --shlibdir=/usr/lib/neon/vfp
+# the NEON pass now requires ubfx which was introduced in armv6t2; we need to
+# enable at least armv6t2 for the NEON pass to build, but NEON implies armv7-a
+# so pass armv7-a if it's not already enabled
+ifneq ($(has_v7),1)
+neon_build_confflags += --cpu='armv7-a'
+endif
+neon_build_confflags += --extra-cflags="-mfpu=neon $(float_abi) -fPIC -DPIC"
+neon_build_confflags += --enable-shared
+neon_build_confflags += --disable-static
+neon_build_confflags += --disable-ffmpeg
+neon_build_confflags += --disable-ffplay
+
+## i386 architecture specific
+# Configuration flags for the optimized shared libraries
+cmov_build_confflags += $(confflags)
+cmov_build_confflags += $(nooptflags)
+cmov_build_confflags += --shlibdir=/usr/lib/i686/cmov
+cmov_build_confflags += --cpu='i686'
+cmov_build_confflags += --enable-shared
+cmov_build_confflags += --disable-static
+cmov_build_confflags += --disable-ffmpeg
+cmov_build_confflags += --disable-ffplay
+
+## powerpc architecture specific
+# Configuration flags for the optimized shared libraries
+altivec_build_confflags += $(confflags)
+altivec_build_confflags += --shlibdir=/usr/lib/altivec
+altivec_build_confflags += --cpu='g4'
+altivec_build_confflags += --enable-shared
+altivec_build_confflags += --disable-static
+altivec_build_confflags += --enable-altivec
+altivec_build_confflags += --disable-ffmpeg
+altivec_build_confflags += --disable-ffplay
+
+## sparc architecture specific
+# Configuration flags for the optimized shared libraries
+vis_build_confflags += $(confflags)
+vis_build_confflags += --shlibdir=/usr/lib/v9
+vis_build_confflags += --cpu='sparc64'
+vis_build_confflags += --enable-shared
+vis_build_confflags += --disable-static
+vis_build_confflags += --extra-cflags="-fPIC -DPIC"
+vis_build_confflags += --disable-ffmpeg
+vis_build_confflags += --disable-ffplay
+
+# Additional documentation for PowerPC
+ifneq (,$(findstring powerpc,$(DEB_BUILD_GNU_TYPE)))
+  extradoc := doc/ffmpeg_powerpc_performance_evaluation_howto.txt
+endif
+
+# NETGEAR slim-down
+confflags += --enable-small
+confflags += --disable-debug
+confflags += --disable-amd3dnow
+confflags += --disable-swscale
+confflags += --disable-bsfs
+confflags += --disable-filters
+confflags += --disable-muxers
+confflags += --disable-encoders
+confflags += --disable-devices
+
+confflags += --disable-protocols
+confflags += --enable-protocol=file
+
+confflags += --disable-parsers
+confflags += --enable-parser=h264
+confflags += --enable-parser=mpegvideo
+confflags += --enable-parser=mlp
+
+confflags += --disable-demuxers
+confflags += --enable-demuxer=aac
+confflags += --enable-demuxer=ac3
+confflags += --enable-demuxer=asf
+confflags += --enable-demuxer=avi
+confflags += --enable-demuxer=dts
+confflags += --enable-demuxer=dv
+confflags += --enable-demuxer=eac3
+confflags += --enable-demuxer=matroska
+confflags += --enable-demuxer=mov
+confflags += --enable-demuxer=mp3
+confflags += --enable-demuxer=mpegps
+confflags += --enable-demuxer=mpegts
+confflags += --enable-demuxer=mpegtsraw
+confflags += --enable-demuxer=mpegvideo
+
+confflags += --disable-decoders
+confflags += --enable-decoder=h264
+confflags += --enable-decoder=aac

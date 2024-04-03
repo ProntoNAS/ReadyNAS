@@ -1,0 +1,666 @@
+/*
+
+ The first half of this file defines the shell script strings in normal
+ shell script format.  The template will reformat them so that after they
+ pass through the C compiler, they will be restored to the form you see here
+ (with leading tabs stripped, per shell "heredoc" conventions).
+
+ */
+
+AutoGen Definitions scripts.tpl;
+
+#ifdef EMIT_TEMPLATE
+text = {
+  name = ;
+  body = <<- _EOBody_
+	
+	_EOBody_;
+};
+#endif
+
+
+text = {
+  name = break_line;
+  body = <<- _EOBody_
+	# ============= %s ==============
+	_EOBody_;
+};
+
+
+text = {
+  name = contents;
+  body = <<- _EOBody_
+	#
+	# This shar contains:
+	# length mode       name
+	# ------ ---------- ------------------------------------------
+	_EOBody_;
+};
+
+
+text = {
+  name = continue_archive;
+  body = <<- _EOBody_
+	#!/bin/sh
+	# This is `%s' (part %d of %s).
+	# Do not concatenate these parts, unpack them in order with `/bin/sh'.
+	# File `%s' is being continued...
+	#
+	lock_dir=_sh%05d
+	_EOBody_;
+};
+
+
+text = {
+  name = dev_tty_check;
+  body = <<- _EOBody_
+	if test -n "`ls /dev/tty 2>/dev/null`"
+	then shar_tty=/dev/tty
+	else shar_tty= ; fi
+	_EOBody_;
+};
+
+
+text = {
+  name = echo_checks;
+  body = <<- _EOBody_
+	if (echo "testing\c"; echo 1,2,3) | grep c >/dev/null
+	then if (echo -n test; echo 1,2,3) | grep n >/dev/null
+	     then shar_n= shar_c='
+	'
+	     else shar_n=-n shar_c= ; fi
+	else shar_n= shar_c='\c' ; fi
+	_EOBody_;
+};
+
+
+text = {
+  name = echo_string;
+  body = <<- _EOBody_
+	${echo} %s
+	_EOBody_;
+};
+
+
+text = {
+  name = file_leader;
+  body = <<- _EOBody_
+	#!/bin/sh
+	# This is %s%s archive (produced by GNU %s %s).
+	# To extract the files from this archive, save it to some FILE, remove
+	# everything before the `#!/bin/sh' line above, then type `sh FILE'.
+	#
+	lock_dir=_sh%05d
+	_EOBody_;
+};
+
+
+text = {
+  name = i18n;
+  body = <<- _EOBody_
+	save_IFS="${IFS}"
+	IFS="${IFS}:"
+	gettext_dir=FAILED
+	locale_dir=FAILED
+	first_param="$1"
+	for dir in $PATH
+	do
+	  if test "$gettext_dir" = FAILED && test -f $dir/gettext \
+	     && ($dir/gettext --version >/dev/null 2>&1)
+	  then
+	    case `$dir/gettext --version 2>&1 | sed 1q` in
+	      *GNU*) gettext_dir=$dir ;;
+	    esac
+	  fi
+	  if test "$locale_dir" = FAILED && test -f $dir/shar \
+	     && ($dir/shar --print-text-domain-dir >/dev/null 2>&1)
+	  then
+	    locale_dir=`$dir/shar --print-text-domain-dir`
+	  fi
+	done
+	IFS="$save_IFS"
+	if test "$locale_dir" = FAILED || test "$gettext_dir" = FAILED
+	then
+	  echo=echo
+	else
+	  TEXTDOMAINDIR=$locale_dir
+	  export TEXTDOMAINDIR
+	  TEXTDOMAIN=sharutils
+	  export TEXTDOMAIN
+	  echo="$gettext_dir/gettext -s"
+	fi
+	_EOBody_;
+};
+
+
+text = {
+  name = pre_exist;
+  body = <<- _EOBody_
+	if test -f %s && test "$first_param" != -c; then
+	_EOBody_;
+};
+
+
+text = {
+  name = md5check;
+  body = <<- _EOBody_
+	MD5SUM=${MD5SUM-md5sum}
+	f=`${MD5SUM} --version | egrep '^md5sum .*(core|text)utils'`
+	test -n "${f}" && md5check=true || md5check=false
+	${md5check} || \
+	  echo '%s'
+	_EOBody_;
+};
+
+
+text = {
+  name = md5test;
+  body = <<- _EOBody_
+	  if ${md5check}
+	  then (
+	       ${MD5SUM} -c >/dev/null 2>&1 || ${echo} %s: '%s'
+	       ) << \%s
+	_EOBody_;
+};
+
+
+text = {
+  name = query_answers;
+  body = <<- _EOBody_
+	ans_yes='%s'    yes_means='%s'
+	ans_no='%s'     no_means='%s'
+	ans_all='%s'    all_means='%s'
+	ans_none='%s'   none_means='%s'
+	ans_help='%s'   help_means='%s'
+	ans_quit='%s'   quit_means='%s'
+	user_answers='no yes all none help quit'
+	shar_wish='no'
+	ans_list="
+[<${ans_no}>, ${ans_yes}, ${ans_all}, ${ans_none}, ${ans_help}, ${ans_quit}] ? "
+
+	eval_ans='
+	if test -z "${shar_wish}" ; then answer=no ; else
+	  answer='help'
+	  case "${ans_yes}"  in "${shar_wish}"* ) answer=yes  ; break ;; esac
+	  case "${ans_no}"   in "${shar_wish}"* ) answer=no   ; break ;; esac
+	  case "${ans_all}"  in "${shar_wish}"* ) answer=all  ; break ;; esac
+	  case "${ans_none}" in "${shar_wish}"* ) answer=none ; break ;; esac
+	  case "${ans_quit}" in "${shar_wish}"* ) answer=quit ; break ;; esac
+	fi'
+	_EOBody_;
+};
+
+text = {
+  name = query_check;
+  body = <<- _EOBody_
+	  case "${shar_wish}" in
+	    quit) ${echo} '%s'; exit 1 ;;
+	    none) ${echo} 'x - %s' ; shar_skip=yes ;;
+	    no)   shar_skip=yes ;;
+	    yes | all)  shar_skip=no  ;;
+	  esac
+	else
+	  shar_skip=no
+	fi
+	if test $shar_skip = yes; then
+	  ${echo} 'x - %s'
+	_EOBody_;
+};
+
+
+text = {
+  name = query_user;
+  body = <<- _EOBody_
+	  while : ; do
+	    answer=${shar_wish}
+	    case $shar_wish in
+	      all) ${echo} %s ; break ;;
+	      none) break ;;
+	      *) ${echo} $shar_n "? - %s${ans_list}"$shar_c
+	         if test -n "$shar_tty"
+	         then read shar_wish < $shar_tty
+	         else read shar_wish
+	         fi
+	         eval "${eval_ans}" ;;
+	    esac
+	    shar_wish=help
+	    for f in ${user_answers}
+	    do eval printf "'%%-9s %%s\n'" \"\${ans_${f}}\" \"\${${f}_means}\"
+	    done
+	  done
+	  shar_wish=${answer}
+	_EOBody_;
+};
+
+
+text = {
+  name = split_mode;
+  body = <<- _EOBody_
+	  rm -f ${lock_dir}/new
+	else
+	  > ${lock_dir}/new
+	_EOBody_;
+};
+
+
+text = {
+  name = seq_check;
+  body = <<- _EOBody_
+	if test ! -r ${lock_dir}/seq; then
+	 ${echo} '%s'
+	  exit 1
+	fi
+	shar_sequence=`cat ${lock_dir}/seq`
+	test "$shar_sequence" = %d
+	_EOBody_;
+};
+
+
+text = {
+  name = shar_decode;
+  body = <<- _EOBody_
+	  uudecode ${lock_dir}/uue < ${lock_dir}/uue && \
+	_EOBody_;
+};
+
+text = {
+  name = shar_uncomp;
+  body = <<- _EOBody_
+	  compress -d < ${lock_dir}/cmp > %s && \
+	_EOBody_;
+};
+
+text = {
+  name = shar_gunzip;
+  body = <<- _EOBody_
+	  gzip -d < ${lock_dir}/gzi > %s && \
+	_EOBody_;
+};
+
+text = {
+  name = shar_bunzip;
+  body = <<- _EOBody_
+	  bzip2 -d < ${lock_dir}/bzi > %s && \
+	_EOBody_;
+};
+
+
+text = {
+  name = shar_touch;
+  body = <<- _EOBody_
+	  (set %02d %02d %02d %02d %02d %02d %02d %s
+	   eval "${shar_touch}") && \
+	_EOBody_;
+};
+
+
+text = {
+  name = show_all_status;
+  body = <<- _EOBody_
+	if %s
+	then ${echo} %s
+	else ${echo} %s%s
+	fi
+	_EOBody_;
+};
+
+
+text = {
+  name = show_bad_status;
+  body = <<- _EOBody_
+	if %s ; then :
+	else ${echo} %s%s
+	fi
+	_EOBody_;
+};
+
+
+text = {
+  name = show_good_status;
+  body = <<- _EOBody_
+	if %s
+	then ${echo} %s
+	fi
+	_EOBody_;
+};
+
+
+text = {
+  name = timestamp;
+  body = <<- _EOBody_
+	f=shar-touch.$$
+	st1=200112312359.59
+	st2=123123592001.59
+	st2tr=123123592001.5 # old SysV 14-char limit
+	st3=1231235901
+
+	if touch -am -t ${st1} ${f} >/dev/null 2>&1 && \
+	   test ! -f ${st1} && test -f ${f}; then
+	  shar_touch='touch -am -t $1$2$3$4$5$6.$7 "$8"'
+
+	elif touch -am ${st2} ${f} >/dev/null 2>&1 && \
+	   test ! -f ${st2} && test ! -f ${st2tr} && test -f ${f}; then
+	  shar_touch='touch -am $3$4$5$6$1$2.$7 "$8"'
+
+	elif touch -am ${st3} ${f} >/dev/null 2>&1 && \
+	   test ! -f ${st3} && test -f ${f}; then
+	  shar_touch='touch -am $3$4$5$6$2 "$8"'
+
+	else
+	  shar_touch=:
+	  echo
+	  ${echo} %s
+	  echo
+	fi
+	rm -f ${st1} ${st2} ${st2tr} ${st3} ${f}
+	#
+	_EOBody_;
+};
+
+/* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+ *
+ *  MESSAGES THAT MIGHT BE TRANSLATED FOR SHAR ARCHIVE USER:
+ *
+ *  Again, the answer to the rhetorical question, "Why bother?"
+ *
+ *  The answere here is the i18-n effort.  Because these strings are in an
+ *  inbetween world between shell scripting and human language, the quote
+ *  characters must be gotten correctly.  Here, they are all removed.
+ *  In shar.c, the desired string is put together and then a gnulib call
+ *  fixes up the quotes so it all works correctly.  This keeps bizarre
+ *  quoting rules away from translators who may not have a full appreciation
+ *  for their specialness.
+ */
+
+shar-msg = {
+  sm-name = not_verifying_sums;
+  sm-body = <<- _EOBody_
+	Note: not verifying md5sums.  Consider installing GNU coreutils.
+	_EOBody_;
+};
+
+shar-msg = {
+  sm-name   = time_not_set;
+  sm-xform  = apostrophe;
+  sm-body   = <<- _EOBody_
+	WARNING: not restoring timestamps.  Consider getting and
+	installing GNU `touch', distributed in GNU coreutils...
+	_EOBody_;
+};
+
+shar-msg = {
+  sm-name   = lock_dir_exists;
+  sm-xform  = dbl_quote;
+  sm-body   = "lock directory %s exists";
+};
+
+shar-msg = {
+  sm-name   = no_lock_dir;
+  sm-xform  = dbl_quote;
+  sm-body   = "failed to create %s lock directory";
+};
+
+shar-msg = {
+  sm-name   = x_lock_dir_created;
+  sm-xform  = dbl_quote;
+  sm-body   = "x - created lock directory %s.";
+};
+
+shar-msg = {
+  sm-name   = x_no_lock_dir;
+  sm-xform  = dbl_quote;
+  sm-body   = "x - failed to create lock directory %s.";
+};
+
+shar-msg = {
+  sm-name   = x_dir_created;
+  sm-xform  = dbl_quote;
+  sm-body   = "x - created directory %s.";
+};
+
+shar-msg = {
+  sm-name   = x_no_dir;
+  sm-xform  = dbl_quote;
+  sm-body   = "x - failed to create directory %s.";
+};
+
+shar-msg = {
+  sm-name = ans_yes;
+  sm-body = yes;
+};
+
+shar-msg = {
+  sm-name = yes_means;
+  sm-body = "overwrite this file";
+};
+
+shar-msg = {
+  sm-name = ans_no;
+  sm-body = "no";
+};
+
+shar-msg = {
+  sm-name = no_means;
+  sm-body = "skip this file";
+};
+
+shar-msg = {
+  sm-name = ans_all;
+  sm-body = "all";
+};
+
+shar-msg = {
+  sm-name = all_means;
+  sm-body = "overwrite all files";
+};
+
+shar-msg = {
+  sm-name = ans_none;
+  sm-body = "none";
+};
+
+shar-msg = {
+  sm-name = none_means;
+  sm-body = "overwrite no files";
+};
+
+shar-msg = {
+  sm-name = ans_help;
+  sm-body = "help";
+};
+
+shar-msg = {
+  sm-name = help_means;
+  sm-body = "explain choices";
+};
+
+shar-msg = {
+  sm-name = ans_quit;
+  sm-body = "quit";
+};
+
+shar-msg = {
+  sm-name = quit_means;
+  sm-body = "exit immediately";
+};
+
+shar-msg = {
+  sm-name   = out_of_seq;
+  sm-xform  = dbl_quote;
+  sm-body   = <<- _EOBody_
+	Archives must be unpacked in sequence!
+	Please unpack part `cat ${lock_dir}/seq` next.
+	_EOBody_;
+};
+
+shar-msg = {
+  sm-name   = restore_failed;
+  sm-xform  = dbl_quote;
+  sm-body   = "restore of %s failed";
+};
+
+shar-msg = {
+  sm-name   = end_of_part;
+  sm-xform  = dbl_quote;
+  sm-body   = "End of part %d, continue with part %d";
+};
+
+shar-msg = {
+  sm-name = s_end_of_part;
+  sm-body = "End of %s part %d";
+};
+
+shar-msg = {
+  sm-name    = bad_size;
+  sm-xform   = dbl_quote;
+  sm-body    = "restoration warning:  size of %s is not %s";
+};
+
+shar-msg = {
+  sm-name = type_text;
+  sm-body = "(text)";
+};
+
+shar-msg = {
+  sm-name = type_compressed;
+  sm-body = "(compressed)";
+};
+
+shar-msg = {
+  sm-name = type_gzip;
+  sm-body = "(gzipped)";
+};
+
+shar-msg = {
+  sm-name = type_bzip;
+  sm-body = "(bzipped)";
+};
+
+shar-msg = {
+  sm-name = type_binary;
+  sm-body = "(binary)";
+};
+
+shar-msg = {
+  sm-name = word_archive;
+  sm-body = "archive";
+};
+
+shar-msg = {
+  sm-name = contin_in_part;
+  sm-body = "File %s is continued in part %d";
+};
+
+shar-msg = {
+  sm-name = unpack_part_1;
+  sm-body = "Please unpack part 1 first!";
+};
+
+shar-msg = {
+  sm-name   = unpack_next_part;
+  sm-xform  = dbl_quote;
+  sm-body   = "Please unpack part ${shar_sequence} next!";
+};
+
+shar-msg = {
+  sm-name   = still_skipping;
+  sm-xform  = dbl_quote;
+  sm-body   = "x - STILL SKIPPING %s";
+};
+
+shar-msg = {
+  sm-name   = continuing;
+  sm-xform  = dbl_quote;
+  sm-body   = "continuing file %s";
+};
+
+shar-msg = {
+  sm-name = is_empty;
+  sm-body = "(empty)";
+};
+
+shar-msg = {
+  sm-name   = overwriting;
+  sm-xform  = dbl_quote;
+  sm-body   = "x - overwriting %s";
+};
+
+shar-msg = {
+  sm-name   = overwrite;
+  sm-body   = "overwrite %s";
+};
+
+shar-msg = {
+  sm-name   = skipping;
+  sm-xform  = dbl_quote;
+  sm-body   = "SKIPPING %s";
+};
+
+shar-msg = {
+  sm-name = extract_aborted;
+  sm-body = "extraction aborted";
+};
+
+shar-msg = {
+  sm-name   = skip_exist;
+  sm-xform  = dbl_quote;
+  sm-body   = "x - SKIPPING %s (file already exists)";
+};
+
+shar-msg = {
+  sm-name   = x_extracting;
+  sm-xform  = dbl_quote;
+  sm-body   = "x - extracting %s %s";
+};
+
+shar-msg = {
+  sm-name   = file_complete;
+  sm-xform  = dbl_quote;
+  sm-body   = "File %s is complete";
+};
+
+shar-msg = {
+  sm-name   = uudec_file;
+  sm-xform  = dbl_quote;
+  sm-body   = "uudecoding file %s";
+};
+
+shar-msg = {
+  sm-name   = uncomp_file;
+  sm-xform  = dbl_quote;
+  sm-body   = "uncompressing file %s";
+};
+
+shar-msg = {
+  sm-name   = gunzip_file;
+  sm-xform  = dbl_quote;
+  sm-body   = "gunzipping file %s";
+};
+
+shar-msg = {
+  sm-name   = bunzip_file;
+  sm-xform  = dbl_quote;
+  sm-body   = "bunzipping file %s";
+};
+
+shar-msg = {
+  sm-name = md5_check_failed;
+  sm-body = "MD5 check failed";
+};
+
+shar-msg = {
+  sm-name = you_are_done;
+  sm-body = "You have unpacked the last part";
+};
+
+shar-msg = {
+  sm-name   = x_rem_lock_dir;
+  sm-xform  = dbl_quote;
+  sm-body   = "x - removed lock directory %s.";
+};
+
+shar-msg = {
+  sm-name   = x_no_rem_lock_dir;
+  sm-xform  = dbl_quote;
+  sm-body   = "x - failed to remove lock directory %s.";
+};

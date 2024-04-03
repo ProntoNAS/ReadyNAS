@@ -1,0 +1,175 @@
+* Add support for printing completion percentage to LCD and RAIDar.
+--- a/quotacheck.c	2010-02-17 11:49:17.000000000 +0000
++++ b/quotacheck.c	2010-11-17 00:39:13.000000000 +0000
+@@ -33,6 +33,11 @@
+ #include <ext2fs/ext2fs.h>
+ #endif
+ 
++#if defined(READYNAS_LCD)
++#include <sys/time.h>
++#include <libreadynas_lgpl/readynas.h>
++#endif
++
+ #include "pot.h"
+ #include "common.h"
+ #include "quotaio.h"
+@@ -64,6 +69,12 @@ struct dirs {
+ 
+ dev_t cur_dev;			/* Device we are working on */
+ int files_done, dirs_done;
++#ifdef READYNAS_LCD
++int update_lcd = 0;		/* Do we want to print status to LCD? */
++int used_inodes = 0;
++int last_percent = 0;
++time_t last_update = 0;
++#endif // READYNAS_LCD
+ int flags, fmt = -1, cfmt;	/* Options from command line; Quota format to use spec. by user; Actual format to check */
+ int uwant, gwant, ucheck, gcheck;	/* Does user want to check user/group quota; Do we check user/group quota? */
+ char *mntpoint;			/* Mountpoint to check */
+@@ -416,6 +427,74 @@ static void parse_options(int argcnt, ch
+ 		mntpoint = NULL;
+ }
+ 
++#ifdef READYNAS_LCD
++static int readynas_print_lcd (int whole) {
++	FILE *enclog;
++	char *line = NULL;
++	int fixed_percent = 0;
++	int dec = 0;
++	char mesg[18];
++	struct timeval now_time;
++
++	if (!update_lcd)
++		return(0);
++
++	if (whole < 0) {
++		debug(FL_DEBUG, _("%d of %d inodes finished.\n"), (dirs_done+files_done), used_inodes);
++		gettimeofday(&now_time, NULL);
++		if ((now_time.tv_sec - last_update) < 2)
++			return(1);
++		whole = (((files_done+dirs_done)*97) / used_inodes);
++		dec = (((((files_done+dirs_done)*97) % used_inodes) * 10) / used_inodes);
++		fixed_percent = ((whole*10) + dec);
++		if (fixed_percent <= last_percent)
++			return(1);
++		debug(FL_DEBUG, _("%3d.%1d%% (%d/%d) done with scan.\n"), whole, dec, (files_done+dirs_done), used_inodes);
++		last_percent = fixed_percent;
++		last_update = now_time.tv_sec;
++	}
++
++	/* Show status on RAIDar */
++	static char status[32];
++	size_t len = 0, slen, flen, last_line = 0, updated = 0;
++	int read;
++
++	slen = snprintf(status, sizeof(status), "Boot!!QUOTA_CHECK!!%3d.%1d%%\n", whole, dec);
++	if ((enclog = fopen("/var/log/frontview/enclosure.log", "r+")))
++	{
++		while ((read = getline(&line, &len, enclog)) != -1)
++		{
++			if (strncmp(line, "Boot!", 5) == 0)
++			{
++				if (read == slen)
++				{
++					fseek(enclog, last_line, SEEK_SET);
++					fwrite(status, 1, slen, enclog);
++					updated = 1;
++				}
++			}
++			last_line = ftell(enclog);
++		}
++		if (feof(enclog) && !updated)
++		{
++			fseek(enclog, 0, SEEK_END);
++			flen = ftell(enclog);
++			fseek(enclog, slen, SEEK_END);
++			fseek(enclog, flen, SEEK_SET);
++			fwrite(status, 1, slen, enclog);
++		}
++		fclose(enclog);
++		if (line)
++			free(line);
++	}
++
++	sprintf(mesg, "Quota chk: %2d.%1d%%", whole, dec);
++	readynas_lcd_disp_line(2, mesg);
++
++	return(1);
++}
++#endif // READYNAS_LCD
++
+ #if defined(EXT2_DIRECT)
+ static int ext2_direct_scan(char *device)
+ {
+@@ -459,6 +538,9 @@ static int ext2_direct_scan(char *device
+ 		if ((i_num == EXT2_ROOT_INO ||
+ 		     i_num >= EXT2_FIRST_INO(fs->super)) &&
+ 		    inode.i_links_count) {
++#ifdef READYNAS_LCD
++			readynas_print_lcd(-1);
++#endif // READYNAS_LCD
+ 			debug(FL_DEBUG, _("Found i_num %ld, blocks %ld\n"), (long)i_num, (long)inode.i_blocks);
+ 			if (flags & FL_VERBOSE)
+ 				blit(NULL);
+@@ -560,6 +642,9 @@ static int scan_dir(char *pathname)
+ 			      (long long)st.st_size, (int)st.st_ino, (int)st.st_nlink, (int)st.st_uid, (int)st.st_gid);
+ 			files_done++;
+ 		}
++#ifdef READYNAS_LCD
++		readynas_print_lcd(-1);
++#endif // READYNAS_LCD
+ 	}
+ 	closedir(dp);
+ 
+@@ -886,6 +971,9 @@ static void check_dir(struct mntent *mnt
+ {
+ 	struct stat st;
+ 	int remounted = 0;
++#ifdef READYNAS_LCD
++	struct statfs fsd;
++#endif // READYNAS_LCD
+ 
+ 	if (lstat(mnt->mnt_dir, &st) < 0)
+ 		die(2, _("Cannot stat mountpoint %s: %s\n"), mnt->mnt_dir, strerror(errno));
+@@ -924,6 +1012,17 @@ Please stop all programs writing to file
+ 		debug(FL_DEBUG, _("Filesystem remounted read-only\n"));
+ 	}
+ 	debug(FL_VERBOSE, _("Scanning %s [%s] "), mnt->mnt_fsname, mnt->mnt_dir);
++#ifdef READYNAS_LCD
++	debug(FL_DEBUG, _("Doing statfs on %s\n"), mnt->mnt_dir);
++	if( statfs(mnt->mnt_dir, &fsd) ) {
++		debug(FL_DEBUG, _("ERROR: statfs() returned error"));
++	}
++	else {
++		used_inodes = (fsd.f_files-fsd.f_ffree);
++		debug(FL_DEBUG, _("Found about %d inodes to check.\n"), used_inodes);
++	}
++	update_lcd = readynas_lcd_is_supported();
++#endif // READYNAS_LCD
+ #if defined(EXT2_DIRECT)
+ 	if (!strcmp(mnt->mnt_type, MNTTYPE_EXT2) || !strcmp(mnt->mnt_type, MNTTYPE_EXT3)) {
+ 		if (ext2_direct_scan(mnt->mnt_fsname) < 0)
+@@ -956,10 +1055,23 @@ Please stop all programs writing to file
+ 			die(4, _("Cannot remount filesystem %s read-write. cannot write new quota files.\n"), mnt->mnt_dir);
+ 		debug(FL_DEBUG, _("Filesystem remounted RW.\n"));
+ 	}
++#ifndef READYNAS_LCD
+ 	if (ucheck)
+ 		dump_to_file(mnt, USRQUOTA);
+ 	if (gcheck)
+ 		dump_to_file(mnt, GRPQUOTA);
++#else
++	if (ucheck) {
++		readynas_print_lcd(98);
++		dump_to_file(mnt, USRQUOTA);
++	}
++	if (gcheck) {
++		readynas_print_lcd(99);
++		dump_to_file(mnt, GRPQUOTA);
++	}
++	if (update_lcd)
++		readynas_print_lcd(100);
++#endif // READYNAS_LCD
+ out:
+ 	remove_list();
+ }

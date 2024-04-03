@@ -1,0 +1,45 @@
+#!/bin/sh -e
+
+case "$1" in
+	configure|reconfigure)
+		# continue
+		;;
+	abort-upgrade|abort-remove|abort-deconfigure)
+		exit 0
+		;;
+	*)
+		echo "postinst called with unknown argument \`$1'" >&2
+		exit 0
+		;;
+esac
+
+# debconf
+. /usr/share/debconf/confmodule
+
+INITCONFFILE=/etc/default/wide-dhcpv6-server
+
+echo "Generating ${INITCONFFILE}..." >&2
+cat >$INITCONFFILE <<'EOFINITCONFFILE'
+# Defaults for dhcpv6 server initscript
+# Used by /etc/init.d/wide-dhcpv6-server
+
+# Interfaces on which the server should serve DHCPv6 requests. If empty, the 
+# server is deactivated.
+INTERFACES=""
+EOFINITCONFFILE
+
+# Debconf
+db_get wide-dhcpv6-server/interfaces || true
+INTERFACES=${RET}
+
+TMPFILE=`mktemp -q ${INITCONFFILE}.new.XXXXXX`
+sed -e "s,^[[:space:]]*INTERFACES[[:space:]]*=.*,INTERFACES=\"${INTERFACES}\"," \
+       	<${INITCONFFILE} >${TMPFILE}
+cp ${TMPFILE} ${INITCONFFILE}
+rm ${TMPFILE}
+
+db_stop
+
+#DEBHELPER#
+
+exit 0

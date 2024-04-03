@@ -1,0 +1,69 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+CFLAGS = -Wall -g
+
+ifneq (,$(filter noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2
+endif
+
+lib := libbsd0
+libdbg := $(lib)-dbg
+libudeb := $(lib)-udeb
+libdev := libbsd-dev
+
+build-indep:
+
+build-arch:
+	dh_testdir
+	
+	$(MAKE)
+
+build: build-indep build-arch
+
+clean:
+	dh_testdir
+	dh_testroot
+	
+	$(MAKE) clean
+	
+	dh_clean
+
+install-arch: build-arch
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+	
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp
+
+binary-indep:
+# Nothing to do.
+
+binary-arch: install-arch
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs ChangeLog
+	dh_installdocs
+	dh_installexamples
+	dh_install
+	dh_link
+	dh_strip --dbg-package=$(libdbg)
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs --add-udeb=$(libudeb)
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+
+.PHONY: install-arch
+.PHONY: clean build-indep build-arch build binary-indep binary-arch binary
+

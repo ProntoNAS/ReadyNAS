@@ -1,0 +1,56 @@
+#! /usr/bin/make -f
+# Build the gnutls package for Debian.
+
+CFLAGS += -D_REENTRANT
+ifeq ($(DEB_BUILD_ARCH),hppa)
+	CFLAGS += -fno-gcse
+endif
+
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/autotools.mk
+
+DEB_CONFIGURE_EXTRA_FLAGS = --enable-ld-version-script --disable-cxx --without-lzo --enable-guile --with-guile-site-dir=/usr/share/guile/site --cache-file=$(CURDIR)/config.cache
+DEB_MAKE_CHECK_TARGET = check
+DEB_DH_STRIP_ARGS = --dbg-package=libgnutls26-dbg
+DEB_DH_MAKESHLIBS_ARGS_libgnutls26 := -V 'libgnutls26 (>=2.7.14-0)'
+DEB_DH_MAKESHLIBS_ARGS_guile-gnutls := -V 'guile-gnutls (>=2.7.14-0)'
+DEB_COMPRESS_EXCLUDE := gnutls.pdf
+
+# pre-clean rule: save gnutls.pdf since it is expensive to regenerate.
+# See README.source
+cleanbuilddir/gnutls-doc::
+	if [ -e doc/gnutls.pdf ] ; then mv doc/gnutls.pdf doc/gnutls.pdf.debbackup ; fi
+
+
+# additional commands for clean
+clean::
+	mkdir -p m4
+
+	-rm -rf autom4te.cache
+
+	-rm -f tests/stamp-tests
+	# stupid conflicts
+	-rm -f doc/*.info* lib/po/libgnutls26.pot
+	# restore gnutls.pdf
+	if [ -e doc/gnutls.pdf.debbackup ] && [ ! -e doc/gnutls.pdf ] ; then mv doc/gnutls.pdf.debbackup doc/gnutls.pdf ; fi
+
+# additional comands for build rule
+build/gnutls-doc::
+	$(MAKE) html
+
+# add post deb preparation (including debhelper stuff) actions
+# generate symlinks manually and use dh_link to make them policy-conform.
+binary-install/gnutls-doc::
+	cd debian/gnutls-doc && \
+	for i in usr/share/doc/gnutls-doc/html/gnutls*.png ; do \
+		i=`basename "$$i"` ; \
+		ln -s "/usr/share/doc/gnutls-doc/html/$$i" \
+			usr/share/info/ ; \
+	done && \
+	cd ../.. && \
+	dh_link -pgnutls-doc
+
+install/libgnutls-dev::
+	find debian/tmp/usr/lib -name "*.la" -exec \
+		sed -i -e "s,^dependency_libs=.*,dependency_libs=''," {} +
+

@@ -1,0 +1,180 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 04_up_down_beep_options.dpatch by Y Giridhar Appaji Nag <giridhar@appaji.net>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Implement --no-beep-up and --no-beep-down options
+
+@DPATCH@
+diff -urNad ifplugd-0.28~/man/ifplugd.8 ifplugd-0.28/man/ifplugd.8
+--- ifplugd-0.28~/man/ifplugd.8	2008-04-04 16:30:15.000000000 +0530
++++ ifplugd-0.28/man/ifplugd.8	2008-04-04 16:30:53.000000000 +0530
+@@ -22,7 +22,13 @@
+ Do not use syslog, use stdout instead (for debugging) (default: off). 
+ .TP
+ \fB\-b | \-\-no-beep\f1
+-Do not beep (off) 
++Do not beep (off), overrides \fB\-\-no-beep-up\f1 and \fB\-\-no-beep-down\f1.
++.TP
++\fB\-U | \-\-no-beep-up\f1
++Do not beep on interface up (off)
++.TP
++\fB\-D | \-\-no-beep-down\f1
++Do not beep on interface down (off)
+ .TP
+ \fB\-f | \-\-ignore-fail\f1
+ Ignore detection failure, retry instead. Failure is treated as "no link". (default: off) 
+diff -urNad ifplugd-0.28~/man/ifplugd.8.xml.in ifplugd-0.28/man/ifplugd.8.xml.in
+--- ifplugd-0.28~/man/ifplugd.8.xml.in	2008-04-04 16:30:15.000000000 +0530
++++ ifplugd-0.28/man/ifplugd.8.xml.in	2008-04-04 16:30:15.000000000 +0530
+@@ -73,7 +73,21 @@
+ 	  <option>
+ 		<p><opt>-b | --no-beep</opt></p>
+ 		<optdesc><p>
+-			Do not beep (off)
++			Do not beep (off), overrides <opt>--no-beep-up</opt> and <opt>--no-beep-down</opt>.
++		  </p></optdesc>
++	  </option>
++	  
++	  <option>
++		<p><opt>-U | --no-beep-up</opt></p>
++		<optdesc><p>
++			Do not beep on interface up (off)
++		  </p></optdesc>
++	  </option>
++	  
++	  <option>
++		<p><opt>-D | --no-beep-down</opt></p>
++		<optdesc><p>
++			Do not beep on interface down (off)
+ 		  </p></optdesc>
+ 	  </option>
+ 	  
+diff -urNad ifplugd-0.28~/src/ifplugd.c ifplugd-0.28/src/ifplugd.c
+--- ifplugd-0.28~/src/ifplugd.c	2008-04-04 16:28:48.000000000 +0530
++++ ifplugd-0.28/src/ifplugd.c	2008-04-04 16:30:15.000000000 +0530
+@@ -73,6 +73,8 @@
+ 
+ int daemonize = 1,
+     use_beep = 1,
++    beep_on_up = 1,
++    beep_on_down = 1,
+     no_startup_script = 0,
+     no_shutdown_script = 0,
+     wait_on_fork = 0,
+@@ -126,6 +128,18 @@
+     return;
+ }
+ 
++static void beep_up(int b) {
++	if(!beep_on_up)
++		return;
++	beep(b);
++}
++
++static void beep_down(int b) {
++	if(!beep_on_down)
++		return;
++	beep(b);
++}
++
+ const char *pid_file_proc() {
+     static char fn[PATH_MAX];
+     snprintf(fn, sizeof(fn), "%s/ifplugd.%s.pid", VARRUN, interface);
+@@ -237,13 +251,13 @@
+ 
+     if (!WIFEXITED(r) || WEXITSTATUS(r) != 0) {
+         if (status == IFSTATUS_UP)
+-            beep(2);
++            beep_up(2);
+         daemon_log(LOG_ERR, "Program execution failed, return value is %i.", WEXITSTATUS(r));
+ 
+         return ignore_retval ? 0 : -1;
+     } else {
+         if (status == IFSTATUS_UP)
+-            beep(0);
++            beep_up(0);
+ 
+         daemon_log(LOG_INFO, "Program executed successfully.");
+         return 0;
+@@ -440,7 +454,10 @@
+         goto finish;
+     
+     daemon_log(LOG_INFO, "Initialization complete, link beat %sdetected%s.", status == IFSTATUS_UP ? "" : "not ", use_ifmonitor ? (disabled ? ", interface disabled" : ", interface enabled") : "");
+-    beep(status == IFSTATUS_UP ? 0 : 1);
++    if(status == IFSTATUS_UP)
++        beep_up(0);
++    else
++        beep_down(1);
+ 
+     if ((!no_startup_script && status == IFSTATUS_UP) || initial_down)
+         if (action(status) < 0)
+@@ -513,7 +530,10 @@
+ 
+         if (status != s) {
+             daemon_log(LOG_INFO, "Link beat %s.", status == IFSTATUS_DOWN ? "lost" : "detected");
+-            beep(status == IFSTATUS_UP ? 0 : 1);
++            if(status == IFSTATUS_UP)
++                beep_up(0);
++            else
++                beep_down(1);
+             
+             if (t)
+                 t = 0;
+@@ -586,7 +606,7 @@
+         setenv(IFPLUGD_ENV_PREVIOUS, strstatus(status), 1);
+         setenv(IFPLUGD_ENV_CURRENT, strstatus(-1), 1);
+         action(IFSTATUS_DOWN);
+-        beep(1);
++        beep_down(1);
+     }
+     
+ finish:
+@@ -628,6 +648,8 @@
+            "   -n --no-daemon            Do not daemonize (for debugging) (%s)\n"
+            "   -s --no-syslog            Do not use syslog, use stderr instead (for debugging) (%s)\n"
+            "   -b --no-beep              Do not beep (%s)\n"
++           "   -U --no-beep-up           Do not beep on interface up (%s)\n"
++           "   -D --no-beep-down         Do not beep on interface down (%s)\n"
+            "   -f --ignore-fail          Ignore detection failure, retry instead (failure is treated as DOWN) (%s)\n"
+            "   -F --ignore-fail-positive Ignore detection failure, retry instead (failure is treated as UP) (%s)\n"
+            "   -i --iface=IFACE          Specify ethernet interface (%s)\n"
+@@ -656,6 +678,8 @@
+            !daemonize ? "on" : "off",
+            !use_syslog ? "on" : "off",
+            !use_beep ? "on" : "off",
++           !beep_on_up ? "on" : "off",
++           !beep_on_down ? "on" : "off",
+            failure_status == IFSTATUS_DOWN ? "on" : "off",
+            failure_status == IFSTATUS_UP ? "on" : "off",
+            interface,
+@@ -679,6 +703,8 @@
+         {"no-daemon",            no_argument, 0, 'n'},
+         {"no-syslog",            no_argument, 0, 's'},
+         {"no-beep",              no_argument, 0, 'b'},
++        {"no-beep-up",           no_argument, 0, 'U'},
++        {"no-beep-down",         no_argument, 0, 'D'},
+         {"ignore-fail",          no_argument, 0, 'f'},
+         {"ignore-fail-positive", no_argument, 0, 'F'},
+         {"ignore-retval",        no_argument, 0, 'I'},
+@@ -710,7 +736,7 @@
+     for (;;) {
+         int c;
+         
+-        if ((c = getopt_long(argc, argv, "asni:r:t:u:d:hkbfFvm:pqwx:cISRzlMW", long_options, &option_index)) < 0)
++        if ((c = getopt_long(argc, argv, "asni:r:t:u:d:hkbUDfFvm:pqwx:cISRzlMW", long_options, &option_index)) < 0)
+             break;
+ 
+         switch (c) {
+@@ -759,6 +785,12 @@
+             case 'b':
+                 use_beep = !use_beep;
+                 break;
++            case 'U':
++                beep_on_up = !beep_on_up;
++                break;
++            case 'D':
++                beep_on_down = !beep_on_down;
++                break;
+             case 'f':
+                 failure_status = IFSTATUS_DOWN;
+                 break;

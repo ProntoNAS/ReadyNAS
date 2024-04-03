@@ -1,0 +1,158 @@
+From 2a699bc6e94b8223d900e8880ad628aebf17ab6d Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Mon, 6 Feb 2012 22:12:06 +0100
+Subject: [PATCH 1/2] CURLOPT_SSL_OPTIONS: added
+
+Allow an appliction to set libcurl specific SSL options. The first and
+only options supported right now is CURLSSLOPT_ALLOW_BEAST.
+
+It will make libcurl to disable any work-arounds the underlying SSL
+library may have to address a known security flaw in the SSL3 and TLS1.0
+protocol versions.
+
+This is a reaction to us unconditionally removing that behavior after
+this security advisory:
+
+http://curl.haxx.se/docs/adv_20120124B.html
+
+... it did however cause a lot of programs to fail because of old
+servers not liking this work-around. Now programs can opt to decrease
+the security in order to interoperate with old servers better.
+---
+ docs/libcurl/curl_easy_setopt.3  |   10 ++++++++++
+ docs/libcurl/symbols-in-versions |    2 ++
+ include/curl/curl.h              |   12 ++++++++++++
+ lib/ssluse.c                     |    5 ++++-
+ lib/url.c                        |   15 ++++++++++-----
+ lib/urldata.h                    |    2 ++
+ 6 files changed, 40 insertions(+), 6 deletions(-)
+
+--- a/docs/libcurl/curl_easy_setopt.3
++++ b/docs/libcurl/curl_easy_setopt.3
+@@ -1964,6 +1964,16 @@
+ cache. While nothing ever should get hurt by attempting to reuse SSL
+ session-IDs, there seem to be broken SSL implementations in the wild that may
+ require you to disable this in order for you to succeed. (Added in 7.16.0)
++.IP CURLOPT_SSL_OPTIONS
++Pass a long with a bitmask to tell libcurl about specific SSL behaviors.
++
++CURLSSLOPT_ALLOW_BEAST is the only supported bit and by setting this the user
++will tell libcurl to not attempt to use any work-arounds for a security flaw
++in the SSL3 and TLS1.0 protocols.  If this option isn't used or this bit is
++set to 0, the SSL layer libcurl uses may use a work-around for this flaw
++although it might cause interoperability problems with some (older) SSL
++implementations. WARNING: avoiding this work-around loosens the security, and
++by setting this option to 1 you ask for exactly that. (Added in 7.25.0)
+ .IP CURLOPT_KRBLEVEL
+ Pass a char * as parameter. Set the kerberos security level for FTP; this also
+ enables kerberos awareness.  This is a string, \&'clear', \&'safe',
+--- a/docs/libcurl/symbols-in-versions
++++ b/docs/libcurl/symbols-in-versions
+@@ -368,6 +368,7 @@
+ CURLOPT_SSL_CIPHER_LIST         7.9
+ CURLOPT_SSL_CTX_DATA            7.10.6
+ CURLOPT_SSL_CTX_FUNCTION        7.10.6
++CURLOPT_SSL_OPTIONS             7.25.0
+ CURLOPT_SSL_SESSIONID_CACHE     7.16.0
+ CURLOPT_SSL_VERIFYHOST          7.8.1
+ CURLOPT_SSL_VERIFYPEER          7.4.2
+@@ -430,6 +431,7 @@
+ CURLSSH_AUTH_NONE               7.16.1
+ CURLSSH_AUTH_PASSWORD           7.16.1
+ CURLSSH_AUTH_PUBLICKEY          7.16.1
++CURLSSLOPT_ALLOW_BEAST          7.25.0
+ CURLUSESSL_ALL                  7.17.0
+ CURLUSESSL_ALL                  7.17.0
+ CURLUSESSL_CONTROL              7.17.0
+--- a/include/curl/curl.h
++++ b/include/curl/curl.h
+@@ -646,6 +646,15 @@
+   CURLUSESSL_LAST     /* not an option, never use */
+ } curl_usessl;
+ 
++/* Definition of bits for the CURLOPT_SSL_OPTIONS argument: */
++
++/* - ALLOW_BEAST tells libcurl to allow the BEAST SSL vulnerability in the
++   name of improving interoperability with older servers. Some SSL libraries
++   have introduced work-arounds for this flaw but those work-arounds sometimes
++   make the SSL communication fail. To regain functionality with those broken
++   servers, a user can this way allow the vulnerability back. */
++#define CURLSSLOPT_ALLOW_BEAST (1<<0)
++
+ #ifndef CURL_NO_OLDIES /* define this to test if your app builds with all
+                           the obsolete stuff removed! */
+ 
+@@ -1435,6 +1444,9 @@
+   /* FNMATCH_FUNCTION user pointer */
+   CINIT(FNMATCH_DATA, OBJECTPOINT, 202),
+ 
++  /* Enable/disable specific SSL features with a bitmask, see CURLSSLOPT_* */
++  CINIT(SSL_OPTIONS, LONG, 216),
++
+   CURLOPT_LASTENTRY /* the last unused */
+ } CURLoption;
+ 
+--- a/lib/ssluse.c
++++ b/lib/ssluse.c
+@@ -1525,7 +1525,10 @@
+   ctx_options |= SSL_OP_NO_TICKET;
+ #endif
+ #ifdef SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS
+-  ctx_options &= ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS;
++  /* unless the user explicitly ask to allow the protocol vulnerability we
++     use the work-around */
++  if(!conn->data->set.ssl_enable_beast)
++    ctx_options &= ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS;
+ #endif
+ 
+   SSL_CTX_set_options(connssl->ctx, ctx_options);
+--- a/lib/url.c
++++ b/lib/url.c
+@@ -869,6 +869,7 @@
+ {
+   char *argptr;
+   CURLcode result = CURLE_OK;
++  long arg;
+ #ifndef CURL_DISABLE_HTTP
+   curl_off_t bigsize;
+ #endif
+@@ -878,12 +879,9 @@
+     data->set.dns_cache_timeout = va_arg(param, long);
+     break;
+   case CURLOPT_DNS_USE_GLOBAL_CACHE:
+-  {
+-    /* remember we want this enabled */
+-    long use_cache = va_arg(param, long);
+-    data->set.global_dns_cache = (bool)(0 != use_cache);
+-  }
+-  break;
++    arg = va_arg(param, long);
++    data->set.global_dns_cache = (0 != arg)?TRUE:FALSE;
++    break;
+   case CURLOPT_SSL_CIPHER_LIST:
+     /* set a list of cipher we want to use in the SSL connection */
+     result = setstropt(&data->set.str[STRING_SSL_CIPHER_LIST],
+@@ -2019,6 +2017,12 @@
+   case CURLOPT_CERTINFO:
+     data->set.ssl.certinfo = (bool)(0 != va_arg(param, long));
+     break;
++
++  case CURLOPT_SSL_OPTIONS:
++    arg = va_arg(param, long);
++    data->set.ssl_enable_beast = arg&CURLSSLOPT_ALLOW_BEAST?TRUE:FALSE;
++    break;
++
+ #endif
+   case CURLOPT_CAINFO:
+     /*
+--- a/lib/urldata.h
++++ b/lib/urldata.h
+@@ -1404,6 +1404,8 @@
+   bool ftp_skip_ip;      /* skip the IP address the FTP server passes on to
+                             us */
+   bool connect_only;     /* make connection, let application use the socket */
++  bool ssl_enable_beast; /* especially allow this flaw for interoperability's
++                            sake*/
+   long ssh_auth_types;   /* allowed SSH auth types */
+   bool http_te_skip;     /* pass the raw body data to the user, even when
+                             transfer-encoded (chunked, compressed) */

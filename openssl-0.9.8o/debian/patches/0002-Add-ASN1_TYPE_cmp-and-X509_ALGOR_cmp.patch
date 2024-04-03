@@ -1,0 +1,116 @@
+From c22e2dd6e52899926d1f1ee3a2b5b9570d03130f Mon Sep 17 00:00:00 2001
+From: "Dr. Stephen Henson" <steve@openssl.org>
+Date: Sun, 14 Dec 2014 23:14:15 +0000
+Subject: [PATCH 02/15] Add ASN1_TYPE_cmp and X509_ALGOR_cmp.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+(these are needed for certificate fingerprint fixes)
+Reviewed-by: Emilia Käsper <emilia@openssl.org>
+---
+ crypto/asn1/a_type.c  | 46 ++++++++++++++++++++++++++++++++++++++++++++++
+ crypto/asn1/asn1.h    |  1 +
+ crypto/asn1/x_algor.c | 10 ++++++++++
+ crypto/x509/x509.h    |  1 +
+ 4 files changed, 58 insertions(+)
+
+diff --git a/crypto/asn1/a_type.c b/crypto/asn1/a_type.c
+index 36becea..b7a95ad 100644
+--- a/crypto/asn1/a_type.c
++++ b/crypto/asn1/a_type.c
+@@ -108,3 +108,49 @@ int ASN1_TYPE_set1(ASN1_TYPE *a, int type, const void *value)
+ 
+ IMPLEMENT_STACK_OF(ASN1_TYPE)
+ IMPLEMENT_ASN1_SET_OF(ASN1_TYPE)
++
++/* Returns 0 if they are equal, != 0 otherwise. */
++int ASN1_TYPE_cmp(const ASN1_TYPE *a, const ASN1_TYPE *b)
++	{
++	int result = -1;
++
++	if (!a || !b || a->type != b->type) return -1;
++
++	switch (a->type)
++		{
++	case V_ASN1_OBJECT:
++		result = OBJ_cmp(a->value.object, b->value.object);
++		break;
++	case V_ASN1_NULL:
++		result = 0;	/* They do not have content. */
++		break;
++	case V_ASN1_INTEGER:
++	case V_ASN1_NEG_INTEGER:
++	case V_ASN1_ENUMERATED:
++	case V_ASN1_NEG_ENUMERATED:
++	case V_ASN1_BIT_STRING:
++	case V_ASN1_OCTET_STRING:
++	case V_ASN1_SEQUENCE:
++	case V_ASN1_SET:
++	case V_ASN1_NUMERICSTRING:
++	case V_ASN1_PRINTABLESTRING:
++	case V_ASN1_T61STRING:
++	case V_ASN1_VIDEOTEXSTRING:
++	case V_ASN1_IA5STRING:
++	case V_ASN1_UTCTIME:
++	case V_ASN1_GENERALIZEDTIME:
++	case V_ASN1_GRAPHICSTRING:
++	case V_ASN1_VISIBLESTRING:
++	case V_ASN1_GENERALSTRING:
++	case V_ASN1_UNIVERSALSTRING:
++	case V_ASN1_BMPSTRING:
++	case V_ASN1_UTF8STRING:
++	case V_ASN1_OTHER:
++	default:
++		result = ASN1_STRING_cmp((ASN1_STRING *) a->value.ptr,
++					 (ASN1_STRING *) b->value.ptr);
++		break;
++		}
++
++	return result;
++	}
+diff --git a/crypto/asn1/asn1.h b/crypto/asn1/asn1.h
+index aeb3f4c..bd7af2d 100644
+--- a/crypto/asn1/asn1.h
++++ b/crypto/asn1/asn1.h
+@@ -769,6 +769,7 @@ DECLARE_ASN1_FUNCTIONS_fname(ASN1_TYPE, ASN1_ANY, ASN1_TYPE)
+ int ASN1_TYPE_get(ASN1_TYPE *a);
+ void ASN1_TYPE_set(ASN1_TYPE *a, int type, void *value);
+ int ASN1_TYPE_set1(ASN1_TYPE *a, int type, const void *value);
++int            ASN1_TYPE_cmp(const ASN1_TYPE *a, const ASN1_TYPE *b);
+ 
+ ASN1_OBJECT *	ASN1_OBJECT_new(void );
+ void		ASN1_OBJECT_free(ASN1_OBJECT *a);
+diff --git a/crypto/asn1/x_algor.c b/crypto/asn1/x_algor.c
+index 99e5342..acc41ba 100644
+--- a/crypto/asn1/x_algor.c
++++ b/crypto/asn1/x_algor.c
+@@ -128,3 +128,13 @@ void X509_ALGOR_get0(ASN1_OBJECT **paobj, int *pptype, void **ppval,
+ 		}
+ 	}
+ 
++int X509_ALGOR_cmp(const X509_ALGOR *a, const X509_ALGOR *b)
++	{
++	int rv;
++	rv = OBJ_cmp(a->algorithm, b->algorithm);
++	if (rv)
++		return rv;
++	if (!a->parameter && !b->parameter)
++		return 0;
++	return ASN1_TYPE_cmp(a->parameter, b->parameter);
++	}
+diff --git a/crypto/x509/x509.h b/crypto/x509/x509.h
+index c34689a..e77ee69 100644
+--- a/crypto/x509/x509.h
++++ b/crypto/x509/x509.h
+@@ -870,6 +870,7 @@ X509_ALGOR *X509_ALGOR_dup(X509_ALGOR *xn);
+ int X509_ALGOR_set0(X509_ALGOR *alg, ASN1_OBJECT *aobj, int ptype, void *pval);
+ void X509_ALGOR_get0(ASN1_OBJECT **paobj, int *pptype, void **ppval,
+ 						X509_ALGOR *algor);
++int X509_ALGOR_cmp(const X509_ALGOR *a, const X509_ALGOR *b);
+ 
+ X509_NAME *X509_NAME_dup(X509_NAME *xn);
+ X509_NAME_ENTRY *X509_NAME_ENTRY_dup(X509_NAME_ENTRY *ne);
+-- 
+2.1.4
+

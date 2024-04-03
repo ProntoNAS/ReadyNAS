@@ -1,0 +1,46 @@
+From e22f5a9c8e53a2373e8a939771e964ad315cdc5f Mon Sep 17 00:00:00 2001
+From: Chuck Lever <chuck.lever@oracle.com>
+Date: Tue, 24 Aug 2010 07:16:10 -0400
+Subject: [PATCH] statd: statd fails to monitor if no reverse mapping of mon_name exists
+
+Commit 8ce130c4 switched in the new statd_canonical_name() function
+that constructs a "unique" name statd can use to uniquely identify a
+monitor record.
+
+The legacy statd would monitor a client that sent an IP address with
+no reverse map as its caller_name.  To remain bug-for-bug compatible,
+allow this case in the new statd.
+
+This shouldn't be a problem: statd_canonical_name() needs to create
+a unique name for the monitored host so it can keep track of monitor
+requests from the same remote.  The IP address itself should work as
+well as the host's canonical name, in case there is no reverse
+mapping.
+
+We still enforce the requirement that a mon_name that is a DNS name
+must have a forward map to an IP address.
+
+Signed-off-by: Chuck Lever <chuck.lever@oracle.com>
+Signed-off-by: Steve Dickson <steved@redhat.com>
+---
+ utils/statd/hostname.c |    4 +++-
+ 1 files changed, 3 insertions(+), 1 deletions(-)
+
+diff --git a/utils/statd/hostname.c b/utils/statd/hostname.c
+index 7d704cc..38f2265 100644
+--- a/utils/statd/hostname.c
++++ b/utils/statd/hostname.c
+@@ -212,7 +212,9 @@ statd_canonical_name(const char *hostname)
+ 					buf, (socklen_t)sizeof(buf));
+ 		freeaddrinfo(ai);
+ 		if (!result)
+-			return NULL;
++			/* OK to use presentation address,
++			 * if no reverse map exists */
++			return strdup(hostname);
+ 		return strdup(buf);
+ 	}
+ 
+-- 
+1.7.1
+

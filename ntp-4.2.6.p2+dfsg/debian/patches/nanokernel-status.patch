@@ -1,0 +1,120 @@
+From: Kurt Roeckx <kurt@roeckx.be>
+Subject: Detect that the kernel has nano support or not.
+Bug: https://support.ntp.org/bugs/show_bug.cgi?id=888
+
+The code assumed that if STA_NANO is defined the kernel has nano
+support.  But on Linux, only kernel 2.6.26 and later have nano
+kernel support.  If run on an older kernel, ntpd does not behave
+properly because all values it sends to the kernel are
+off by a factor 1000.
+
+When the nano kernel was designed there was logic added to
+detect it.  But this got removed from the ntpd binary.  This
+adds the code again like it was in 4.2.0.
+
+Index: ntp-4.2.6+dfsg/ntpd/ntp_loopfilter.c
+===================================================================
+--- ntp-4.2.6+dfsg.orig/ntpd/ntp_loopfilter.c	2009-12-09 07:36:36.000000000 +0000
++++ ntp-4.2.6+dfsg/ntpd/ntp_loopfilter.c	2009-12-23 21:10:40.000000000 +0000
+@@ -130,6 +130,7 @@
+ #ifdef KERNEL_PLL
+ static struct timex ntv;	/* ntp_adjtime() parameters */
+ int	pll_status;		/* last kernel status bits */
++int	pll_nano;		/* nanosecond kernel switch */
+ #if defined(STA_NANO) && NTP_API == 4
+ static u_int loop_tai;		/* last TAI offset */
+ #endif /* STA_NANO */
+@@ -516,24 +517,23 @@
+ 		if (ext_enable) {
+ 			ntv.modes = MOD_STATUS;
+ 		} else {
+-#ifdef STA_NANO
+-			ntv.modes = MOD_BITS | MOD_NANO;
+-#else /* STA_NANO */
+-			ntv.modes = MOD_BITS;
+-#endif /* STA_NANO */
++			if (pll_nano)
++				ntv.modes = MOD_BITS | MOD_NANO;
++			else
++				ntv.modes = MOD_BITS;
+ 			if (clock_offset < 0)
+ 				dtemp = -.5;
+ 			else
+ 				dtemp = .5;
+-#ifdef STA_NANO
+-			ntv.offset = (int32)(clock_offset * 1e9 +
+-			    dtemp);
+-			ntv.constant = sys_poll;
+-#else /* STA_NANO */
+-			ntv.offset = (int32)(clock_offset * 1e6 +
+-			    dtemp);
+-			ntv.constant = sys_poll - 4;
+-#endif /* STA_NANO */
++			if (pll_nano) {
++				ntv.offset = (int32)(clock_offset * 1e9 +
++				    dtemp);
++				ntv.constant = sys_poll;
++			} else {
++				ntv.offset = (int32)(clock_offset * 1e6 +
++				    dtemp);
++				ntv.constant = sys_poll - 4;
++			}
+ 			ntv.esterror = (u_int32)(clock_jitter * 1e6);
+ 			ntv.maxerror = (u_int32)((sys_rootdelay / 2 +
+ 			    sys_rootdisp) * 1e6);
+@@ -571,22 +571,20 @@
+ 				    "PPS no signal");
+ 		}
+ 		pll_status = ntv.status;
+-#ifdef STA_NANO
+-		clock_offset = ntv.offset / 1e9;
+-#else /* STA_NANO */
+-		clock_offset = ntv.offset / 1e6;
+-#endif /* STA_NANO */
++		if (pll_nano)
++			clock_offset = ntv.offset / 1e9;
++		else
++			clock_offset = ntv.offset / 1e6;
+ 		clock_frequency = FREQTOD(ntv.freq);
+ 
+ 		/*
+ 		 * If the kernel PPS is lit, monitor its performance.
+ 		 */
+ 		if (ntv.status & STA_PPSTIME) {
+-#ifdef STA_NANO
+-			clock_jitter = ntv.jitter / 1e9;
+-#else /* STA_NANO */
+-			clock_jitter = ntv.jitter / 1e6;
+-#endif /* STA_NANO */
++			if (pll_nano)
++				clock_jitter = ntv.jitter / 1e9;
++			else
++				clock_jitter = ntv.jitter / 1e6;
+ 		}
+ 
+ #if defined(STA_NANO) && NTP_API == 4
+@@ -768,11 +766,10 @@
+ 	if (pll_control && kern_enable) {
+ 		memset(&ntv,  0, sizeof(ntv));
+ 		ntp_adjtime(&ntv);
+-#ifdef STA_NANO
+-		clock_offset = ntv.offset / 1e9;
+-#else /* STA_NANO */
+-		clock_offset = ntv.offset / 1e6;
+-#endif /* STA_NANO */
++		if (pll_nano)
++			clock_offset = ntv.offset / 1e9;
++		else
++			clock_offset = ntv.offset / 1e6;
+ 		drift_comp = FREQTOD(ntv.freq);
+ 	}
+ #endif /* KERNEL_PLL */
+@@ -909,6 +906,8 @@
+ 		pll_status = ntv.status;
+ 		if (pll_control) {
+ #ifdef STA_NANO
++			if (pll_status & STA_NANO)
++				pll_nano = 1;
+ 			if (pll_status & STA_CLK)
+ 				ext_enable = 1;
+ #endif /* STA_NANO */

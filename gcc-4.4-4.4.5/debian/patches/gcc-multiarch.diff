@@ -1,0 +1,362 @@
+# DP: Add multiarch support to GCC.
+# DP:
+# DP: Convert the multilib option to a target triplet,
+# DP: add multiarch include directories and libraries path:
+# DP:	/usr/local/include/<arch>-linux-gnu
+# DP:	/usr/include/<arch>-linux-gnu
+# DP:	/usr/lib/<arch>-linux-gnu
+# DP: to the system paths.
+
+2009-03-24  Arthur Loiret  <aloiret@debian.org>
+
+	* configure.ac: Handle --enable-multiarch and --with-multiarch-defaults.
+	* config.gcc: Define MULTIARCH_DEFAULTS if multiarch is enabled.
+	* config.in [!USED_FOR_TARGET]: Undef ENABLE_MULTIARCH.
+	* gcc.c: include multiarch.h.
+	(set_multiarch_dir): New function. Adds the multiarch directories to
+	the library path.
+	[ENABLE_MULTIARCH]: Use it.
+	* cppdefault.c [LOCAL_INCLUDE_DIR, STANDARD_INCLUDE_DIR] Add an include
+	directory for multiarch directories.
+	* incpath.c: include multiarch.h
+	[ENABLE_MULTIARCH]: Add the multiarch directory to include directories.
+	* Makefile.in (MULTIARCH_H): New. Use it for incpath.o and gcc.o.
+	* multiarch.h: New file.
+---
+ gcc/Makefile.in  |    7 ++--
+ gcc/config.gcc   |    9 +++++
+ gcc/config.in    |    4 ++
+ gcc/configure.ac |   13 ++++++++
+ gcc/cppdefault.c |    6 +++
+ gcc/gcc.c        |   41 ++++++++++++++++++++++++
+ gcc/incpath.c    |   28 ++++++++++++++++
+ gcc/multiarch.h  |   91 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 8 files changed, 196 insertions(+), 3 deletions(-)
+
+--- a/src/gcc/Makefile.in
++++ b/src/gcc/Makefile.in
+@@ -806,6 +806,7 @@
+ endif
+ 
+ # Shorthand variables for dependency lists.
++MULTIARCH_H = multiarch.h
+ TOPLEV_H = toplev.h input.h
+ TARGET_H = $(TM_H) target.h insn-modes.h
+ MACHMODE_H = machmode.h mode-classes.def insn-modes.h
+@@ -1818,7 +1819,7 @@
+ 
+ incpath.o: incpath.c incpath.h $(CONFIG_H) $(SYSTEM_H) $(CPPLIB_H) \
+ 		intl.h prefix.h coretypes.h $(TM_H) cppdefault.h $(TARGET_H) \
+-		$(MACHMODE_H)
++		$(MACHMODE_H) $(MULTIARCH_H)
+ 
+ c-decl.o : c-decl.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) $(TREE_H) \
+     $(RTL_H) $(C_TREE_H) $(GGC_H) $(TARGET_H) $(FLAGS_H) $(FUNCTION_H) output.h \
+@@ -1959,7 +1960,7 @@
+ 
+ gcc.o: gcc.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) intl.h multilib.h \
+     Makefile $(lang_specs_files) specs.h prefix.h $(GCC_H) $(FLAGS_H) \
+-    configargs.h $(OBSTACK_H) opts.h
++    configargs.h $(OBSTACK_H) opts.h $(MULTIARCH_H)
+ 	(SHLIB_LINK='$(SHLIB_LINK)'; \
+ 	$(CC) $(ALL_CFLAGS) $(ALL_CPPFLAGS) \
+   $(DRIVER_DEFINES) \
+
+--- a/src/gcc/config.gcc
++++ b/src/gcc/config.gcc
+@@ -3173,3 +3173,12 @@ then
+ 		target_cpu_default=$target_cpu_default2
+ 	fi
+ fi
++
++if test x${enable_multiarch} = xyes; then
++	multiarch_defaults=`echo ${target_noncanonical} | sed -e 's/unknown-//'`
++	multiarch_define="__`echo ${multiarch_defaults} | tr '-' '_'`__"
++	if test x${with_multiarch_defaults} != x; then
++		multiarch_defaults=${with_multiarch_defaults}
++	fi
++	tm_defines="${tm_defines} ${multiarch_define}=1 MULTIARCH_DEFAULTS=\\\"${multiarch_defaults}\\\""
++fi
+--- a/src/gcc/config.in
++++ b/src/gcc/config.in
+@@ -155,6 +155,10 @@
+ #undef ENABLE_WIN32_REGISTRY
+ #endif
+ 
++/* Define if you want to use multiarch. */
++#ifndef USED_FOR_TARGET
++#undef ENABLE_MULTIARCH
++#endif
+ 
+ /* Define to the name of a file containing a list of extra machine modes for
+    this architecture. */
+--- a/src/gcc/configure.ac
++++ b/src/gcc/configure.ac
+@@ -585,6 +585,19 @@ AC_ARG_ENABLE(multilib,
+ [], [enable_multilib=yes])
+ AC_SUBST(enable_multilib)
+ 
++# Determine whether or not multiarch is enabled.
++AC_ARG_ENABLE(multiarch,
++[  --enable-multiarch      enable multiarch support],
++[
++  enable_multiarch=yes
++  AC_DEFINE(ENABLE_MULTIARCH, 1,
++  [Define if you want to use multiarch.])
++],[])
++AC_SUBST(enable_multiarch)
++
++AC_ARG_WITH(multiarch-defaults,
++[  --with-multiarch-defaults  set the default multiarch directory.],)
++
+ # Enable __cxa_atexit for C++.
+ AC_ARG_ENABLE(__cxa_atexit,
+ [  --enable-__cxa_atexit   enable __cxa_atexit for C++],
+--- a/src/gcc/cppdefault.c
++++ b/src/gcc/cppdefault.c
+@@ -60,6 +60,9 @@ const struct default_include cpp_include_defaults[]
+ #endif
+ #ifdef LOCAL_INCLUDE_DIR
+     /* /usr/local/include comes before the fixincluded header files.  */
++# ifdef ENABLE_MULTIARCH
++    { LOCAL_INCLUDE_DIR, 0, 0, 1, 1, 2 },
++# endif
+     { LOCAL_INCLUDE_DIR, 0, 0, 1, 1, 0 },
+ #endif
+ #ifdef PREFIX_INCLUDE_DIR
+@@ -95,6 +98,9 @@ const struct default_include cpp_include_defaults[]
+ #endif
+ #ifdef STANDARD_INCLUDE_DIR
+     /* /usr/include comes dead last.  */
++# ifdef ENABLE_MULTIARCH
++    { STANDARD_INCLUDE_DIR, STANDARD_INCLUDE_COMPONENT, 0, 0, 1, 2 },
++# endif
+     { STANDARD_INCLUDE_DIR, STANDARD_INCLUDE_COMPONENT, 0, 0, 1, 0 },
+ #endif
+     { 0, 0, 0, 0, 0, 0 }
+--- a/src/gcc/gcc.c
++++ b/src/gcc/gcc.c
+@@ -71,6 +71,7 @@ compilation is specified by a string called a "spec".  */
+ #include "system.h"
+ #include "coretypes.h"
+ #include "multilib.h" /* before tm.h */
++#include "multiarch.h"
+ #include "tm.h"
+ #include <signal.h>
+ #if ! defined( SIGCHLD ) && defined( SIGCLD )
+@@ -345,6 +346,9 @@ static void give_switch (int, int);
+ static int used_arg (const char *, int);
+ static int default_arg (const char *, int);
+ static void set_multilib_dir (void);
++#ifdef ENABLE_MULTIARCH
++static void set_multiarch_dir (void);
++#endif
+ static void print_multilib_info (void);
+ static void perror_with_name (const char *);
+ static void fatal_ice (const char *, ...) ATTRIBUTE_PRINTF_1 ATTRIBUTE_NORETURN;
+@@ -6504,6 +6508,11 @@ main (int argc, char **argv)
+      the subdirectory based on the options.  */
+   set_multilib_dir ();
+ 
++#ifdef ENABLE_MULTIARCH
++  /* Add the multiarch directories to libraries path.  */
++  set_multiarch_dir ();
++#endif
++
+   /* Warn about any switches that no pass was interested in.  */
+ 
+   for (i = 0; (int) i < n_switches; i++)
+@@ -7576,6 +7585,27 @@ set_multilib_dir (void)
+     multilib_os_dir = multilib_dir;
+ }
+ 
++#ifdef ENABLE_MULTIARCH
++/* Add the multiarch directories to libraries path. This uses the converted
++   multiarch triplet from the multilib value.
++   For example, if the target supports -m32/-m64 as multilib option and
++   defaults to 64, it will add /usr/lib/$triplet_target64/lib to library
++   path if either -m64 or no multilib option at all is set. And it will
++   add /usr/lib/$triplet_target32 if -m32 is set. Triplets are defined in
++   multiarch.def.  */
++
++static void
++set_multiarch_dir (void)
++{
++  const char *path;
++
++  path = concat (STANDARD_STARTFILE_PREFIX_2, MULTIARCH_DEFAULTS,
++    dir_separator_str, NULL);
++  add_prefix (&startfile_prefixes, path, NULL,
++    PREFIX_PRIORITY_LAST, 0, 1);
++}
++#endif
++
+ /* Print out the multiple library subdirectory selection
+    information.  This prints out a series of lines.  Each line looks
+    like SUBDIRECTORY;@OPTION@OPTION, with as many options as is
+--- a/src/gcc/incpath.c
++++ b/src/gcc/incpath.c
+@@ -30,6 +30,7 @@
+ #include "intl.h"
+ #include "incpath.h"
+ #include "cppdefault.h"
++#include "multiarch.h"
+ 
+ /* Microsoft Windows does not natively support inodes.
+    VMS has non-numeric inodes.  */
+@@ -132,6 +133,9 @@ add_standard_paths (const char *sysroot, const char *iprefix,
+   const struct default_include *p;
+   int relocated = cpp_relocated();
+   size_t len;
++#ifdef ENABLE_MULTIARCH
++  const char *multiarch;
++#endif
+ 
+   if (iprefix && (len = cpp_GCC_INCLUDE_DIR_len) != 0)
+     {
+@@ -150,8 +154,20 @@ add_standard_paths (const char *sysroot, const char *iprefix,
+ 	      if (!strncmp (p->fname, cpp_GCC_INCLUDE_DIR, len))
+ 		{
+ 		  char *str = concat (iprefix, p->fname + len, NULL);
++#ifdef ENABLE_MULTIARCH
++		  if (p->multilib == 1 && imultilib)
++		    str = concat (str, dir_separator_str, imultilib, NULL);
++		  else if (p->multilib == 2)
++		    {
++		      multiarch = multilib_to_multiarch (imultilib);
++		      if (!multiarch)
++			continue;
++		      str = concat (str, dir_separator_str, multiarch, NULL);
++		    }
++#else
+ 		  if (p->multilib && imultilib)
+ 		    str = concat (str, dir_separator_str, imultilib, NULL);
++#endif
+ 		  add_path (str, SYSTEM, p->cxx_aware, false);
+ 		}
+ 	    }
+@@ -195,8 +211,20 @@ add_standard_paths (const char *sysroot, const char *iprefix,
+ 	  else
+ 	    str = update_path (p->fname, p->component);
+ 
++#ifdef ENABLE_MULTIARCH
++	  if (p->multilib == 1 && imultilib)
++	    str = concat (str, dir_separator_str, imultilib, NULL);
++	  else if (p->multilib == 2)
++	    {
++	      multiarch = multilib_to_multiarch (imultilib);
++	      if (!multiarch)
++		continue;
++	      str = concat (str, dir_separator_str, multiarch, NULL);
++	    }
++#else
+ 	  if (p->multilib && imultilib)
+ 	    str = concat (str, dir_separator_str, imultilib, NULL);
++#endif
+ 
+ 	  add_path (str, SYSTEM, p->cxx_aware, false);
+ 	}
+--- /dev/null
++++ b/src/gcc/multiarch.h
+@@ -0,0 +1,101 @@
++/* Header for multiarch handling (include directories, libraries path).
++   Copyright (C) 2009 Free Software Foundation, Inc.
++   Contributed by Arthur Loiret <aloiret@debian.org>
++
++This file is part of GCC.
++
++GCC is free software; you can redistribute it and/or modify it under
++the terms of the GNU General Public License as published by the Free
++Software Foundation; either version 3, or (at your option) any later
++version.
++
++GCC is distributed in the hope that it will be useful, but WITHOUT ANY
++WARRANTY; without even the implied warranty of MERCHANTABILITY or
++FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
++for more details.
++
++You should have received a copy of the GNU General Public License
++along with GCC; see the file COPYING3.  If not see
++<http://www.gnu.org/licenses/>.  */
++
++#ifndef GCC_MULTIARCH_H
++#define GCC_MULTIARCH_H
++
++#include "tm.h"
++
++struct multiarch_mapping
++{
++  const char *const multilib;
++  const char *const multiarch;
++};
++
++const struct multiarch_mapping multiarch_mappings[] = {
++#ifdef ENABLE_MULTIARCH
++  { "", MULTIARCH_DEFAULTS },
++# if defined(__x86_64_linux_gnu__)
++  { "32",  "i486-linux-gnu" },
++# endif
++# if defined(__i486_linux_gnu__) || defined(__i686_linux_gnu__)
++  { "64",  "x86_64-linux-gnu" },
++# endif
++# if defined(__powerpc64_linux_gnu__)
++  { "32",  "powerpc-linux-gnu" },
++# endif
++# if defined(__powerpc_linux_gnu__)
++  { "64",  "powerpc64-linux-gnu" },
++# endif
++# if defined(__sparc64_linux_gnu__)
++  { "32",  "sparc-linux-gnu" },
++# endif
++# if defined(__sparc_linux_gnu__)
++  { "64",  "sparc64-linux-gnu" },
++# endif
++# if defined(__s390x_linux_gnu__)
++  { "31",  "s390-linux-gnu" },
++# endif
++# if defined(__s390_linux_gnu__)
++  { "64",  "s390x-linux-gnu" },
++# endif
++# if defined(__mips_linux_gnu__)
++  { "n32",  "mips64-linux-gnuabin32" },
++  { "64",  "mips64-linux-gnuabi64" },
++# endif
++# if defined(__mipsel_linux_gnu__)
++  { "n32",  "mips64el-linux-gnuabin32" },
++  { "64",  "mips64el-linux-gnuabi64" },
++# endif
++# if defined(__x86_64_kfreebsd_gnu__)
++  { "32",  "i486-kfreebsd-gnu" },
++# endif
++# if defined(__sh4_linux_gnu__)
++  { "m4",  "sh4-linux-gnu" },
++  { "m4-nofpu",  "sh4_nofpu-linux-gnu" },
++# endif
++# if defined(__m68k_linux_gnu__)
++  { "m68040", "m68040-linux-gnu" },
++  { "m68060", "m68060-linux-gnu" },
++  { "mcpu32", "m68360-linux-gnu" },
++  { "mfidoa", "fido-linux-gnu" },
++# endif
++#endif /* ENABLE_MULTIARCH */
++  { 0, 0 }
++};
++
++/* Convert the multilib option to the corresponding target triplet.
++   See multiarch.def and config.gcc for multilib/multiarch pairs.
++   When the default multilib is used, the corresponding multilib/multiarch
++   pair is { "", $target_tripplet }.  */
++static inline const char*
++multilib_to_multiarch (const char *imultilib)
++{
++  const struct multiarch_mapping *p;
++
++  for (p = multiarch_mappings; p->multiarch; p++)
++    {
++      if (!strcmp(p->multilib, imultilib ? imultilib : ""))
++	return p->multiarch;
++    }
++  return NULL;
++}
++
++#endif /* GCC_MULTIARCH_H */

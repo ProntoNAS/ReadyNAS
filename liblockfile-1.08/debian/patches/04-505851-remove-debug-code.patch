@@ -1,0 +1,28 @@
+http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=505851
+
+From: Wolfram Sang <w.sang@pengutronix.de>
+
+The lockfile_create-function still contains some debug code, which
+considers a lock stale after 10 seconds instead of 5 minutes. As
+the documentation suggests refreshing the lock every 60 seconds,
+programs might lose the lock unexpectedly. Found while researching
+#505278.
+
+--- a/lockfile.c	2008-07-25 06:23:11.000000000 +1000
++++ b/lockfile.c	2010-02-14 11:09:03.000000000 +1100
+@@ -391,13 +391,10 @@ int lockfile_check(const char *lockfile,
+ 	 *	Without a pid in the lockfile, the lock
+ 	 *	is valid if it is newer than 5 mins.
+ 	 */
+-#if 0
++
+ 	if (now < st.st_mtime + 300)
+ 		return 0;
+-#else
+-	if (now < st.st_mtime + 10)
+-		return 0;
+-#endif
++
+ 	return -1;
+ }
+ 

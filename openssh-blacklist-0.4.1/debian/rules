@@ -1,0 +1,75 @@
+#!/usr/bin/make -f
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	# Add here commands to configure the package.
+	touch $@
+
+
+build: build-stamp
+build-stamp: configure-stamp 
+	dh_testdir
+	# Add here commands to compile the package.
+	touch $@
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp configure-stamp
+	# Add here commands to clean up after the build process.
+	dh_clean 
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k 
+	dh_installdirs
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/ssh
+	# Trim blacklists to reduce the size of the package without too
+	# drastically creating false positives.
+	for i in $$(cd $(CURDIR) && ls [RD]SA-*.?e* | cut -d. -f1 | sort -u); do \
+		cat $(CURDIR)/debian/blacklist.prefix > $(CURDIR)/debian/tmp/usr/share/ssh/blacklist.$$i; \
+		cat $(CURDIR)/$$i.* | cut -b13- | sort >> $(CURDIR)/debian/tmp/usr/share/ssh/blacklist.$$i; \
+	done
+	for i in $$(cd $(CURDIR) && ls [RD]SA-*.all | cut -d. -f1 | sort -u); do \
+		cat $(CURDIR)/$$i.* >> $(CURDIR)/debian/tmp/usr/share/ssh/blacklist.$$i; \
+	done
+
+# Build architecture-dependent files here.
+binary-arch: build install
+# We have nothing to do by default.
+
+# Build architecture-independent files here.
+binary-indep: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs 
+	dh_installdocs
+	dh_installexamples -p openssh-blacklist-extra generate-blacklist.sh
+	dh_install --sourcedir=debian/tmp
+#	dh_installmenu
+#	dh_installdebconf	
+#	dh_installlogrotate
+#	dh_installemacsen
+#	dh_installpam
+#	dh_installmime
+#	dh_python
+#	dh_installinit
+#	dh_installcron
+#	dh_installinfo
+	dh_installman
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+#	dh_perl
+#	dh_makeshlibs
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb -- -Zbzip2
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure

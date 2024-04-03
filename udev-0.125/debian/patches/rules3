@@ -1,0 +1,80 @@
+--- a/rules/debian/80-drivers.rules
++++ b/rules/debian/80-drivers.rules
+@@ -52,6 +52,8 @@ LABEL="hotplug_not_add_event"
+ 
+ SUBSYSTEM=="net",				RUN+="net.agent"
+ 
++SUBSYSTEM=="atm",				RUN+="dsl-modem.agent"
++
+ # Log every event to /dev/hotplug.log (for debugging).
+ #RUN+="logger.agent"
+ 
+--- a/rules/debian/91-permissions.rules
++++ b/rules/debian/91-permissions.rules
+@@ -1,4 +1,4 @@
+-ACTION!="add", GOTO="permissions_end"
++ACTION!="add|change", GOTO="permissions_end"
+ 
+ # devices needed to load the drivers providing them
+ KERNEL=="tun",					OPTIONS+="ignore_remove"
+--- a/rules/debian/50-udev.rules
++++ b/rules/debian/50-udev.rules
+@@ -29,8 +29,8 @@ SUBSYSTEMS=="usb", KERNEL=="ttyUSB*", \
+ 						SYMLINK+="pilot"
+ 
+ # usbfs-like devices
+-SUBSYSTEM=="usb_device", ACTION=="add", \
+-	PROGRAM="/bin/sh -c 'K=%k; K=$${K#usbdev}; printf bus/usb/%%03i/%%03i $${K%%%%.*} $${K#*.}'", ACTION=="add", \
++SUBSYSTEM=="usb_device", ACTION=="add|change", \
++	PROGRAM="/bin/sh -c 'K=%k; K=$${K#usbdev}; printf bus/usb/%%03i/%%03i $${K%%%%.*} $${K#*.}'", ACTION=="add|change", \
+ 				NAME="$result"
+ SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device",	NAME="bus/usb/$env{BUSNUM}/$env{DEVNUM}"
+ 
+@@ -39,7 +39,7 @@ KERNEL=="capi",			NAME="capi20", SYMLINK
+ KERNEL=="capi[0-9]*",		NAME="capi/%n"
+ 
+ # video devices
+-KERNEL=="dvb*",			PROGRAM="/bin/sh -c 'K=%k; K=$${K#dvb}; printf dvb/adapter%%i/%%s $${K%%%%.*} $${K#*.}", ACTION=="add", \
++KERNEL=="dvb*",			PROGRAM="/bin/sh -c 'K=%k; K=$${K#dvb}; printf dvb/adapter%%i/%%s $${K%%%%.*} $${K#*.}", ACTION=="add|change", \
+ 				NAME="$result"
+ KERNEL=="card[0-9]*",		NAME="dri/%k"
+ 
+--- a/rules/debian/75-persistent-net-generator.rules
++++ b/rules/debian/75-persistent-net-generator.rules
+@@ -1,5 +1,5 @@
+ # These rules generate rules to keep network interface names unchanged
+-# across reboots write them to /etc/udev/rules.d/70-persistent-net.rules.
++# across reboots and write them to /etc/udev/rules.d/70-persistent-net.rules.
+ 
+ # variables used to communicate:
+ #   MATCHADDR		MAC address used for the match
+@@ -16,9 +16,6 @@ SUBSYSTEM!="net",			GOTO="persistent_net
+ # ignore the interface if a name has already been set
+ NAME=="?*",				GOTO="persistent_net_generator_end"
+ 
+-# ignore interfaces without a driver link like bridges and VLANs
+-DRIVERS!="?*",				GOTO="persistent_net_generator_end"
+-
+ # device name whitelist
+ KERNEL!="eth*|ath*|wlan*[0-9]|msh*|ra*|sta*|ctc*|lcs*|hsi*", \
+ 					GOTO="persistent_net_generator_end"
+@@ -76,8 +73,9 @@ ATTRS{driver}=="?*", \
+  ENV{COMMENT}="$env{COMMENT} ($attr{driver})"
+ 
+ 
++# ignore interfaces without a driver link like bridges and VLANs, otherwise
+ # generate and write the rule
+-IMPORT{program}="write_net_rules"
++DRIVERS=="?*", IMPORT{program}="write_net_rules"
+ 
+ # rename the interface if requested
+ ENV{INTERFACE_NEW}=="?*", NAME="$env{INTERFACE_NEW}"
+--- a/rules/debian/95-late.rules
++++ b/rules/debian/95-late.rules
+@@ -14,5 +14,5 @@ ACTION=="remove", NAME=="?*", TEST=="/li
+ 						OPTIONS+="ignore_remove"
+ 
+ # debugging monitor
+-RUN+="socket:/org/kernel/udev/monitor"
++RUN+="socket:@/org/kernel/udev/monitor"
+ 

@@ -1,0 +1,350 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+#
+# debian/rules for CMU Cyrus SASL version 2.1
+# 
+# Copyright (c) 2006 by Fabian Fagerholm.
+# Based on previous work by Dima Barsky.
+# Based on cyrus-imapd-2.2 packages by Henrique de Moraes Holshuch.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# Note that Cyrus SASL itself is published under a different license.
+
+
+# Debhelper control.
+export DH_ALWAYS_EXCLUDE=CVS
+#export DH_VERBOSE=1 # uncomment this to turn on verbose mode
+
+# These are used for cross-compiling and for saving the configure script
+# from having to guess our platform (since we know it already).
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+# We use dpatch, include its Makefile.
+include /usr/share/dpatch/dpatch.make
+
+# Set proper compiler flags here.
+CFLAGS = -Wall -g
+
+# Optimization may be turned off during the build, but is on by default.
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2
+endif
+
+# SQL support may be turned off during the build, but is on by default.
+ifeq (,$(findstring no-sql,$(DEB_BUILD_OPTIONS)))
+	CONFIGURE_SQL=--enable-sql
+else
+	CONFIGURE_SQL=--disable-sql
+endif
+
+# LDAP support may be turned off during the build, but is on by default.
+ifeq (,$(findstring no-ldap,$(DEB_BUILD_OPTIONS)))
+	CONFIGURE_LDAP=--with-ldap
+	CONFIGURE_LDAPDB=--enable-ldapdb
+else
+	CONFIGURE_LDAP=--without-ldap
+	CONFIGURE_LDAPDB=--disable-ldapdb
+endif
+
+# GSSAPI support may be turned off during the build, but is on by default
+ifeq (,$(findstring no-gssapi,$(DEB_BUILD_OPTIONS)))
+	CONFIGURE_GSSAPI=--enable-gssapi
+else
+	CONFIGURE_GSSAPI=--disable-gssapi
+endif
+
+CONFIGURE_COMMON_OPTIONS=--host=$(DEB_HOST_GNU_TYPE) \
+	--build=$(DEB_BUILD_GNU_TYPE) \
+	--prefix=/usr \
+	--mandir=\$${prefix}/share/man \
+	--infodir=\$${prefix}/share/info \
+	--enable-static \
+	--enable-shared \
+	--enable-alwaystrue \
+	--enable-checkapop \
+	--enable-cram \
+	--enable-digest \
+	--enable-otp \
+	--disable-srp \
+	--disable-srp-setpass \
+	--disable-krb4 \
+	$(CONFIGURE_GSSAPI) \
+	--enable-gss_mutexes \
+	--enable-auth-sasldb \
+	--enable-plain \
+	--enable-anon \
+	--enable-login \
+	--enable-ntlm \
+	--disable-passdss \
+	$(CONFIGURE_SQL) \
+	$(CONFIGURE_LDAPDB) \
+	--disable-macos-framework \
+	--with-pam \
+	--with-saslauthd=/var/run/saslauthd \
+	$(CONFIGURE_LDAP) \
+	--with-pgsql=/usr/include/postgresql \
+	--with-configdir=/etc/sasl:/usr/lib/sasl2 \
+	--sysconfdir=/etc \
+	--with-devrandom=/dev/urandom
+
+# Prepare shared library version numbers.
+version=`ls src/.libs/lib*.so.* | \
+	awk '{if (match($$0,/[0-9]+\.[0-9]+\.[0-9]+$$/)) print substr($$0,RSTART)}'`
+major=`ls src/.libs/lib*.so.* | \
+	awk '{if (match($$0,/\.so\.[0-9]+$$/)) print substr($$0,RSTART+4)}'`
+
+# Some convenience variables
+export TMPBUILD_MIT := $(CURDIR)/build-mit
+export TMPBUILD_HEIMDAL := $(CURDIR)/build-heimdal
+export TMPPKG_MIT := $(CURDIR)/debian/tmp-mit
+export TMPPKG_HEIMDAL := $(CURDIR)/debian/tmp-heimdal
+
+AUTOFILES=acinclude.m4 aclocal.m4 config/config.sub config/config.guess \
+		  config/ltmain.sh config/libtool.m4
+BUILD_TMP_SUFFIX=.debian-build.tmp
+AUTOTOOLS=for i in $(AUTOFILES); do \
+		  	if [ -e $$i ]; then \
+				mv --verbose $$i `basename $$i`$(BUILD_TMP_SUFFIX) ; \
+			fi ; \
+		  done && \
+		  libtoolize --force && \
+		  aclocal-1.9 -I $(CURDIR)/cmulocal -I $(CURDIR)/config && \
+		  autoheader && \
+		  autoconf && \
+		  automake-1.9 --add-missing --include-deps && \
+		  touch stamp-h.in
+AUTOTOOLS_REVERSE=for i in $(AUTOFILES); do \
+				  	if [ -e `basename $$i`$(BUILD_TMP_SUFFIX) ]; then \
+						if [ -e $$i ]; then rm -fv $$i; fi ; \
+						mv --verbose `basename $$i`$(BUILD_TMP_SUFFIX) $$i ; \
+					fi ; \
+				  done
+
+
+### The Makefile targets begin. ###
+
+
+###
+# Clean up the source tree to prepare for building.
+# Use dpatch targets to unpatch any applied patches.
+###
+clean: clean-patched unpatch
+clean-patched:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp build-indep-stamp build-arch-stamp
+
+	rm -f $(CURDIR)/sample/sample-client \
+		$(CURDIR)/sample/sample-server \
+		$(CURDIR)/sample/config.h
+	[ ! -f Makefile ] || $(MAKE) distclean
+	$(AUTOTOOLS_REVERSE)
+	(cd saslauthd && $(AUTOTOOLS_REVERSE) && cd ..)
+	-rm -f config.h config.log autom4ate.cache
+
+	# Remove symlinks that the CMU build sets up but never removes.
+	# They can be found by running find . -lname '*' -print in the
+	# source tree before and after a build and comparing the differences.
+	rm -f lib/sasldb.c lib/db_berkeley.c lib/allockey.c lib/cram.c \
+			lib/digestmd5.c lib/otp.c lib/gssapi.c lib/plain.c \
+			lib/anonymous.c lib/login.c lib/ntlm.c lib/sql.c lib/ldapdb.c
+
+	# Remove generated man pages
+	-rm -f sasl-sample-client.8 sasl-sample-server.8
+
+	# Remove build directories
+	rm -rf $(TMPBUILD_MIT) $(TMPBUILD_HEIMDAL) $(TMPPKG_MIT) $(TMPPKG_HEIMDAL)
+
+	dh_clean 
+
+###
+# Configure the package.
+# Use dpatch targets to apply any available patches.
+###
+config.status: patch configure
+	dh_testdir
+
+	# Avoid problems with timestamp skew and autotools.
+	touch configure
+	$(AUTOTOOLS)
+	(cd saslauthd && $(AUTOTOOLS) && cd ..)
+	mkdir $(TMPBUILD_MIT)
+	cd $(TMPBUILD_MIT) && \
+	LDFLAGS="$(LDFLAGS) -L/usr/lib/mit-krb5 -Wl,-z,defs" \
+	CFLAGS="$(CFLAGS)" CPPFLAGS="$(CPPFLAGS) -I/usr/include/mit-krb5" \
+	../configure $(CONFIGURE_COMMON_OPTIONS) --with-gss_impl=mit
+	# Cope with the way that ./configure creates symlinks
+	cp $(CURDIR)/sasldb/* $(TMPBUILD_MIT)/sasldb/
+	cp $(CURDIR)/plugins/* $(TMPBUILD_MIT)/plugins/
+	cp $(CURDIR)/lib/* $(TMPBUILD_MIT)/lib/
+	mkdir $(TMPBUILD_HEIMDAL)
+	cd $(TMPBUILD_HEIMDAL) && \
+	LDFLAGS="$(LDFLAGS) -L/usr/lib/heimdal -Wl,-z,defs" \
+	CFLAGS="$(CFLAGS)" CPPFLAGS="$(CPPFLAGS) -I/usr/include/heimdal" \
+	../configure $(CONFIGURE_COMMON_OPTIONS) --with-gss_impl=heimdal
+	# Cope with the way that ./configure creates symlinks
+	cp $(CURDIR)/sasldb/* $(TMPBUILD_HEIMDAL)/sasldb/
+	cp $(CURDIR)/plugins/* $(TMPBUILD_HEIMDAL)/plugins/
+	cp $(CURDIR)/lib/* $(TMPBUILD_HEIMDAL)/lib/
+
+	# Prepare to build sample-{client,server}
+	cp -f $(CURDIR)/debian/sample/config.h $(CURDIR)/sample/config.h
+
+	# Record the build-time settings for later reference
+	echo 'To build this package, configure was called as follows:' \
+		> debian/README.configure-options
+	grep with\ options $(TMPBUILD_MIT)/config.status | sed -e \
+		's/^.*options \\"/configure /;s/\\"$///' \
+		>> debian/README.configure-options
+
+###
+# Build architecture-dependent files.
+###
+build-arch: build-arch-stamp
+build-arch-stamp: config.status
+	dh_testdir
+
+	# Ugly hack: the CMU build system is broken.
+	# Certain symlinks get created too late, resulting in a
+	# build failure. We work around this by running make twice,
+	# ignoring the first failure.
+	-cd $(TMPBUILD_MIT) && $(MAKE)
+	cd $(TMPBUILD_MIT) && $(MAKE)
+	-cd $(TMPBUILD_HEIMDAL) && $(MAKE)
+	cd $(TMPBUILD_HEIMDAL) && $(MAKE)
+
+	# Build sample-{client,server}
+	$(MAKE) -f $(CURDIR)/debian/sample/Makefile -C $(CURDIR)/sample T=$(TMPBUILD_MIT)
+
+	touch build-arch-stamp
+
+###
+# Build architecture-independent files.
+###
+build-indep: build-indep-stamp
+build-indep-stamp:
+	# Build the sasl-sample-client and sasl-sample-server man pages.
+	/usr/bin/docbook-to-man debian/sasl-sample-client.sgml \
+		> sasl-sample-client.8
+	/usr/bin/docbook-to-man debian/sasl-sample-server.sgml \
+		> sasl-sample-server.8
+
+	touch build-indep-stamp
+
+###
+# Install the built files in their corresponding package directories.
+###
+install: build-arch build-indep test
+	dh_testdir
+	dh_testroot
+	dh_clean -k 
+
+	cd $(TMPBUILD_MIT) && $(MAKE) install DESTDIR=$(TMPPKG_MIT)
+	cd $(TMPBUILD_HEIMDAL) && $(MAKE) install DESTDIR=$(TMPPKG_HEIMDAL)
+
+	# Alter the default location and names of files to fit Debian
+	# policy and better integrate with the Debian system.
+	mv $(TMPPKG_MIT)/usr/sbin/pluginviewer $(TMPPKG_MIT)/usr/sbin/saslpluginviewer
+	mv $(TMPPKG_MIT)/usr/share/man/man8/pluginviewer.8 \
+		$(TMPPKG_MIT)/usr/share/man/man8/saslpluginviewer.8
+	install -m 644 saslauthd/saslauthd.mdoc \
+		$(TMPPKG_MIT)/usr/share/man/man8/saslauthd.8
+	install -m 644 $(CURDIR)/debian/testsaslauthd.8 \
+		$(TMPPKG_MIT)/usr/share/man/man8/testsaslauthd.8
+	mv $(TMPPKG_MIT)/usr/sbin/dbconverter-2 $(TMPPKG_MIT)/usr/sbin/sasldbconverter2
+	install -m 644 utils/sasldbconverter2.8 \
+		$(TMPPKG_MIT)/usr/share/man/man8/sasldbconverter2.8
+
+	# Install sample-{client,server} with Debianized names
+	install -m 755 -D $(CURDIR)/sample/sample-client \
+		$(TMPPKG_MIT)/usr/bin/sasl-sample-client
+	install -m 755 -D $(CURDIR)/sample/sample-server \
+		$(TMPPKG_MIT)/usr/sbin/sasl-sample-server
+
+	# Alter the rpath of certain binaries and shared libraries.
+	chrpath -d $(TMPPKG_MIT)/usr/sbin/sasldblistusers2 \
+		$(TMPPKG_MIT)/usr/sbin/saslpasswd2
+	chrpath -d $(TMPPKG_MIT)/usr/lib/sasl2/libsql.so.2.0.23
+
+	# Install the sasl-sample-client and -server man pages.
+	dh_installman -psasl2-bin sasl-sample-client.8 sasl-sample-server.8
+
+	# Install saslfinger
+	install -m 644 -D $(CURDIR)/debian/saslfinger/saslfinger.1 \
+		$(TMPPKG_MIT)/usr/share/man/man1/saslfinger.1
+	install -m 755 -D $(CURDIR)/debian/saslfinger/saslfinger \
+		$(TMPPKG_MIT)/usr/bin/saslfinger
+
+###
+# Build architecture-dependent files.
+###
+binary-arch: build-arch install
+	dh_testdir -s
+	dh_testroot -s
+	dh_installdebconf -s
+	dh_installchangelogs -s ChangeLog
+	dh_installdocs -s
+	dh_installexamples -s
+	dh_installdirs -s
+	cp debian/sasl2-bin.lintian-overrides \
+		debian/sasl2-bin/usr/share/lintian/overrides/sasl2-bin
+	cp debian/libsasl2-modules.lintian-overrides \
+		debian/libsasl2-modules/usr/share/lintian/overrides/libsasl2-modules
+	cp debian/libsasl2-modules-otp.lintian-overrides \
+		debian/libsasl2-modules-otp/usr/share/lintian/overrides/libsasl2-modules-otp
+	cp debian/libsasl2-modules-gssapi-heimdal.lintian-overrides \
+		debian/libsasl2-modules-gssapi-heimdal/usr/share/lintian/overrides/libsasl2-modules-gssapi-heimdal
+	dh_install -s --autodest --list-missing --sourcedir=$(TMPPKG_MIT) -psasl2-bin -plibsasl2-2 -plibsasl2-modules -plibsasl2-modules-ldap -plibsasl2-modules-otp -plibsasl2-modules-sql -plibsasl2-modules-gssapi-mit -plibsasl2-dev -Nlibsasl2-modules-gssapi-heimdal
+	dh_install -s --autodest --list-missing --sourcedir=$(TMPPKG_HEIMDAL) -plibsasl2-modules-gssapi-heimdal -Nsasl2-bin -Nlibsasl2-2 -Nlibsasl2-modules -Nlibsasl2-modules-ldap -Nlibsasl2-modules-otp -Nlibsasl2-modules-sql -Nlibsasl2-modules-gssapi-mit -Nlibsasl2-dev
+	dh_installinit --name=saslauthd start 20 2 3 4 5 . stop 20 1 .
+	dh_installman -s
+	dh_link -s
+	dh_strip -s -psasl2-bin -plibsasl2-2 -plibsasl2-modules -plibsasl2-modules-ldap -plibsasl2-modules-otp -plibsasl2-modules-sql -plibsasl2-modules-gssapi-mit -plibsasl2-dev -Nlibsasl2-modules-gssapi-heimdal --dbg-package=cyrus-sasl2-dbg
+	dh_strip -s -plibsasl2-modules-gssapi-heimdal -Nsasl2-bin -Nlibsasl2-2 -Nlibsasl2-modules -Nlibsasl2-modules-ldap -Nlibsasl2-modules-otp -Nlibsasl2-modules-sql -Nlibsasl2-modules-gssapi-mit -Nlibsasl2-dev --dbg-package=cyrus-sasl2-heimdal-dbg
+	mv debian/cyrus-sasl2-dbg/usr/lib/debug/usr/lib/sasl2/libgssapiv2.so.2.0.23 debian/cyrus-sasl2-mit-dbg/usr/lib/debug/usr/lib/sasl2/
+	dh_compress -s
+	dh_fixperms -s
+	dh_makeshlibs -s -X/usr/lib/sasl2
+	dh_installdeb -s
+	dh_shlibdeps -s
+	dh_gencontrol -s
+	dh_md5sums -s
+	dh_builddeb -s
+
+###
+# Build architecture-independent files.
+###
+binary-indep: build-indep install
+	dh_testdir -i
+	dh_testroot -i
+	dh_installchangelogs -i ChangeLog
+	dh_installdocs -i
+	dh_installexamples -i
+	dh_compress -i
+	dh_fixperms -i
+	dh_installdeb -i
+	dh_gencontrol -i
+	dh_md5sums -i
+	dh_builddeb -i
+
+###
+# Run tests to check that the build is ok
+###
+test: build-arch build-indep
+	dh_testdir
+	cd $(TMPBUILD_MIT)/saslauthd && $(MAKE) testsaslauthd
+	cd $(TMPBUILD_MIT)/utils && $(MAKE) testsuite
+
+###
+# Assemble the binary packages.
+###
+binary: binary-indep binary-arch
+.PHONY: clean clean-patched build-arch build-indep build install binary-arch binary-indep binary
+

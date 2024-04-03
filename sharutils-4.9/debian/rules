@@ -1,0 +1,83 @@
+#!/usr/bin/make -f
+
+package = sharutils
+docdir = debian/tmp/usr/share/doc/$(package)
+
+CFLAGS = -g -Wall
+STRIP = true
+
+ifeq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+  CFLAGS += -O2
+endif
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+  STRIP = strip --remove-section=.comment --remove-section=.note
+endif
+
+export DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+ifeq ($(DEB_BUILD_GNU_TYPE), $(DEB_HOST_GNU_TYPE))
+  confflags += --build $(DEB_HOST_GNU_TYPE)
+else
+  confflags += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+endif
+
+build:
+	./configure $(confflags) --prefix=/usr
+	$(MAKE) CFLAGS="$(CFLAGS)"
+	touch build
+
+clean:
+	rm -f build
+	[ ! -f Makefile ] || $(MAKE) distclean
+	rm -f `find . -name "*~"`
+	rm -rf debian/tmp debian/files* core debian/substvars
+
+binary-indep: build
+	rm -rf debian/tmp
+	install -d debian/tmp/DEBIAN $(docdir)-doc \
+		debian/tmp/usr/share/doc-base
+	install -m 644 debian/sharutils-doc debian/tmp/usr/share/doc-base
+	cd doc && texi2html -split_chapter $(package).texi
+	mv doc/*.html $(docdir)-doc
+	ln -s $(package)_toc.html $(docdir)-doc/index.html
+	cp -p debian/copyright $(docdir)-doc
+	cp -p ChangeLog $(docdir)-doc/changelog
+	cp -p debian/changelog $(docdir)-doc/changelog.Debian
+	cd $(docdir)-doc && gzip -9 changelog changelog.Debian
+	dpkg-gencontrol -p$(package)-doc
+	cd debian/tmp && \
+		md5sum `find * -type f ! -regex "DEBIAN/.*"` > DEBIAN/md5sums
+	chown -R root:root debian/tmp
+	chmod -R u+w,go=rX debian/tmp
+	dpkg --build debian/tmp ..
+
+binary-arch: build
+	rm -rf debian/tmp
+	install -d debian/tmp/DEBIAN $(docdir)
+	cd debian/tmp && install -d usr/bin
+	$(MAKE) install install-man prefix=`pwd`/debian/tmp/usr
+	cp -p README TODO NEWS THANKS debian/copyright $(docdir)
+	cp -p ChangeLog $(docdir)/changelog
+	cp -p debian/changelog $(docdir)/changelog.Debian
+	cd $(docdir) && gzip -9 changelog changelog.Debian
+	dpkg-shlibdeps debian/tmp/usr/bin/*
+	install -m 644 debian/compress-dummy.1 debian/tmp/usr/share/man/man1
+	install -m 644 debian/mailshar.1 debian/tmp/usr/share/man/man1
+	cd debian/tmp/usr/bin && $(STRIP) shar unshar uuencode uudecode
+	gzip -9 debian/tmp/usr/share/info/*
+	gzip -r9 debian/tmp/usr/share/man
+	rm -f debian/tmp/usr/share/man/man1/uudecode.1.gz
+	ln -s uuencode.1.gz debian/tmp/usr/share/man/man1/uudecode.1.gz
+	ln -s mailshar.1.gz debian/tmp/usr/share/man/man1/mail-files.1.gz
+	ln -s mailshar.1.gz debian/tmp/usr/share/man/man1/remsync.1.gz
+	dpkg-gencontrol -p$(package)
+	cd debian/tmp && \
+		md5sum `find * -type f ! -regex "DEBIAN/.*"` > DEBIAN/md5sums
+	chown -R root:root debian/tmp
+	chmod -R u+w,go=rX debian/tmp
+	dpkg --build debian/tmp ..
+
+binary: binary-indep binary-arch
+
+.PHONY: binary binary-arch binary-indep clean

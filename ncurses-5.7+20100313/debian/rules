@@ -1,0 +1,456 @@
+#!/usr/bin/make -f
+# This file has gone through many maintainers.  Mostly rewritten
+# by Daniel Jacobowitz.
+
+include /usr/share/quilt/quilt.make
+
+# These are important since this is a library package
+soname=5
+vername=5.7
+sodepver = (>= 5.7+20100313)
+
+# Name our packages
+package-base=ncurses-base
+package-bin=ncurses-bin
+package-lib=libncurses$(soname)
+package-lib-32=lib32ncurses$(soname)
+package-lib-64=lib64ncurses$(soname)
+package-libw=libncursesw$(soname)
+package-libw-32=lib32ncursesw$(soname)
+package-dev=libncurses$(soname)-dev
+package-dev-32=lib32ncurses$(soname)-dev
+package-dev-64=lib64ncurses$(soname)-dev
+package-devw=libncursesw$(soname)-dev
+package-devw-32=lib32ncursesw$(soname)-dev
+package-dbg=libncurses$(soname)-dbg
+package-dbgw=libncursesw$(soname)-dbg
+package-term=ncurses-term
+
+workdir=$(shell pwd)
+tempdir=debian/tmp
+fulltempdir=$(workdir)/$(tempdir)
+
+srcdir=$(shell pwd)
+objdir=$(srcdir)/obj
+objdir-static=$(srcdir)/obj-static
+objdir-32=$(srcdir)/obj-32
+objdir-64=$(srcdir)/obj-64
+wobjdir=$(srcdir)/obj-wide
+wobjdir-static=$(srcdir)/obj-wide-static
+wobjdir-32=$(srcdir)/obj-wide-32
+objdir-debug=$(srcdir)/obj-debug
+wobjdir-debug=$(srcdir)/obj-wide-debug
+
+DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_HOST_GNU_SYSTEM ?= $(shell dpkg-architecture -qDEB_HOST_GNU_SYSTEM)
+DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+
+ifeq ($(DEB_HOST_ARCH),i386)
+build_64_target = x86_64-$(DEB_HOST_GNU_SYSTEM)
+build_64 = build-64
+endif
+
+ifeq ($(DEB_HOST_ARCH),powerpc)
+build_64_target = powerpc64-$(DEB_HOST_GNU_SYSTEM)
+build_64 = build-64
+endif
+
+ifeq ($(DEB_HOST_ARCH),s390)
+build_64_target = s390x-$(DEB_HOST_GNU_SYSTEM)
+build_64 = build-64
+endif
+
+ifeq ($(DEB_HOST_ARCH),sparc)
+build_64_target = sparc64-$(DEB_HOST_GNU_SYSTEM)
+build_64 = build-64
+endif
+
+ifeq ($(DEB_HOST_ARCH),amd64)
+build_32_target = i486-$(DEB_HOST_GNU_SYSTEM)
+build_32 = build-32 build-wide-32
+lib32 = /lib32
+usr_lib32 = /usr/lib32
+endif
+
+ifeq ($(DEB_HOST_ARCH),ppc64)
+build_32_target = powerpc-$(DEB_HOST_GNU_SYSTEM)
+build_32 = build-32 build-wide-32
+lib32 = /lib32
+usr_lib32 = /usr/lib32
+endif
+
+ifneq ($(findstring linux,$(DEB_HOST_GNU_SYSTEM)),)
+with_gpm = --with-gpm
+endif
+
+CFLAGS = -O2 -g
+CONFARGS =	--prefix=/usr \
+		--with-shared \
+		--mandir=/usr/share/man \
+		--without-profile --without-debug \
+		--disable-rpath --enable-echo \
+		--enable-const \
+		--without-ada \
+		$(with_gpm) \
+		--enable-symlinks \
+		--disable-lp64 \
+		--with-chtype='long' \
+		--with-mmask-t='long' \
+		--disable-termcap \
+		--with-default-terminfo-dir=/usr/share/terminfo \
+		--with-terminfo-dirs="/etc/terminfo:/lib/terminfo:/usr/share/terminfo" \
+		--with-ticlib
+
+ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+CONFARGS += --with-build-cc=gcc --host=$(DEB_HOST_GNU_TYPE)
+endif
+
+# Files for /lib/terminfo.
+libterminfofiles=a/ansi c/cons25 c/cons25-debian c/cygwin d/dumb h/hurd l/linux m/mach \
+	m/mach-bold m/mach-color p/pcansi r/rxvt r/rxvt-m r/rxvt-basic \
+	r/rxvt-unicode \
+	s/screen s/screen-bce s/screen-s s/screen-w s/sun v/vt100 v/vt102 \
+	v/vt220 v/vt52 x/xterm x/xterm-debian x/xterm-xfree86 x/xterm-color \
+	x/xterm-mono x/xterm-r5 x/xterm-r6 x/xterm-vt220 \
+	x/xterm-256color s/screen-256color s/screen-256color-bce \
+	w/wsvt25 w/wsvt25m E/Eterm E/Eterm-color
+
+# Blacklist terminfo entries shipped by other Debian packages so that we do
+# not begin shipping them by accident.
+badterminfo = 5/5250 b/bterm i/iterm i/iterm-am i/iterm-color \
+	j/jfbterm k/kon l/linux-5250 m/mlterm
+
+# The ncurses configure test won't work when cross compiling (e.g. for
+# 64 bit libraries), so force the libgpm soname to the correct value.
+export cf_cv_gpm_soname=libgpm.so.2
+
+$(objdir)/config.status: $(QUILT_STAMPFN)
+	test -d $(objdir) || mkdir $(objdir)
+	cd $(objdir) && CFLAGS="$(CFLAGS)" $(srcdir)/configure \
+		$(CONFARGS) \
+		--with-install-prefix=$(fulltempdir) \
+		--enable-overwrite
+
+$(objdir-static)/config.status: $(QUILT_STAMPFN)
+	test -d $(objdir-static) || mkdir $(objdir-static)
+	cd $(objdir-static) && CFLAGS="$(CFLAGS)" $(srcdir)/configure \
+		$(CONFARGS) \
+		--without-shared \
+		--without-dlsym \
+		--with-install-prefix=$(fulltempdir) \
+		--enable-overwrite
+
+$(objdir-32)/config.status: $(QUILT_STAMPFN)
+	test -d $(objdir-32) || mkdir $(objdir-32)
+
+	cd $(objdir-32) && CFLAGS="$(CFLAGS)" CC="gcc -m32" \
+		BUILD_CC="gcc" CXX="g++ -m32" \
+		$(srcdir)/configure \
+		$(CONFARGS) \
+		--build=$(DEB_BUILD_GNU_TYPE) \
+		--host=$(build_32_target) \
+		--without-gpm \
+		--with-install-prefix=$(fulltempdir) \
+		--enable-overwrite --libdir=$(usr_lib32)
+
+$(objdir-64)/config.status: $(QUILT_STAMPFN)
+	test -d $(objdir-64) || mkdir $(objdir-64)
+
+	# Force necessary configure checks which do not work when
+	# cross compiling; all Debian platforms return unsigned char
+	# for this configure check.
+	cf_cv_type_of_bool='unsigned char'; export cf_cv_type_of_bool; \
+	cd $(objdir-64) && CFLAGS="$(CFLAGS)" CC="gcc -m64" \
+		BUILD_CC="gcc" CXX="g++ -m64" \
+		$(srcdir)/configure \
+		$(CONFARGS) \
+		--build=$(DEB_BUILD_GNU_TYPE) \
+		--host=$(build_64_target) \
+		--without-gpm \
+		--with-install-prefix=$(fulltempdir) \
+		--enable-overwrite --libdir=/usr/lib64
+
+$(objdir-debug)/config.status: $(QUILT_STAMPFN)
+	test -d $(objdir-debug) || mkdir $(objdir-debug)
+	cd $(objdir-debug) && \
+		CFLAGS="$(CFLAGS) -DTRACE" $(srcdir)/configure \
+		$(CONFARGS) \
+		--with-install-prefix=$(fulltempdir) \
+		--enable-overwrite
+
+$(wobjdir)/config.status: $(QUILT_STAMPFN)
+	test -d $(wobjdir) || mkdir $(wobjdir)
+	cd $(wobjdir) && CFLAGS="$(CFLAGS)" $(srcdir)/configure \
+		$(CONFARGS) \
+		--with-install-prefix=$(fulltempdir) \
+		--disable-overwrite --enable-widec
+
+$(wobjdir-static)/config.status: $(QUILT_STAMPFN)
+	test -d $(wobjdir-static) || mkdir $(wobjdir-static)
+	cd $(wobjdir-static) && CFLAGS="$(CFLAGS)" $(srcdir)/configure \
+		$(CONFARGS) \
+		--without-shared \
+		--without-dlsym \
+		--with-install-prefix=$(fulltempdir) \
+		--disable-overwrite --enable-widec
+
+$(wobjdir-debug)/config.status: $(QUILT_STAMPFN)
+	test -d $(wobjdir-debug) || mkdir $(wobjdir-debug)
+	cd $(wobjdir-debug) && \
+		CFLAGS="$(CFLAGS) -DTRACE" $(srcdir)/configure \
+		$(CONFARGS) \
+		--with-install-prefix=$(fulltempdir) \
+		--disable-overwrite --enable-widec
+
+$(wobjdir-32)/config.status: $(QUILT_STAMPFN)
+	test -d $(wobjdir-32) || mkdir $(wobjdir-32)
+
+	cd $(wobjdir-32) && CFLAGS="$(CFLAGS)" CC="gcc -m32" \
+		BUILD_CC="gcc" BUILD_CPPFLAGS="-D_GNU_SOURCE" CXX="g++ -m32" \
+		$(srcdir)/configure \
+		$(CONFARGS) \
+		--build=$(DEB_BUILD_GNU_TYPE) \
+		--host=$(build_32_target) \
+		--without-gpm \
+		--with-install-prefix=$(fulltempdir) \
+		--disable-overwrite --enable-widec \
+		--libdir=$(usr_lib32)
+
+
+build: build-normal build-static build-wide build-debug build-wide-debug \
+	build-wide-static $(build_64) $(build_32)
+
+	touch $@
+
+build-normal: $(objdir)/config.status
+	cd $(objdir) && $(MAKE)
+	touch $@
+
+build-static: $(objdir-static)/config.status
+	cd $(objdir-static) && $(MAKE)
+	touch $@
+
+build-32: $(objdir-32)/config.status
+	cd $(objdir-32) && $(MAKE)
+	touch $@
+
+build-64: $(objdir-64)/config.status
+	cd $(objdir-64) && $(MAKE)
+	touch $@
+
+build-debug: $(objdir-debug)/config.status
+	cd $(objdir-debug) && $(MAKE)
+	touch $@
+
+build-wide: $(wobjdir)/config.status
+	cd $(wobjdir) && $(MAKE)
+	touch $@
+
+build-wide-static: $(wobjdir-static)/config.status
+	cd $(wobjdir-static) && $(MAKE)
+	touch $@
+
+build-wide-32: $(wobjdir-32)/config.status
+	cd $(wobjdir-32) && $(MAKE)
+	touch $@
+
+build-wide-debug: $(wobjdir-debug)/config.status
+	cd $(wobjdir-debug) && $(MAKE)
+	touch $@
+
+clean: unpatch
+	dh_testdir
+	rm -f build
+	rm -rf $(objdir)
+	rm -rf $(objdir-static)
+	rm -rf $(objdir-32)
+	rm -rf $(objdir-64)
+	rm -rf $(wobjdir)
+	rm -rf $(wobjdir-static)
+	rm -rf $(wobjdir-32)
+	rm -rf $(objdir-debug)
+	rm -rf $(wobjdir-debug)
+	rm -f build-normal build-static build-wide build-debug build-wide-debug \
+		build-wide-static $(build_32) $(build_64)
+	rm -f debian/shlibs.local
+	dh_clean
+
+install: build
+	# Generate proper debhelper files for so-named packages
+	dh_testdir
+	dh_testroot
+	dh_prep
+
+ifneq ($(build_32),)
+	#$(MAKE) -C $(objdir-32) install.libs
+	#$(MAKE) -C $(wobjdir-32) install.libs
+	#test -d $(tempdir)$(lib32) || mkdir $(tempdir)$(lib32)
+	#mv $(tempdir)$(usr_lib32)/libncurses.so.$(vername) $(tempdir)$(lib32)/
+	#mv $(tempdir)$(usr_lib32)/libncurses.so.$(soname) $(tempdir)$(lib32)/
+	#mv $(tempdir)$(usr_lib32)/libncursesw.so.$(vername) $(tempdir)$(lib32)/
+	#mv $(tempdir)$(usr_lib32)/libncursesw.so.$(soname) $(tempdir)$(lib32)/
+	#mv $(tempdir)$(usr_lib32)/libtic.so.$(vername) $(tempdir)$(lib32)/
+	#mv $(tempdir)$(usr_lib32)/libtic.so.$(soname) $(tempdir)$(lib32)/
+	#mv $(tempdir)$(usr_lib32)/libticw.so.$(vername) $(tempdir)$(lib32)/
+	#mv $(tempdir)$(usr_lib32)/libticw.so.$(soname) $(tempdir)$(lib32)/
+endif
+
+ifneq ($(build_64),)
+	#$(MAKE) -C $(objdir-64) install.libs
+	#test -d $(tempdir)/lib64 || mkdir $(tempdir)/lib64
+	#mv $(tempdir)/usr/lib64/libncurses.so.$(vername) $(tempdir)/lib64/
+	#mv $(tempdir)/usr/lib64/libncurses.so.$(soname) $(tempdir)/lib64/
+	#mv $(tempdir)/usr/lib64/libtic.so.$(vername) $(tempdir)/lib64/
+	#mv $(tempdir)/usr/lib64/libtic.so.$(soname) $(tempdir)/lib64/
+endif
+
+	# Install into our base directory
+	#$(MAKE) -C $(objdir-debug) install.libs
+	#$(MAKE) -C $(wobjdir-debug) install.libs
+
+	# Copy libraries to the debug directory
+	#test -d $(tempdir)/usr/lib/debug || mkdir -p $(tempdir)/usr/lib/debug
+	#cp -a $(tempdir)/usr/lib/*.so.* $(tempdir)/usr/lib/debug
+
+	# Rename static debug libraries.
+	for lib in $(objdir-debug)/lib/*.a; do \
+	  mv $$lib `echo $$lib | sed 's/\.a$$/_g.a/'`; \
+	done
+	for lib in $(wobjdir-debug)/lib/*.a; do \
+	  mv $$lib `echo $$lib | sed 's/\.a$$/_g.a/'`; \
+	done
+
+	# Install non -DTRACE versions.
+	GZIP='-9' $(MAKE) -C $(objdir) install
+	$(MAKE) -C $(wobjdir) install.libs
+
+	# Remove blacklisted terminal types.
+	cd $(tempdir)/usr/share/terminfo && rm -f $(badterminfo)
+
+	# Compile Debian-specific terminfo entries before moving files
+	# into their packages.  Hurd uses gsbom/grbom, so pass -x to tic.
+ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+	for ti in xterm hurd rxvt rxvt-unicode screen; do \
+	  LD_LIBRARY_PATH=$${LD_LIBRARY_PATH}:$(fulltempdir)/usr/lib:$(fulltempdir)/lib \
+		TERMINFO=$(fulltempdir)/usr/share/terminfo \
+		$(tempdir)/usr/bin/tic -x debian/$$ti.ti; \
+	done
+else
+	@build_ver=`sed -n -e					\
+	  's/^.*NCURSES_VERSION_STRING \"\(.*\)\"$$/\1/p'	\
+	  obj/include/ncurses_cfg.h`;				\
+	if [ "$$build_ver" != `tic -V | sed 's/^.* //'` ]; then	\
+	  echo "Build environment version mismatch for tic!";	\
+	  exit 1;						\
+	fi
+
+	for ti in xterm hurd rxvt rxvt-unicode screen; do \
+		TERMINFO=$(fulltempdir)/usr/share/terminfo \
+		tic -x debian/$$ti.ti; \
+	done
+
+endif
+
+	# Move ncurses-base terminfo entries to /lib/terminfo.
+	for f in $(libterminfofiles); do \
+		dir=$(tempdir)/lib/terminfo/$$(dirname $$f); \
+		mkdir -p $$dir; \
+		mv $(tempdir)/usr/share/terminfo/$$f $$dir; \
+	done
+
+	# Create an empty /etc/terminfo for the sysadmin.
+	mkdir -p $(tempdir)/etc/terminfo
+	install --mode 644 --owner=root --group=root \
+		debian/README.etc $(tempdir)/etc/terminfo/README
+
+	dh_install -s
+
+binary:	binary-arch binary-indep
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installman -s
+	dh_installdocs -s debian/FAQ
+	dh_installchangelogs -s NEWS
+	dh_installexamples -s
+	dh_installdirs -s
+
+	# Strip the packages, shipping detached debugging symbols. Need to strip
+	# $(package-devw) separately, because -X$(package-libw) excludes it.
+	dh_strip -s -X$(package-dbg) -X$(package-dbgw) -X$(package-libw) \
+		--dbg-package=$(package-dbg)
+	dh_strip -p$(package-devw)
+	dh_strip -p$(package-libw) --dbg-package=$(package-dbgw)
+	dh_compress -s
+	dh_fixperms -s
+	dh_link -s
+	dh_makeshlibs -p$(package-lib) -V "$(package-lib) $(sodepver)"
+	dh_makeshlibs -p$(package-libw) -V "$(package-libw) $(sodepver)"
+ifneq ($(build_32),)
+	dh_makeshlibs -p$(package-lib-32) -V "$(package-lib-32) $(sodepver)"
+	dh_makeshlibs -p$(package-libw-32) -V "$(package-libw-32) $(sodepver)"
+endif
+ifneq ($(build_64),)
+	dh_makeshlibs -p$(package-lib-64) -V "$(package-lib-64) $(sodepver)"
+endif
+	dh_shlibdeps -p$(package-lib) -p$(package-libw) \
+		-ldebian/$(package-lib)/lib:debian/$(package-lib)/usr/lib:debian/$(package-libw)/usr/lib \
+		-- -L$(shell pwd)/debian/shlibs.dummy
+
+ifneq ($(build_32),)
+	# It should not be necessary to use $(lib32):$(usr_lib32): here.
+	# But dpkg-shlibdeps has a hardcoded list of paths, which does not
+	# include the /emul directories, and there are no symlinks in
+	# /lib/ldconfig yet for these directories either.
+	dh_shlibdeps -p$(package-lib-32) \
+		-l$(lib32):$(usr_lib32):debian/$(package-lib-32)$(lib32):debian/$(package-lib-32)$(usr_lib32) \
+		-- -L$(shell pwd)/debian/shlibs.dummy
+	dh_shlibdeps -p$(package-libw-32) \
+		-l$(lib32):$(usr_lib32):debian/$(package-libw-32)$(lib32):debian/$(package-libw-32)$(usr_lib32) \
+		-- -L$(shell pwd)/debian/shlibs.dummy
+endif
+
+ifneq ($(build_64),)
+	# Unfortunately, dh_shlibdeps runs ldd, and 64-bit ldd doesn't run on
+	# a 31-bit S/390 build daemon, so I can't always use dh_shlibdeps.
+	# So this is allowed to fail.
+	-dh_shlibdeps -p$(package-lib-64) \
+		-ldebian/$(package-lib-64)/lib64:debian/$(package-lib-64)/usr/lib64 \
+		-- -L$(shell pwd)/debian/shlibs.dummy
+endif
+
+	# We don't ship any binaries linked against the 64-bit libraries, so
+	# don't add them to shlibs.  They have the same sonames, so they
+	# override the 32-bit versions, messing up the dependencies from
+	# ncurses-bin.
+	cat debian/$(package-lib)/DEBIAN/shlibs \
+	  debian/$(package-libw)/DEBIAN/shlibs > debian/shlibs.local
+
+	dh_shlibdeps -s -N$(package-lib) -N$(package-libw) \
+		-N$(package-lib-32) -N$(package-libw-32) -N$(package-lib-64) \
+		-ldebian/$(package-lib)/lib:debian/$(package-lib)/usr/lib:debian/$(package-libw)/usr/lib
+
+	dh_gencontrol -s
+	dh_installdeb -s
+	dh_md5sums -s
+	dh_builddeb -s
+
+binary-indep: build install
+	dh_testdir
+	dh_testroot
+
+	dh_installdocs -i
+	dh_installchangelogs -i NEWS
+	dh_install -i
+	dh_lintian -i
+	dh_compress -i
+	dh_fixperms -i
+	dh_link -i
+	dh_gencontrol -i
+	dh_installdeb -i
+	dh_md5sums -i
+	dh_builddeb -i
+
+.PHONY: binary binary-arch binary-indep clean patch unpatch install

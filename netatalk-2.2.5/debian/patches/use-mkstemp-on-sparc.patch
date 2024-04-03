@@ -1,0 +1,42 @@
+! ========================================================================================
+! mktemp() doesn't work in this case on SPARC, but mkstemp does for some reason.  Use it.
+! ========================================================================================
+--- a/etc/afpd/volume.c	Wed Aug 18 21:58:37 2010
++++ b/etc/afpd/volume.c	Wed Aug 18 22:00:17 2010
+@@ -1889,6 +1889,7 @@ static void check_ea_sys_support(struct 
+     uid_t process_uid = 0;
+     char eaname[] = {"org.netatalk.supports-eas.XXXXXX"};
+     const char *eacontent = "yes";
++    int fd;
+ 
+     if (vol->v_vfs_ea == AFPVOL_EA_AUTO) {
+ 
+@@ -1898,7 +1899,11 @@ static void check_ea_sys_support(struct 
+             return;
+         }
+ 
+-        mktemp(eaname);
++        fd = mkstemp(eaname);
++        if (fd >= 0) {
++            close(fd);
++            unlink(eaname);
++        }
+ 
+         process_uid = geteuid();
+         if (process_uid)
+--- a/etc/afpd/file.c	Wed Aug 18 22:07:00 2010
++++ b/etc/afpd/file.c	Wed Aug 18 22:10:44 2010
+@@ -2172,9 +2172,12 @@ int afp_exchangefiles(AFPObj *obj, char 
+      * NOTE: the temp file will be in the dest file's directory. it
+      * will also be inaccessible from AFP. */
+     memcpy(temp, APPLETEMP, sizeof(APPLETEMP));
+-    if (!mktemp(temp)) {
++    if ((err = mkstemp(temp)) == -1) {
+         err = AFPERR_MISC;
+         goto err_exchangefile;
++    } else {
++        close(err);
++        unlink(temp);
+     }
+     
+     if (crossdev) {

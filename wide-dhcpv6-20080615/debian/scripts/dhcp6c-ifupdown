@@ -1,0 +1,28 @@
+#!/bin/sh
+# Updates information whenever a network interface is brought up.
+
+[ "$IFACE" = "lo" ] && exit 0
+[ -r /etc/default/wide-dhcpv6-client ] || exit 0
+[ -x /usr/sbin/dhcp6ctl ] || exit 0
+
+# Check if dhcp6c is running
+pidof dhcp6c > /dev/null 2>&1 ; [ $? -eq 1 ] && exit 0
+
+. /etc/default/wide-dhcpv6-client
+
+case $MODE in
+    start|stop)
+        for i in $INTERFACES ; do
+            if [ "$IFACE" = "$i" ] ; then
+                /usr/sbin/dhcp6ctl $MODE interface $IFACE
+                exit 0
+            fi
+        done
+    ;;
+    *)
+        if [ "$VERBOSITY" = "1" ] ; then
+            echo "dhcp6c-ifupdown: unknown mode \"$MODE\""
+        fi
+        exit 1
+    ;;
+esac

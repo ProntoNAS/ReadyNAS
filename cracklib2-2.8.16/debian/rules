@@ -1,0 +1,74 @@
+#!/usr/bin/make -f
+
+include /usr/share/python/python.mk
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+PYVERS := $(shell pyversions -vs)
+
+override_dh_auto_configure:
+	./autogen.sh
+	mkdir -p debian/tmpbuild
+	cd debian/tmpbuild; \
+	../../configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) --prefix=/usr --disable-rpath --without-python --with-default-dict=/var/cache/cracklib/cracklib_dict
+	for i in $(PYVERS); do \
+		mkdir -p debian/build$$i; \
+		cd debian/build$$i; \
+		../../configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) --prefix=/usr --disable-rpath  --with-default-dict=/var/cache/cracklib/cracklib_dict PYTHON_PREFIX=/usr/lib/python$$i PYTHON=/usr/bin/python$$i; \
+		cd ../..; \
+	done
+
+override_dh_auto_build:
+	$(MAKE) -C debian/tmpbuild
+	for i in $(PYVERS); do \
+		${MAKE} -C debian/build$$i/python top_builddir=`pwd`/debian/tmpbuild; \
+	done
+	xmlto -o debian/doc xhtml-nochunks debian/libcrack2.xml
+	xmlto -o debian/doc xhtml-nochunks debian/cracklib-runtime.xml
+
+override_dh_auto_clean:
+	rm -rf debian/tmpbuild
+	for i in $(PYVERS); do \
+		rm -rf debian/build$$i; \
+	done
+	rm -f debian/python-cracklib.install
+	rm -rf debian/doc
+	if [ -f Makefile ]; then $(MAKE) clean; fi
+	if [ -f Makefile ]; then $(MAKE) distclean; fi
+	# remove files created or modified by autogen.sh
+	rm -f config.guess config.sub Makefile.in aclocal.m4 configure		\
+	 dicts/Makefile.in doc/Makefile.in lib/Makefile.in m4/Makefile.in	\
+	 py-compile python/Makefile.in util/Makefile.in ltmain.sh			\
+	 m4/ltoptions.m4 m4/ltversion.m4 m4/libtool.m4 m4/ltsugar.m4		\
+	 m4/lt~obsolete.m4
+
+override_dh_auto_install:
+	$(MAKE) -C debian/tmpbuild DESTDIR=`pwd`/debian/tmp install
+	for i in $(PYVERS); do \
+		$(MAKE) -C debian/build$$i/python install DESTDIR=`pwd`/debian/tmp; \
+		rm -rf debian/tmp/usr/lib/python$$i/*.pyc; \
+		rm -rf debian/tmp/usr/lib/python$$i/*.pyo; \
+	done
+	chrpath -d debian/tmp/usr/sbin/cracklib-check \
+	 debian/tmp/usr/sbin/cracklib-packer \
+	 debian/tmp/usr/sbin/cracklib-unpacker
+	for i in $(PYVERS); do \
+		cd debian/build$$i/python; \
+		ln -s ../../../python/cracklib.py . ; \
+                ln -s ../../../_cracklibmodule.c . ; \
+		python$$i setup.py egg_info install_egg_info --install-dir "../../tmp/usr/lib/python$$i/$(call py_sitename_sh, $$i)"; \
+		cd ../../..; \
+		find "debian/tmp/usr/lib/python$$i/$(call py_sitename_sh, $$i)" -type f | grep egg-info >> debian/python-cracklib.install; \
+		echo "debian/tmp/usr/lib/python$$i/$(call py_sitename_sh, $$i)/_cracklibmodule.so usr/lib/python$$i/$(call py_sitename_sh, $$i)" >> debian/python-cracklib.install; \
+		echo "debian/tmp/usr/lib/python$$i/$(call py_sitename_sh, $$i)/cracklib.py usr/lib/python$$i/$(call py_sitename_sh, $$i)" >> debian/python-cracklib.install; \
+		echo "debian/crack.py usr/lib/python$$i/$(call py_sitename_sh, $$i)" >> debian/python-cracklib.install; \
+	done
+
+override_dh_installchangelogs:
+	dh_installchangelogs NEWS
+
+%:
+	dh $@

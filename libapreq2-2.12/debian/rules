@@ -1,0 +1,76 @@
+#!/usr/bin/make -f
+#-*- makefile -*-
+# Made with the aid of dh_make, by Craig Small
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# If set to a true value then MakeMaker's prompt function will
+# always return the default without waiting for user input.
+export PERL_MM_USE_DEFAULT=1
+
+PACKAGE=$(shell dh_listpackages)
+
+ifndef PERL
+PERL = /usr/bin/perl
+endif
+
+ifndef DESTDIR
+DESTDIR=..
+endif
+TMP      = `pwd`/debian/tmp
+
+INSTDIR  = $(shell perl -V:archlib | cut -d\' -f2 )
+
+OPTIMIZE = -O2 -Wall
+ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+OPTIMIZE += -g
+endif
+
+build:
+	dh_testdir
+	CFLAGS="-g -O2" $(PERL) Makefile.PL --with-apache2-apxs=/usr/bin/apxs2 --prefix=/usr
+	$(MAKE) OPTIMIZE="$(OPTIMIZE)" LD_RUN_PATH=""
+
+clean:
+	dh_testdir
+	dh_testroot
+	[ ! -f Makefile ] || $(MAKE) distclean
+	$(RM) -r $(TMP)
+	$(RM) config.nice glue/perl/Makefile.old glue/perl/t/REPORT glue/perl/t/SMOKE
+	dh_clean
+
+binary: binary-arch binary-indep
+
+binary-indep: 
+
+binary-arch: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+	
+	# Note: prefix, not PREFIX.
+	mkdir $(TMP)
+	$(MAKE) install INSTALLDIRS=vendor DESTDIR=$(TMP) prefix=/usr
+	
+	dh_install --sourcedir=debian/tmp
+	
+	install -m 0644 debian/apreq.load debian/libapache2-mod-apreq2/etc/apache2/mods-available/
+	
+	dh_installdocs README
+	install -m 0644 docs/html/* debian/libapreq2-doc/usr/share/doc/libapache2-request-perl/html/ 
+	dh_installchangelogs CHANGES
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_perl $(INSTDIR)/Apache
+	dh_makeshlibs
+	dh_shlibdeps -a -L libapreq2 -l debian/libapreq2/usr/lib
+	dh_installdeb
+	dh_gencontrol
+	dh_md5sums 
+	dh_builddeb --destdir=$(DESTDIR)
+
+.PHONY: build clean binary binary-arch binary-indep

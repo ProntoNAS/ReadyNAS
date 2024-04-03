@@ -1,0 +1,94 @@
+http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=185208
+
+--- a/src/main.c	2010-04-02 03:52:10.000000000 +1100
++++ b/src/main.c	2010-04-05 11:09:26.000000000 +1000
+@@ -266,6 +266,12 @@ static struct exclude *excluded_director
+ static char const short_options[] =
+ "0123456789A:B:C:D:EFGHIPTUVX:abcd:e:f:hiKLlm:noqRrsuvwxyZz";
+ 
++/* Default for `file_list' if no files are given on the command line. */
++static char *stdin_argv[] =
++{
++  "-", NULL
++};
++
+ /* Non-boolean long options that have no corresponding short equivalents.  */
+ enum
+ {
+@@ -511,7 +517,16 @@ fillbuf (size_t save, struct stats const
+ 	 for byte sentinels fore and aft.  */
+       newalloc = newsize + pagesize + 1;
+ 
+-      newbuf = bufalloc < newalloc ? xmalloc (bufalloc = newalloc) : buffer;
++      newbuf = bufalloc < newalloc ? malloc (bufalloc = newalloc) : buffer;
++      if (newbuf == NULL)
++	{
++	  int saved_errno = errno;
++	  free (buffer);
++	  bufalloc = ALIGN_TO (INITIAL_BUFSIZE, pagesize) + pagesize + 1;
++	  buffer = xmalloc (bufalloc);
++	  errno = saved_errno;
++	  return 0;
++	}
+       readbuf = ALIGN_TO (newbuf + 1 + save, pagesize);
+       bufbeg = readbuf - save;
+       memmove (bufbeg, buffer + saved_offset, save);
+@@ -1739,6 +1754,7 @@ main (int argc, char **argv)
+   int opt, cc, status;
+   int default_context;
+   FILE *fp;
++  char **file_list;
+ 
+   initialize_main (&argc, &argv);
+   set_program_name (argv[0]);
+@@ -2154,29 +2170,29 @@ There is NO WARRANTY, to the extent perm
+   if (max_count == 0)
+     exit (EXIT_FAILURE);
+ 
+-  if (optind < argc)
++  file_list = (optind == argc ? stdin_argv : &argv[optind]);
++
++  status = 1;
++  while (1)
+     {
+-	status = 1;
+-	do
+-	{
+-	  char *file = argv[optind];
+-	  if ((included_patterns || excluded_patterns)
+-	      && !isdir (file))
+-	    {
+-	      if (included_patterns &&
+-		  ! excluded_file_name (included_patterns, file))
+-		continue;
+-	      if (excluded_patterns &&
+-		  excluded_file_name (excluded_patterns, file))
+-		continue;
+-	    }
+-	  status &= grepfile (strcmp (file, "-") == 0 ? (char *) NULL : file,
+-			      &stats_base);
+-	}
+-	while ( ++optind < argc);
++	char *file = *file_list++;
++
++	if (file == NULL)
++	  break;
++
++	if ((included_patterns || excluded_patterns)
++	   && !isdir (file))
++	  {
++	    if (included_patterns &&
++	        ! excluded_file_name (included_patterns, file))
++	      continue;
++	    if (excluded_patterns &&
++	        excluded_file_name (excluded_patterns, file))
++	      continue;
++	  }
++	status &= grepfile (strcmp (file, "-") == 0
++			   ? (char *) NULL : file, &stats_base);
+     }
+-  else
+-    status = grepfile ((char *) NULL, &stats_base);
+ 
+   /* We register via atexit() to test stdout.  */
+   exit (errseen ? EXIT_TROUBLE : status);

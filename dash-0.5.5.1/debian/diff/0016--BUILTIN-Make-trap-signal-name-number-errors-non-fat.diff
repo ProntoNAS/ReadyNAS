@@ -1,0 +1,60 @@
+From 6237f14ee5fdd1a62f6e0870b77a9327d3e48ba4 Mon Sep 17 00:00:00 2001
+From: Gerrit Pape <pape@smarden.org>
+Date: Wed, 26 May 2010 11:16:57 +0000
+Subject: [PATCH] [BUILTIN] Make trap signal name/number errors non-fatal.
+
+On Wed, Feb 24, 2010 at 10:23:34AM +0000, Peter Kjellerstedt wrote:
+>
+> there seems to be a problem  with the trap implementation in dash
+> (tested with 0.5.4 and 0.5.5.1). If I specify a signal which is not
+> supported, the shell unconditionally aborts. E.g., I had expected
+> the following to print foo (like bash and zsh do):
+>
+> # dash -c 'trap "echo trap executed" UNKNOWNSIGNAL || echo "foo"'
+> trap: 1: UNKNOWNSIGNAL: bad trap
+>
+> This means I cannot write a construct like the following to take
+> advantage of the ERR signal which is present in some shells:
+>
+> trap "echo ERR trap executed" ERR 2>/dev/null || :
+>
+> I also checked the POSIX documentation, and quoting from
+> http://www.opengroup.org/onlinepubs/009695399/utilities/trap.html
+> (exit status): "For both interactive and non-interactive shells,
+> invalid signal names [XSI] [Option Start] or numbers [Option End]
+> shall not be considered a syntax error and do not cause the shell
+> to abort."
+
+This patch replaces sh_error with a outfmt + return 1 in trapcmd
+so that these errors are no longer fatal.
+
+Signed-off-by: Herbert Xu <herbert@gondor.apana.org.au>
+(cherry picked from commit 2533d0df20e871da156d80078b79d93c8c02f0ad)
+
+Conflicts:
+
+	ChangeLog
+---
+ src/trap.c |    6 ++++--
+ 1 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/trap.c b/src/trap.c
+index cfcae59..c33137b 100644
+--- a/src/trap.c
++++ b/src/trap.c
+@@ -118,8 +118,10 @@ trapcmd(int argc, char **argv)
+ 	else
+ 		action = *ap++;
+ 	while (*ap) {
+-		if ((signo = decode_signal(*ap, 0)) < 0)
+-			sh_error("%s: bad trap", *ap);
++		if ((signo = decode_signal(*ap, 0)) < 0) {
++			outfmt(out2, "trap: %s: bad trap\n", *ap);
++			return 1;
++		}
+ 		INTOFF;
+ 		if (action) {
+ 			if (action[0] == '-' && action[1] == '\0')
+-- 
+1.6.0.3
+

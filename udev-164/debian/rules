@@ -1,0 +1,208 @@
+#!/usr/bin/make -f
+SHELL+= -e
+
+BUILD_UDEB := 1
+USE_SELINUX := 1
+
+
+
+include /usr/share/hardening-includes/hardening.make
+CFLAGS += $(HARDENING_CFLAGS)
+LDFLAGS += $(HARDENING_LDFLAGS)
+
+QUILT_STAMPFN=.stamp-patched
+include /usr/share/quilt/quilt.make
+
+D  := $(CURDIR)/debian/udev
+DU := $(CURDIR)/debian/udev-udeb
+DGU:= $(CURDIR)/debian/udev-gtk-udeb
+
+CONFFLAGS := --prefix=/usr --sysconfdir=/etc --sbindir=/sbin \
+  --with-rootlibdir=/lib --libexecdir=/lib/udev \
+  --enable-static --disable-dependency-tracking
+CONFFLAGS_deb  := $(CONFFLAGS) --enable-gtk-doc --enable-introspection
+CONFFLAGS_udeb := $(CONFFLAGS)
+
+##############################################################################
+DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+  CONFFLAGS += --build $(DEB_HOST_GNU_TYPE)
+else
+  CONFFLAGS += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+endif
+
+ifdef USE_SELINUX
+  CONFFLAGS_deb += --with-selinux
+endif
+
+ifdef BUILD_UDEB
+BUILD_UDEB_TARGET := .stamp-build-udeb
+else
+NO_PACKAGE := --no-package=udev-udeb --no-package=udev-gtk-udeb
+endif
+
+##############################################################################
+all: build
+
+clean: unpatch
+	rm -rf .stamp-* build-*
+	rm -f aclocal.m4 autom4te.cache/* config.h.in config.h.in~ configure \
+		ltmain.sh install-sh missing depcomp config.sub config.guess \
+		gtk-doc.make m4/* $$(find . -name Makefile.in)
+	dh_clean
+
+autoreconf: .stamp-autoreconf
+.stamp-autoreconf: $(QUILT_STAMPFN)
+	gtkdocize
+	# improve support for out of tree builds, and it's still not enough
+	sed 's/srcdir/builddir/g' < gtk-doc.make > gtk-doc.make.tmp && \
+		mv gtk-doc.make.tmp gtk-doc.make
+	autoreconf --force --install --symlink
+	touch $@
+
+build-deb/config.status: .stamp-autoreconf
+	[ -d build-deb ] || mkdir build-deb
+	cd build-deb/ && \
+	../configure CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
+		$(CONFFLAGS_deb)
+
+build-udeb/config.status: .stamp-autoreconf
+	[ -d build-udeb ] || mkdir build-udeb
+	cd build-udeb/ && \
+	../configure CFLAGS="$(CFLAGS) -Os -fomit-frame-pointer" \
+		LDFLAGS="$(LDFLAGS)" \
+		$(CONFFLAGS_udeb)
+
+build: .stamp-build
+.stamp-build: build-deb/config.status
+	dh_testdir
+	cd build-deb/ && \
+	$(MAKE) all USB_DATABASE=/usr/share/misc/usb.ids
+	touch $@
+
+build-udeb: .stamp-build-udeb
+.stamp-build-udeb: build-udeb/config.status
+	dh_testdir
+	cd build-udeb/ && \
+	$(MAKE) all \
+		extras_input_id_input_id_LDADD='-Llibudev/ -ludev'
+	touch $@
+
+binary-arch: .stamp-build $(BUILD_UDEB_TARGET) checkroot
+	dh_testdir
+	dh_clean -k
+	dh_installdirs
+
+	cd build-deb/ && \
+	$(MAKE) install DESTDIR=$D
+
+	dh_movefiles --sourcedir=debian/udev
+	cd $D && rm -r usr/lib/pkgconfig/ usr/include/ usr/share/gtk-doc/ \
+		usr/share/gir-1.0/ usr/lib/girepository-1.0/ \
+		usr/lib/*.la
+
+	install --mode=755 extra/*.agent extra/create_static_nodes \
+		$D/lib/udev/
+	cp extra/hotplug.functions $D/lib/udev/
+
+	cd $D/lib/udev/rules.d/ && rm 60-cdrom_id.rules \
+		61-persistent-storage-edd.rules
+	cp rules/debian/*.rules $D/lib/udev/rules.d/
+	perl extra/subst_lib_name $D
+	cp extra/links.conf $D/etc/udev/
+
+	install --mode=644 extra/blacklist.conf extra/fbdev-blacklist.conf \
+		$D/etc/modprobe.d/
+
+	install --mode=755 extra/initramfs.hook \
+		$D/usr/share/initramfs-tools/hooks/udev
+	install --mode=755 extra/initramfs.top \
+		$D/usr/share/initramfs-tools/scripts/init-top/udev
+	install --mode=755 extra/initramfs.bottom \
+		$D/usr/share/initramfs-tools/scripts/init-bottom/udev
+
+ifdef BUILD_UDEB
+	grep '^[[:alnum:]]' extra/links.conf > $(DU)/etc/udev/links.conf
+	grep '^[[:alnum:]]' udev.conf > $(DU)/etc/udev/udev.conf
+
+	cp rules/debian/*.rules $(DU)/lib/udev/rules.d/
+	cd $(DU)/lib/udev/rules.d/ && rm 60-persistent-storage-tape.rules
+	cp rules/rules.d/60-persistent-input.rules $(DU)/lib/udev/rules.d/
+	echo 'MODE="0666"' > $(DU)/lib/udev/rules.d/91-permissions.rules
+
+	install --mode=755 $(addprefix build-udeb/udev/, udevd udevadm) \
+		$(DU)/sbin/
+	install --mode=755 $(addprefix build-udeb/extras/, \
+		ata_id/ata_id cdrom_id/cdrom_id edd_id/edd_id \
+		path_id/path_id scsi_id/scsi_id usb_id/usb_id ) \
+		extras/rule_generator/write_*_rules extra/firmware.agent \
+		$(DU)/lib/udev/
+	install --mode=644 extras/rule_generator/rule_generator.functions \
+		extra/hotplug.functions \
+		$(DU)/lib/udev/
+	install --mode=644 extra/blacklist.conf $(DU)/etc/modprobe.d/
+	install --mode=755 extra/udev.startup \
+		$(DU)/lib/debian-installer/start-udev
+	install --mode=755 extra/udev.base-installer \
+		$(DU)/usr/lib/base-installer.d/05udev
+
+	cp -a build-udeb/libudev/.libs/libudev.so.0* $(DGU)/lib/
+	install --mode=755 build-udeb/extras/input_id/.libs/input_id \
+		$(DGU)/lib/udev/
+ifeq ($(DEB_HOST_ARCH),$(filter $(DEB_HOST_ARCH),sparc sparc64))
+	install --mode=755 build-udeb/extras/vio_type/vio_type $(DGU)/lib/udev/
+endif
+endif
+
+ifneq ($(DEB_HOST_ARCH),$(filter $(DEB_HOST_ARCH),sparc sparc64))
+	rm $D/lib/udev/vio_type $D/usr/share/man/man8/vio_type.8
+endif
+
+	# workaround for #555111
+	cp -a libudev/docs/html/* \
+		$(CURDIR)/debian/libudev-dev/usr/share/gtk-doc/html/libudev/
+	cp -a extras/gudev/docs/html/* \
+		$(CURDIR)/debian/libgudev-1.0-dev/usr/share/gtk-doc/html/gudev/
+
+	dh_link
+	dh_installchangelogs ChangeLog
+	dh_installdocs README NEWS TODO
+	dh_installexamples extra/udev.vim
+	dh_installdebconf
+	dh_installinit --no-start --update-rcd-params='start 03 S .'
+	dh_installinit --no-start --update-rcd-params='start 36 S .' \
+		--name=udev-mtab
+
+	# remove duplicate changelogs
+	cd $(CURDIR)/debian/ && rm -r \
+		libgudev-1.0-dev/usr/share/doc/libgudev-1.0-dev/ \
+		gir1.0-gudev-1.0/usr/share/doc/gir1.0-gudev-1.0/ \
+		libudev-dev/usr/share/doc/libudev-dev/
+	ln -s libgudev-1.0-0 $(CURDIR)/debian/libgudev-1.0-dev/usr/share/doc/libgudev-1.0-dev
+	ln -s libgudev-1.0-0 $(CURDIR)/debian/gir1.0-gudev-1.0/usr/share/doc/gir1.0-gudev-1.0
+	ln -s libudev0 $(CURDIR)/debian/libudev-dev/usr/share/doc/libudev-dev
+
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs --add-udeb=udev-gtk-udeb -- -c4
+	dh_shlibdeps --exclude=/lib/udev/udev-acl -- --warnings=7
+	dh_girepository
+	dh_installdeb
+	dh_gencontrol $(NO_PACKAGE)
+	dh_md5sums
+	dh_builddeb $(NO_PACKAGE)
+
+
+binary:	binary-arch
+
+checkroot:
+	test root = "`whoami`"
+
+get-orig-source:
+	cd $(dir $(firstword $(MAKEFILE_LIST)))../ && \
+	uscan --rename --force-download --watchfile debian/watch --destdir $(CURDIR)
+
+.PHONY: binary binary-arch binary-indep unpack build clean checkroot

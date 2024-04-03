@@ -1,0 +1,60 @@
+#!/usr/bin/make -f
+# Copyright © 2002,2003 Colin Walters <walters@verbum.org>
+# Copyright © 2003 Daniel Stone <daniels@debian.org>
+# Copyright © 2006 Sjoerd Simons <sjoerd@debian.org>
+
+include /usr/share/cdbs/1/rules/utils.mk
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/autotools.mk
+
+libdbusN := $(shell sed -rn 's/Package:[[:space:]]*(libdbus-[0-9-]+)[[:space:]]*$$/\1/p' debian/control | head -n 1)
+
+DEB_DH_MAKESHLIBS_ARGS_ALL = -V '$(libdbusN) (>= 1.2.16)'
+
+LDFLAGS += -Wl,--as-needed
+
+# List any files which are not installed
+common-binary-post-install-arch:: list-missing
+
+DEB_CONFIGURE_LIBEXECDIR := "\$${prefix}/lib/dbus-1.0"
+
+DEB_CONFIGURE_EXTRA_FLAGS := \
+	--enable-xml-docs \
+	--enable-doxygen-docs \
+	--disable-libaudit
+
+DEB_DH_INSTALLINIT_ARGS := -r -- start 12 2 3 4 5 .
+
+binary-post-install/dbus-x11::
+	mkdir -p debian/dbus-x11/etc/X11/Xsession.d
+	cp debian/dbus-Xsession debian/dbus-x11/etc/X11/Xsession.d/75dbus_dbus-launch
+
+build/dbus-1-doc::
+	doxygen Doxyfile
+	xsltproc -o dbus.devhelp debian/doxygen_to_devhelp.xsl doc/api/xml/index.xml
+
+install/libdbus-1-dev::
+	dh_link -p$(cdbs_curpkg) lib/$$(basename $$(readlink debian/tmp/usr/lib/libdbus-1.so)) usr/lib/libdbus-1.so
+
+clean::
+	rm -rf doc/api
+	rm -f test/data/valid-config-files/session.conf
+	rm -f test/data/valid-config-files/system.conf
+	rm -f doc/*.html
+	rm -f dbus.devhelp
+
+# we don't want docs for the debug symbols, just symlink to the library docs
+DEB_INSTALL_DOCS_ALL =
+DEB_INSTALL_DOCS_DEFAULT = README AUTHORS
+DEB_INSTALL_DOCS_dbus-1-dbg := --link-doc=$(libdbusN)
+DEB_INSTALL_CHANGELOGS_ALL =
+DEB_INSTALL_CHANGELOGS_DEFAULT = ChangeLog
+DEB_INSTALL_CHANGELOGS_dbus-1-dbg := --no-act
+
+# workaround for cdbs running dh-buildinfo (if installed) too early;
+# see #590594
+debian/stamp-buildinfo: insist-on-symlinks
+insist-on-symlinks:
+	@echo "regarding #590594, observe that this is before dh_installdocs"
+	install -d debian/dbus-1-dbg/usr/share/doc
+	ln -s $(libdbusN) debian/dbus-1-dbg/usr/share/doc/dbus-1-dbg

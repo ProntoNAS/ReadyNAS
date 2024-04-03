@@ -1,0 +1,22 @@
+--- a/etc/afpd/directory.c	2011-06-06 05:01:02.000000000 -0700
++++ b/etc/afpd/directory.c	2011-06-22 12:31:03.000000000 -0700
+@@ -2379,15 +2379,16 @@ int deletecurdir(struct vol *vol)
+         return err;
+     }
+ 
+-    /* now get rid of dangling symlinks */
++    /* now get rid of dangling symlinks and hidden files */
+     if ((dp = opendir("."))) {
+         while ((de = readdir(dp))) {
+             /* skip this and previous directory */
+             if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
+                 continue;
+ 
+-            /* bail if it's not a symlink */
+-            if ((lstat(de->d_name, &st) == 0) && !S_ISLNK(st.st_mode)) {
++            /* bail if it's not a symlink or a hidden file */
++            if ((lstat(de->d_name, &st) == 0) && !S_ISLNK(st.st_mode) &&
++                (de->d_name[0] != '.') && (strncmp(de->d_name, ":2e", 3) != 0)) {
+                 LOG(log_error, logtype_afpd, "deletecurdir(\"%s\"): not empty",
+                     curdir->d_fullpath);
+                 closedir(dp);

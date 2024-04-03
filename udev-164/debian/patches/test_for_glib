@@ -1,0 +1,21 @@
+--- a/extras/udev-acl/70-acl.rules
++++ b/extras/udev-acl/70-acl.rules
+@@ -56,8 +56,17 @@ ENV{COLOR_MEASUREMENT_DEVICE}=="*?", TAG
+ # DDC/CI device, usually high-end monitors such as the DreamColor
+ ENV{DDC_DEVICE}=="*?", TAG+="udev-acl"
+ 
++LABEL="acl_apply"
++
++# workaround to support buggy packages which use the old interface
++ENV{ACL_MANAGE}=="1", TAG+="udev-acl"
++
++# Glib is not declared as a package dependency, so check that it is actually
++# installed before running udev-acl.
++TEST!="@GLIB_PATH@", GOTO="acl_end"
++
+ # apply ACL for all locally logged in users
+-LABEL="acl_apply", TAG=="udev-acl", TEST=="/var/run/ConsoleKit/database", \
++TAG=="udev-acl", TEST=="/var/run/ConsoleKit/database", \
+   RUN+="udev-acl --action=$env{ACTION} --device=$env{DEVNAME}"
+ 
+ LABEL="acl_end"

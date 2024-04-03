@@ -1,0 +1,53 @@
+#! /bin/sh
+
+test "X${VERBOSE}" = Xtrue && {
+  set -x
+  PS4=">`basename $0`> "
+}
+
+current_dir=`pwd`
+TMPDIR=${TMPDIR=/tmp}
+export TMPDIR
+testname=shar-3
+testdir=${TMPDIR}/${testname}-$$.d
+rm -rf ${testdir}
+(umask 077 ; mkdir ${testdir}) || exit 1
+opts="-S -o ${testdir}/${testname}-%04d.shar"
+opts="${opts} -L32 -n ${testname}-test -s ${testname} -z"
+
+shar=`cd ../src ; pwd`/shar
+unshar=`cd ../src ; pwd`/unshar
+top_builddir=`cd ${top_builddir} ; pwd`
+
+cd ${top_builddir}
+find . -type f | \
+  sed 's,^./,,'  | \
+  ${shar} -q ${opts}
+
+cd ${testdir}
+mkdir ${testname}.d
+opts=-d${testname}.d
+
+for f in ${testname}-*.shar
+do
+  ${unshar} ${opts} ${f}
+done >/dev/null
+
+if diff -r ${top_builddir} ${testname}.d
+then :
+else echo ${top_builddir} and ${testname}.d differ ; exit 1
+fi
+
+cd ${current_dir}
+rm -rf ${testdir}
+exit 0
+
+## Local Variables:
+## mode: shell-script
+## tab-width: 8
+## indent-tabs-mode: nil
+## sh-indentation: 2
+## sh-basic-offset: 2
+## End:
+
+## end of shar-3

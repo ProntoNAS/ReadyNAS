@@ -1,0 +1,50 @@
+#! /bin/sh
+
+test "X${VERBOSE}" = Xtrue && {
+  set -x
+  PS4=">$`basename $0`> "
+}
+
+tmppfx=shar-2-$$
+
+mkdir ${tmppfx}.dir ${tmppfx}.d ${tmppfx}.d/one ${tmppfx}.d/two
+for d in "" /one /two
+do
+  dir=${tmppfx}.d${d}
+  echo This file is shar-2${d}/first > ${dir}/first
+  exec 3> ${dir}/second
+  echo This file is shar-2${d}/second >&3
+  f=0
+  while test $f -lt 32
+  do  g=\\`printf %0d $f`
+      printf "$g"
+      f=`expr $f + 1`
+  done >&3
+  echo >&3
+  echo This file is shar-2${d}/second >&3
+  exec 3>&-
+done
+
+: ${SHAR=`cd ../src ; pwd`/shar}
+: ${UNSHAR=`cd ../src ; pwd`/unshar}
+(cd ${tmppfx}.d ; ${SHAR} -m . 2>/dev/null) > ${tmppfx}.shar
+
+: ${DIFF=diff}
+
+( cd ${tmppfx}.dir
+  ${UNSHAR} ../${tmppfx}.shar )
+
+${DIFF} -r ${tmppfx}.d ${tmppfx}.dir || exit 1
+
+rm -rf ${tmppfx}.*
+exit 0
+
+## Local Variables:
+## mode: shell-script
+## tab-width: 8
+## indent-tabs-mode: nil
+## sh-indentation: 2
+## sh-basic-offset: 2
+## End:
+
+## end of shar-2

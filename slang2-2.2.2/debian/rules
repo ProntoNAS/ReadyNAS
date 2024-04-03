@@ -1,0 +1,132 @@
+#!/usr/bin/make -f
+# Made with the aid of dh_make, by Craig Small
+
+# Uncomment this to turn on verbose mode. 
+# export DH_VERBOSE=1
+
+DEB_BUILD_GNU_TYPE = $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE  = $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+CONFARGS= --host=$(DEB_HOST_GNU_TYPE)
+endif
+
+ARCH:=$(shell dpkg --print-architecture)
+
+# Append -mieee on Alpha in case of toolchain problems. This should be
+# safely removed post-etch. See #337304.
+ifeq ($(ARCH),alpha)
+  CFLAGS_ALPHA := -mieee
+endif
+
+CC=gcc
+INSTALL=/usr/bin/install
+CFLAGS := -g -fno-strength-reduce -D_REENTRANT -D_XOPEN_SOURCE=500 $(CFLAGS_ALPHA)
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+        CFLAGS += -O0
+else
+        CFLAGS += -O2
+endif
+ELF_CFLAGS = $(CFLAGS) -fPIC
+
+SOMAJOR=2
+SOMINOR=2.2
+
+LIBSLANG=libslang2
+LIBSLANG_PIC=libslang2-pic
+LIBSLANG_DEV=libslang2-dev
+LIBSLANG_UDEB=libslang2-udeb
+SLSH=slsh
+
+DEBVERSION=$(shell dpkg-parsechangelog | grep '^Version: ' | sed -e 's/^Version: //')
+UDEBNAME=$(LIBSLANG_UDEB)_$(DEBVERSION)_$(shell dpkg --print-architecture).udeb
+
+
+# the dbs rules
+TAR_DIR=slang-$(SOMAJOR).$(SOMINOR)
+include /usr/share/dbs/dbs-build.mk
+
+ifeq (,$(DEB_BUILD_GNU_TYPE))
+ include /usr/share/dbs/dpkg-arch.mk
+endif
+
+# Hack to ensure -mieee always defined
+ifeq ($(ARCH),alpha)
+  CFLAGS += -mieee
+endif
+
+build: $(build-stamp)
+
+build-stamp=$(STAMP_DIR)/build-stamp
+configure-stamp=$(STAMP_DIR)/configure-stamp
+
+$(configure-stamp): $(patched)
+	dh_testdir
+	# Prepare .links files from templates:
+	for i in `ls $(CURDIR)/debian/*links.in`; do \
+		sed -e "1i\# Automatically generated from the .in" \
+		    -e "s/@@major@@/$(SOMAJOR)/g; s/@@minor@@/$(SOMINOR)/" \
+		     < $$i > $${i%%.in} ; \
+	done
+	# Prepare the build tree:
+	cd $(BUILD_TREE)  && ./configure --prefix=/usr \
+		--enable-warnings $(CONFARGS)
+	touch $@
+
+$(build-stamp): $(configure-stamp)
+	dh_testdir
+	$(MAKE) -C $(BUILD_TREE) CFLAGS="$(CFLAGS)" \
+		MODULE_INSTALL_DIR=/usr/lib/slang/v2/modules RPATH= \
+		install_doc_dir=/usr/share/doc/libslang2 all 
+	$(MAKE) -C $(BUILD_TREE) ELF_CFLAGS="$(ELF_CFLAGS)" prefix=/ \
+		MODULE_INSTALL_DIR=/usr/lib/slang/v2/modules RPATH= \
+		install_doc_dir=/usr/share/doc/libslang2 elf
+	$(MAKE) -C $(BUILD_TREE)/src CFLAGS="$(CFLAGS)" \
+		MODULE_INSTALL_DIR=/usr/lib/slang/v2/modules RPATH= \
+		install_doc_dir=/usr/share/doc/libslang2 all 
+	# Produce the -pic archive for use by the bootfloppies package.
+	ar cqv $(BUILD_TREE)/libslang_pic.a $(BUILD_TREE)/src/elfobjs/*.o
+	INSTANT_OPT=" " docbook-to-man debian/slsh.sgml > $(SOURCE_DIR)/slsh.1
+	touch $@
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -rf $(SOURCE_DIR) $(STAMP_DIR)
+	# Clean up generated .links:
+	for i in `ls $(CURDIR)/debian/*links.in`; do rm -f $${i%%.in} ; done
+	dh_clean
+
+# Build architecture-independent files here.
+binary-indep:
+
+binary-arch: $(build-stamp)
+	dh_testdir 
+	dh_testroot 
+	$(MAKE) -C $(BUILD_TREE)/slsh install SLSH_CONF_DIR=/etc SLSH_LOCALLIB_DIR="" \
+		SLANG_INST_LIB="-L${CURDIR}/${BUILD_TREE}/src/elfobjs -lslang" \
+		MODULE_INSTALL_DIR=/usr/lib/slang/v2/modules RPATH= \
+		DESTDIR=$(CURDIR)/debian/slsh
+	dh_link -a
+	dh_installdirs -a
+	dh_install -a
+	cp $(BUILD_TREE)/src/slang.ver debian/libslang2-pic/usr/lib/libslang_pic.map
+	dh_installexamples
+	dh_installdocs -a 
+	dh_installchangelogs -a $(BUILD_TREE)/changes.txt
+	dh_installman -p$(SLSH) $(SOURCE_DIR)/slsh.1
+	dh_strip -a
+	dh_compress -a -X.sl -Xslangfun.txt
+	dh_fixperms -a
+	dh_makeshlibs  -V "${LIBSLANG} (>= 2.0.7-1)" --add-udeb="${LIBSLANG_UDEB}"
+	dh_installdeb -a
+	rm -rf debian/$(SLSH)/usr/man
+	dh_shlibdeps -a
+	dh_gencontrol -a 
+	dh_md5sums -a 
+	dh_builddeb -a 
+
+source diff:                                                                  
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+binary: binary-indep binary-arch
+.PHONY: clean binary binary binary-indep binary-arch binary

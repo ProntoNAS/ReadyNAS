@@ -1,0 +1,85 @@
+commit a1815d4ad4ffe84e8f7d128a38955e3dab306e0d
+Author: Markus Steinborn <msteinbo>
+Date:   Thu Dec 17 16:24:17 2009 -0800
+
+    setfacl: fix restore crash on malformed input
+    
+    Malformed input to setfacl --restore can cause a crash due to a double
+    free.
+    
+    Ensure that freed memory is set to NULL.
+    
+    Fixes this bug:
+     https://savannah.nongnu.org/bugs/index.php?28185
+    
+    Signed-off-by: Brandon Philips <bphilips@suse.de>
+
+diff --git a/setfacl/parse.c b/setfacl/parse.c
+index b333beb..e7e6add 100644
+--- a/setfacl/parse.c
++++ b/setfacl/parse.c
+@@ -525,8 +525,10 @@ read_acl_comments(
+ 		return -1;
+ 	return comments_read;
+ fail:
+-	if (path_p && *path_p)
++	if (path_p && *path_p) {
+ 		free(*path_p);
++		*path_p = NULL;
++	}
+ 	return -EINVAL;
+ }
+ 
+diff --git a/test/Makefile b/test/Makefile
+index 828b6a4..0c6ee3e 100644
+--- a/test/Makefile
++++ b/test/Makefile
+@@ -22,7 +22,8 @@ include $(TOPDIR)/include/builddefs
+ TESTS = $(wildcard *.test)
+ ROOT = $(wildcard root/*.test)
+ NFS = $(wildcard nfs/*.test)
+-LSRCFILES = sort-getfacl-output run make-tree $(TESTS) $(ROOT) $(NFS)
++LSRCFILES = sort-getfacl-output run make-tree $(TESTS) $(ROOT) $(NFS) \
++	test/malformed-restore-double-owner.acl
+ 
+ include $(BUILDRULES)
+ 
+diff --git a/test/malformed-restore-double-owner.acl b/test/malformed-restore-double-owner.acl
+new file mode 100644
+index 0000000..1981de2
+--- /dev/null
++++ b/test/malformed-restore-double-owner.acl
+@@ -0,0 +1,8 @@
++# file: tmp
++# owner: USER
++# owner: USER
++# group: GROUP
++user::rwx
++group::rwx
++other::rwx
++
+diff --git a/test/malformed-restore.test b/test/malformed-restore.test
+new file mode 100644
+index 0000000..e92b75b
+--- /dev/null
++++ b/test/malformed-restore.test
+@@ -0,0 +1,19 @@
++Test for malformed input to --restore
++ https://savannah.nongnu.org/bugs/index.php?28185
++
++	$ cp malformed-restore-double-owner.acl tmp.acl
++	$ sed -i "s/USER/%TUSER/g" tmp.acl
++	$ sed -i "s/GROUP/%TGROUP/g" tmp.acl
++	$ touch tmp
++	$ setfacl --restore tmp.acl
++	> setfacl: tmp.acl: Invalid argument
++	$ rm tmp.acl tmp
++
++	$ mkdir tmp
++	$ chmod 1777 tmp
++	$ getfacl tmp > tmp.acl
++	$ sed -i 's/--t/--x/g' tmp.acl
++	$ setfacl --restore tmp.acl
++	> setfacl: tmp.acl: Invalid argument
++	$ rmdir tmp
++	$ rm tmp.acl

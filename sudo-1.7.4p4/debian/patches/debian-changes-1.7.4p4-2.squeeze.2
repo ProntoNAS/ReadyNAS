@@ -1,0 +1,102 @@
+Description: Upstream changes introduced in version 1.7.4p4-2.squeeze.2
+ This patch has been created by dpkg-source during the package build.
+ Here's the last changelog entry, hopefully it gives details on why
+ those changes were made:
+ .
+ sudo (1.7.4p4-2.squeeze.2) stable; urgency=low
+ .
+   * patch from upstream to resolve interoperability problem between HOME in
+     env_keep and the -H flag, originally closed #596493, applying this to
+     to squeeze also closes: #614232
+ .
+ The person named in the Author field signed this changelog entry.
+Author: Bdale Garbee <bdale@gag.com>
+Bug-Debian: http://bugs.debian.org/614232
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: <vendor|upstream|other>, <url of original patch>
+Bug: <url in upstream bugtracker>
+Bug-Debian: http://bugs.debian.org/<bugnumber>
+Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: <YYYY-MM-DD>
+
+--- sudo-1.7.4p4.orig/check.c
++++ sudo-1.7.4p4/check.c
+@@ -119,7 +119,13 @@ check_user(validated, mode)
+     if (ISSET(mode, MODE_INVALIDATE)) {
+ 	SET(validated, FLAG_CHECK_USER);
+     } else {
+-	if (user_uid == 0 || user_uid == runas_pw->pw_uid || user_is_exempt())
++	/*
++	 * Don't prompt for the root passwd or if the user is exempt.
++	 * If the user is not changing uid/gid, no need for a password.
++	 */
++	if (user_uid == 0 || (user_uid == runas_pw->pw_uid &&
++	    (!runas_gr || user_in_group(sudo_user.pw, runas_gr->gr_name))) ||
++	    user_is_exempt())
+ 	    return;
+     }
+ 
+--- sudo-1.7.4p4.orig/env.c
++++ sudo-1.7.4p4/env.c
+@@ -610,10 +610,16 @@ rebuild_env(noexec)
+ #ifdef ENV_DEBUG
+     memset(env.envp, 0, env.env_size * sizeof(char *));
+ #endif
+-    if (def_env_reset || ISSET(sudo_mode, MODE_LOGIN_SHELL)) {
+-	/* Reset HOME based on target user unless keeping old value. */
+-	reset_home = TRUE;
+ 
++    /* Reset HOME based on target user if configured to. */
++    if (ISSET(sudo_mode, MODE_RUN)) {
++	if (def_always_set_home ||
++	    ISSET(sudo_mode, MODE_RESET_HOME | MODE_LOGIN_SHELL) || 
++	    (ISSET(sudo_mode, MODE_SHELL) && def_set_home))
++	    reset_home = TRUE;
++    }
++
++    if (def_env_reset || ISSET(sudo_mode, MODE_LOGIN_SHELL)) {
+ 	/* Pull in vars we want to keep from the old environment. */
+ 	for (ep = old_envp; *ep; ep++) {
+ 	    int keepit;
+@@ -709,6 +715,11 @@ rebuild_env(noexec)
+ 	    if (!ISSET(didvar, DID_USERNAME))
+ 		sudo_setenv("USERNAME", user_name, FALSE);
+ 	}
++
++	/* If we didn't keep HOME, reset it based on target user. */
++	if (!ISSET(didvar, KEPT_HOME))
++	    reset_home = TRUE;
++
+ 	/*
+ 	 * Set MAIL to target user in -i mode or if MAIL is not preserved
+ 	 * from user's environment.
+@@ -722,13 +733,6 @@ rebuild_env(noexec)
+ 	    sudo_putenv(cp, ISSET(didvar, DID_MAIL), TRUE);
+ 	}
+     } else {
+-	/* Reset HOME based on target user if configured to. */
+-	if (ISSET(sudo_mode, MODE_RUN)) {
+-	    if (def_always_set_home || ISSET(sudo_mode, MODE_RESET_HOME) || 
+-		(ISSET(sudo_mode, MODE_SHELL) && def_set_home))
+-		reset_home = TRUE;
+-	}
+-
+ 	/*
+ 	 * Copy environ entries as long as they don't match env_delete or
+ 	 * env_check.
+@@ -778,7 +782,7 @@ rebuild_env(noexec)
+     }
+ 
+     /* Set $HOME to target user if not preserving user's value. */
+-    if (reset_home && !ISSET(didvar, KEPT_HOME))
++    if (reset_home)
+ 	sudo_setenv("HOME", runas_pw->pw_dir, TRUE);
+ 
+     /* Provide default values for $TERM and $PATH if they are not set. */

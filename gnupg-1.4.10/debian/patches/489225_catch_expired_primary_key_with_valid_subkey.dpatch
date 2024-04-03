@@ -1,0 +1,28 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 489225_catch_expired_primary_key_with_valid_subkey.dpatch by Daniel Leidert (dale) <daniel.leidert@wgdd.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Fix missing status line signature verification done with a subkey while
+## DP: on the main key has expired.
+## DP:
+## DP: <URL:http://bugs.debian.org/489225>
+## DP: <URL:https://bugs.g10code.com/gnupg/issue1059>
+## DP: <URL:http://lists.gnupg.org/pipermail/gnupg-commits/2009-December/008699.html>
+
+@DPATCH@
+diff -urNad trunk~/g10/sig-check.c trunk/g10/sig-check.c
+--- trunk~/g10/sig-check.c	2009-07-30 13:01:05.000000000 +0200
++++ trunk/g10/sig-check.c	2010-01-22 02:33:27.496061461 +0100
+@@ -209,7 +209,11 @@
+ 	  return G10ERR_TIME_CONFLICT;
+       }
+ 
+-    if( pk->expiredate && pk->expiredate < cur_time ) {
++    /* Check whether the key has expired.  We check the has_expired
++       flag which is set after a full evaluation of the key (getkey.c)
++       as well as a simple compare to the current time in case the
++       merge has for whatever reasons not been done.  */
++    if (pk->has_expired || (pk->expiredate && pk->expiredate < cur_time)) {
+         char buf[11];
+         if (opt.verbose)
+ 	  log_info(_("NOTE: signature key %s expired %s\n"),

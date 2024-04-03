@@ -1,0 +1,120 @@
+Potentially useful things to know about the Debian NTP packages ...
+
+
+Configuration
+-------------
+
+The default ntp.conf file is set up for an NTP "client" that
+synchronizes to high-stratum NTP servers on the Internet.  This should
+be sufficient for most installations on well-connected hosts that
+simply want to keep their clocks accurate.
+
+The default time servers are servers from a pool.ntp.org vendor zone
+assigned to Debian.  Consider replacing this if you have local time
+servers in your organization or network.  A list of public NTP time
+servers is available on the web at
+
+    http://ntp.isc.org/bin/view/Servers/WebHome
+
+Extra configuration work will be necessary to offer time service to
+other hosts, to use hardware time receivers, or to synchronize the
+clocks on networks that are not connected to the Internet.  The
+documentation in the package ntp-doc will assist with these tasks.
+
+
+DHCP
+----
+
+If DHCP is used to configure the host, and the DHCP server sends
+information about NTP servers, then this information will be used
+automatically.  This is done by making a copy of /etc/ntp.conf at
+/var/lib/ntp/ntp.conf.dhcp, replacing the server entries with the
+information provided by the DHCP server, and restarting the NTP
+server.
+
+In order for this to work, the "ntp-servers" option must be mentioned
+in the "request" statement in /etc/dhcp3/dhclient.conf.  This is not
+the case in a default installation.  A complete configuration might
+look like this, for example:
+
+    request subnet-mask, broadcast-address, time-offset, routers,
+            domain-name, domain-name-servers, host-name,
+            netbios-name-servers, netbios-scope, interface-mtu,
+            ntp-servers;
+
+If you don't like using the NTP servers sent by the DHCP server, this
+is also the right place to turn off this behavior.
+
+To make the DHCP server in the Debian package dhcp3-server send NTP
+server information, add a line like the following at an appropriate
+place:
+
+    option ntp-servers ntp1.foo.bar, ntp2.foo.bar;
+
+
+SMP Systems
+-----------
+
+Several people have reported that ntpd fails on SMP boxes unless the
+"Enhanced Real-Time Clock" support is enabled in the kernel.  This is
+known to be essential on SMP Alpha systems, and is believed to also be
+necessary on SMP Intel systems.
+
+
+Logging
+-------
+
+By default, ntpd will log via syslog.  The daemon will use the
+LOG_DAEMON facility, leading to ntpd log entries going to
+/var/log/daemon.log.  If you define a logfile location in
+/etc/ntp.conf, the daemon will do direct file system writes to the
+specified file, avoiding syslog.  Previous Debian packages did this,
+with the side effect that they had to ship a weekly cron job that
+stopped the daemon, rotated the log, then restarted the daemon.  This
+is moderately evil for high-stratum NTP servers, where ntpd should be
+allowed to run more or less forever.  This mode of logging is not
+recommended and no longer supported by the Debian packages.
+
+
+NTP and hwclock Issues
+----------------------
+
+hwclock (from the util-linux package) is normally called on startup
+and shutdown.  You should ensure that hwclock --adjust is never called
+(make sure it is disabled in /etc/init.d/hwclock.sh; this is the
+default in new Debian installations).
+
+You should allow hwclock --systohc to be called on shutdown unless you
+are running the NANO kernel patch, because the kernel does not fully
+update the RTC time, and it could be off by a multiple of 30 minutes
+in the next boot if hwclock --systohc is never called by the shutdown
+sequence.  See the hwclock README files in the util-linux
+documentation for more information.
+
+
+Firewalls
+---------
+
+If your system is behind a firewall, the port you need to open up to
+allow the NTP protocol to work (for either ntpdate or ntpd) is UDP
+port 123.  Server-to-server NTP packets usually use this for both
+source and destination: for extra security, a stateful firewall should
+block "new" packets with source, but not destination, port 123 from
+entering your network.
+
+
+Keys
+----
+
+ntp-genkeys now generates an MD5 ntp.keys file in /var/lib/ntp.  Use
+of these keys has not yet been tested; please report success or
+failure in using them to the maintainer.
+
+
+PPSkit
+------
+
+If you're serious about building a high-quality stratum 1 timekeeper,
+please take a look at Ulrich Windl's PPSkit patchset for the Linux
+kernel, available from the kernel.org mirror network in
+pub/linux/daemons/ntp.

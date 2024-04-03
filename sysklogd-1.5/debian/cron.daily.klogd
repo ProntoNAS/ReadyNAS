@@ -1,0 +1,47 @@
+#! /bin/sh
+
+binpath=/sbin/klogd
+pidfile=/var/run/klogd.pid
+
+test -x $binpath || exit 0
+
+
+running()
+{
+    # No pidfile, probably no daemon present
+    #
+    if [ ! -f $pidfile ]
+    then
+	return 1
+    fi
+
+    pid=`cat $pidfile`
+
+    # No pid, probably no daemon present
+    #
+    if [ -z "$pid" ]
+    then
+	return 1
+    fi
+
+    if [ ! -d /proc/$pid ]
+    then
+	return 1
+    fi
+
+    cmd=`cat /proc/$pid/cmdline | tr "\000" "\n"|head -n 1`
+
+    # No syslogd?
+    #
+    if [ "$cmd" != "$binpath" ]
+    then
+	return 1
+    fi
+
+    return 0
+}
+
+if ! running
+then
+    sh /etc/init.d/klogd start > /dev/null
+fi

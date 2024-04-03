@@ -1,0 +1,57 @@
+#!/usr/bin/make -f
+
+LDFLAGS	:= -Wl,-z,defs
+CFLAGS	:= -g $(shell getconf LFS_CFLAGS)
+
+ifeq (,$(findstring noopt, ${DEB_BUILD_OPTIONS}))
+CFLAGS += -O2
+else
+CFLAGS += -O0
+endif
+
+DEB_HOST_GNU_TYPE	:= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+
+LC_COLLATE=C
+export LC_COLLATE
+
+export QUILT_PATCH_DIR = debian/patches-applied
+
+d = $(CURDIR)/debian
+dl = $(d)/local
+
+%:
+	dh $@ --with quilt
+
+override_dh_auto_configure:
+	dh_auto_configure -- --enable-static --enable-shared \
+		--libdir=/lib --sbindir=/sbin --disable-audit \
+		CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)"
+
+# make sure the SAG, MWG, ADG are readable with a browser.
+override_dh_compress:
+	dh_compress -Xhtml
+
+# .install files don't have "except for" handling, so we need to exclude
+# our module that doesn't match right here
+override_dh_install:
+ifneq (,$(findstring libpam-modules, $(shell dh_listpackages)))
+	dh_install -plibpam-modules -Xpam_cracklib
+endif
+	dh_install -Nlibpam-modules
+
+# again, excluding files by hand; also, build our local manpage for pam_getenv
+# from the XML
+override_dh_installman:
+	pod2man --section 8 --release="Debian GNU/Linux" $(dl)/pam_getenv >$(dl)/pam_getenv.8
+	dh_installman
+	rm -f $(d)/libpam-modules/usr/share/man/man5/pam.conf.5
+	rm -f $(d)/libpam-modules/usr/share/man/man8/pam_cracklib.8
+
+# using perms that differ from upstream (sgid instead of suid) /and/ that
+# dh_fixperms doesn't want
+override_dh_fixperms:
+	dh_fixperms
+ifneq (,$(findstring libpam-modules, $(shell dh_listpackages)))
+	chgrp shadow $(d)/libpam-modules/sbin/unix_chkpwd
+	chmod 02755 $(d)/libpam-modules/sbin/unix_chkpwd
+endif

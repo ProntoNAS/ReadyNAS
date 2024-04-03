@@ -1,0 +1,35 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 01_versioned_symbols.dpatch by  <fabbe@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Use versioned symbols for libsasl2.
+
+@DPATCH@
+diff -urNad trunk~/lib/Makefile.am trunk/lib/Makefile.am
+--- trunk~/lib/Makefile.am	2006-05-29 22:52:46.000000000 +0300
++++ trunk/lib/Makefile.am	2006-07-12 14:38:12.000000000 +0300
+@@ -60,8 +60,8 @@
+ lib_LTLIBRARIES = libsasl2.la
+ 
+ libsasl2_la_SOURCES = $(common_sources) $(common_headers)
+-libsasl2_la_LDFLAGS = -version-info $(sasl_version)
+-libsasl2_la_DEPENDENCIES = $(LTLIBOBJS)
++libsasl2_la_LDFLAGS = -version-info $(sasl_version) -Wl,--version-script=Versions
++libsasl2_la_DEPENDENCIES = $(LTLIBOBJS) Versions
+ libsasl2_la_LIBADD = $(LTLIBOBJS) $(SASL_DL_LIB) $(LIB_SOCKET) $(LIB_DOOR)
+ 
+ if MACOSX
+@@ -93,6 +93,13 @@
+ 	rm -f $@
+ 	ln -s .libs/$@ $@
+ 
++Versions: $(libsasl2_la_OBJECTS)
++	rm -f $@
++	echo "SASL2 {" > $@
++	echo "  global:" >> $@
++	nm $(patsubst %.lo,%.o,$(libsasl2_la_OBJECTS)) | grep " [Tt] " | cut -d" " -f3 | sed -e 's/$$/;/' >> $@
++	echo "};" >> $@
++
+ $(SASL_STATIC_OBJS): linksrcs
+ 
+ linksrcs:

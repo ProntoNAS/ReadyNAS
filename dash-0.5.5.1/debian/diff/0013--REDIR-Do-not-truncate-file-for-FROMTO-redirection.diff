@@ -1,0 +1,43 @@
+From fd0facb61d0a4ea66f39083fed1d67d371abd3b8 Mon Sep 17 00:00:00 2001
+From: Gerrit Pape <pape@smarden.org>
+Date: Wed, 26 May 2010 11:07:25 +0000
+Subject: [PATCH] [REDIR] Do not truncate file for FROMTO redirection
+
+On Tue, Jun 23, 2009 at 10:06:30AM +0000, Nikola Vladov wrote:
+> May be this is a bug:
+>
+> echo XX > uu
+> cat <> uu
+>
+> dash truncates file uu.  The open flag O_TRUNC must be removed.
+> I'm not 100% shure what POSIX say about: program <> file
+
+Indeed, this is a bug we inherited from NetBSD.  This patch removes
+the O_TRUNC flag for FROMTO.
+
+Signed-off-by: Herbert Xu <herbert@gondor.apana.org.au>
+(cherry picked from commit 09363426739388813a53d63716d15163f6c43caf)
+
+Conflicts:
+
+	ChangeLog
+---
+ src/redir.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/src/redir.c b/src/redir.c
+index b01237d..54af96b 100644
+--- a/src/redir.c
++++ b/src/redir.c
+@@ -192,7 +192,7 @@ openredirect(union node *redir)
+ 		break;
+ 	case NFROMTO:
+ 		fname = redir->nfile.expfname;
+-		if ((f = open64(fname, O_RDWR|O_CREAT|O_TRUNC, 0666)) < 0)
++		if ((f = open64(fname, O_RDWR|O_CREAT, 0666)) < 0)
+ 			goto ecreate;
+ 		break;
+ 	case NTO:
+-- 
+1.6.0.3
+

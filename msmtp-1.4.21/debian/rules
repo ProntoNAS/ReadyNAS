@@ -1,0 +1,50 @@
+#!/usr/bin/make -f
+
+CONFIGURE_COMMON_OPTS := --with-libgsasl --with-ssl=gnutls
+
+override_dh_auto_configure:
+	cp -f /usr/share/misc/config.sub config.sub
+	cp -f /usr/share/misc/config.guess config.guess
+
+	# prepare first build: msmtp
+	mkdir -p build
+	ln -s $(CURDIR)/debian build/debian
+	ln -s $(CURDIR)/configure build/configure
+	cd build && \
+		dh_auto_configure -- ${CONFIGURE_COMMON_OPTS}
+
+	# prepare second build: msmtp with GNOME Keyring support
+	mkdir -p build-gnome
+	ln -s $(CURDIR)/debian build-gnome/debian
+	ln -s $(CURDIR)/configure build-gnome/configure
+	cd build-gnome && \
+		dh_auto_configure -- \
+			${CONFIGURE_COMMON_OPTS} --with-gnome-keyring
+
+override_dh_auto_build:
+	pod2man --center "" --date "" --release "" --section=1 \
+		debian/newaliases.pod > debian/newaliases.1
+	$(MAKE) -C build
+	$(MAKE) -C build-gnome
+
+override_dh_auto_install:
+	$(MAKE) -C build install DESTDIR=$(CURDIR)/debian/tmp
+
+override_dh_compress:
+	dh_compress -X msmtp-gnome-tool.py
+
+override_dh_link:
+	# hook to create a symlink between /usr/share/doc/msmtp-gnome
+	# and /usr/share/doc/msmtp
+	rm -rf $(CURDIR)/debian/msmtp-gnome/usr/share/doc/msmtp-gnome
+	dh_link
+
+override_dh_auto_clean:
+	rm -f config.guess config.sub
+	rm -rf build build-gnome
+	rm -f debian/newaliases.1
+	dh_clean
+
+%:
+	dh --with quilt $@
+

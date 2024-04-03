@@ -816,7 +816,7 @@ int modprobe_main(int argc UNUSED_PARAM, char **argv)
 		option_mask32 |= OPT_r;
 	}
 
-	else if ('i' != applet0) { /* not insmod */
+	if ('i' != applet0) { /* not insmod */
 		/* Goto $VERSION directory */
 		xchdir(uts.release);
 	}

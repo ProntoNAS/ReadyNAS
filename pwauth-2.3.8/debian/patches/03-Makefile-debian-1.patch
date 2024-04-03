@@ -1,0 +1,51 @@
+Makefile fixes
+
+Author: Hai Zaar <haizaar@haizaar.com>
+
+--- Makefile.orig	2009-04-01 12:40:59.000000000 +0300
++++ Makefile	2009-04-01 12:41:23.000000000 +0300
+@@ -7,22 +7,24 @@
+ 
+ # Settings for author's system (Redhat 6.1)
+ CC=gcc
+-LIB= -lcrypt
+-LOCALFLAGS= -g 
++LDFLAGS=-Wl,-z -Wl,defs -Wl,--as-needed
++LIB=-lpam
++LOCALFLAGS=-g -Wall
+ 
+-# For PAM on Redhat Linux
+-# LIB=-lpam -ldl
++prefix=/usr
++sbindir=$(prefix)/sbin
+ 
+-# For PAM on Solaris or OS X
+-# LIB=-lpam
+ 
+ # -------------------- No User Servicable Parts Below -----------------------
+ 
++programs = pwauth checkfaillog unixgroup
++all: $(programs)
++
+ CFLAGS= $(LOCALFLAGS)
+ 
+ pwauth: main.o auth_aix.o auth_bsd.o auth_hpux.o auth_mdw.o auth_openbsd.o \
+ 	auth_pam.o auth_sun.o fail_log.o lastlog.o nologin.o snooze.o
+-	$(CC) -o pwauth $(CFLAGS) main.o auth_aix.o auth_bsd.o auth_hpux.o \
++	$(CC) -o pwauth $(CFLAGS) $(LDFLAGS) main.o auth_aix.o auth_bsd.o auth_hpux.o \
+ 		auth_mdw.o auth_openbsd.o auth_pam.o auth_sun.o fail_log.o \
+ 		lastlog.o nologin.o snooze.o $(LIB)
+ 
+@@ -46,7 +48,11 @@
+ 
+ 
+ clean:
+-	rm -f *.o
++	$(MAKE) distclean
+ 
+ distclean:
+ 	rm -f *.o pwauth checkfaillog
++
++install:
++	mkdir -p $(DESTDIR)$(sbindir)
++	install $(programs) $(DESTDIR)$(sbindir)

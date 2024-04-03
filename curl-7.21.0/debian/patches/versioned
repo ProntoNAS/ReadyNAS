@@ -1,0 +1,100 @@
+Index: curl/configure.ac
+===================================================================
+--- curl.orig/configure.ac	2010-02-09 13:50:08.000000000 +0100
++++ curl/configure.ac	2010-02-09 13:50:10.000000000 +0100
+@@ -1896,6 +1896,52 @@
+ fi
+ 
+ dnl **********************************************************************
++dnl Check for linker switch for versioned symbols
++dnl **********************************************************************
++
++AC_MSG_CHECKING([if libraries can be versioned])
++GLD=`$LD --help < /dev/null 2>/dev/null | grep version-script`
++if test -z "$GLD"; then
++    versioned_symbols_flavour=
++    AC_MSG_RESULT(no)
++    AC_MSG_WARN(***
++*** You may want to rerun configure using --with-gnu-ld to enable versioned symbols.
++)
++else
++    AC_MSG_RESULT(yes)
++
++AC_MSG_CHECKING([whether versioned symbols are wanted])
++versioned_symbols_flavour=
++
++AC_ARG_ENABLE(versioned-symbols,
++AC_HELP_STRING([--enable-versioned-symbols], [Enable versioned symbols in shared library])
++AC_HELP_STRING([--disable-versioned-symbols], [Disable versioned symbols in shared library]),
++[ case "$enableval" in
++  yes) AC_MSG_RESULT(yes)
++	   if test "$OPENSSL_ENABLED" = "1"; then
++		   versioned_symbols_flavour="OPENSSL_"
++	   else
++		   if test "$OPT_GNUTLS" != "no"; then
++			   versioned_symbols_flavour="GNUTLS_"
++		   fi
++	   fi
++	   versioned_symbols="yes"
++	   ;;
++
++  *)   AC_MSG_RESULT(no)
++	   ;;
++  esac
++], [
++AC_MSG_RESULT(no)
++]
++)
++fi
++
++AC_SUBST(VERSIONED_FLAVOUR, ["$versioned_symbols_flavour"])
++AM_CONDITIONAL(VERSIONED_SYMBOLS, test "$versioned_symbols" = "yes")
++
++
++dnl **********************************************************************
+ dnl Check for the presence of IDN libraries and headers
+ dnl **********************************************************************
+ 
+@@ -2578,6 +2624,7 @@
+            include/curl/Makefile \
+            src/Makefile \
+            lib/Makefile \
++           lib/libcurl.vers \
+            tests/Makefile \
+            tests/data/Makefile \
+            tests/server/Makefile \
+Index: curl/lib/Makefile.am
+===================================================================
+--- curl.orig/lib/Makefile.am	2010-02-09 13:50:03.000000000 +0100
++++ curl/lib/Makefile.am	2010-02-09 13:50:10.000000000 +0100
+@@ -113,7 +113,11 @@
+ MIMPURE = -mimpure-text
+ endif
+ 
+-libcurl_la_LDFLAGS = $(UNDEF) $(VERSIONINFO) $(MIMPURE) $(LIBCURL_LIBS)
++if VERSIONED_SYMBOLS
++VERSIONED_SYMBOLS = -Wl,--version-script=libcurl.vers
++endif
++
++libcurl_la_LDFLAGS = $(UNDEF) $(VERSIONINFO) $(MIMPURE) $(LIBCURL_LIBS) $(VERSIONED_SYMBOLS)
+ 
+ # Makefile.inc provides the CSOURCES and HHEADERS defines
+ include Makefile.inc
+Index: curl/lib/libcurl.vers.in
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ curl/lib/libcurl.vers.in	2010-02-09 13:50:10.000000000 +0100
+@@ -0,0 +1,13 @@
++HIDDEN
++{
++	local:
++		__*;
++		_rest*;
++		_save*;
++};
++
++CURL_@VERSIONED_FLAVOUR@3
++{
++	global: curl_*; Curl_*;
++	local: *;
++};

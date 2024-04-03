@@ -1,0 +1,156 @@
+From: Niko Tyni <ntyni@debian.org>
+Subject: [CVE-2010-2761 CVE-2010-4410 CVE-2010-4411] CGI.pm MIME boundary and multiline header vulnerabilities
+Origin: upstream
+Bug-Debian: http://bugs.debian.org/606995
+
+CVE-2010-2761 hardcoded MIME boundary, fixed in CGI.pm-3.50
+CVE-2010-4410 CRLF injection vulnerability, fixed in CGI.pm-3.50
+CVE-2010-4411 double CR/LF injection vulnerability, fixed in CGI.pm-3.51
+
+
+---
+ MANIFEST                   |    2 +
+ lib/CGI.pm                 |   26 +++++++++++++++++++++++-
+ lib/CGI/t/headers.t        |   47 ++++++++++++++++++++++++++++++++++++++++++++
+ lib/CGI/t/multipart_init.t |   20 ++++++++++++++++++
+ 4 files changed, 94 insertions(+), 1 deletions(-)
+
+diff --git a/MANIFEST b/MANIFEST
+index 2b5a968..e0e950f 100644
+--- a/MANIFEST
++++ b/MANIFEST
+@@ -1935,7 +1935,9 @@ lib/CGI/t/cookie.t		See if CGI::Cookie works
+ lib/CGI/t/fast.t		See if CGI::Fast works (if FCGI is installed)
+ lib/CGI/t/form.t		See if CGI.pm works
+ lib/CGI/t/function.t		See if CGI.pm works
++lib/CGI/t/headers.t		See if CGI.pm works
+ lib/CGI/t/html.t		See if CGI.pm works
++lib/CGI/t/multipart_init.t	See if CGI.pm works
+ lib/CGI/t/no_tabindex.t	See if CGI.pm works
+ lib/CGI/t/pretty.t		See if CGI.pm works
+ lib/CGI/t/push.t		See if CGI::Push works
+diff --git a/lib/CGI.pm b/lib/CGI.pm
+index 008bc7b..d859e76 100644
+--- a/lib/CGI.pm
++++ b/lib/CGI.pm
+@@ -1382,7 +1382,14 @@ END_OF_FUNC
+ sub multipart_init {
+     my($self,@p) = self_or_default(@_);
+     my($boundary,@other) = rearrange_header([BOUNDARY],@p);
+-    $boundary = $boundary || '------- =_aaaaaaaaaa0';
++    if (!$boundary) {
++        $boundary = '------- =_';
++        my @chrs = ('0'..'9', 'A'..'Z', 'a'..'z');
++        for (1..17) {
++            $boundary .= $chrs[rand(scalar @chrs)];
++        }
++    }
++
+     $self->{'separator'} = "$CRLF--$boundary$CRLF";
+     $self->{'final_separator'} = "$CRLF--$boundary--$CRLF";
+     $type = SERVER_PUSH($boundary);
+@@ -1467,6 +1474,23 @@ sub header {
+                             'EXPIRES','NPH','CHARSET',
+                             'ATTACHMENT','P3P'],@p);
+ 
++    # CR escaping for values, per RFC 822
++    for my $header ($type,$status,$cookie,$target,$expires,$nph,$charset,$attachment,$p3p,@other) {
++        if (defined $header) {
++            # From RFC 822:
++            # Unfolding  is  accomplished  by regarding   CRLF   immediately
++            # followed  by  a  LWSP-char  as equivalent to the LWSP-char.
++            $header =~ s/$CRLF(\s)/$1/g;
++
++            # All other uses of newlines are invalid input. 
++            if ($header =~ m/$CRLF|\015|\012/) {
++                # shorten very long values in the diagnostic
++                $header = substr($header,0,72).'...' if (length $header > 72);
++                die "Invalid header value contains a newline not followed by whitespace: $header";
++            }
++        } 
++   }
++
+     $nph     ||= $NPH;
+ 
+     $type ||= 'text/html' unless defined($type);
+diff --git a/lib/CGI/t/headers.t b/lib/CGI/t/headers.t
+new file mode 100755
+index 0000000..661b74b
+--- /dev/null
++++ b/lib/CGI/t/headers.t
+@@ -0,0 +1,47 @@
++
++# Test that header generation is spec compliant.
++# References:
++#   http://www.w3.org/Protocols/rfc2616/rfc2616.html
++#   http://www.w3.org/Protocols/rfc822/3_Lexical.html
++
++use strict;
++use warnings;
++
++use Test::More 'no_plan';
++
++use CGI;
++
++my $cgi = CGI->new;
++
++like $cgi->header( -type => "text/html" ),
++    qr#Type: text/html#, 'known header, basic case: type => "text/html"';
++
++eval { $cgi->header( -type => "text/html".$CGI::CRLF."evil: stuff" ) };
++like($@,qr/contains a newline/,'invalid header blows up');
++
++like $cgi->header( -type => "text/html".$CGI::CRLF." evil: stuff " ),
++    qr#Content-Type: text/html evil: stuff#, 'known header, with leading and trailing whitespace on the continuation line';
++
++eval { $cgi->header( -foobar => "text/html".$CGI::CRLF."evil: stuff" ) };
++like($@,qr/contains a newline/,'unknown header with CRLF embedded blows up');
++
++eval { $cgi->header( -foobar => $CGI::CRLF."Content-type: evil/header" ) };
++like($@,qr/contains a newline/, 'unknown header with leading newlines blows up');
++
++eval { $cgi->redirect( -type => "text/html".$CGI::CRLF."evil: stuff" ) };
++like($@,qr/contains a newline/,'redirect with known header with CRLF embedded blows up');
++
++eval { $cgi->redirect( -foobar => "text/html".$CGI::CRLF."evil: stuff" ) };
++like($@,qr/contains a newline/,'redirect with unknown header with CRLF embedded blows up');
++
++eval { $cgi->redirect( $CGI::CRLF.$CGI::CRLF."Content-Type: text/html") };
++like($@,qr/contains a newline/,'redirect with leading newlines blows up');
++
++{
++    my $cgi = CGI->new('t=bogus%0A%0A<html>');
++    my $out;
++    eval { $out = $cgi->redirect( $cgi->param('t') ) };
++    like($@,qr/contains a newline/, "redirect does not allow double-newline injection");
++}
++
++
+diff --git a/lib/CGI/t/multipart_init.t b/lib/CGI/t/multipart_init.t
+new file mode 100755
+index 0000000..f0a05e0
+--- /dev/null
++++ b/lib/CGI/t/multipart_init.t
+@@ -0,0 +1,20 @@
++use Test::More 'no_plan';
++
++use CGI;
++
++my $q = CGI->new;
++
++my $sv = $q->multipart_init;
++like( $sv, qr|Content-Type: multipart/x-mixed-replace;boundary="------- =|, 'multipart_init(), basic');
++
++like( $sv, qr/$CGI::CRLF$/, 'multipart_init(), ends in CRLF' );
++
++$sv = $q->multipart_init( 'this_is_the_boundary' );
++like( $sv, qr/boundary="this_is_the_boundary"/, 'multipart_init("simple_boundary")' );
++$sv = $q->multipart_init( -boundary => 'this_is_another_boundary' );
++like($sv,
++     qr/boundary="this_is_another_boundary"/, "multipart_init( -boundary => 'this_is_another_boundary')");
++
++$sv = $q->multipart_init;
++my $sv2 = $q->multipart_init;
++isnt($sv,$sv2,"due to random boundaries, multiple calls produce different results");
+-- 
+tg: (daf8b46..) fixes/cgi-multiline-header (depends on: upstream)

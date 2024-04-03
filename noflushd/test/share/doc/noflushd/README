@@ -1,0 +1,227 @@
+		NOFLUSHD - An Idle Disk Daemon
+                ===============================   
+                (Version 2.7.5 - May, 9th 2005)
+
+
+This is noflushd, a daemon that spins down disks that have not been 
+read from after a certain amount of time, and then prevents disk
+writes from spinning them back up. It's for use with kernel versions
+2.2.11 and up, where the userland bdflush (update) daemon has been fully
+integrated in the kernel thread kupdate. Later kernels renamed kupdate
+to kupdated. A re-write of relevant kernel parts induced another name
+change, so the 2.5/2.6 kernel series now has its pdflush daemon. However,
+me being too lazy to re-write all the documentation, I'll still call the
+darn thing kupdate in the following anyway.
+
+noflushd uses the sleep support logic from bdflush-1.6.2. bdflush was
+originally written by Eric Youngdale <ericy@gnu.ai.mit.edu>, Pavel Machek
+<pavel@atrey.karlin.mff.cuni.cz> added the sleep support.
+
+INSTALLATION
+
+1. Be aware that noflushd might have problems with a mixed IDE/SCSI setup
+   or large numbers of disks. noflushd will inform you of any conflict.
+   CAUTION: SCSI disks won't work out of the box. They require a kernel
+   patch that gracefully handles spinup in the interrupt routine. See the
+   file contrib/README in the source distribution for details. SCSI support
+   is disabled by default.
+   
+2. Check if the init skript in the skripts/ directory goes fine with you.
+   You might want to change the timeout value in skripts/noflushd.
+
+[The next steps are described in more detail in the generic installation
+ instructions found in INSTALLATION.]
+ 
+3. Next run './configure' - it tries to autodetect your system's init layout
+   and changes noflushd's installation paths accordingly. You can override
+   the settings via the --with-scheme=<dist> option. Currently supported
+   values for <dist> are 'debian', 'redhat', and 'suse'. Alternatively,
+   you may specify the directory where your distribution keeps its init
+   skripts via --with-initdir=<dir>, and the directory for package 
+   documentation via --with-docdir=<dir>.
+
+4. Compile the daemon by typing 'make'.
+
+5. Install the package with 'make install'.
+
+6. To automatically start noflushd, either manually set appropriate symlinks 
+   from your system's rc-directories to the noflushd init skript like:
+
+   ln -s /etc/rc.d/init.d/noflushd /etc/rc.d/rc2.d/S80noflushd
+   ln -s /etc/rc.d/init.d/noflushd /etc/rc.d/rc0.d/K10noflushd
+
+   or similar, according to your system's boot concept. Or use your 
+   distribution-specific tools, e.g. chkconfig on RedHat, update-init.d on
+   Debian.
+
+THEORY of OPERATION
+
+noflushd polls the disk i/o statistics reported in /proc/stat and keeps track
+of when the last read to a disk occurred. If a configurable amount of time has
+elapsed without read activity, the disk is sent to standby mode, ie. it is
+spun down. Disk hardware will notice when the next command occurs and spin
+up the disk again. So far nothing fancy - you could do this much cheaper
+using hdparm. There's one nasty thing however, and that's the kernel's lazy
+flushing of dirty buffers. When you write to a file, the data usually isn't
+physically stored on disk immediately, it's kept in the buffer cache. Every
+few seconds, a kernel thread (kupdate) wakes up and sends a few of these
+buffers to disk. And mind you, quite a lot of data gets written out regularly.
+Unless you mount your filesystems with the noatime option, each read access
+to a file will update the last-access timestamp. Check your logfiles, and
+you'll see a substantial amount of write traffic. Now suppose, all the files
+and binaries you want to access in the next few hours have already been 
+accessed before and are thus likely to be cached in memory. Using the hdparm
+method, your hard disk probably will keep spinning most of the time. noflushd
+however tries to be smarter: when a read-write mounted disk is spun
+down, it stops the kupdate thread, thus blocking further writes to disk.[1] The
+writes won't be lost of course, they stay cached in memory. noflushd doesn't
+block any other disk access though, so the first attempt to read data that is
+not yet cached in memory, or a forced write (via sync() or fsync()) gets
+through to the hardware, which happily spins up the disk again. noflushd
+notices that the disk is back up when the i/o numbers in /proc/stat start
+spinning again, and makes sure writes are flushed to disk. 
+
+[1] This is different from noflushd's behaviour in the 1.x series where 
+    kupdate was left running until the last r/w mounted disk was spun down.
+    Nowadays noflushd has its own dumb flushing algorithm that takes over
+    kupdate's job of syncing written data to disk. You won't notice the
+    difference if there is only a single hard disk in your system, but it
+    improves spindown time in multidisk environments a lot. Still this is
+    a dirty hack though. What you'd much rather like to do is to spin down
+    idle disk A and tell kupdate: "Don't send any more buffers to A". 
+    Unfortunately kupdate doesn't have a notion of individual disks and can
+    only be configured globally. Changing that is on my TODO list but patches
+    are welcome. :-) [You'll make the embedded folks happy as well with such a
+    patch btw. Flash memory card can't take as many write cycles as hard disks,
+    so they'd like to raise the update interval on their flash cards without
+    affecting the disks.]
+
+RANDOM BUBBLINGS for the UNDECIDED
+
+* But what if someone pulls the plug while the disk is spun down?
+
+You lose. That's the risk you have to take. It's entirely up to you to decide
+between the risk and the noise. Take into account if you're about to install
+noflushd on your notebook that's rather immune to power glitches and kernel
+bugs, or on your kernel devel machine crashing twice a day, where you're about
+to write your PhD thesis... That said, remember that you can always forcefully
+commit your data to disk. Just type 'sync' if you don't want to lose your
+100MB download to a flaky fuse.
+
+* Heck, I'm not within 50 yards of the machine but it keeps spinning up!?
+
+Check for cron jobs running every few minutes. Make sure to tell syslogd not
+to sync logfiles after each write. (Go to /etc/syslog.conf and prepend all the 
+less important logfiles with a '-'.) Or are there by chance other disks still
+spinning so noflushd can't stop kupdate? Well, I hope you checked it's not 
+due to some folks accessing your machine via the net, didn't you?
+
+* I just switched over to devfs. No noflushd BUGs about not finding the
+  device directory!?
+
+You did not pass the devfs=mount option to the kernel because you still want
+access to your old-style /dev, right? But the kernel internally already thinks
+the devfs-way, and also does in the information on disks it exports, e.g. in
+/proc/partitions. As noflushd relies on kernel information, it needs to be
+able to access disks via kernel-style (devfs) names. In other words, it needs
+a devfs tree mounted somewhere in the filesystem. Just add something like the
+following to /etc/fstab:
+
+none	/devfs	devfs	defaults	0	0
+
+* I've configured noflushd to spin down after five minutes. Why does it wake up
+  every five seconds?
+
+That's intended, and the reason is latency. Suppose noflushd checked for disk
+activity only every five minutes. Let's assume there was a read event one
+second after the last check. Five minutes later, noflushd notices this read
+and decides not to spin down. So in the worst case, the disk will go down only
+after nine minutes and 59 seconds of inactivity. To keep the worst case
+timeout low, noflushd polls disk activity more often. It happens that the
+polling interval in seconds equals the spindown timeout in minutes. If multiple
+disks are monitorred, the shortest polling interval is used. Once at least
+one disk is spun down, noflushd needs to notice when the disk spins up again.
+In this case, the polling interval is hard-coded to five seconds.
+
+* Why don't you monitor my laptop's power state and set up different timeouts
+  if I'm running off AC or battery?
+
+There is already a daemon that just gets the kicks from monitoring power 
+states all day long, so why should noflushd bother? This daemon is called
+apmd, it spits out events when the power state changes and it even lets
+you configure what to do in this case. You might think of running 
+'killall -HUP noflushd'. And guess what noflushd does when it receives the
+signal? It switches to the next set of timeouts...
+
+* Hey, that's cool! But when I boot off battery I need a different set of
+  initial timeout than when booting while on AC!
+
+Yepp. You'll have to modify the init skript a bit. Always start with e.g.
+the AC defaults first and add a line 
+
+if <running_off_battery>; then killall -HUP noflushd
+
+right after the start command. Now the implementation of the 
+<running_off_battery> part is left as an excercise to the reader.
+'man apm' should get you going.
+
+* This $%&! noflushd is a piece of ignorant crap - it spins down nothing but
+  my first disk!
+
+You're using a kernel version of 2.3.99pre8 or later, correct? Don't take it
+up with me. Some kernel folks decided that it was time for an improved scheme
+to report disk statistics (they were right) and implemented a method that 
+would consume 64k of kernel memory. That was assumed to be too much, so they
+decided to only provide statistics for devices with major numbers up to 16. 
+Bright move. If you liked to know how many cars drive through your street,
+would you count only the red and blue ones? Your first IDE controller is a
+red one fortunately, so are the first 16 SCSI disks. The rest is green and
+loses. Now this really bothers you? Okay, go to your kernel source tree, cd
+to include/linux, and change the DK_MAX_MAJOR define in kernel_stat.h from
+16 to 255. And don't bill me for these extra 60k you waste!
+
+* This noflushd thing exits telling me it cannot find stats for my disks.
+
+Usually, this is the same problem as described above, so read on there once
+you're through with this answer. Most likely your IDE disks are connected
+to an UDMA-100 controller, so your first disk is not /dev/hda, but something
+like /dev/hde, or /dev/hdg. The kernel by default doesn't record statistics
+for any IDE disk apart from hda.
+
+* That noflushd-bugger tells me 'bout 'spindown cancelled' - WTH?
+
+As long as you see these messages from time to time only, they're harmless.
+When noflushd has decided to spin down a disk, it first syncs all dirty
+data to this disk, then usually spins it down. However, if during the
+sync someone else has accessed the disk, the decision to spin down is
+revoked, and the cited message is printed. It's a rare case, but not an
+error case.
+
+* I connect my USB card reader, and spindown times suck rocks!
+
+So far, there is only limited support for handling removable drives in
+noflushd. They are detected, they're getting synced, but that's just as
+sophisticated as it gets. To noflushd, a card reader is just another drive
+that it tries to sync. If there's no flash card in the drive, the sync
+triggers an errors message that'll get logged at high priority, which
+commonly triggers a spinup of the main hard disk. Until noflushd becomes
+more clever about hotplugged drives, I recommend to restart noflushd from
+the hotplug daemon (e.g. hotplug or usbmgr), as soon as a new drive is
+added or removed. You might want to use option -r on the removable disk.
+
+* Can noflushd handle hotplugged drives?
+
+Sort-of, but see the preceding question and answer.
+
+* I still think noflushd is a piece of crap!
+
+Uh-uh, someone's actually looked at the code. Damn, you're right...
+
+* Rats! That blurb's not getting me any further at all. Where can I get more
+  help with regard to noflushd?
+
+Send mail to noflushd-devel@lists.sourceforge.net, or have a look at
+http://noflushd.sourceforge.net for up-to-date information.
+
+
+Daniel Kobras <kobras@linux.de>.

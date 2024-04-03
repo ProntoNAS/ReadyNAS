@@ -1,0 +1,22 @@
+Interface ID may have changed between a stop and start.
+
+Index: wide-dhcpv6/dhcp6c.c
+===================================================================
+--- wide-dhcpv6.orig/dhcp6c.c
++++ wide-dhcpv6/dhcp6c.c
+@@ -768,6 +768,15 @@
+ 
+ 	switch(command) {
+ 	case DHCP6CTL_COMMAND_START:
++		/*
++		 * The ifid might have changed, so reset it before releasing the
++		 * lease.
++		 */
++		if (ifreset(ifp)) {
++			dprintf(LOG_NOTICE, FNAME, "failed to reset %s",
++			    ifname);
++			return (-1);
++		}
+ 		free_resources(ifp);
+ 		if (client6_start(ifp)) {
+ 			debug_printf(LOG_NOTICE, FNAME, "failed to restart %s",

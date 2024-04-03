@@ -1,0 +1,19 @@
+cdrom_id: Fix media state for unreadable DVDs
+
+If the disc is unreadable and reading of the first 32 blocks fails set the
+cd_media status to 0 (not present). This will prevent udev from executing blkid
+next that tries to determine fs on the disc and which in this case may seem to
+hang forever locking the drive.
+
+diff --git a/extras/cdrom_id/cdrom_id.c b/extras/cdrom_id/cdrom_id.c
+index ec001cd..f0e1cbb 100644
+--- a/extras/cdrom_id/cdrom_id.c
++++ b/extras/cdrom_id/cdrom_id.c
+@@ -696,6 +696,7 @@ static int cd_media_info(struct udev *udev, int fd)
+ 		scsi_cmd_set(udev, &sc, 9, 0);
+ 		err = scsi_cmd_run(udev, &sc, fd, buffer, sizeof(buffer));
+ 		if ((err != 0)) {
++			cd_media = 0;
+ 			info_scsi_cmd_err(udev, "READ FIRST 32 BLOCKS", err);
+ 			return -1;
+ 		}

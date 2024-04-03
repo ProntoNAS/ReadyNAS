@@ -1,0 +1,176 @@
+#! /bin/sh
+
+set -e
+
+# We need debconf
+. /usr/share/debconf/confmodule
+
+# The following function does the real stuff
+debconf_dialog() {
+  # Ask the user if he wants this stuff at all
+  db_input medium quota/run_warnquota || true
+  db_go
+
+  # Ask more questions if warnquota enabled
+  db_get quota/run_warnquota
+  if [ "$RET" = "true" ]; then
+    # Set the defaults for email addresses
+    if [ -f /etc/mailname ]; then
+      email="root@`cat /etc/mailname`"
+    else
+      email="root@`hostname -f`"
+    fi
+
+    db_fget quota/mailfrom seen
+    if [ "$RET" = "false" ]; then
+      db_set quota/mailfrom "$email"
+    fi
+    db_fget quota/supportemail seen
+    if [ "$RET" = "false" ]; then
+      db_set quota/supportemail "$email"
+    fi
+    db_fget quota/message seen
+    if [ "$RET" = "false" ]; then
+      db_set quota/message ""
+    fi
+    db_fget quota/signature seen
+    if [ "$RET" = "false" ]; then
+      db_set quota/signature ""
+    fi
+    db_fget quota/subject seen
+    if [ "$RET" = "false" ]; then
+      db_set quota/subject ""
+    fi
+    db_fget quota/cc seen
+    if [ "$RET" = "false" ]; then
+      db_set quota/cc ""
+    fi
+    db_fget quota/charset seen
+    if [ "$RET" = "false" ]; then
+      db_set quota/charset ""
+    fi
+    db_fget quota/cc_before seen
+    if [ "$RET" = "false" ]; then
+      db_set quota/cc_before ""
+    fi
+    db_fget quota/group_message seen
+    if [ "$RET" = "false" ]; then
+      db_set quota/group_message ""
+    fi
+    db_fget quota/group_signature seen
+    if [ "$RET" = "false" ]; then
+      db_set quota/group_signature ""
+    fi
+    
+    # Now ask the user
+    db_input medium quota/supportemail || true
+    db_input high quota/supportphone || true
+    db_input low quota/mailfrom || true
+    db_input low quota/message || true
+    db_input low quota/signature || true
+    db_input low quota/subject || true
+    db_input low quota/cc || true
+    db_input low quota/charset || true
+    db_input low quota/cc_before || true
+    db_input low quota/group_message || true
+    db_input low quota/group_signature || true
+    db_go
+
+    # If we did not get a support phone we'll set it to "*unknown*"
+    db_get quota/supportphone
+    if [ -z "$RET" ]; then
+      db_set quota/supportphone "*unknown*"
+    fi
+  fi
+}
+
+# Check if we need to run the configuration dialog
+# a) explicitely requested
+if [ "$1" = "reconfigure" ]; then
+  debconf_dialog
+  # Move the old configuration files out of the way
+  rm -f /etc/warnquota.conf /etc/default/quota
+fi
+
+# b) new installation
+if [ "$1" = "configure" ] && [ -z "$2" ]; then
+  debconf_dialog
+  db_get quota/run_warnquota
+  if [ "$RET" = "true" ]; then
+	  # Move the old configuration file out of the way
+  	rm -f /etc/warnquota.conf /etc/default/quota
+ fi
+fi
+
+# c) upgrading from before debconf
+# In this case only the debconf data is updated - it is not written to 
+# the config file, only after dpkg-reconfigure something will happen.
+if [ "$1" = "configure" ] && dpkg --compare-versions "$2" le-nl "3.03-4"; then
+  # Figure out what we can from /etc/warnquota.conf
+  if grep -q "<enter your phone number here>" /etc/warnquota.conf; then
+    db_set quota/run_warnquota false
+    db_fset quota/run_warnquota seen true
+    db_set quota/supportphone "*unknown*"
+  else
+    db_set quota/run_warnquota true
+    db_fset quota/run_warnquota seen true
+    db_set quota/mailfrom \
+      "`sed -n 's/^FROM[^=]*=[[:space:]]*"\([^"]*\)"$/\1/p' \
+		/etc/warnquota.conf`"
+    db_fset quota/mailfrom seen true
+    db_set quota/supportemail \
+      "`sed -n 's/^SUPPORT[^=]*=[[:space:]]*"\([^"]*\)"$/\1/p' \
+		/etc/warnquota.conf`"
+    db_fset quota/supportemail seen true
+    db_set quota/supportphone \
+      "`sed -n 's/^PHONE[^=]*=[[:space:]]*"\([^"]*\)"$/\1/p' \
+      		/etc/warnquota.conf`"
+    db_fset quota/supportphone seen true
+  fi
+fi
+
+# d) upgrading changes behaviour of rpc.rquotad
+if [ "$1" = "configure" ] && dpkg --compare-versions "$2" le-nl "3.06-1"; then
+	db_input high quota/rquota_setquota || true
+	db_go
+fi
+
+# e) upgrading add warnquota group email
+if [ "$1" = "configure" ] && dpkg --compare-versions "$2" le-nl "3.06-2"; then
+	db_input low quota/group_message || true
+	db_input low quota/group_signature || true
+	db_go
+fi
+
+# f) upgrading from a version that did not ask for SUBJECT and CC
+if [ "$1" = "configure" ] && dpkg --compare-versions "$2" le-nl "3.11-1"; then
+  # Figure out what we can from /etc/warnquota.conf
+  db_set quota/subject \
+    "`sed -n 's/^SUBJECT[^=]*=[[:space:]]*"\([^"]*\)"$/\1/p' \
+	/etc/warnquota.conf`"
+  db_fset quota/subject seen true
+  db_set quota/cc \
+    "`sed -n 's/^CC_TO[^=]*=[[:space:]]*"\([^"]*\)"$/\1/p' \
+	/etc/warnquota.conf`"
+  db_fset quota/cc seen true
+fi
+
+# g) upgrading from a version that did not have CC_BEFORE
+if [ "$1" = "configure" ] && dpkg --compare-versions "$2" le-nl "3.11-4"; then
+  # Ask the question only if warnquota enabled
+  db_get quota/run_warnquota
+  if [ "$RET" = "true" ]; then
+	db_input low quota/cc_before || true
+	db_go
+  fi
+fi
+
+# h) upgrading from a version that did not have CHARSET
+if [ "$1" = "configure" ] && dpkg --compare-versions "$2" le-nl "3.16-1"; then
+  # Ask the question only if warnquota enabled
+  db_get quota/run_warnquota
+  if [ "$RET" = "true" ]; then
+	db_input low quota/charset || true
+	db_go
+  fi
+fi

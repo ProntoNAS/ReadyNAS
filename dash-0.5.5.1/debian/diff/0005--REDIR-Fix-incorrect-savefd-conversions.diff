@@ -1,0 +1,107 @@
+From cf4a1ec67599e10062c621c1abfc6157eb74eaa9 Mon Sep 17 00:00:00 2001
+From: Gerrit Pape <pape@smarden.org>
+Date: Wed, 26 May 2010 10:57:14 +0000
+Subject: [PATCH] [REDIR] Fix incorrect savefd conversions
+
+When I added savefd we may end up closing stderr if that is how
+we get to the tty.  This patch fixes by adding a second argument
+to indicate what fd should be closed which lets jobs.c get around
+the problem.
+
+Signed-off-by: Herbert Xu <herbert@gondor.apana.org.au>
+(cherry picked from commit 6c0398654015de53269a2ef32eae3c7b560875dd)
+
+Conflicts:
+
+	ChangeLog
+---
+ src/input.c |    2 +-
+ src/jobs.c  |    8 +++-----
+ src/redir.c |    6 +++---
+ src/redir.h |    2 +-
+ 4 files changed, 8 insertions(+), 10 deletions(-)
+
+diff --git a/src/input.c b/src/input.c
+index 27c4fd1..1e198e9 100644
+--- a/src/input.c
++++ b/src/input.c
+@@ -410,7 +410,7 @@ setinputfile(const char *fname, int flags)
+ 		sh_error("Can't open %s", fname);
+ 	}
+ 	if (fd < 10)
+-		fd = savefd(fd);
++		fd = savefd(fd, fd);
+ 	setinputfd(fd, flags & INPUT_PUSH_FILE);
+ out:
+ 	INTON;
+diff --git a/src/jobs.c b/src/jobs.c
+index 83e6e62..e33485d 100644
+--- a/src/jobs.c
++++ b/src/jobs.c
+@@ -188,17 +188,15 @@ setjobctl(int on)
+ 	if (on == jobctl || rootshell == 0)
+ 		return;
+ 	if (on) {
+-		fd = open(_PATH_TTY, O_RDWR);
++		int ofd;
++		ofd = fd = open(_PATH_TTY, O_RDWR);
+ 		if (fd < 0) {
+ 			fd += 3;
+ 			while (!isatty(fd))
+ 				if (--fd < 0)
+ 					goto out;
+-			fd = dup(fd);
+-			if (fd < 0)
+-				goto out;
+ 		}
+-		fd = savefd(fd);
++		fd = savefd(fd, ofd);
+ 		do { /* while we are in the background */
+ 			if ((pgrp = tcgetpgrp(fd)) < 0) {
+ out:
+diff --git a/src/redir.c b/src/redir.c
+index ce34db0..b01237d 100644
+--- a/src/redir.c
++++ b/src/redir.c
+@@ -145,7 +145,7 @@ redirect(union node *redir, int flags)
+ 			if (likely(i == EMPTY)) {
+ 				i = CLOSED;
+ 				if (fd != newfd) {
+-					i = savefd(fd);
++					i = savefd(fd, fd);
+ 					fd = -1;
+ 				}
+ 			}
+@@ -399,7 +399,7 @@ RESET {
+  */
+ 
+ int
+-savefd(int from)
++savefd(int from, int ofd)
+ {
+ 	int newfd;
+ 	int err;
+@@ -407,7 +407,7 @@ savefd(int from)
+ 	newfd = fcntl(from, F_DUPFD, 10);
+ 	err = newfd < 0 ? errno : 0;
+ 	if (err != EBADF) {
+-		close(from);
++		close(ofd);
+ 		if (err)
+ 			sh_error("%d: %s", from, strerror(err));
+ 		else
+diff --git a/src/redir.h b/src/redir.h
+index a8e6630..d1d160e 100644
+--- a/src/redir.h
++++ b/src/redir.h
+@@ -45,6 +45,6 @@ union node;
+ void redirect(union node *, int);
+ void popredir(int);
+ void clearredir(void);
+-int savefd(int);
++int savefd(int, int);
+ int redirectsafe(union node *, int);
+ 
+-- 
+1.6.0.3
+

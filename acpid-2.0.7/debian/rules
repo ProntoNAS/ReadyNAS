@@ -1,0 +1,45 @@
+#!/usr/bin/make -f
+
+build: 
+	dh_testdir
+	chmod g-s -R *
+	$(MAKE)
+	$(MAKE) man
+	(cd kacpimon; $(MAKE))
+
+clean: 
+	dh_testdir
+	dh_testroot
+	[ ! -f Makefile ] || $(MAKE) clean
+	(cd kacpimon; $(MAKE) clean)
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean
+	dh_installdirs
+
+binary: binary-arch binary-indep
+
+binary-indep:
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs -s Changelog
+	dh_installdocs -s
+	dh_installinit -s -- start 12 2 3 4 5 . 
+	dh_install -s
+	dh_installman -s
+	dh_link -s
+	dh_strip -s
+	dh_compress -s
+	dh_fixperms -s
+	dh_installdeb -s
+	dh_shlibdeps -s
+	dh_gencontrol -s
+	dh_md5sums -s
+	dh_builddeb -s
+
+.PHONY: build clean binary-indep binary-arch binary install

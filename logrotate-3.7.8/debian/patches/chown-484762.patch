@@ -1,0 +1,19 @@
+Index: logrotate-3.7.8/logrotate.c
+===================================================================
+--- logrotate-3.7.8.orig/logrotate.c	2009-08-04 14:28:25.134021083 +0100
++++ logrotate-3.7.8/logrotate.c	2009-08-04 14:30:27.190113950 +0100
+@@ -244,8 +244,12 @@
+     if (fchown(fd, sb->st_uid, sb->st_gid)) {
+ 	message(MESS_ERROR, "error setting owner of %s: %s\n",
+ 		fileName, strerror(errno));
+-	close(fd);
+-	return -1;
++	if (geteuid() == 0) {
++		/* If run as non-root, we may not be able to duplicate
++		   the ownership of the file. Warn but don't fail. */
++		close(fd);
++		return -1;
++	}
+     }
+     if (fchmod(fd, sb->st_mode)) {
+ 	message(MESS_ERROR, "error setting mode of %s: %s\n",

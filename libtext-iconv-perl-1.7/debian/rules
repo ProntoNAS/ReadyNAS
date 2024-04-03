@@ -1,0 +1,80 @@
+#!/usr/bin/make -f
+# Made with the aid of dh_make, by Craig Small
+# Sample debian/rules that uses debhelper. GNU copyright 1997 by Joey Hess.
+# Some lines taken from debmake, by Cristoph Lameter.
+# This debian/rules was maintained by Steve Haslam <araqnid@debian.org>.
+# Copyright (C) 2005 Anibal Monsalve Salazar <anibal@debian.org>.
+
+# taken from liblocale-gettext-perl 1.01 -araqnid
+
+# Uncomment this to turn on verbose mode.
+export DH_VERBOSE=1
+
+ifndef PERL
+PERL = /usr/bin/perl
+endif
+
+TMP     := $(shell pwd)/debian/libtext-iconv-perl
+
+build: build-stamp
+build-stamp:
+	dh_testdir
+
+#	Add here commands to compile the package.
+	$(PERL) Makefile.PL INSTALLDIRS=vendor
+	make OPTIMIZE="-O2 -g -Wall"
+	make test
+
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp install-stamp
+
+#	Add here commands to clean up after the build process.
+	[ ! -f Makefile ] || $(MAKE) distclean
+
+	dh_clean Makefile Makefile.old
+
+install: install-stamp
+install-stamp: build-stamp
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+
+#	Add here commands to install the package into debian/libtext-iconv-perl.
+	$(MAKE) install PREFIX=$(TMP)/usr
+
+	touch install-stamp
+
+# Build architecture-independent files here.
+binary-indep: build install
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installdocs
+	dh_installexamples
+	dh_installmenu
+	dh_installcron
+	dh_installman
+	dh_installchangelogs 
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_perl -d
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+source diff:                                                                  
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary

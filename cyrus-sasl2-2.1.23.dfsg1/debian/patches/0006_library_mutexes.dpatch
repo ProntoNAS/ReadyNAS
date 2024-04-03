@@ -1,0 +1,31 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 0006_library_mutexes.dpatch by  <fabbe@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Exact description unknown; make sure mutex-related code works.
+
+@DPATCH@
+diff -urNad trunk~/lib/common.c trunk/lib/common.c
+--- trunk~/lib/common.c	2006-05-29 22:52:46.000000000 +0300
++++ trunk/lib/common.c	2006-07-27 17:41:06.000000000 +0300
+@@ -771,7 +771,7 @@
+     result = sasl_canonuser_add_plugin("INTERNAL", internal_canonuser_init);
+     if(result != SASL_OK) return result;    
+ 
+-    if (!free_mutex)
++    if (!free_mutex || free_mutex == 0x1)
+ 	free_mutex = sasl_MUTEX_ALLOC();
+     if (!free_mutex) return SASL_FAIL;
+ 
+@@ -790,6 +790,11 @@
+ 
+   /* serialize disposes. this is necessary because we can't
+      dispose of conn->mutex if someone else is locked on it */
++
++  if (!free_mutex || free_mutex == 0x1)
++    free_mutex = sasl_MUTEX_ALLOC();
++  if (!free_mutex) return SASL_FAIL;
++
+   result = sasl_MUTEX_LOCK(free_mutex);
+   if (result!=SASL_OK) return;
+   

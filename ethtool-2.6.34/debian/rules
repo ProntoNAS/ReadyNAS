@@ -1,0 +1,56 @@
+#! /usr/bin/make -f
+# (C) 2001, Eric Delaunay
+
+AUTOGEN_FILES = INSTALL Makefile.in aclocal.m4 configure depcomp \
+		ethtool-config.h.in install-sh missing
+
+build: build-stamp
+build-stamp:
+	dh_testdir
+	./autogen.sh
+	./configure --sbindir=/sbin --mandir=/usr/share/man
+	$(MAKE) all CC=$(CC) CFLAGS="$(CFLAGS)"
+	touch $@
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp
+	[ ! -f Makefile ] || $(MAKE) distclean
+	dh_clean
+	if [ -d .git ]; then				\
+		git checkout HEAD $(AUTOGEN_FILES);	\
+	else						\
+		rm $(AUTOGEN_FILES);			\
+	fi
+
+binary: binary-arch binary-indep
+
+binary-indep:
+# nothing to do for arch independent binary packages
+
+binary-arch: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	$(MAKE) install DESTDIR=`pwd`/debian/ethtool
+	dh_strip
+	mkdir -p debian/ethtool/etc/network/if-pre-up.d
+	install debian/ethtool.if-pre-up debian/ethtool/etc/network/if-pre-up.d/ethtool
+	mkdir -p debian/ethtool/etc/network/if-up.d
+	install debian/ethtool.if-up debian/ethtool/etc/network/if-up.d/ethtool
+	dh_installman ethtool.8
+	dh_installdocs AUTHORS NEWS README
+	dh_installchangelogs ChangeLog
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+source diff:                                                                  
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+.PHONY: binary-arch binary-indep binary build clean

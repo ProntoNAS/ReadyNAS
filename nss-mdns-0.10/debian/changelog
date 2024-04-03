@@ -1,0 +1,264 @@
+nss-mdns (0.10-3.1) unstable; urgency=low
+
+  * NMU
+  * Move biarch files to /usr/lib32.  closes: #533013.
+  * Have lib32nss-mdns conflict with libc6-i386 (<= 2.9-18).
+  * Bump to Standards-Version 3.8.2.
+
+ -- Clint Adams <schizo@debian.org>  Sun, 02 Aug 2009 11:54:57 -0400
+
+nss-mdns (0.10-3) unstable; urgency=low
+
+  * Upload to unstable.
+
+ -- Loic Minier <lool@dooz.org>  Tue, 10 Jul 2007 13:38:15 +0200
+
+nss-mdns (0.10-2) experimental; urgency=low
+
+  * Rework the build process completely to be able to build multiple flavors;
+    build a "main" flavor and an addition "m32" flavor for amd64 which is
+    installed in a new lib32nss-mdns package for 32-bits compatibility;
+    build-depend on gcc-mutilib; initial patch proposed by Goswin von
+    Brederlow; closes: #410052.
+
+ -- Loic Minier <lool@dooz.org>  Mon, 02 Jul 2007 21:42:31 +0200
+
+nss-mdns (0.10-1) unstable; urgency=low
+
+  * Set Utopia Maintenance Team as Maintainer and add Sjoerd and myself as
+    Uploaders.
+  * Ack NMU.
+  * Bump Debhelper compatibility level to 5.
+  * Misc cleanups.
+  * Wrap fields in control.
+  * Add ${misc:Depends}.
+  * Switch to a multi-binaries layout for the packaging.
+  * Split the definition of configure flags and LDFLAGS.
+  * Drop -DNDEBUG=1 from CFLAGS; seems risky in a package build.
+  * Only pass --host to configure if DEB_HOST_GNU_TYPE and DEB_BUILD_GNU_TYPE
+    differ.
+  * Add watch file.
+
+ -- Loic Minier <lool@dooz.org>  Fri, 22 Jun 2007 18:28:22 +0200
+
+nss-mdns (0.10-0.1) unstable; urgency=high
+
+  * NMU
+  * New upstream release
+  * Fixes alignment problems on sparc causing sigBUS (Closes: #423222)
+
+ -- Sjoerd Simons <sjoerd@debian.org>  Sun, 13 May 2007 10:23:16 +0200
+
+nss-mdns (0.9-0.2) unstable; urgency=high
+
+  * Non-maintainer upload to fix a RC bug.
+  * Configure with a prefix of / instead of /usr as libnss-mdns needs to be in
+    /lib for the resolver to work correctly during boot; this is also needed
+    for chrooted processes such as Postfix's smtpd which uses a copy of the
+    NSS libs as well of the NSS configuration and fails when mdns is missing
+    in the chroot but referenced in nsswitch.conf.  Update other configured
+    dirs (mandir, infodir, sysconfdir) as well, but these are currently not
+    used.
+
+ -- Loic Minier <lool@dooz.org>  Thu, 22 Feb 2007 14:48:45 +0100
+
+nss-mdns (0.9-0.1) unstable; urgency=high
+
+  * Non-maintainer upload to fix broken dependencies in the 0.8-6.1 NMU.
+  * Fix Depends on perl and avahi-daemon.
+  * Bump up dependency on avahi-daemon to >= 0.6.16-1 for the auto-disabling
+    functionality on sites with a .local SOA.
+  * New upstream release.
+    - Does not export unnecessary symbols and fixes segfault in nmbclient
+      which had symbols with the same name; closes: #404266.
+    - Does not use the "search" keyword of resolv.conf anymore;
+      closes: #404534, #405327.
+  * Re-add a postrm to cleanup the mdns_* entries from nsswitch.conf but act on
+    package removal instead of purge to avoid breaking the DNS when the lib is
+    removed and to ensure perl is still present; closes: #406198.
+  * Document the changes made to postinst in NOTES.Debian and document the
+    history of the postrm as well.
+  * Updates to README.Debian; add upstream URL for troubleshooting.
+
+ -- Loic Minier <lool@dooz.org>  Tue,  9 Jan 2007 18:45:27 +0100
+
+nss-mdns (0.8-6.1) unstable; urgency=low
+
+  * Non-maintainer upload to fix a long-standing RC bug and to beat the
+    package into shape before etch with suggestions from upstream; thanks
+    Lennart Poettering.
+  * Configure with --disable-legacy, as recommended by upstream for security
+    reasons; the legacy mode might be offered in a separate binary package for
+    the corner cases where it can be useful; see full discussion in #393711;
+    depend on avahi-daemon as nss-mdns will not work without avahi when
+    compiled like this; closes: #399297.
+  * Only suggest zeroconf instead of Recommending it: even if it can act as a
+    nice complement to nss-mdns, it is intrusive and orthogonal to nss-mdns
+    and conflicts with avahi-autoipd; closes: #353131, #392590.
+  * Suggest avahi-autoipd as an alternative to zeroconf.
+  * Remove offensive comments in postinst and README.Debian.
+  * Document the history of postinst snippets in debian/NOTES.Debian to permit
+    handling all upgrade paths.
+  * Depend on Perl for the postinst snippets using the perl interpreter.
+  * Rewrite postinst to handle all upgrade paths.
+    - Does not wipe NSS configuration which matches the upstream recommended
+      configuration during upgrades from versions 0.8-4.2 or 0.8-5;
+      closes: #393608.
+    - Install the upstream recommended configuration for first installs and
+      upgrades from versions which did not automatically insert mdns in the
+      NSS setup (unless mdns is already setup); closes: #393711.
+    - Keep configuration intact when upgrading from versions which installed
+      the upstream recommended configuration.
+    - Remove whitespaces added in upgrades from version 0.8-4.2 or 0.8-5 to
+      0.8-6.
+    - For upgrades from 0.8-6, attempt to revert the problematic "mdns_minimal
+      dns mdns" configuration and to install the upstream recommended
+      configuration.
+  * Update README.Debian to match the above changes and a planned changes in
+    avahi-daemon which should disable itself if a .local SOA is found after a
+    change in the DNS settings.
+
+ -- Loic Minier <lool@dooz.org>  Sun, 24 Dec 2006 20:27:30 +0100
+
+nss-mdns (0.8-6) unstable; urgency=medium
+
+  * Revert hostile package takeover.
+  * "Unbreak the world" (Closes: #392813)
+  
+  "So whether nss-mdns does or doesn't support "search local" is of no 
+  concern to me -- I just doesn't want it to interfere with my otherwise 
+  working setup."
+  
+    Walter Hofmann on Joey Hess and Sjoerd Simons' period of maintainence
+  
+  * Revert switch to CDBS.
+  * Switch to using a sane /etc/nsswitch.conf
+    so we don't break existing setups, or those over which the user has
+    no control.
+  * Revert "clarifications" as well.
+  * Recommend, once again, zeroconf.
+
+ -- Anand Kumria <wildfire@progsoc.org>  Mon, 16 Oct 2006 12:18:55 +1000
+
+nss-mdns (0.8-5) unstable; urgency=low
+
+  * Take over the package for the pkg-utopia team. T
+  * Acknowledge NMU's (Closes: #388864, #351990, #353131, #378608)
+  * Switch to cdbs. As a side-effect the sysconfdir and localstatedir are set
+    correctly (Closes: #387231)
+  * debian/patches/00_dns_unaligned_access.patch:
+    - Added. Prevent unaligned access when creating/parsing dns packets. 
+
+ -- Sjoerd Simons <sjoerd@debian.org>  Wed, 11 Oct 2006 11:32:46 +0200
+
+nss-mdns (0.8-4.2) unstable; urgency=low
+
+  * NMU
+  * Add postinst that will add mdns entries to /etc/nsswitch.conf on new
+    installs and on upgrades from the previous version.  Closes: #388864,
+    #351990
+  * Add postrm to remove mdns entries from /etc/nsswitch.conf when the package
+    is removed.
+  * Local modifications to the file will be preserved accross upgrades.
+  * Depend on base-files 3.1.10 or higher to get a nsswitch.conf that is not a
+    conffile and that doesn't have mdns entries from base-files in it.
+  * Switch to nsswitch line recommended by upstream in #388864 after getting
+    clarification from upstream, and update README.Debian.
+  * Remove recommends on zeroconf. Closes: #353131
+
+ -- Joey Hess <joeyh@debian.org>  Fri, 22 Sep 2006 21:10:25 -0400
+
+nss-mdns (0.8-4.1) unstable; urgency=low
+
+  * NMU
+  * Clear out the diff.gz so it doesn't patch the various autotools files,
+    which makes everything explode on build (Closes: #378608) 
+
+ -- Sjoerd Simons <sjoerd@debian.org>  Fri,  8 Sep 2006 09:51:57 +0200
+
+nss-mdns (0.8-4) unstable; urgency=low
+
+  * Forget about using CDBS and use debhelper directly so we have control of
+    what is being built and updated. (Closes: #378608)
+
+ -- Anand Kumria <wildfire@progsoc.org>  Sun, 13 Aug 2006 12:24:32 +1000
+
+nss-mdns (0.8-3) unstable; urgency=low
+
+  * Regenerate the Debian .diff.gz so the Debian build system doesn't barf and
+    die
+
+ -- Anand Kumria <wildfire@progsoc.org>  Sun, 13 Aug 2006 09:49:39 +1000
+
+nss-mdns (0.8-2) unstable; urgency=low
+
+  * Copy 'configure' from the upstream tarball since the CDBS regeneration has
+    gone awry and does not work. This is the simple fix -- a more robust one
+    will be in place shortly. Thanks to Sam Morris for the diagnosis.
+    (Closes: #378608)
+
+ -- Anand Kumria <wildfire@progsoc.org>  Sun, 13 Aug 2006 09:40:48 +1000
+
+nss-mdns (0.8-1) unstable; urgency=low
+
+  * New upstream release (Closes: #369827)
+  * Enable "minimal" mDNS mode -- Debian has had this for a while but
+    upstream have now incorporated it.  This should mean that mdns
+    can now be mentioned in /etc/nsswitch.conf without issue.
+    (Closes: #348578, #348580)
+  * Suggest avahi-daemon rather than nscd (Closes: #367275)
+
+ -- Anand Kumria <wildfire@progsoc.org>  Mon,  3 Jul 2006 03:55:05 +1000
+
+nss-mdns (0.7-1) unstable; urgency=low
+
+  * New upstream release
+
+ -- Anand Kumria <wildfire@progsoc.org>  Tue, 27 Dec 2005 06:42:42 +1100
+
+nss-mdns (0.6-2) unstable; urgency=low
+
+  * Enable Avahi connections
+
+ -- Anand Kumria <wildfire@progsoc.org>  Mon, 12 Sep 2005 20:59:52 +1000
+
+nss-mdns (0.6-1) unstable; urgency=low
+
+  * New upstream release
+
+ -- Anand Kumria <wildfire@progsoc.org>  Fri,  2 Sep 2005 03:58:34 +1000
+
+nss-mdns (0.5-1) unstable; urgency=low
+
+  * New upstream release (Closes: #313024)
+
+ -- Anand Kumria <wildfire@progsoc.org>  Thu, 16 Jun 2005 17:38:13 +1000
+
+nss-mdns (0.4-1) unstable; urgency=low
+
+  * New upstream release
+  * Fix endian issues (Closes: #305465)
+
+ -- Anand Kumria <wildfire@progsoc.org>  Mon, 16 May 2005 05:12:09 +1000
+
+nss-mdns (0.3-2) unstable; urgency=low
+
+  * Modify Maintainer to point to me.
+  * Recommend 'zeroconf'
+  * Remove i386 specific int3 debug hack.
+  * Update to standard 3.6.1
+  * Reclose RFP (Closes: #284497)
+
+ -- Anand Kumria <wildfire@progsoc.org>  Mon,  7 Mar 2005 01:27:04 +1100
+
+nss-mdns (0.3-1) unstable; urgency=low
+
+  * Update to current upstream
+
+ -- Lennart Poettering <mzqrovna@0pointer.de>  Sun, 16 Jan 2005 14:57:28 +0100
+
+nss-mdns (0.1-0) unstable; urgency=low
+
+  * Initial Release (Closes: #284497).
+
+ -- Jeff Waugh <jdub@perkypants.org>  Tue, 07 Dec 2004 12:42:51 +0100

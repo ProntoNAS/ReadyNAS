@@ -1,0 +1,56 @@
+#!/usr/bin/make -f
+
+# Make sure perl is defined (allow overriding from the command line).
+PERL ?= /usr/bin/perl
+
+# Set our build directory
+PREFIX=$(CURDIR)/debian/libfile-ncopy-perl/usr
+
+get-orig-source:
+	wget http://search.cpan.org/CPAN/authors/id/M/MZ/MZSANFORD/File-NCopy-0.34.tar.gz
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	$(PERL) Makefile.PL INSTALLDIRS=vendor
+	touch configure-stamp
+
+build: build-stamp
+
+build-stamp: configure-stamp 
+	dh_testdir
+	$(MAKE) OPTIMIZE="-O2 -g -Wall"
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp configure-stamp
+	-$(MAKE) clean
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+	$(MAKE) install PREFIX=$(PREFIX)
+
+binary-indep: build install
+	dh_testdir
+	dh_testroot
+	dh_installdocs
+	dh_installmanpages
+	dh_installchangelogs Changes
+	dh_compress
+	dh_fixperms
+	dh_perl
+	dh_installdeb
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary-arch: build install
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure get-orig-source

@@ -1,0 +1,35 @@
+--- ffmpeg-0.6.6.orig/libavformat/utils.c
++++ ffmpeg-0.6.6/libavformat/utils.c
+@@ -2106,14 +2106,18 @@
+ 
+     for (i=0; i+1<s->nb_chapters; i++)
+         if (s->chapters[i]->end == AV_NOPTS_VALUE) {
+-            assert(s->chapters[i]->start <= s->chapters[i+1]->start);
+-            assert(!av_cmp_q(s->chapters[i]->time_base, s->chapters[i+1]->time_base));
++            if (s->chapters[i]->start > s->chapters[i+1]->start)
++                return;
++            if (av_cmp_q(s->chapters[i]->time_base, s->chapters[i+1]->time_base))
++                return;
+             s->chapters[i]->end = s->chapters[i+1]->start;
+         }
+ 
+     if (s->nb_chapters && s->chapters[i]->end == AV_NOPTS_VALUE) {
+-        assert(s->start_time != AV_NOPTS_VALUE);
+-        assert(s->duration > 0);
++        if (s->start_time == AV_NOPTS_VALUE)
++            return;
++        if (s->duration <= 0)
++            return;
+         s->chapters[i]->end = av_rescale_q(s->start_time + s->duration,
+                                            AV_TIME_BASE_Q,
+                                            s->chapters[i]->time_base);
+@@ -2181,7 +2181,8 @@
+                 st->parser->flags |= PARSER_FLAG_COMPLETE_FRAMES;
+             }
+         }
+-        assert(!st->codec->codec);
++        if(!st->codec->codec)
++            continue;
+         //try to just open decoders, in case this is enough to get parameters
+         if(!has_codec_parameters(st->codec)){
+             AVCodec *codec = avcodec_find_decoder(st->codec->codec_id);

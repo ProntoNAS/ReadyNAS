@@ -1,0 +1,25 @@
+Index: dbus-1.2.14/bus/config-parser.c
+===================================================================
+--- dbus-1.2.14.orig/bus/config-parser.c	2009-05-05 22:51:37.000000000 +0200
++++ dbus-1.2.14/bus/config-parser.c	2009-05-07 00:16:25.000000000 +0200
+@@ -2193,8 +2193,18 @@
+         {
+           if (!include_file (parser, &full_path, TRUE, error))
+             {
+-              _dbus_string_free (&full_path);
+-              goto failed;
++              /* Debian patch to skip malformed /etc/dbus-1/system.d entries */
++              /*
++               * _dbus_string_free (&full_path);
++               * goto failed;
++               */
++              if (dbus_error_is_set (error))
++                {
++                  _dbus_warn("\nEncountered error '%s' while parsing '%s'\n",
++                             error->message,
++                             _dbus_string_get_const_data(&full_path));
++                  dbus_error_free (error);
++                }
+             }
+         }
+ 

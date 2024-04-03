@@ -1,0 +1,153 @@
+diff -u cron-3.0pl1/misc.c cron-3.0pl1/misc.c
+--- cron-3.0pl1/misc.c
++++ cron-3.0pl1/misc.c
+@@ -203,8 +203,7 @@
+ 			fprintf(stderr, "%s: created\n", CRONDIR);
+ 			stat(CRONDIR, &sb);
+ 		} else {
+-			fprintf(stderr, "%s: ", CRONDIR);
+-			perror("mkdir");
++			fprintf(stderr, "%s: mkdir: %s\n", CRONDIR, strerror(errno));
+ 			exit(ERROR_EXIT);
+ 		}
+ 	}
+@@ -214,8 +213,7 @@
+ 		exit(ERROR_EXIT);
+ 	}
+ 	if (chdir(CRONDIR) < OK) {
+-		fprintf(stderr, "cannot chdir(%s), bailing out.\n", CRONDIR);
+-		perror(CRONDIR);
++		fprintf(stderr, "%s: chdir: %s\n", CRONDIR, strerror(errno));
+ 		exit(ERROR_EXIT);
+ 	}
+ 
+@@ -227,8 +225,7 @@
+ 			fprintf(stderr, "%s: created\n", SPOOL_DIR);
+ 			stat(SPOOL_DIR, &sb);
+ 		} else {
+-			fprintf(stderr, "%s: ", SPOOL_DIR);
+-			perror("mkdir");
++			fprintf(stderr, "%s: mkdir: %s\n", SPOOL_DIR, strerror(errno));
+ 			exit(ERROR_EXIT);
+ 		}
+ 	}
+@@ -507,9 +504,8 @@
+ 	if (LogFD < OK) {
+ 		LogFD = open(LOG_FILE, O_WRONLY|O_APPEND|O_CREAT, 0600);
+ 		if (LogFD < OK) {
+-			fprintf(stderr, "%s: can't open log file\n",
+-				ProgramName);
+-			perror(LOG_FILE);
++			fprintf(stderr, "%s: %s: open: %s\n",
++				ProgramName, LOG_FILE, strerror(errno));
+ 		} else {
+ 			(void) fcntl(LogFD, F_SETFD, 1);
+ 		}
+diff -u cron-3.0pl1/crontab.c cron-3.0pl1/crontab.c
+--- cron-3.0pl1/crontab.c
++++ cron-3.0pl1/crontab.c
+@@ -326,8 +326,7 @@
+ 		if (errno == ENOENT) 
+ 			fprintf(stderr, "no crontab for %s\n", User);
+ 		else {
+-                        fprintf(stderr, "%s/", CRONDIR);
+-			perror(n);
++                        fprintf(stderr, "%s/: fopen: %s\n", n, strerror(errno));
+                 }
+ 		exit(ERROR_EXIT);
+ 	} else if ((fd=fileno(f))==-1) {
+@@ -413,8 +412,7 @@
+ 		if (errno == ENOENT)
+ 			fprintf(stderr, "no crontab for %s\n", User);
+ 		else {
+-                        fprintf(stderr, "%s/", CRONDIR);
+-			perror(n);
++                        fprintf(stderr, "%s/: unlink: %s\n", CRONDIR, strerror(errno));
+                 }
+ 		exit(ERROR_EXIT);
+ 	}
+@@ -583,8 +581,7 @@
+ 	(void) snprintf(n, MAX_FNAME, CRON_TAB(User));
+ 	if (!(f = fopen(n, "r"))) {
+ 		if (errno != ENOENT) {
+-                        fprintf(stderr, "%s/", CRONDIR);
+-			perror(n);
++                        fprintf(stderr, "%s/: fdopen: %s", n, strerror(errno));
+ 			exit(ERROR_EXIT);
+ 		}
+ 		fprintf(stderr, "no crontab for %s - using an empty one\n",
+@@ -875,14 +872,12 @@
+ 	um = umask(077);
+ 	fd = mkstemp(tn);
+ 	if (fd < 0) {
+-                fprintf(stderr, "%s/", CRONDIR);
+-		perror(tn);
++                fprintf(stderr, "%s/: mkstemp: %s\n", CRONDIR, strerror(errno));
+ 		return(-2);
+ 	}
+ 	tmp = fdopen(fd, "w+");
+ 	if (!tmp) {
+-                fprintf(stderr, "%s/", CRONDIR);
+-		perror(tn);
++                fprintf(stderr, "%s/: fdopen: %s\n", CRONDIR, strerror(errno));
+ 		return (-2);
+ 	}
+ 	(void) umask(um);
+@@ -903,9 +898,8 @@
+ 		putc(ch, tmp);
+ 
+ 	if (ferror(tmp) || fflush(tmp) || fsync(fd)) {
+-		fprintf(stderr, "%s: error while writing new crontab to %s\n",
+-			ProgramName, tn);
+-		perror("Error");
++		fprintf(stderr, "%s: %s: %s\n",
++			ProgramName, tn, strerror(errno));
+ 		fclose(tmp);  unlink(tn);
+ 		return (-2);
+ 	}
+@@ -969,9 +963,8 @@
+         }
+ 
+ 	if (rename(tn, n)) {
+-		fprintf(stderr, "%s: error renaming %s to %s\n",
+-			ProgramName, tn, n);
+-		perror("rename");
++		fprintf(stderr, "%s: %s: rename: %s\n",
++			ProgramName, n, strerror(errno));
+ 		unlink(tn);
+ 		return (-2);
+ 	}
+@@ -994,16 +987,14 @@
+ 	(void) gettimeofday(&tvs[0], &tz);
+ 	tvs[1] = tvs[0];
+ 	if (utimes(SPOOL_DIR, tvs) < OK) {
+-		fprintf(stderr, "crontab: can't update mtime on spooldir\n");
+-                fprintf(stderr, "%s/", CRONDIR);
+-		perror(SPOOL_DIR);
++                fprintf(stderr, "%s/: utimes: %s", CRONDIR, strerror(errno));
++		fputs("crontab: can't update mtime on spooldir\n", stderr);
+ 		return;
+ 	}
+ #else
+ 	if (utime(SPOOL_DIR, NULL) < OK) {
+-		fprintf(stderr, "crontab: can't update mtime on spooldir\n");
+-                fprintf(stderr, "%s/", CRONDIR);
+-		perror(SPOOL_DIR);
++                fprintf(stderr, "%s: utime: %s\n", CRONDIR, strerror(errno));
++		fputs("crontab: can't update mtime on spooldir\n", stderr);
+ 		return;
+ 	}
+ #endif /*USE_UTIMES*/
+diff -u cron-3.0pl1/do_command.c cron-3.0pl1/do_command.c
+--- cron-3.0pl1/do_command.c
++++ cron-3.0pl1/do_command.c
+@@ -342,8 +342,7 @@
+ 			}
+ #endif
+                         execle(shell, shell, "-c", e->cmd, (char *)0, jobenv);
+-			fprintf(stderr, "execl: couldn't exec `%s'\n", shell);
+-			perror("execl");
++			fprintf(stderr, "%s: execle: %s\n", shell, strerror(errno));
+ 			_exit(ERROR_EXIT);
+ 		}
+ 		break;

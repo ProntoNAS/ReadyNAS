@@ -1,0 +1,35 @@
+Description: faad segfaults on amd64 due to incorrect pointer size
+ When running faad with a command line similar to:
+  alessio@alessio-laptop:~$ faad -b 2 -f 2 -w sample.aac
+ a SIGSEGV gets raised. This issue is due to an incorrect pointer size
+ used in the write_audio{32,64}bit functions.
+Origin: Ubuntu
+Bug: https://sourceforge.net/support/tracker.php?aid=3110758
+Bug-Debian: http://bugs.debian.org/603807
+Bug-Ubuntu: https://launchpad.net/bugs/665802
+Reviewed-by: Alessio Treglia <alessio@debian.org>
+Last-Update: 2010-11-17
+---
+ frontend/audio.c |    4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/frontend/audio.c
++++ b/frontend/audio.c
+@@ -347,7 +347,7 @@
+ {
+     int ret;
+     unsigned int i;
+-    long *sample_buffer24 = (long*)sample_buffer;
++    int *sample_buffer24 = (int*)sample_buffer;
+     char *data = malloc(samples*aufile->bits_per_sample*sizeof(char)/8);
+ 
+     aufile->total_samples += samples;
+@@ -391,7 +391,7 @@
+ {
+     int ret;
+     unsigned int i;
+-    long *sample_buffer32 = (long*)sample_buffer;
++    int *sample_buffer32 = (int*)sample_buffer;
+     char *data = malloc(samples*aufile->bits_per_sample*sizeof(char)/8);
+ 
+     aufile->total_samples += samples;

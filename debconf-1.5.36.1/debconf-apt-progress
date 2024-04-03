@@ -1,0 +1,668 @@
+#!/usr/bin/perl -w
+
+=head1 NAME
+
+debconf-apt-progress - install packages using debconf to display a progress bar
+
+=head1 SYNOPSIS
+
+ debconf-apt-progress [--] command [args ...]
+ debconf-apt-progress --config
+ debconf-apt-progress --start
+ debconf-apt-progress --from waypoint --to waypoint [--] command [args ...]
+ debconf-apt-progress --stop
+
+=head1 DESCRIPTION
+
+B<debconf-apt-progress> installs packages using debconf to display a
+progress bar. The given I<command> should be any command-line apt frontend;
+specifically, it must send progress information to the file descriptor
+selected by the C<APT::Status-Fd> configuration option, and must keep the
+file descriptors nominated by the C<APT::Keep-Fds> configuration option open
+when invoking debconf (directly or indirectly), as those file descriptors
+will be used for the debconf passthrough protocol.
+
+The arguments to the command you supply should generally include B<-y> (for
+B<apt-get> or B<aptitude>) or similar to avoid the apt frontend prompting
+for input. B<debconf-apt-progress> cannot do this itself because the
+appropriate argument may differ between apt frontends.
+
+The B<--start>, B<--stop>, B<--from>, and B<--to> options may be used to
+create a progress bar with multiple segments for different stages of
+installation, provided that the caller is a debconf confmodule. The caller
+may also interact with the progress bar itself using the debconf protocol if
+it so desires.
+
+debconf locks its config database when it starts up, which makes it
+unfortunately inconvenient to have one instance of debconf displaying the
+progress bar and another passing through questions from packages being
+installed. If you're using a multiple-segment progress bar, you'll need to
+eval the output of the B<--config> option before starting the debconf
+frontend to work around this. See L<the EXAMPLES section/EXAMPLES> below.
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--config>
+
+Print environment variables necessary to start up a progress bar frontend.
+
+=item B<--start>
+
+Start up a progress bar, running from 0 to 100 by default. Use B<--from> and
+B<--to> to use other endpoints.
+
+=item B<--from> I<waypoint>
+
+If used with B<--start>, make the progress bar begin at I<waypoint> rather
+than 0.
+
+Otherwise, install packages with their progress bar beginning at this
+"waypoint". Must be used with B<--to>.
+
+=item B<--to> I<waypoint>
+
+If used with B<--start>, make the progress bar end at I<waypoint> rather
+than 100.
+
+Otherwise, install packages with their progress bar ending at this
+"waypoint". Must be used with B<--from>.
+
+=item B<--stop>
+
+Stop a running progress bar.
+
+=item B<--no-progress>
+
+Avoid starting, stopping, or stepping the progress bar. Progress
+messages from apt, media change events, and debconf questions will still
+be passed through to debconf.
+
+=item B<--dlwaypoint> I<percentage>
+
+Specify what percent of the progress bar to use for downloading packages.
+The remainder will be used for installing packages. The default is to use
+15% for downloading and the remaining 85% for installing.
+
+=item B<--logfile> I<file>
+
+Send the normal output from apt to the given file.
+
+=item B<--logstderr>
+
+Send the normal output from apt to stderr. If you supply neither
+B<--logfile> nor B<--logstderr>, the normal output from apt will be
+discarded.
+
+=item B<-->
+
+Terminate options. Since you will normally need to give at least the B<-y>
+argument to the command being run, you will usually need to use B<--> to
+prevent that being interpreted as an option to B<debconf-apt-progress>
+itself.
+
+=back
+
+=head1 EXAMPLES
+
+Install the GNOME desktop and an X window system development environment
+within a progress bar:
+
+ debconf-apt-progress -- aptitude -y install gnome x-window-system-dev
+
+Install the GNOME, KDE, and XFCE desktops within a single progress bar,
+allocating 45% of the progress bar for each of GNOME and KDE and the
+remaining 10% for XFCE:
+
+ #! /bin/sh
+ set -e
+ case $1 in
+   '')
+     eval "$(debconf-apt-progress --config)"
+     "$0" debconf
+     ;;
+   debconf)
+     . /usr/share/debconf/confmodule
+     debconf-apt-progress --start
+     debconf-apt-progress --from 0 --to 45 -- apt-get -y install gnome
+     debconf-apt-progress --from 45 --to 90 -- apt-get -y install kde
+     debconf-apt-progress --from 90 --to 100 -- apt-get -y install xfce4
+     debconf-apt-progress --stop
+     ;;
+ esac
+
+=head1 RETURN CODE
+
+The exit code of the specified command is returned, unless the user hit the
+cancel button on the progress bar. If the cancel button was hit, a value of
+30 is returned. To avoid ambiguity, if the command returned 30, a value of
+3 will be returned.
+
+=cut
+
+use strict;
+use POSIX;
+use Fcntl;
+use Getopt::Long;
+# Avoid starting the debconf frontend just yet.
+use Debconf::Client::ConfModule ();
+
+my ($config, $start, $from, $to, $stop);
+my $progress=1;
+my $dlwaypoint=15;
+my ($logfile, $logstderr);
+my $had_frontend;
+
+sub checkopen (@) {
+	my $file = $_[0];
+	my $fd = POSIX::open($file, &POSIX::O_RDONLY);
+	defined $fd or die "$0: can't open $_[0]: $!\n";
+	return $fd;
+}
+
+sub checkclose ($) {
+	my $fd = $_[0];
+	unless (POSIX::close($fd)) {
+		return if $! == &POSIX::EBADF;
+		die "$0: can't close fd $fd: $!\n";
+	}
+}
+
+sub checkdup2 ($$) {
+	my ($oldfd, $newfd) = @_;
+	checkclose($newfd);
+	POSIX::dup2($oldfd, $newfd)
+		or die "$0: can't dup fd $oldfd to $newfd: $!\n";
+}
+
+sub nocloexec (*) {
+	my $fh = shift;
+	my $flags = fcntl($fh, F_GETFD, 0);
+	fcntl($fh, F_SETFD, $flags & ~FD_CLOEXEC);
+}
+
+sub nonblock (*) {
+	my $fh = shift;
+	my $flags = fcntl($fh, F_GETFL, 0);
+	fcntl($fh, F_SETFL, $flags | O_NONBLOCK);
+}
+
+# Open the given file descriptors to make sure they won't accidentally be
+# used by Perl, leading to confusion.
+sub reservefds (@) {
+	my $null = checkopen('/dev/null');
+	my $close = 1;
+	for my $fd (@_) {
+		if ($null == $fd) {
+			$close = 0;
+		} else {
+			checkclose($fd);
+			checkdup2($null, $fd);
+		}
+	}
+	if ($close) {
+		checkclose($null);
+	}
+}
+
+# Does this environment variable exist, and is it non-empty?
+sub envnonempty ($) {
+	my $name = shift;
+	return (exists $ENV{$name} and $ENV{$name} ne '');
+}
+
+sub start_debconf (@) {
+	if (! $ENV{DEBIAN_HAS_FRONTEND}) {
+		# Save existing environment variables.
+		if (envnonempty('DEBCONF_DB_REPLACE')) {
+			$ENV{DEBCONF_APT_PROGRESS_DB_REPLACE} =
+				$ENV{DEBCONF_DB_REPLACE};
+		}
+		if (envnonempty('DEBCONF_DB_OVERRIDE')) {
+			$ENV{DEBCONF_APT_PROGRESS_DB_OVERRIDE} =
+				$ENV{DEBCONF_DB_OVERRIDE};
+		}
+
+		# Make sure the main configdb is opened read-only ...
+		$ENV{DEBCONF_DB_REPLACE} = 'configdb';
+		# ... and stack a writable db on top of it, since the
+		# passthrough instance is going to be sending us db updates.
+		$ENV{DEBCONF_DB_OVERRIDE} = 'Pipe{infd:none outfd:none}';
+
+		# Leave a note for ourselves. We need to do it this way
+		# round since DEBIAN_HAS_FRONTEND will be set the second
+		# time round even if it isn't set initially.
+		$ENV{DEBCONF_APT_PROGRESS_NO_FRONTEND} = 1;
+
+		# Restore @ARGV so that
+		# Debconf::Client::ConfModule::import() can use it.
+		@ARGV = @_;
+	}
+
+	import Debconf::Client::ConfModule;
+}
+
+sub passthrough (@) {
+	my $priority = Debconf::Client::ConfModule::get('debconf/priority');
+
+	defined(my $pid = fork) or die "$0: can't fork: $!\n";
+	if (!$pid) {
+		close STATUS_READ;
+		close COMMAND_WRITE;
+		close DEBCONF_COMMAND_READ;
+		close DEBCONF_REPLY_WRITE;
+		$^F = 6; # avoid close-on-exec
+		if (fileno(COMMAND_READ) != 0) {
+			checkdup2(fileno(COMMAND_READ), 0);
+			close COMMAND_READ;
+		}
+		if (fileno(APT_LOG) != 1) {
+			checkclose(1);
+			checkdup2(fileno(APT_LOG), 1);
+		}
+		if (fileno(APT_LOG) != 2) {
+			checkclose(2);
+			checkdup2(fileno(APT_LOG), 2);
+		}
+		close APT_LOG;
+		delete $ENV{DEBIAN_HAS_FRONTEND};
+		delete $ENV{DEBCONF_REDIR};
+		delete $ENV{DEBCONF_SYSTEMRC};
+		delete $ENV{DEBCONF_PIPE}; # just in case ...
+		$ENV{DEBIAN_FRONTEND} = 'passthrough';
+		$ENV{DEBIAN_PRIORITY} = $priority;
+		$ENV{DEBCONF_READFD} = 5;
+		$ENV{DEBCONF_WRITEFD} = 6;
+		$ENV{APT_LISTCHANGES_FRONTEND} = 'none';
+		# If we already had a debconf frontend when we started, then
+		# the passthrough child needs to use the same pipe-database
+		# trick as we do. See start_debconf.
+		if ($had_frontend) {
+			$ENV{DEBCONF_DB_REPLACE} = 'configdb';
+			$ENV{DEBCONF_DB_OVERRIDE} = 'Pipe{infd:none outfd:none}';
+		}
+		exec @_;
+	}
+
+	close STATUS_WRITE;
+	close COMMAND_READ;
+	close DEBCONF_COMMAND_WRITE;
+	close DEBCONF_REPLY_READ;
+	return $pid;
+}
+
+sub handle_status ($$$) {
+	my ($from, $to, $line) = @_;
+	my ($status, $pkg, $percent, $description) = split ':', $line, 4;
+
+	my ($min, $len);
+	if ($status eq 'dlstatus') {
+		$min = 0;
+		$len = $dlwaypoint;
+	}
+	elsif ($status eq 'pmstatus') {
+		$min = $dlwaypoint;
+		$len = 100 - $dlwaypoint;
+	}
+	elsif ($status eq 'media-change') {
+		Debconf::Client::ConfModule::subst(
+			'debconf-apt-progress/media-change', 'MESSAGE',
+			$description);
+		my @ret = Debconf::Client::ConfModule::input(
+			'critical', 'debconf-apt-progress/media-change');
+		$ret[0] == 0 or die "Can't display media change request!\n";
+		Debconf::Client::ConfModule::go();
+		print COMMAND_WRITE "\n" || die "can't talk to command fd: $!";
+		return;
+	}
+	else {
+		return;
+	}
+
+	$percent = ($percent * $len / 100 + $min);
+	$percent = ($percent * ($to - $from) / 100 + $from);
+	$percent =~ s/\..*//;
+	if ($progress) {
+		my @ret=Debconf::Client::ConfModule::progress('SET', $percent);
+		if ($ret[0] eq '30') {
+			cancel();
+		}
+	}
+	Debconf::Client::ConfModule::subst(
+		'debconf-apt-progress/info', 'DESCRIPTION', $description);
+	my @ret=Debconf::Client::ConfModule::progress(
+		'INFO', 'debconf-apt-progress/info');
+	if ($ret[0] eq '30') {
+		cancel();
+	}
+}
+
+sub handle_debconf_command ($) {
+	my $line = shift;
+
+	# Debconf::Client::ConfModule has already dealt with checking
+	# DEBCONF_REDIR.
+	print "$line\n" || die "can't write to stdout: $!";
+	my $ret = <STDIN>;
+	chomp $ret;
+	print DEBCONF_REPLY_WRITE "$ret\n" ||
+		die "can't write to DEBCONF_REPLY_WRITE: $!";
+}
+
+my $pid;
+sub run_progress ($$@) {
+	my $from = shift;
+	my $to = shift;
+	my $command = shift;
+	local (*STATUS_READ, *STATUS_WRITE);
+	local (*COMMAND_READ, *COMMAND_WRITE);
+	local (*DEBCONF_COMMAND_READ, *DEBCONF_COMMAND_WRITE);
+	local (*DEBCONF_REPLY_READ, *DEBCONF_REPLY_WRITE);
+	local *APT_LOG;
+	use IO::Handle;
+
+	if ($progress) {
+		my @ret=Debconf::Client::ConfModule::progress(
+			'INFO', 'debconf-apt-progress/preparing');
+		if ($ret[0] eq '30') {
+			cancel();
+			return 30;
+		}
+	}
+
+	reservefds(4, 5, 6);
+
+	pipe STATUS_READ, STATUS_WRITE
+		or die "$0: can't create status pipe: $!";
+	nonblock(\*STATUS_READ);
+	checkdup2(fileno(STATUS_WRITE), 4);
+	open STATUS_WRITE, '>&=4'
+		or die "$0: can't reopen STATUS_WRITE as fd 4: $!";
+	nocloexec(\*STATUS_WRITE);
+
+	pipe COMMAND_READ, COMMAND_WRITE
+		or die "$0: can't create command pipe: $!";
+	nocloexec(\*COMMAND_READ);
+	COMMAND_WRITE->autoflush(1);
+
+	pipe DEBCONF_COMMAND_READ, DEBCONF_COMMAND_WRITE
+		or die "$0: can't create debconf command pipe: $!";
+	nonblock(\*DEBCONF_COMMAND_READ);
+	checkdup2(fileno(DEBCONF_COMMAND_WRITE), 6);
+	open DEBCONF_COMMAND_WRITE, '>&=6'
+		or die "$0: can't reopen DEBCONF_COMMAND_WRITE as fd 6: $!";
+	nocloexec(\*DEBCONF_COMMAND_WRITE);
+
+	pipe DEBCONF_REPLY_READ, DEBCONF_REPLY_WRITE
+		or die "$0: can't create debconf reply pipe: $!";
+	checkdup2(fileno(DEBCONF_REPLY_READ), 5);
+	open DEBCONF_REPLY_READ, '<&=5'
+		or die "$0: can't reopen DEBCONF_REPLY_READ as fd 5: $!";
+	nocloexec(\*DEBCONF_REPLY_READ);
+	DEBCONF_REPLY_WRITE->autoflush(1);
+
+	if (defined $logfile) {
+		open APT_LOG, '>>', $logfile
+			or die "$0: can't open $logfile: $!";
+	} elsif ($logstderr) {
+		open APT_LOG, '>&STDERR'
+			or die "$0: can't duplicate stderr: $!";
+	} else {
+		open APT_LOG, '>', '/dev/null'
+			or die "$0: can't open /dev/null: $!";
+	}
+	nocloexec(\*APT_LOG);
+
+	$pid = passthrough $command,
+		'-o', 'APT::Status-Fd=4',
+		'-o', 'APT::Keep-Fds::=5',
+		'-o', 'APT::Keep-Fds::=6',
+		@_;
+
+	my $status_eof = 0;
+	my $debconf_command_eof = 0;
+	my $status_buf = '';
+	my $debconf_command_buf = '';
+
+	# STATUS_READ should be the last fd to close. DEBCONF_COMMAND_WRITE
+	# may end up captured by buggy daemons, so terminate the loop even
+	# if we haven't hit $debconf_command_eof.
+	while (not $status_eof) {
+		my $rin = '';
+		my $rout;
+		vec($rin, fileno(STATUS_READ), 1) = 1;
+		vec($rin, fileno(DEBCONF_COMMAND_READ), 1) = 1
+			unless $debconf_command_eof;
+		my $sel = select($rout = $rin, undef, undef, undef);
+		if ($sel < 0) {
+			next if $! == &POSIX::EINTR;
+			die "$0: select failed: $!";
+		}
+
+		if (vec($rout, fileno(STATUS_READ), 1) == 1) {
+			# Status message from apt. Transform into debconf
+			# messages.
+			while (1) {
+				my $r = sysread(STATUS_READ, $status_buf, 4096,
+						length $status_buf);
+				if (not defined $r) {
+					next if $! == &POSIX::EINTR;
+					last if $! == &POSIX::EAGAIN or
+						$! == &POSIX::EWOULDBLOCK;
+					die "$0: read STATUS_READ failed: $!";
+				}
+				elsif ($r == 0) {
+					if ($status_buf ne '' and
+					    $status_buf !~ /\n$/) {
+						$status_buf .= "\n";
+					}
+					$status_eof = 1;
+					last;
+				}
+				last if $status_buf =~ /\n/;
+			}
+
+			while ($status_buf =~ /\n/) {
+				my $status_line;
+				($status_line, $status_buf) =
+					split /\n/, $status_buf, 2;
+				handle_status $from, $to, $status_line;
+			}
+		}
+
+		if (vec($rout, fileno(DEBCONF_COMMAND_READ), 1) == 1) {
+			# Debconf command. Pass straight through.
+			while (1) {
+				my $r = sysread(DEBCONF_COMMAND_READ,
+						$debconf_command_buf, 4096,
+						length $debconf_command_buf);
+				if (not defined $r) {
+					next if $! == &POSIX::EINTR;
+					last if $! == &POSIX::EAGAIN or
+						$! == &POSIX::EWOULDBLOCK;
+					die "$0: read DEBCONF_COMMAND_READ " .
+					    "failed: $!";
+				}
+				elsif ($r == 0) {
+					if ($debconf_command_buf ne '' and
+					    $debconf_command_buf !~ /\n$/) {
+						$debconf_command_buf .= "\n";
+					}
+					$debconf_command_eof = 1;
+					last;
+				}
+				last if $debconf_command_buf =~ /\n/;
+			}
+
+			while ($debconf_command_buf =~ /\n/) {
+				my $debconf_command_line;
+				($debconf_command_line, $debconf_command_buf) =
+					split /\n/, $debconf_command_buf, 2;
+				handle_debconf_command $debconf_command_line;
+			}
+		}
+	}
+
+	waitpid $pid, 0;
+	undef $pid;
+	my $status = $?;
+
+	# make sure that the progress bar always gets to the end
+	if ($progress) {
+		my @ret=Debconf::Client::ConfModule::progress('SET', $to);
+		if ($ret[0] eq '30') {
+			cancel();
+		}
+	}
+
+	if ($status & 127) {
+		return 127;
+	}
+
+	return ($status >> 8);
+}
+
+# Called if the progress bar is cancelled. Starts with a SIGINT but
+# if called repeatedly, falls back to SIGKILL.
+my $cancelled=0;
+my $cancel_sent_signal=0;
+sub cancel () {
+	$cancelled++;
+	if (defined $pid) {
+		$cancel_sent_signal++;
+		if ($cancel_sent_signal == 1) {
+			kill INT => $pid;
+		}
+		else {
+			kill KILL => $pid;
+		}
+	}
+}
+
+sub start_bar ($$) {
+	my ($from, $to) = @_;
+	if ($progress) {
+		Debconf::Client::ConfModule::progress(
+			'START', $from, $to, 'debconf-apt-progress/title');
+		my @ret=Debconf::Client::ConfModule::progress(
+			'INFO', 'debconf-apt-progress/preparing');
+		if ($ret[0] eq '30') {
+			cancel();
+		}
+	}
+}
+
+sub stop_bar () {
+	Debconf::Client::ConfModule::progress('STOP') if $progress;
+	# If we don't stop, we leave a zombie in case some daemon fails to
+	# disconnect from fd 3. Don't do this if debconf was already
+	# running, though, since in that case we're running as part of a
+	# larger application which will need to take its own care to stop
+	# when it's finished.
+	Debconf::Client::ConfModule::stop() unless $had_frontend;
+}
+
+# Restore saved environment variables.
+if (envnonempty('DEBCONF_APT_PROGRESS_DB_REPLACE')) {
+	$ENV{DEBCONF_DB_REPLACE} = $ENV{DEBCONF_APT_PROGRESS_DB_REPLACE};
+} else {
+	delete $ENV{DEBCONF_DB_REPLACE};
+}
+if (envnonempty('DEBCONF_APT_PROGRESS_DB_OVERRIDE')) {
+	$ENV{DEBCONF_DB_OVERRIDE} = $ENV{DEBCONF_APT_PROGRESS_DB_OVERRIDE};
+} else {
+	delete $ENV{DEBCONF_DB_OVERRIDE};
+}
+$had_frontend = 1 unless $ENV{DEBCONF_APT_PROGRESS_NO_FRONTEND};
+delete $ENV{DEBCONF_APT_PROGRESS_NO_FRONTEND}; # avoid inheritance
+
+my @saved_argv = @ARGV;
+
+my $result = GetOptions('config'       => \$config,
+			'start'        => \$start,
+			'from=i'       => \$from,
+			'to=i'         => \$to,
+			'stop'         => \$stop,
+			'logfile=s'    => \$logfile,
+			'logstderr'    => \$logstderr,
+			'progress!'    => \$progress,
+			'dlwaypoint=i' => \$dlwaypoint,
+);
+
+if (! $progress && ($start || $from || $to || $stop)) {
+	die "--no-progress cannot be used with --start, --from, --to, or --stop\n";
+}
+
+unless ($start) {
+	if (defined $from and not defined $to) {
+		die "$0: --from requires --to\n";
+	} elsif (defined $to and not defined $from) {
+		die "$0: --to requires --from\n";
+	}
+}
+
+my $mutex = 0;
+++$mutex if $config;
+++$mutex if $start;
+++$mutex if $stop;
+if ($mutex > 1) {
+	die "$0: must use only one of --config, --start, or --stop\n";
+}
+
+if (($config or $stop) and (defined $from or defined $to)) {
+	die "$0: cannot use --from or --to with --config or --stop\n";
+}
+
+start_debconf(@saved_argv) unless $config;
+
+my $status = 0;
+
+if ($config) {
+	print <<'EOF';
+DEBCONF_APT_PROGRESS_DB_REPLACE="$DEBCONF_DB_REPLACE"
+DEBCONF_APT_PROGRESS_DB_OVERRIDE="$DEBCONF_DB_OVERRIDE"
+export DEBCONF_APT_PROGRESS_DB_REPLACE DEBCONF_APT_PROGRESS_DB_OVERRIDE
+DEBCONF_DB_REPLACE=configdb
+DEBCONF_DB_OVERRIDE='Pipe{infd:none outfd:none}'
+export DEBCONF_DB_REPLACE DEBCONF_DB_OVERRIDE
+EOF
+} elsif ($start) {
+	$from = 0 unless defined $from;
+	$to = 100 unless defined $to;
+	start_bar($from, $to);
+} elsif (defined $from) {
+	$status = run_progress($from, $to, @ARGV);
+} elsif ($stop) {
+	stop_bar();
+} else {
+	start_bar(0, 100);
+	if (! $cancelled) {
+		$status = run_progress(0, 100, @ARGV);
+		stop_bar();
+	}
+}
+
+if ($cancelled) {
+	# This is pure paranoia. What if the child was in the
+	# middle of writing a debconf command out, only to be
+	# interrupted with a truncated write? Let's send a no-op
+	# command to finish it out just in case.
+	Debconf::Client::ConfModule::get("debconf/priority");
+
+	exit 30;
+}
+elsif ($status == 30) {
+	exit 3;
+}
+else {
+	exit $status;
+}
+
+=head1 AUTHORS
+
+Colin Watson <cjwatson@debian.org>
+
+Joey Hess <joeyh@debian.org>
+
+=cut

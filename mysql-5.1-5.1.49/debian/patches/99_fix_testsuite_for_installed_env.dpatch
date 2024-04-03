@@ -1,0 +1,36 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 99_fix_testsuite_for_installed_env.dpatch by Steve Beattie <sbeattie@ubuntu.com>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Fix the mysql testsuite to work in the installed locations
+
+@DPATCH@
+diff -urNad mysql-5.1-5.1.49~/mysql-test/lib/My/ConfigFactory.pm mysql-5.1-5.1.49/mysql-test/lib/My/ConfigFactory.pm
+--- mysql-5.1-5.1.49~/mysql-test/lib/My/ConfigFactory.pm	2010-07-09 05:34:55.000000000 -0700
++++ mysql-5.1-5.1.49/mysql-test/lib/My/ConfigFactory.pm	2010-08-12 16:40:07.000000000 -0700
+@@ -140,10 +140,13 @@
+   return $vardir;
+ }
+ 
++my @std_data_prefixes=("mysql-test", "lib/mysql-testsuite");
++
+ sub fix_std_data {
+   my ($self, $config, $group_name, $group)= @_;
+   my $basedir= $self->get_basedir($group);
+-  return "$basedir/mysql-test/std_data";
++  return my_find_dir($self->get_basedir($group),
++		     \@std_data_prefixes, "std_data");
+ }
+ 
+ sub ssl_supported {
+diff -urNad mysql-5.1-5.1.49~/mysql-test/lib/mtr_cases.pm mysql-5.1-5.1.49/mysql-test/lib/mtr_cases.pm
+--- mysql-5.1-5.1.49~/mysql-test/lib/mtr_cases.pm	2010-07-09 05:34:53.000000000 -0700
++++ mysql-5.1-5.1.49/mysql-test/lib/mtr_cases.pm	2010-08-12 16:34:10.000000000 -0700
+@@ -268,6 +268,7 @@
+     {
+       $suitedir= my_find_dir($::basedir,
+ 			     ["mysql-test/suite",
++			      "lib/mysql-testsuite/suite",
+ 			      "mysql-test",
+ 			      # Look in storage engine specific suite dirs
+ 			      "storage/*/mysql-test-suites"

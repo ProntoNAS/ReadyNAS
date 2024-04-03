@@ -8,31 +8,23 @@
 configure: configure-stamp
 configure-stamp:
 	dh_testdir
-	# Add here commands to configure the package.
+	QUILT_PATCHES=debian/patches quilt push -a || test $$? = 2
 	./configure --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info --datadir=\$${prefix}/share/doc/bvi
-
 	touch configure-stamp
 
 build: configure-stamp build-stamp
 build-stamp:
 	dh_testdir
-
-	# Add here commands to compile the package.
 	$(MAKE)
-	#/usr/bin/docbook-to-man debian/bvi.sgml > bvi.1
-
 	touch build-stamp
 
 clean:
 	dh_testdir
 	dh_testroot
 	rm -f build-stamp configure-stamp
-
-	# Add here commands to clean up after the build process.
 	-$(MAKE) distclean
-
 	rm -Rf html/gif/.xvpics
-
+	QUILT_PATCHES=debian/patches quilt pop -a -R || test $$? = 2
 	dh_clean
 
 install: build
@@ -40,10 +32,7 @@ install: build
 	dh_testroot
 	dh_clean -k
 	dh_installdirs
-
-	# Add here commands to install the package into debian/tmp.
 	$(MAKE) install prefix=`pwd`/debian/bvi/usr
-
 
 # Build architecture-independent files here.
 binary-indep: build install
@@ -51,22 +40,15 @@ binary-indep: build install
 
 # Build architecture-dependent files here.
 binary-arch: build install
-#	dh_testversion
 	dh_testdir
 	dh_testroot
-#	dh_installdebconf	
 	dh_installdocs CREDITS
 	# Copying the HTML documentation
 	cp -aR `pwd`/html/* debian/bvi/usr/share/doc/bvi/html/
 	dh_installexamples
 	dh_installmenu
-#	dh_installemacsen
-#	dh_installpam
-#	dh_installinit
-#	dh_installcron
-	dh_installmanpages bvi.1
+	dh_installman bvi.1
 	dh_installinfo
-#	dh_undocumented
 	(cd debian/bvi/usr/share/man/man1 && ln -s bvi.1.gz bview.1.gz)
 	(cd debian/bvi/usr/share/man/man1 && ln -s bvi.1.gz bvedit.1.gz)
 	dh_installchangelogs CHANGES 
@@ -74,11 +56,7 @@ binary-arch: build install
 	dh_strip
 	dh_compress
 	dh_fixperms
-	# You may want to make some executables suid here.
-#	dh_suidregister
-#	dh_makeshlibs
 	dh_installdeb
-#	dh_perl
 	dh_shlibdeps
 	dh_gencontrol
 	dh_md5sums

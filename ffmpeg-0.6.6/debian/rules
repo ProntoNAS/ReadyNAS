@@ -1,0 +1,152 @@
+#!/usr/bin/make -f
+
+include /usr/share/quilt/quilt.make
+
+EPOCH=4:
+DEB_SOURCE := $(shell dpkg-parsechangelog | sed -n 's/^Source: //p')
+DEB_VERSION := $(shell dpkg-parsechangelog | sed -n 's/^Version: //p')
+UPSTREAM_VERSION := $(shell echo $(DEB_VERSION) | sed -r 's/[^:]+://; s/-[^-]+$$//')
+SHLIBS_VERSION := 4:0.6-1~
+
+LIB_PKGS := $(shell sed -nr 's/^Package:[[:space:]]*(lib(avutil|avcodec|avdevice|avformat|avfilter|postproc|swscale)(-extra-)?[0-9]+)[[:space:]]*$$/\1/p' debian/control)
+
+# Support multiple makes at once
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+NUMJOBS = -j$(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+else
+# on i386 and amd64, we query the system unless overriden by DEB_BUILD_OPTIONS
+ifeq      ($(DEB_HOST_ARCH),i386)
+NUMJOBS := -j$(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+else ifeq ($(DEB_HOST_ARCH),amd64)
+NUMJOBS := -j$(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+endif
+endif
+
+include debian/confflags
+
+$(info FLAVORS = $(FLAVORS))
+$(info DEB_BUILD_OPTIONS = $(DEB_BUILD_OPTIONS))
+$(info CFLAGS = $(CFLAGS))
+$(info LDFLAGS = $(LDFLAGS))
+
+snapshot_version:
+	[ ! -r .svnrevision ] || \
+		cp .svnrevision $@
+	touch $@
+
+configure-%: configure-stamp-%
+configure-stamp-%: $(QUILT_STAMPFN) snapshot_version
+	dh_testdir
+	mkdir -p debian-$*
+	cd debian-$* && CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" $(CURDIR)/configure \
+		$($*_build_confflags) $(extra_$*_build_confflags)
+	touch $@
+
+build-%: build-stamp-%
+build-stamp-%: configure-stamp-%
+	dh_testdir
+	$(MAKE) -C debian-$* $(NUMJOBS)
+	touch $@
+
+debian-shared/tools/qt-faststart: build-stamp-shared
+	$(MAKE) -C debian-shared tools/qt-faststart
+
+build-doxy: build-doxy-stamp
+build-doxy-stamp: $(QUILT_STAMPFN)
+	dh_testdir
+	doxygen
+	touch $@
+
+build: build-stamp
+build-stamp: $(addprefix build-stamp-, $(FLAVORS)) debian-shared/tools/qt-faststart
+	touch $@
+
+clean: clean-real unpatch
+clean-real:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp $(addprefix build-stamp-, $(FLAVORS)) \
+	    $(addprefix configure-stamp-, $(FLAVORS)) patch-stamp \
+	    build-doxy-stamp
+	rm -rf $(addprefix debian-, $(FLAVORS)) doxy
+	dh_clean
+
+get-orig-source:
+	dh_testdir
+	sh debian/get-orig-source.sh -d $(SVN_VERSION)
+
+# The trailing newline is important!
+define install_flavor
+	$(MAKE) -C debian-$(1) install DESTDIR=$(CURDIR)/debian/tmp \
+	    mandir=$(CURDIR)/debian/tmp/usr/share/man
+
+endef
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs -ptmp usr/share/doc/ffmpeg/html etc
+	dh_installdirs -ptmp usr/share/doc/ffmpeg-doc/html
+	$(foreach flavor,$(FLAVORS),$(call install_flavor,$(flavor)))
+	install -m 644 -D debian-shared/doc/*.html debian/tmp/usr/share/doc/ffmpeg/html/
+	# don't fail on binary-indep only builds.
+	[ ! -d doxy ] || cp doxy/html/* debian/tmp/usr/share/doc/ffmpeg-doc/html
+	install -m 644 -D doc/ffserver.conf debian/tmp/etc/
+	install -m 644 -D debian-shared/tools/qt-faststart debian/tmp/usr/bin/qt-faststart
+	dh_install -Xusr/share/doc/ffmpeg-doc -Xusr/share/doc/ffmpeg \
+		--fail-missing --sourcedir=debian/tmp
+
+formats.txt: install
+	env LD_LIBRARY_PATH="$(LD_LIBRARY_PATH):$(CURDIR)/debian/tmp/usr/lib" \
+	debian/tmp/usr/bin/ffmpeg -formats | tee $@
+
+codecs.txt: install
+	env LD_LIBRARY_PATH="$(LD_LIBRARY_PATH):$(CURDIR)/debian/tmp/usr/lib" \
+	debian/tmp/usr/bin/ffmpeg -codecs | tee $@
+
+binary-indep: build-doxy install
+
+binary-arch: build install codecs.txt formats.txt
+	dh_testdir
+	dh_testroot
+	dh_installman -pffmpeg debian/qt-faststart.1
+	dh_installdocs $(extradoc) doc/optimization.txt
+	dh_installdocs -A MAINTAINERS CREDITS doc/TODO
+	dh_installdocs -A debian/README.Debian
+	dh_installdocs -p libavcodec52 codecs.txt
+	dh_installdocs -p libavformat52 formats.txt
+	dh_installexamples -pffmpeg doc/ffserver.conf debian/recordshow.sh
+	dh_installexamples -plibavcodec-dev libavcodec/api-example.c
+	dh_installchangelogs Changelog
+	dh_lintian
+	dh_link
+	dh_compress
+	dh_fixperms
+	dh_strip --dbg-package=ffmpeg-dbg
+
+# strict internal dependencies
+	for pkg in $(LIB_PKGS); do \
+	    upkg=$$(echo "$$pkg" | sed -r 's/([0-9]+)$$/-extra-\1/'); \
+	    dh_makeshlibs -p"$$pkg" -V"$$pkg (>= $(DEB_VERSION)) | $$upkg (>= $(EPOCH)$(UPSTREAM_VERSION)), $$pkg (<< $(EPOCH)$(UPSTREAM_VERSION)-99) | $$upkg (<< $(EPOCH)$(UPSTREAM_VERSION)-99)"; \
+	done
+	env LD_LIBRARY_PATH="$(LD_LIBRARY_PATH):$(CURDIR)/debian/tmp/usr/lib" \
+	dh_shlibdeps
+# target dependencies for external packages
+	for pkg in $(LIB_PKGS); do \
+	    upkg=$$(echo "$$pkg" | sed -r 's/([0-9]+)$$/-extra-\1/'); \
+	    dh_makeshlibs -p"$$pkg" -V"$$pkg (>= $(SHLIBS_VERSION)) | $$upkg (>= $(SHLIBS_VERSION))"; \
+	done
+	dh_installdeb
+	dh_gencontrol -- -Vlib1394-dev="$(lib1394-dev)"
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+
+.PHONY: build $(addprefix build-, $(FLAVORS)) build-doxy \
+	clean clean-real \
+	configure $(addprefix configure-, $(FLAVORS)) \
+	binary binary-indep binary-arch \
+	install \
+	get-orig-source

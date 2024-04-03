@@ -1,0 +1,39 @@
+#! /bin/sh
+# uudecode output file handling; cf. ../src/ChangeLog 2002-07-06
+
+trap 'rm -fr $tmpfiles' 1 2 3 15
+
+tno=1
+
+tmpfiles="test.bin uudata${tno} uude-test${tno}.err"
+rm -fr $tmpfiles
+
+echo "Was schlimm ist" > uudata${tno}
+: ${LN=ln}
+${LN} -sf uudata${tno} test.bin
+
+: ${UUDECODE=uudecode}
+# : ${top_srcdir=..}
+LC_MESSAGES=C LC_ALL= \
+${UUDECODE} ${top_srcdir}/tests/testdata 2>&1 \
+  | sed 's/.*\(not following symlink (test.bin)\).*/\1/' > uude-test${tno}.err
+
+rm -f test.bin
+mkfifo test.bin
+LC_MESSAGES=C LC_ALL= \
+${UUDECODE} ${top_srcdir}/tests/testdata 2>&1 \
+  | sed 's/.*\(denied writing FIFO (test.bin)\).*/\1/' >>uude-test${tno}.err
+
+tmpfiles="$tmpfiles uude-test${tno}.ok"
+cat << EOF > uude-test${tno}.ok
+not following symlink (test.bin)
+denied writing FIFO (test.bin)
+EOF
+
+: ${DIFF=diff}
+${DIFF} uude-test${tno}.ok uude-test${tno}.err
+result=$?
+
+rm -fr $tmpfiles
+
+exit $result

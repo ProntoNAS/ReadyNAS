@@ -1,0 +1,101 @@
+#!/usr/bin/make -f
+SHELL+= -e
+
+BUILD_UDEB := 1
+DISABLE_ZLIB := --disable-zlib
+CONFFLAGS := --disable-static-utils --prefix=/
+
+
+QUILT_STAMPFN=.stamp-patched
+include /usr/share/quilt/quilt.make
+
+D := $(CURDIR)/debian/module-init-tools
+
+##############################################################################
+DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+  CONFFLAGS += --build $(DEB_HOST_GNU_TYPE)
+else
+  CONFFLAGS += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+endif
+
+ifdef BUILD_UDEB
+  BUILD_UDEB_TARGET := .stamp-build-udeb
+else
+  NO_PACKAGE := --no-package=module-init-tools-udeb
+endif
+
+##############################################################################
+all: build
+
+clean: unpatch
+	rm -rf .stamp-* build-*
+	dh_clean
+
+build-deb/config.status: $(QUILT_STAMPFN)
+	rm -f *.[0-9] # XXX workaround for out of tree builds
+	[ -d build-deb ] || mkdir build-deb
+	cd build-deb/ && \
+	../configure CFLAGS='$(CFLAGS)' \
+		$(DISABLE_ZLIB) $(CONFFLAGS)
+
+build-udeb/config.status: $(QUILT_STAMPFN)
+	[ -d build-udeb ] || mkdir build-udeb
+	cd build-udeb/ && \
+	../configure CFLAGS='$(CFLAGS) -Os -fomit-frame-pointer' \
+		--disable-zlib $(CONFFLAGS)
+
+build: .stamp-build
+.stamp-build: build-deb/config.status
+	dh_testdir
+	cd build-deb && $(MAKE)
+	touch $@
+
+build: .stamp-build-udeb
+.stamp-build-udeb: build-udeb/config.status
+	dh_testdir
+	cd build-udeb && $(MAKE) lsmod insmod depmod modprobe
+	touch $@
+
+install: .stamp-build $(BUILD_UDEB_TARGET) checkroot
+	dh_testdir
+	dh_clean -k
+
+	dh_installdirs bin/ sbin/ etc/modprobe.d/ lib/modules/
+	dh_install --sourcedir=build-deb/ -p module-init-tools
+	cp extra/modprobe.d/aliases.conf $D/etc/modprobe.d/
+
+ifdef BUILD_UDEB
+	dh_installdirs bin/ sbin/ etc/modprobe.d/ -p module-init-tools-udeb
+	dh_install --sourcedir=build-udeb/ -p module-init-tools-udeb
+	cp extra/modprobe.d/aliases.conf $D-udeb/etc/modprobe.d/
+endif
+
+binary-arch: install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs ChangeLog
+	dh_installdocs NEWS
+	dh_installman extra/*.5 build-deb/*.5 build-deb/*.8
+	dh_installinit --no-start --update-rcd-params="start 20 S ."
+	dh_link bin/lsmod sbin/lsmod
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol $(NO_PACKAGE)
+	dh_md5sums
+	dh_builddeb $(NO_PACKAGE)
+
+binary:	binary-arch
+
+get-orig-source:
+	cd $(dir $(firstword $(MAKEFILE_LIST)))../ && \
+	uscan --rename --force-download --destdir $(CURDIR)
+
+checkroot:
+	test root = "`whoami`"
+
+.PHONY: binary binary-arch binary-indep unpack build clean checkroot get-orig-source

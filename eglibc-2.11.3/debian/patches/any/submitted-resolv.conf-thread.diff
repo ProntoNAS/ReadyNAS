@@ -1,0 +1,47 @@
+2011-06-23  Paul Pluzhnikov  <ppluzhnikov@google.com>
+
+	* resolv/res_libc.c (__res_initstamp): Declare unconditionally.
+	(__res_maybe_init): Avoid double-checked locking.
+
+2010-09-15  Aurelien Jarno  <aurelien@aurel32.net>
+ 
+	* resolv/res_libc (__res_maybe_init): Ask other threads to
+	to re-initialize their resolver states when _PATH_RESCONF
+	changes.
+
+--- a/resolv/res_libc.c
++++ b/resolv/res_libc.c
+@@ -28,6 +28,7 @@
+    out) since res_init() should go into libc.so but the rest of that
+    file should not.  */
+ 
++__libc_lock_define_initialized (static, lock);
+ extern unsigned long long int __res_initstamp attribute_hidden;
+ /* We have atomic increment operations on 64-bit platforms.  */
+ #if __WORDSIZE == 64
+@@ -35,7 +36,6 @@
+ # define atomicincunlock(lock) (void) 0
+ # define atomicinc(var) catomic_increment (&(var))
+ #else
+-__libc_lock_define_initialized (static, lock);
+ # define atomicinclock(lock) __libc_lock_lock (lock)
+ # define atomicincunlock(lock) __libc_lock_unlock (lock)
+ # define atomicinc(var) ++var
+@@ -100,10 +100,13 @@
+ 
+ 	if (resp->options & RES_INIT) {
+ 		ret = stat (_PATH_RESCONF, &statbuf);
+-		if ((__res_initstamp != resp->_u._ext.initstamp)
+-		    || ((ret == 0) && (last_mtime != statbuf.st_mtime))) {
+-			if (ret == 0)
+-				last_mtime = statbuf.st_mtime;
++		__libc_lock_lock (lock);
++		if ((ret == 0) && (last_mtime != statbuf.st_mtime)) {
++			last_mtime = statbuf.st_mtime;
++			atomicinc (__res_initstamp);
++		}
++		__libc_lock_unlock (lock);
++		if (__res_initstamp != resp->_u._ext.initstamp) {
+ 			if (resp->nscount > 0)
+ 				__res_iclose (resp, true);
+ 			return __res_vinit (resp, 1);

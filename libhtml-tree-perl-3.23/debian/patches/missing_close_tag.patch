@@ -1,0 +1,26 @@
+Origin: other, http://rt.cpan.org/Public/Bug/Display.html?id=49932
+Bug: http://rt.cpan.org/Public/Bug/Display.html?id=49932
+Bug-Debian: http://bugs.debian.org/575068
+Bug-Fedora: https://bugzilla.redhat.com/show_bug.cgi?id=525587
+Last-Update: 2010-03-23
+Subject: close tag missing from optionally empty XML tags
+
+When you add a tag to empty_element_map and it optionally contains text
+or other content, when the content is present the opening tag correctly
+has '<foo>' instead of '<foo/>', however the closing tag is missing from
+the text returned by as_XML.
+
+This is due to traverse not correctly validating tags as empty in the
+check for setting callbacks.
+
+--- libhtml-tree-perl.orig/lib/HTML/Element.pm
++++ libhtml-tree-perl/lib/HTML/Element.pm
+@@ -2041,7 +2041,7 @@
+          and ref($this) # sanity
+          and not(
+                  $this->{'_empty_element'}
+-                 || $empty_element_map->{$this->{'_tag'} || ''}
++                 || ($empty_element_map->{$this->{'_tag'} || ''} && !@{$this->{'_content'}})
+                 ) # things that don't get post-order callbacks
+       ) {
+         shift @I;

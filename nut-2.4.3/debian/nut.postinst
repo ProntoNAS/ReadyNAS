@@ -1,0 +1,136 @@
+#!/bin/sh -e
+
+case "$1" in
+
+  configure)
+
+    # make sure the nut user exists and has correct memberships
+    if ! getent group nut >/dev/null; then
+      addgroup --quiet --system nut
+    fi
+    if ! getent passwd nut >/dev/null; then
+      adduser --quiet --system --ingroup nut --home /var/lib/nut --no-create-home nut
+    elif ! groups nut | grep -qw nut; then
+      adduser nut nut
+    fi
+# for Ubuntu, while waiting for a proper debconf
+#    if ! groups nut | grep -qw dialout; then
+#	adduser nut dialout
+#    fi
+
+    # make sure that conffiles are secured and have the correct ownerships
+    if [ -d /etc/nut/ ] ; then
+      chown root:nut /etc/nut/
+    fi
+    for file in nut.conf ups.conf upsd.conf upsmon.conf upsd.users upssched.conf ; do
+        if [ -f /etc/nut/$file ] ; then
+            chown root:nut /etc/nut/$file
+            chmod 640 /etc/nut/$file
+        fi
+    done
+
+    # make sure that /var/run/nut exists and has the correct ownerships
+    if [ ! -d /var/run/nut ] ; then
+        mkdir -p /var/run/nut
+    fi
+    if [ -d /var/run/nut ] ; then
+        chown root:nut /var/run/nut
+        chmod 770 /var/run/nut
+    fi
+
+    # make sure that /var/lib/nut has the correct permissions and ownerships
+    if [ -d /var/lib/nut ] ; then
+        chown root:nut /var/lib/nut
+        chmod 770 /var/lib/nut
+    fi
+
+    # ask udev to check for new udev rules
+    [ -x /etc/init.d/udev ] && pidof udevd > /dev/null \
+      && udevadm trigger --action=change
+
+    # 557178  udevadm trigger --subsystem-match=usb
+
+    # migrate /etc/default/nut to /etc/nut/nut.conf (part #2)
+    if dpkg --compare-versions "$2" lt-nl "2.4.1-2" ; then
+      # source the temporary /etc/default/nut.bak file
+      if [ -f /etc/default/nut.bak ] ; then
+        . /etc/default/nut.bak
+
+        # FIXME: use a template (and debconf to output?)
+        echo "migrating /etc/default/nut to /etc/nut/nut.conf"
+
+        # pre process the config
+        case "$START_UPSD" in
+          y|Y|yes|YES|Yes)
+            START_UPSD=yes
+            ;;
+          *)
+            START_UPSD=no
+            ;;
+        esac
+        case "$START_UPSMON" in
+          y|Y|yes|YES|Yes)
+            START_UPSMON=yes
+            ;;
+          *)
+            START_UPSMON=no
+            ;;
+        esac
+
+        # now process the result
+        if [ "x$START_UPSD" = "xyes" ] ; then
+          if [ "x$START_UPSMON" = "xyes" ] ; then
+            # can also be netserver
+            NUT_MODE=standalone
+          #else not processed since it should be an error!
+          fi
+        else
+          if [ "x$START_UPSMON" = "xyes" ] ; then
+            NUT_MODE=netclient
+          else
+            NUT_MODE=none
+          fi
+        fi
+
+        # output back the MODE to nut.conf
+        sed "s/^MODE\(.*\)/MODE=$NUT_MODE/" /etc/nut/nut.conf  > /etc/nut/nut.conf.new
+
+        # append the content of default, removing START_* / start...
+        grep -iv 'START' /etc/default/nut.bak >> /etc/nut/nut.conf.new
+        # move back to nut.conf
+        mv /etc/nut/nut.conf.new /etc/nut/nut.conf
+        # and to init.d/nut
+        #if [ -f /etc/init.d/nut ] ; then
+        #  sed "s/^UPSD_OPTIONS\(.*\)/UPSD_OPTIONS=\"$UPSD_OPTIONS\"/" /etc/init.d/nut  > /etc/init.d/nut.new
+        #  sed "s/^UPSMON_OPTIONS\(.*\)/UPSMON_OPTIONS=\"$UPSMON_OPTIONS\"/" /etc/init.d/nut.new  > /etc/init.d/nut
+        #fi
+        rm -f /etc/default/nut.bak /etc/default/nut
+      fi
+    else
+      # re process nut.conf MODE so that it can be sourced
+      NUT_MODE=`grep -e '^ *MODE' /etc/nut/nut.conf | tr -d " "`
+      sed "s/^ *MODE.*/$NUT_MODE/" /etc/nut/nut.conf > /etc/nut/nut.conf.new
+      mv /etc/nut/nut.conf.new /etc/nut/nut.conf
+    fi
+    ;;
+
+  abort-upgrade)
+    # do nothing
+    ;;
+
+  abort-remove)
+    # do nothing
+    ;;
+
+  abort-deconfigure)
+    # do nothing
+    ;;
+
+  *)
+    echo "$0: incorrect arguments: $*" >&2
+    exit 1
+    ;;
+
+esac
+
+#DEBHELPER#

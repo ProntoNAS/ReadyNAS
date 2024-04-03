@@ -1,0 +1,26 @@
+Author: Adam Buchbinder <adam.buchbinder@gmail.com>
+Description: Adding new magic for JFS filesystem images (Closes: #589067).
+
+diff -Naurp file.orig//magic/Magdir/filesystems file/magic/Magdir/filesystems
+--- file.orig//magic/Magdir/filesystems	2010-07-14 19:53:22.762672355 +0200
++++ file/magic/Magdir/filesystems	2010-07-14 19:54:33.318672139 +0200
+@@ -1523,3 +1523,19 @@
+ # From:	Daniel Novotny <dnovotny@redhat.com>
+ 0	string	DISO	Delta ISO data,
+ >4	belong	x	version %d
++
++# JFS2 (Journaling File System) image. (Old JFS1 has superblock at 0x1000.)
++# See linux/fs/jfs/jfs_superblock.h for layout; see jfs_filsys.h for flags.
++# From: Adam Buchbinder <adam.buchbinder@gmail.com>
++0x8000	string	JFS1
++# Because it's text-only magic, check a binary value (version) to be sure.
++# Should always be 2, but mkfs.jfs writes it as 1. Needs to be 2 or 1 to be
++# mountable.
++>&0	lelong	<3	JFS2 filesystem image
++# Label is followed by a UUID; we have to limit string length to avoid
++# appending the UUID in the case of a 16-byte label.
++>>&144	regex	[\x20-\x7E]{1,16}	(label "%s")
++>>&0	lequad	x	\b, %lld blocks
++>>&8	lelong	x	\b, blocksize %d
++>>&32	lelong&0x00000006	>0	(dirty)
++>>&36	lelong	>0	(compressed)

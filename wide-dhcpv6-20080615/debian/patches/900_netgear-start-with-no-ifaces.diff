@@ -1,0 +1,29 @@
+* This patch allows wide-dhcpc to start without any interfaces specified,
+  and also lets you start an interface that was not initially configured.
+--- a/dhcp6c.c	2010-11-16 21:34:25.000000000 +0000
++++ b/dhcp6c.c	2010-11-16 21:35:30.000000000 +0000
+@@ -204,11 +204,6 @@ main(argc, argv)
+ 	argc -= optind;
+ 	argv += optind;
+ 
+-	if (argc == 0) {
+-		usage();
+-		exit(0);
+-	}
+-
+ 	if (foreground == 0) {
+ 		for (fd = 3; fd < 1024; fd++)
+ 			close(fd);
+@@ -763,7 +758,11 @@ client6_ifctl(ifname, command)
+ 		debug_printf(LOG_INFO, FNAME,
+ 		    "failed to find interface configuration for %s",
+ 		    ifname);
+-		return (-1);
++		if ((ifp = ifinit(ifname)) == NULL) {
++			debug_printf(LOG_ERR, FNAME, "failed to initialize %s",
++			    ifname);
++			return (-1);
++		}
+ 	}
+ 
+ 	debug_printf(LOG_DEBUG, FNAME, "%s interface %s",

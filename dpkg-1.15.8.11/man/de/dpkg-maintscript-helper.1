@@ -1,0 +1,158 @@
+.\"*******************************************************************
+.\"
+.\" This file was generated with po4a. Translate the source file.
+.\"
+.\"*******************************************************************
+.TH dpkg\-maintscript\-helper 1 2010\-04\-16 Debian\-Projekt dpkg\-Programmsammlung
+.SH NAME
+dpkg\-maintscript\-helper \- Bekannte Einschränkungen in Dpkg in
+Betreuerskripten umgehen
+.
+.SH ÜBERSICHT
+\fBdpkg\-maintscript\-helper\fP \fIBefehl\fP [\fIParameter\fP...] \-\-
+\fIBetr\-Skript\-Parameter\fP
+.
+.SH "BEFEHLE UND PARAMETER"
+.P
+\fBrm_conffile\fP \fIConffile\fP [\fIletzteVersion\fP [\fIPaket\fP]]
+.P
+\fBmv_conffile\fP \fIAlteConffile\fP \fINeueConffile\fP [\fIletzteVersion\fP [\fIPaket\fP]]
+.
+.SH BESCHREIBUNG
+.P
+Dieses Programm wurde so entworfen, dass es in Betreuerskripten ausgeführt
+werden kann, um einige Aufgaben zu erledigen, die Dpkg (noch) nicht selbst
+erledigen kann, entweder aufgrund von Design\-Entscheidungen oder aufgrund
+aktueller Einschränkungen.
+.P
+Viele dieser Aufgaben benötigen koordinierte Aktionen aus mehreren
+Betreuerskripten (\fBpreinst\fP, \fBpostinst\fP, \fBprerm\fP, \fBpostrm\fP). Um Fehler
+zu vermeiden, wird der gleiche Aufruf einfach in alle Skripte eingefügt und
+das Programm wird sein Verhalten automatisch abhängig von der Variable
+DPKG_MAINTSCRIPT_NAME und den Argumenten im Betreuerskript, die Sie nach
+einem doppelten Schrägstrich übergeben müssen, anpassen.
+.
+.SH "CONFFILE\-BEZOGENE AUFGABEN"
+.P
+Beim Upgrade eines Pakets wird Dpkg ein Conffile (eine Konfigurationsdatei,
+bei der Dpkg die Änderungen des Benutzers erhalten soll) nicht automatischen
+entfernen, falls sie nicht in der neueren Version enthalten ist. Es gibt
+zwei Hauptgründe dafür; der erste ist, dass die Conffile versehentlich
+entfallen sein und die nächste Version sie wieder herstellen könnte und die
+Benutzer die Änderung nicht weggeworfen sehen wollen. Der zweite besteht
+darin, dass Paketen erlaubt werden soll, von einer Dpkg\-betreuten Conffile
+auf eine Datei, die von den Betreuerskripten des Pakets, normalerweise mit
+einem Werkzeug wie Debconf oder Ucf, verwaltet wird, umzustellen.
+.P
+Das bedeutet, falls ein Paket eine Conffile umbenennen oder entfernen soll,
+muss es dies explizit durchführen und \fBdpkg\-maintscript\-helper\fP kann dazu
+verwandt werden, eine sanfte Löschung und Verschiebung von Conffiles
+innerhalb von Betreuerskripten durchzuführen.
+.
+.SS "EINE CONFFILE ENTFERNEN"
+.P
+Falls eine Conffile komplett entfernt wird, sollte sie von der Platte
+entfernt werden, falls der Benutzer sie nicht verändert hat. Falls es lokale
+Anpassungen gibt, sollten diese erhalten werden. Falls das Upgrade des
+Pakets abgebrochen wird, sollte die neuerdings veraltete Conffile nicht
+verschwinden.
+.P
+All dies wird durch Einsetzen der folgenden Shell\-Schnipsel in die
+Betreuerskripte \fBpreinst\fP, \fBpostinst\fP und \fBpostrm\fP implementiert:
+.P
+    dpkg\-maintscript\-helper rm_conffile \e
+        \fIConffile\fP \fIletzteVersion\fP \fIPaket\fP \-\- "$@"
+.P
+\fIConffile\fP ist der Dateiname der zu entfernenden Conffile. \fIletzteVersion\fP
+ist die letzte Version des Pakets, das die Conffile enthielt (oder die
+letzte Version des Pakets, das sich nicht darum kümmerte, die veraltete
+Conffile zu löschen, falls dies nicht sofort implementiert wurde). Falls
+\fIletzteVersion\fP leer oder entfallen ist wird die Durchführung bei jedem
+Upgrade versucht. \fIPaket\fP ist der Paketname. Er ist optional, da er
+standardmäßig mit $DPKG_MAINTSCRIPT_PACKAGE belegt ist (diese Variable wird
+von Dpkg auf den Namen des momentan in Bearbeitung befindlichen Pakets
+gesetzt). Alle Parameter des Betreuerskripts müssen nach »\-\-« an das
+Programm weitergeleitet werden.
+.P
+Aktuelle Implementierung: im \fBpreinst\fP wird geprüft, ob die Conffile
+geändert wurde. Dann wird sie entweder in \fIConffile\fP\fB.dpkg\-remove\fP (falls
+sie nicht geändert wurde) oder in \fIConffile\fP\fB.dpkg\-backup\fP (falls sie
+geändert wurde) umbenannt. Im \fBpostinst\fP wird letztere in
+\fIConffile\fP\fB.dpkg\-bak\fP umbenannt und als Referenz behalten, da sie
+Benutzeränderungen enthält, während erstere entfernt wird. Falls das Upgrade
+des Pakets abgebrochen wird, reinstalliert \fBpostrm\fP die ursprüngliche
+Conffile. Während des vollständigen Löschens wird \fBpostrm\fP auch die bisher
+behaltene Datei \fB.dpkg\-bak\fP entfernen.
+.
+.SS "EINE CONFFILE UMBENENNEN"
+.P
+Falls eine Conffile von einem Ort zu einem anderen verschoben wird, müssen
+Sie sicherstellen, dass Sie auch alle Änderungen des Benutzers mit
+übernehmen. Anfänglich erscheint dies als einfache Änderung am Skript
+\fBpreinst\fP, allerdings wird dies dazu führen, dass der Benutzer von Dpkg
+aufgefordert wird, die Bearbeitung der Conffile zu bestätigen, obwohl sie
+für diese gar nicht verantwortlich sind.
+.P
+Sanfte Umbenennung kann durch Einsetzen der folgenden Shell\-Schnipsel in die
+Betreuerskripte \fBpreinst\fP, \fBpostinst\fP und \fBpostrm\fP implementiert werden:
+.P
+    dpkg\-maintscript\-helper mv_conffile \e
+        \fIalteConffile\fP \fIneueConffile\fP \fIletzteVersion\fP \fIPaket\fP \-\- "$@"
+.P
+\fIalteConffile\fP und \fIneueConffile\fP sind der alte und der neue Name der
+umzubenennenden Conffile. \fIletzteVersion\fP ist die letzte Version des
+Pakets, die die Conffile mit dem alten Namen enthielt. Falls
+\fIletzteVersion\fP leer oder entfallen ist, wird die Durchführung bei jedem
+Upgrade versucht (Hinweis: Es ist sicherer, die Version anzugeben und die
+Durchführung nur einmal versuchen zu lassen). \fIPaket\fP ist der Paketname. Er
+ist optional, da er standardmäßig mit $DPKG_MAINTSCRIPT_PACKAGE belegt ist
+(diese Variable wird von Dpkg auf den Namen des momentan in Bearbeitung
+befindlichen Pakets gesetzt). Alle Parameter des Betreuerskripts müssen nach
+»\-\-« an das Programm weitergeleitet werden.
+.P
+Aktuelle Implementierung: das \fBpreinst\fP überprüft, ob die Conffile
+verändert wurde, falls ja, verbleibt sie am Platz, andernfalls wird sie in
+\fIalteConffile\fP\fB.dpkg\-remove\fP umbenannt. Bei der Konfiguration entfernt das
+\fBpostinst\fP \fIalteConffile\fP\fB.dpkg\-remove\fP und bennent \fIalteConffile\fP in
+\fIneueConffile\fP um, falls \fIalteConffile\fP noch existiert. Falls
+abort\-upgrade/abort\-install eintritt, benennt das \fBpostrm\fP wieder
+\fIalteConffile\fP\fB.dpkg\-remove\fP in \fIalteConffile\fP zurück, falls notwendig.
+.
+.SH "INTEGRATION IN PAKETE"
+.P
+Da \fBdpkg\-maintscript\-helper\fP im \fBpreinst\fP verwandt wird, benötigt der
+bedingungslose Einsatz eine pre\-Abhängigkeit (\fIpre\-dependency\fP), um
+sicherzustellen, dass die Mindestversion von Dpkg breits konfiguriert
+wurde. Die benötigte Version hängt vom verwandten Befehl ab, für
+\fBrm_conffile\fP und \fBmv_conffile\fP lautet sie 1.15.7.2:
+.P
+    Pre\-Depends: dpkg (>= 1.15.7.2)
+.P
+In vielen Fällen sind aber die Ausführungen des Programms für das Paket
+nicht kritisch und statt einer pre\-Abhängigkeit soll das Programm nur
+aufgerufen werden, falls bekannt ist, dass der benötigte Befehl vom derzeit
+installierten Dpkg unterstützt wird:
+.P
+    if dpkg\-maintscript\-helper supports <command>; then
+        dpkg\-maintscript\-helper <command> ...
+    fi
+.
+.SH AUTOREN
+Copyright \(co 2010 Rapha\[:e]l Hertzog
+.br
+Copyright \(co 2008 Joey Hess
+.br
+Copyright \(co 2007 Guillem Jover
+.br
+Copyright \(co 2005 Scott James Remnant
+.sp
+Dies ist Freie Software; lesen Sie die GNU General Public License Version 2
+oder neuer für die Kopierbedingungen. Es gibt KEINE Haftung.
+
+.SH ÜBERSETZUNG
+Die deutsche Übersetzung wurde 2004, 2006-2011 von Helge Kreutzmann
+<debian@helgefjell.de>, 2007 von Florian Rehnisch <eixman@gmx.de> und
+2008 von Sven Joachim <svenjoac@gmx.de>
+angefertigt. Diese Übersetzung ist Freie Dokumentation; lesen Sie die
+GNU General Public License Version 2 oder neuer für die Kopierbedingungen.
+Es gibt KEINE HAFTUNG.

@@ -1,0 +1,57 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+
+my $base = $ARGV[0] || die;
+
+my $file = "$base/lib/udev/rules.d/70-acl.rules";
+my $program = "$base/lib/udev/udev-acl";
+my $library = 'libglib-2.0.so.0';
+
+##############################################################################
+my $rules = read_file($file);
+
+my $libfile = library_path($program, $library)
+	or die "Cannot find the path of $library in $program!";
+
+$rules =~ s#\@GLIB_PATH\@#$libfile#;
+
+print "Updating $file for $libfile.\n";
+write_file($file, $rules);
+
+exit 0;
+
+##############################################################################
+sub library_path {
+	my ($file, $library) = @_;
+
+	open(LDD, "ldd $file |") or die "open(ldd $file |): $!";
+	my $libfile;
+	while (<LDD>) {
+		next unless m#^\s*(\S+)\s+=>\s+(\S+)\s+#;
+		next unless $1 eq $library;
+		$libfile = $2;
+	}
+	close LDD or die "close(ldd $file |): status=$?";
+
+	return $libfile;
+}
+
+##############################################################################
+sub read_file {
+	my ($file) = @_;
+	open(FILE, $file) or die "open($file): $!";
+	local $/ = undef;
+	my $data = <FILE>;
+	close FILE;
+	return $data;
+}
+
+sub write_file {
+	my ($file, $data) = @_;
+	open(FILE, '>', $file) or die "open(> $file): $!";
+	print FILE $data;
+	close FILE or die "close($file): $!";
+}
+

@@ -1,0 +1,440 @@
+diff -pruN 0.6.7/ifupdown.nw 0.6.7ubuntu7/ifupdown.nw
+--- 0.6.7/ifupdown.nw	2005-04-05 18:31:29.000000000 +0100
++++ 0.6.7ubuntu7/ifupdown.nw	2006-01-26 15:56:05.000000000 +0000
+@@ -3165,6 +3165,8 @@ extern int verbose;
+ <<main global variables>>=
+ int no_act = 0;
+ int verbose = 0;
++char *statefile = "/var/run/network/ifstate";
++char *tmpstatefile = "/var/run/network/.ifstate.tmp";
+ @
+ 
+ <<variables local to main>>=
+@@ -3173,7 +3175,6 @@ int run_mappings = 1;
+ int force = 0;
+ char *allow_class = NULL;
+ char *interfaces = "/etc/network/interfaces";
+-char *statefile = "/etc/network/run/ifstate";
+ char *excludeint = NULL ;
+ @ 
+ 
+@@ -3352,14 +3353,15 @@ if ( !defn ) {
+ A broad overview of what we'll actually be doing is as follows:
+ 
+ <<run commands for appropriate interfaces>>=
+-<<lock 'n load ifupdown state>>
+ <<determine target interfaces>>
+ {
+ 	int i;
+ 	for (<<each target interface, [[i]]>>) {
+ 		char iface[80], liface[80];
++		const char *current_state;
+ 
+ 		<<initialize [[iface]] to [[i]]th target interface>>
++		current_state = read_state(argv[0], iface);
+ 		if (!force) {
+ 			<<check ifupdown state (possibly [[continue]])>>
+ 		}
+@@ -3376,10 +3378,8 @@ A broad overview of what we'll actually 
+ 		}
+ 
+ 		<<bring interface up/down and update ifupdown state>>
+-		<<commit ifupdown state>>
+ 	}
+ }
+-<<close ifupdown state>>
+ @
+ 
+ We'll leave determining the appropriate target interfaces and dealing
+@@ -3432,6 +3432,9 @@ Bringing an interface up or taking it do
+ 	interface_defn *currif;
+ 	int okay = 0;
+ 	int failed = 0; 
++	
++	<<update ifupdown state>>
++
+ 	for (currif = defn->ifaces; currif; currif = currif->next) {
+ 		if (strcmp(liface, currif->logical_iface) == 0) {
+ 			okay = 1;
+@@ -3447,6 +3450,7 @@ Bringing an interface up or taking it do
+ 	if (!okay && !force) {
+ 		fprintf(stderr, "Ignoring unknown interface %s=%s.\n", 
+ 			iface, liface);
++		update_state (argv[0], iface, NULL);
+ 	} else {
+ 		<<update ifupdown state>>
+ 	}
+@@ -3511,8 +3515,7 @@ if (do_all) {
+ 		target_iface = autos ? autos->interfaces : NULL;
+ 		n_target_ifaces = autos ? autos->n_interfaces : 0;
+ 	} else if (<<we're taking interfaces down>>) {
+-		target_iface = state;
+-		n_target_ifaces = n_state;
++		read_all_state(argv[0], &target_iface, &n_target_ifaces);
+ 	} else {
+ 		assert(0);
+ 	}	
+@@ -3545,58 +3548,131 @@ Since it's generally not feasible to rer
+ interface is configured (since a mapping script may well bring the
+ interface down while it's investigating matters), we need to maintain a
+ statefile between invocations to keep track of which physical interfaces
+-were mapped to which logical ones. We ought to use 
+-[[/var/run/ifupdown.state]] or something similar for this, but [[/var]]
+-isn't guaranteed to be available until the network's up, so we'll use
+-[[/etc/network/run/ifstate]] instead.
+-
+-<<variables local to main>>=
+-char **state = NULL; /* list of iface=liface */
+-int n_state = 0;
+-int max_state = 0;
+-@ 
+-
+-We'll also use two helper functions: one to lookup an interface, and one to
+-add an interface.
++were mapped to which logical ones.  This file also serves to record which
++interfaces have been configured so far, and which haven't.  On Ubuntu we
++use [[/var/run/network/ifstate]] as that filesystem is guaranteed to be
++a tmpfs, meaning we don't have to worry about cleaning up after a reboot.
++
++Because different interfaces may be brought up and down at the same time,
++it's important that all updates to the state file are atomic and that we
++aren't confused by any changes made by another running process.  For this
++reason we use functions to examine or modify the state file at the point
++necessary rather than holding it all in memory.
+ 
+ <<main function declarations>>=
+-static int lookfor_iface(char **ifaces, int n_ifaces, char *iface);
++static const char *read_state(const char *argv0, const char *iface);
++static void read_all_state(const char *argv0, char ***ifaces, int *n_ifaces);
++static void update_state(const char *argv0, const char *iface, const char *liface);
+ @ 
+ 
++The first of these functions reads the state file to look for an interface
++and returns the current state of it as a pointer to a static buffer which
++should be copied if it's needed for any duration.  If the interface has no
++current state (ie. is down) then NULL is returned.
++
+ <<main functions>>=
+-static int lookfor_iface(char **ifaces, int n_ifaces, char *iface) {
+-	int i;
+-	for (i = 0; i < n_ifaces; i++) {
+-		if (strncmp(iface, ifaces[i], strlen(iface)) == 0) {
+-			if (ifaces[i][strlen(iface)] == '=') {
+-				return i;
++static const char *
++read_state (const char *argv0, const char *iface)
++{
++	char *ret = NULL;
++
++	<<open ifupdown state>>
++
++	while((p = fgets(buf, sizeof buf, state_fp)) != NULL) {
++		<<parse ifupdown state line>>
++
++		if (strncmp(iface, pch, strlen(iface)) == 0) {
++			if (pch[strlen(iface)] == '=') {
++				ret = pch + strlen(iface) + 1;
++				break;
+ 			}
+ 		}
+ 	}
+-	return -1;
++
++	<<close ifupdown state>>
++
++	return ret;
+ }
+-@ 
++@
+ 
+-<<main function declarations>>=
+-static void add_to_state(char ***ifaces, int *n_ifaces, int *max_ifaces, 
+-                         char *new_iface);
+-@ 
++The second of these functions is a variant on the above used to grab a list
++of all currently up interfaces so we can tear them all down.
+ 
+ <<main functions>>=
+-static void add_to_state(char ***ifaces, int *n_ifaces, int *max_ifaces, 
+-                         char *new_iface)
++static void
++read_all_state (const char *argv0, char ***ifaces, int *n_ifaces)
+ {
+-	assert(*max_ifaces >= *n_ifaces);
+-	if (*max_ifaces == *n_ifaces) {
+-		*max_ifaces = (*max_ifaces * 2) + 1;
+-		*ifaces = realloc(*ifaces, sizeof(**ifaces) * *max_ifaces);
+-		if (*ifaces == NULL) {
+-			perror("realloc");
+-			exit(1);
++	<<open ifupdown state>>
++
++	*n_ifaces = 0;
++	*ifaces = NULL;
++
++	while((p = fgets(buf, sizeof buf, state_fp)) != NULL) {
++		<<parse ifupdown state line>>
++
++		(*n_ifaces)++;
++		*ifaces = realloc (*ifaces, sizeof (**ifaces) * *n_ifaces);
++		(*ifaces)[(*n_ifaces)-1] = strdup (pch);
++	}
++
++	<<close ifupdown state>>
++}
++@
++
++The last of these functions is used to modify a state file, specifically
++for the interface given as the first argument.  If the second argument is
++NULL then any existing state for that interface is removed from the file,
++otherwise any existing state is changed to the new state or a new state
++line is appended.
++
++<<main functions>>=
++static void update_state(const char *argv0, const char *iface, const char *state)
++{
++	FILE *tmp_fp;
++
++	<<open ifupdown state>>
++
++	if (no_act)
++		goto noact;
++
++	tmp_fp = fopen(tmpstatefile, "w");
++	if (tmp_fp == NULL) {
++		fprintf(stderr, 
++			"%s: failed to open temporary statefile %s: %s\n",
++			argv0, tmpstatefile, strerror(errno));
++		exit (1);
++	}
++
++	while((p = fgets(buf, sizeof buf, state_fp)) != NULL) {
++		<<parse ifupdown state line>>
++
++		if (strncmp(iface, pch, strlen(iface)) == 0) {
++			if (pch[strlen(iface)] == '=') {
++				if (state != NULL) {
++					fprintf (tmp_fp, "%s=%s\n",
++						 iface, state);
++					state = NULL;
++				}
++
++				continue;
++			}
+ 		}
++
++		fprintf (tmp_fp, "%s\n", pch);
+ 	}
+ 
+-	(*ifaces)[(*n_ifaces)++] = new_iface;
++	if (state != NULL)
++		fprintf (tmp_fp, "%s=%s\n", iface, state);
++
++	fclose (tmp_fp);
++	if (rename (tmpstatefile, statefile)) {
++		fprintf(stderr, 
++			"%s: failed to overwrite statefile %s: %s\n",
++			argv0, statefile, strerror(errno));
++		exit (1);
++	}
++
++	<<close ifupdown state>>
+ }
+ @ 
+ 
+@@ -3623,112 +3699,86 @@ static int lock_fd (int fd) {
+ }
+ @ 
+ 
+-
+-<<variables local to main>>=
+-static FILE *state_fp = NULL;
+-@
+-
+-<<lock 'n load ifupdown state>>=
+-{
+-	state_fp = fopen(statefile, no_act ? "r" : "a+");
+-	if (state_fp == NULL && !no_act) {
++<<open ifupdown state>>=
++FILE *state_fp;
++char buf[80];
++char *p;
++
++state_fp = fopen(statefile, no_act ? "r" : "a+");
++if (state_fp == NULL) {
++	if (!no_act) {
+ 		fprintf(stderr, 
+ 			"%s: failed to open statefile %s: %s\n",
+-			argv[0], statefile, strerror(errno));
++			argv0, statefile, strerror(errno));
+ 		exit (1);
++	} else {
++		goto noact;
+ 	}
++}
+ 
+-	if (state_fp != NULL) {
+-		char buf[80];
+-		char *p;
+-
+-		if (!no_act) {
+-			int flags;
+-
+-			if ((flags = fcntl(fileno(state_fp), F_GETFD)) < 0
+-			    || fcntl(fileno(state_fp), F_SETFD, flags | FD_CLOEXEC) < 0) {
+-				fprintf(stderr, 
+-					"%s: failed to set FD_CLOEXEC on statefile %s: %s\n",
+-					argv[0], statefile, strerror(errno));
+-				exit(1);
+-			}
+-
+-			if (lock_fd (fileno(state_fp)) < 0) {
+-				fprintf(stderr, 
+-					"%s: failed to lock statefile %s: %s\n",
+-					argv[0], statefile, strerror(errno));
+-				exit(1);
+-			}
+-
+-		}
+-
+-		rewind (state_fp);
+-		while((p = fgets(buf, sizeof buf, state_fp)) != NULL) {
+-			char *pch;
+-
+-			pch = buf + strlen(buf) - 1;
+-			while(pch > buf && isspace(*pch)) pch--;
+-			*(pch+1) = '\0';
++if (!no_act) {
++	int flags;
+ 
+-			pch = buf;
+-			while(isspace(*pch)) pch++;
++	if ((flags = fcntl(fileno(state_fp), F_GETFD)) < 0
++	    || fcntl(fileno(state_fp), F_SETFD, flags | FD_CLOEXEC) < 0) {
++		fprintf(stderr, 
++			"%s: failed to set FD_CLOEXEC on statefile %s: %s\n",
++			argv0, statefile, strerror(errno));
++		exit(1);
++	}
+ 
+-			add_to_state(&state, &n_state, &max_state, strdup(pch));
+-		}
++	if (lock_fd (fileno(state_fp)) < 0) {
++		fprintf(stderr, 
++			"%s: failed to lock statefile %s: %s\n",
++			argv0, statefile, strerror(errno));
++		exit(1);
+ 	}
+ }
+ @
+ 
++<<parse ifupdown state line>>=
++char *pch;
++
++pch = buf + strlen(buf) - 1;
++while(pch > buf && isspace(*pch)) pch--;
++*(pch+1) = '\0';
++
++pch = buf;
++while(isspace(*pch)) pch++;
++@ 
++
+ <<close ifupdown state>>=
++noact:
+ if (state_fp != NULL) {
+ 	fclose(state_fp);
+ 	state_fp = NULL;
+ }
+ @
+ 
+-
+-<<commit ifupdown state>>=
+-if (state_fp != NULL && !no_act) {
+-	int i;
+-
+-	if (ftruncate(fileno(state_fp), 0) < 0)
+-	{
+-		fprintf(stderr, 
+-			"%s: failed to truncate statefile %s: %s\n",
+-			argv[0], statefile, strerror(errno));
+-		exit(1);
+-	}
+-
+-	rewind(state_fp);
+-	for (i = 0; i < n_state; i++) {
+-		fprintf(state_fp, "%s\n", state[i]);
+-	}
+-	fflush(state_fp);
+-}
+-@
+-
+ This leaves our two useful chunks. The first checks to ensure what we're
+ proposing to do is reasonable (ie, we're not downing an interface that's
+ not up, or uping one that's not down).
+ 
+ <<check ifupdown state (possibly [[continue]])>>=
+ {
+-	int already_up = lookfor_iface(state, n_state, iface);;
+-
+ 	if (<<we're bringing interfaces up>>) {
+-		if (already_up != -1) {
+-			fprintf(stderr, 
+-				"%s: interface %s already configured\n",
+-				argv[0], iface);
++		if (current_state != NULL) {
++			if (!do_all) {
++				fprintf(stderr, 
++					"%s: interface %s already configured\n",
++					argv[0], iface);
++			}
+ 			continue;
+ 		}
+ 	} else if (<<we're taking interfaces down>>) {
+-		if (already_up == -1) {
+-			fprintf(stderr, "%s: interface %s not configured\n",
+-				argv[0], iface);
++		if (current_state == NULL) {
++			if (!do_all) {
++				fprintf(stderr, "%s: interface %s not configured\n",
++					argv[0], iface);
++			}
+ 			continue;
+ 		}
+-		strncpy(liface, strchr(state[already_up], '=') + 1, 80);
++		strncpy(liface, current_state, 80);
+ 		liface[79] = 0;
+ 	} else {
+ 		assert(0);
+@@ -3741,27 +3791,19 @@ interfaces up and down.
+ 
+ <<update ifupdown state>>=
+ {
+-	int already_up = lookfor_iface(state, n_state, iface);
+-
+ 	if (<<we're bringing interfaces up>>) {
+-		char *newiface = 
+-			malloc(strlen(iface) + 1 + strlen(liface) + 1);
+-		sprintf(newiface, "%s=%s", iface, liface);
+-
+-		if (already_up == -1) {
++		if (current_state == NULL) {
+ 			if (failed == 1) {
+ 				printf("Failed to bring up %s.\n", liface);
++				update_state (argv[0], iface, NULL);
+ 			} else {
+-				add_to_state(&state, &n_state, &max_state, newiface);
++				update_state (argv[0], iface, liface);
+ 			}
+ 		} else {
+-			free(state[already_up]);
+-			state[already_up] = newiface;
++			update_state (argv[0], iface, liface);
+ 		}
+ 	} else if (<<we're taking interfaces down>>) {
+-		if (already_up != -1) {
+-			state[already_up] = state[--n_state];
+-		}
++		update_state (argv[0], iface, NULL);
+ 	} else {
+ 		assert(0);
+ 	}

@@ -1,0 +1,36 @@
+commit 340a70e71c690902cd7f15d07ae76f332064a5d9
+Author: Kamil Dudka <kdudka@redhat.com>
+Date:   Wed Mar 24 15:36:08 2010 +0100
+
+    Prevent setfacl --restore from SIGSEGV on malformed restore file
+    
+    originally reported at:
+    https://bugzilla.redhat.com/576550
+
+diff --git a/setfacl/setfacl.c b/setfacl/setfacl.c
+index 731e417..4f4ff27 100644
+--- a/setfacl/setfacl.c
++++ b/setfacl/setfacl.c
+@@ -125,7 +125,7 @@ restore(
+ 	uid_t uid;
+ 	gid_t gid;
+ 	mode_t mask, flags;
+-	struct do_set_args args;
++	struct do_set_args args = { };
+ 	int line = 0, backup_line;
+ 	int error, status = 0;
+ 	int chmod_required = 0;
+diff --git a/test/misc.test b/test/misc.test
+index d5d7680..2cf0360 100644
+--- a/test/misc.test
++++ b/test/misc.test
+@@ -452,3 +452,9 @@ Dangling symlink test http://savannah.nongnu.org/bugs/?28131
+ 	$ setfacl -RL -m u:bin:rw d
+ 	> setfacl: d/b: No such file or directory
+ 	$ rm -R d
++
++Malformed restore file
++
++	$ echo "# owner: root" > f
++	$ setfacl --restore=f 2>&1
++	>setfacl: f: No filename found in line 0, aborting

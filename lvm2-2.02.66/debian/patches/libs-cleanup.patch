@@ -1,0 +1,151 @@
+--- a/configure.in
++++ b/configure.in
+@@ -34,7 +34,6 @@
+ 		CLDWHOLEARCHIVE="-Wl,-whole-archive"
+ 		CLDNOWHOLEARCHIVE="-Wl,-no-whole-archive"
+ 		LDDEPS="$LDDEPS .export.sym"
+-		LDFLAGS="$LDFLAGS -Wl,--export-dynamic"
+ 		LIB_SUFFIX=so
+ 		DEVMAPPER=yes
+ 		ODIRECT=yes
+@@ -307,7 +306,7 @@
+ AC_MSG_CHECKING(whether to enable readline)
+ AC_ARG_ENABLE([readline],
+   [  --disable-readline      Disable readline support],
+-  [READLINE=$enableval], [READLINE=maybe])
++  [READLINE=$enableval], [READLINE=yes])
+ AC_MSG_RESULT($READLINE)
+ 
+ ################################################################################
+@@ -825,20 +824,9 @@
+ ################################################################################
+ dnl -- Check for selinux
+ if test x$SELINUX = xyes; then
+-	AC_CHECK_LIB([sepol], [sepol_check_context], [
+-		AC_DEFINE([HAVE_SEPOL], 1, [Define to 1 if sepol_check_context is available.])
+-		SELINUX_LIBS="-lsepol"])
+-
+-	AC_CHECK_LIB([selinux], [is_selinux_enabled], [
+-		AC_CHECK_HEADERS([selinux/selinux.h],, hard_bailout)
+-		AC_DEFINE([HAVE_SELINUX], 1, [Define to 1 to include support for selinux.])
+-		SELINUX_LIBS="-lselinux $SELINUX_LIBS"
+-		SELINUX_PC="libselinux"
+-		HAVE_SELINUX=yes ], [
+-		AC_MSG_WARN(Disabling selinux)
+-		SELINUX_LIBS=
+-		SELINUX_PC=
+-		HAVE_SELINUX=no ])
++	AC_DEFINE([HAVE_SELINUX], 1, [Define to 1 to include support for selinux.])
++	SELINUX_LIBS="$(pkg-config --libs libselinux)"
++	SELINUX_LIBS_STATIC="$(pkg-config --libs --static libselinux)"
+ fi
+ 
+ ################################################################################
+@@ -859,49 +847,6 @@
+ AC_CHECK_HEADERS(getopt.h, AC_DEFINE([HAVE_GETOPTLONG], 1, [Define to 1 if getopt_long is available.]))
+ 
+ ################################################################################
+-dnl -- Check for readline (Shamelessly copied from parted 1.4.17)
+-if test x$READLINE != xno; then
+-	lvm_saved_libs=$LIBS
+-	AC_SEARCH_LIBS([tgetent], [tinfo ncurses curses termcap termlib],
+-		READLINE_LIBS=$ac_cv_search_tgetent, [
+-		if test "$READLINE" = yes; then
+-			AC_MSG_ERROR(
+-[termcap could not be found which is required for the
+---enable-readline option (which is enabled by default).  Either disable readline
+-support with --disable-readline or download and install termcap from:
+-	ftp.gnu.org/gnu/termcap
+-Note: if you are using precompiled packages you will also need the development
+-  package as well (which may be called termcap-devel or something similar).
+-Note: (n)curses also seems to work as a substitute for termcap.  This was
+-  not found either - but you could try installing that as well.])
+-		fi])
+-	dnl -- Old systems may need extra termcap dependency explicitly in LIBS
+-	AC_CHECK_LIB([readline], [readline], [
+-		AC_DEFINE([READLINE_SUPPORT], 1,
+-			[Define to 1 to include the LVM readline shell.])
+-		dnl -- Try only with -lreadline and check for different symbol
+-		LIBS=$lvm_saved_libs
+-		AC_CHECK_LIB([readline], [rl_line_buffer],
+-			[ READLINE_LIBS="-lreadline" ], [
+-			  AC_MSG_RESULT([linking -lreadline with $READLINE_LIBS needed])
+-			  READLINE_LIBS="-lreadline $READLINE_LIBS"
+-			]) ], [
+-		READLINE_LIBS=
+-		if test "$READLINE" = yes; then
+-			AC_MSG_ERROR(
+-[GNU Readline could not be found which is required for the
+---enable-readline option (which is enabled by default).  Either disable readline
+-support with --disable-readline or download and install readline from:
+-	ftp.gnu.org/gnu/readline
+-Note: if you are using precompiled packages you will also need the development
+-package as well (which may be called readline-devel or something similar).])
+-		fi ])
+-	LIBS="$READLINE_LIBS $lvm_saved_libs"
+-	AC_CHECK_FUNCS([rl_completion_matches])
+-	LIBS=$lvm_saved_libs
+-fi
+-
+-################################################################################
+ dnl -- Internationalisation stuff
+ AC_MSG_CHECKING(whether to enable internationalisation)
+ AC_ARG_ENABLE(nls, [  --enable-nls            Enable Native Language Support],
+@@ -959,7 +904,8 @@
+ ################################################################################
+ dnl -- Ensure additional headers required
+ if test x$READLINE = xyes; then
+-	AC_CHECK_HEADERS(readline/readline.h readline/history.h,,AC_MSG_ERROR(bailing out))
++	AC_CHECK_LIB([readline], [readline], [READLINE_LIBS="-lreadline"], AC_MSG_ERROR(bailing out))
++	AC_DEFINE([READLINE_SUPPORT], 1, [Define to 1 to include the LVM readline shell.])
+ fi
+ 
+ if test x$CLVMD != xnone; then
+@@ -1163,6 +1109,7 @@
+ AC_SUBST(SALCK_CFLAGS)
+ AC_SUBST(SALCK_LIBS)
+ AC_SUBST(SELINUX_LIBS)
++AC_SUBST(SELINUX_LIBS_STATIC)
+ AC_SUBST(SELINUX_PC)
+ AC_SUBST(SNAPSHOTS)
+ AC_SUBST(STATICDIR)
+--- a/tools/Makefile.in
++++ b/tools/Makefile.in
+@@ -104,8 +104,6 @@
+ 	LVMLIBS += -ldevmapper-event
+ endif
+ 
+-LVMLIBS += -ldevmapper
+-
+ DEFS += -DLVM_SHARED_PATH=\"$(exec_prefix)/sbin/lvm\"
+ 
+ CFLOW_LIST = lvmcmdlib.c lvm2cmd.c
+@@ -114,17 +112,17 @@
+ 
+ include $(top_builddir)/make.tmpl
+ 
+-LIBS += $(UDEV_LIBS)
++LIBS += -ldevmapper $(UDEV_LIBS)
+ 
+ device-mapper: $(TARGETS_DM)
+ 
+ dmsetup: dmsetup.o $(top_builddir)/libdm/libdevmapper.$(LIB_SUFFIX)
+ 	$(CC) $(CFLAGS) $(LDFLAGS) -L$(top_builddir)/libdm \
+-	      -o $@ dmsetup.o -ldevmapper $(LIBS)
++	      -o $@ dmsetup.o $(LIBS)
+ 
+ dmsetup.static: dmsetup.o $(interfacebuilddir)/libdevmapper.a
+ 	$(CC) $(CFLAGS) $(LDFLAGS) -static -L$(interfacebuilddir) \
+-	      -o $@ dmsetup.o -ldevmapper $(STATIC_LIBS) $(LIBS)
++	      -o $@ dmsetup.o $(STATIC_LIBS) $(LIBS)
+ 
+ all: device-mapper
+ 
+@@ -144,6 +142,7 @@
+ 	cat $(top_builddir)/lib/liblvm-internal.a > $@
+ 	$(AR) rs $@ $(OBJECTS) lvmcmdlib.o lvm2cmd-static.o
+ 
++liblvm2cmd.$(LIB_SUFFIX): LIBS += $(DL_LIBS)
+ liblvm2cmd.$(LIB_SUFFIX): liblvm2cmd.a $(LDDEPS)
+ 	$(CC) -shared -Wl,-soname,$@.$(LIB_VERSION) \
+ 	$(CFLAGS) $(CLDFLAGS) -o $@ $(LVMLIBS) $(LIBS) \

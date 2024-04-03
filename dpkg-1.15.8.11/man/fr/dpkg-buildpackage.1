@@ -1,0 +1,262 @@
+.\"*******************************************************************
+.\"
+.\" This file was generated with po4a. Translate the source file.
+.\"
+.\"*******************************************************************
+.TH dpkg\-buildpackage 1 29\-07\-2010 "Projet Debian" "Utilitaires de dpkg"
+.SH NOM
+dpkg\-buildpackage \- Construire depuis les sources des paquets binaires ou
+sources
+.
+.SH SYNOPSIS
+\fBdpkg\-buildpackage\fP [\fIoptions\fP]
+.
+.SH DESCRIPTION
+\fBdpkg\-buildpackage\fP est un programme qui permet d'automatiser la
+construction d'un paquet Debian. Il comporte les étapes suivantes\ :
+.IP \fB1.\fP 3
+Préparation de l'environnement de compilation par positionnement de diverses
+variables d'environnement (voir \fBVARIABLES D'ENVIRONNEMENT\fP) et appel de
+\fBdpkg\-source \-\-before\-build\fP (sauf si \fB\-T\fP ou \fB\-\-target\fP ont été
+utilisés).
+.IP \fB2.\fP 3
+Contrôle des dépendances de constructions et des conflits de construction
+(non effectué si \fB\-d\fP est utilisé).
+.IP \fB3.\fP 3
+Si une cible particuilère a été indiquée avec les options \fB\-T\fP ou
+\fB\-\-target\fP, appel de cette cible et arrêt. Dans le cas contraire, appel de
+\fBfakeroot debian/rules clean\fP pour nettoyage de l'arborescence source (sauf
+si \fB\-nc\fP a été utilisé).
+.IP \fB4.\fP 3
+Appel de \fBdpkg\-source \-b\fP pour créer le paquet source (sauf si une
+contruction binaire seule a été demandée avec \fB\-b\fP, \fB\-B\fP ou \fB\-A\fP).
+.IP \fB5.\fP 3
+Appel de \fBdebian/rules\fP \fBbuild\fP suivi de \fBfakeoot debian/rules\fP
+\fIbinary\-target\fP (sauf si une construction source seule a été demandée avec
+\fB\-S\fP). Noter que \fIbinary\-target\fP est soit \fBbinary\fP (cas par défaut, ou
+avec utilisation de \fB\-b\fP) soit \fBbinary\-arch\fP (si \fB\-B\fP est utilisé).
+.IP \fB6.\fP 3
+Appel de \fBgpg\fP pour signature du fichier \fB.dsc\fP (sauf si \fB\-us\fP est
+utilisé).
+.IP \fB7.\fP 3
+Appel de \fBdpkg\-genchanges\fP pour créer un fichier \fB.changes\fP. De nombreuses
+options de \fBdpkg\-buildpackage\fP sont passées à \fBdpkg\-genchanges\fP.
+.IP \fB8.\fP 3
+Appel de \fBgpg\fP pour signer le fichier \fB.changes\fP (sauf si \fB\-uc\fP est
+utilisé).
+.IP \fB9.\fP 3
+Si \fB\-tc\fP est utilisé, appel de \fBfakeroot debian/rules clean\fP à
+nouveau. Enfin, appel de \fBdpkg\-source \-\-after\-build\fP.
+.
+.SH OPTIONS
+.TP 
+\fB\-b\fP
+Indique que seul un paquet binaire est à construire\ ; aucun fichier source
+n'est à construire et/ou à distribuer. Passé à \fBdpkg\-genchanges\fP.
+.TP 
+\fB\-B\fP
+Indique que seul un paquet binaire est à construire\ ; aucun fichier,
+appartenant à un paquet binaire ne dépendant pas d'une architecture, n'est à
+distribuer. Passé à \fBdpkg\-genchanges\fP.
+.TP 
+\fB\-A\fP
+Indique que seul un paquet binaire est à construire\ ; aucun fichier,
+appartenant à un paquet binaire ne dépendant pas d'une architecture, n'est à
+distribuer. Passé à \fBdpkg\-genchanges\fP.
+.TP 
+\fB\-S\fP
+Ne construit qu'un paquet source, aucun paquet binaire ne sera
+construit. Passé à \fBdpkg\-genchanges\fP.
+.TP 
+\fB\-F\fP
+Construction complète où les paquets sources et binaires sont
+construits. Identique au cas par défaut où aucune option de construction
+n'est indiquée.
+.P
+\fB\-\-target=\fP\fIcible\fP
+.br
+\fB\-\-target \fP\fIcible\fP
+.br
+\fB\-T\fP\fIcible\fP
+.RS
+Appelle \fBdebian/rules\fP \fIcible\fP après avoir mis en place l'environnement de
+construction, puis interrompt le processus de construction. Si \fB\-\-as\-root\fP
+est également utilisé, la commande sera exécutée avec les privilèges du
+superutilisateur (voir \fB\-r\fP). Noter que les cibles dont l'exécution par
+root est imposée par la Charte Debian n'ont pas besoin de cette option.
+.RE
+.TP 
+\fB\-\-as\-root\fP
+N'est utile qu'avec \fB\-\-target\fP. Impose d'exécuter la cible avec les
+privilèges du superutilisateur.
+.P
+\fB\-si\fP
+.br
+\fB\-sa\fP
+.br
+\fB\-sd\fP
+.br
+\fB\-v\fP\fIversion\fP
+.br
+\fB\-C\fP\fIdescription\-des\-changements\fP
+.br
+\fB\-m\fP\fIadresse\-du\-responsable\fP
+.br
+\fB\-e\fP\fIadresse\-du\-responsable\fP
+.RS
+Passé tel quel à \fBdpkg\-genchanges\fP. Voir sa page de manuel.
+.RE
+.TP 
+\fB\-a\fP\fIarchitecture\fP
+Précise l'architecture Debian pour laquelle on construit. L'architecture de
+la machine sur laquelle on construit est automatiquement déterminée\ ; c'est
+aussi l'architecture par défaut de la machine hôte.
+.TP 
+\fB\-t\fP\fItype\-de\-système\-gnu\fP
+Précise le type de système GNU pour lequel construire. Il peut être utilisé
+à la place de \fB\-a\fP ou en tant que complément afin de remplacer le type de
+système GNU par défaut de l'architecture Debian cible.
+.TP 
+\fB\-j\fP\fIjobs\fP
+Nombre de processus simultanés qui peuvent être exécutés, équivalent à
+l'option \fBmake\fP(1) du même nom. S'ajoutera tout seul à la variable
+d'environnement MAKEFLAGS, afin que les appels suivants de make en
+héritent. Ajoute aussi \fBparallel=\fP\fIjobs\fP à la variable d'environnement
+DEB_BUILD_OPTIONS ce qui permet aux fichiers debian/rules d'utiliser cette
+information pour leurs propres besoins. La présence de \fBparallel=\fP\fIjobs\fP
+dans la variable d'environnement DEB_BUILD_OPTIONS remplace la valeur de
+l'option \fB\-j\fP si elle est précisée.
+.TP 
+\fB\-D\fP
+Vérifier les dépendances de constructions et les conflits\ ; se termine en
+cas de problèmes. Ceci est le comportement par défaut.
+.TP 
+\fB\-d\fP
+Ne pas vérifier les dépendances de constructions et les conflits.
+.TP 
+\fB\-nc\fP
+Ne pas nettoyer l'arborescence des sources (implique \fB\-b\fP si aucune des
+options \fB\-B\fP, \fB\-A\fP ou \fB\-S\fP n'est utilisée).
+.TP 
+\fB\-tc\fP
+Nettoyage de l'arborescence (en utilisant
+\fIcommande\-pour\-obtenir\-privilèges\-de\-root\fP \fBdebian/rules clean\fP)  après la
+construction du paquet.
+.TP 
+\fB\-r\fP\fIcommande\-pour\-obtenir\-privilèges\-de\-root\fP
+Quand \fBdpkg\-buildpackage\fP doit exécuter une partie du processus de
+construction en tant que root, il préfixe la commande exécutée par
+\fIcommande\-pour\-obtenir\-privilèges\-de\-root\fP, si une a été spécifié. Si ce
+n'est pas le cas alors \fBfakeroot\fP est utilisé par
+défaut. \fIcommande\-pour\-obtenir\-privilèges\-de\-root\fP doit débuter par le nom
+d'un programme accessible depuis \fBPATH\fP et avoir comme arguments le nom de
+la commande réelle avec les arguments qu'elle doit
+prendre. \fIcommande\-pour\-obtenir\-privilèges\-de\-root\fP peut recevoir des
+paramètres (ils doivent être séparés par des espaces) mais aucun
+«\ métacaractère\ » de l'interpréteur de commandes. Classiquement
+\fIcommande\-pour\-obtenir\-privilèges\-de\-root\fP devrait être \fBfakeroot\fP,
+\fBsudo\fP, \fBsuper\fP ou \fBreally\fP. \fBsu\fP ne va pas, puisque ce programme peut
+uniquement utiliser l'interpréteur de commandes de l'utilisateur avec
+l'option \fB\-c\fP au lieu de passer directement les arguments à la commande qui
+doit être exécutée.
+.TP 
+\fB\-R\fP\fIfichier\-rules\fP
+Construire un paquet Debian implique généralement l'invocation de
+\fBdebian/rules\fP comme une commande avec de nombreux paramètres
+standards. Avec cette option, il est possible d'utiliser un autre programme
+à utiliser pour la construction de paquet (ainsi que ses paramètres séparés
+par des espaces). Une autre utilisation possible est d'exécuter le fichier
+rules standard avec un autre programme de construction (par exemple en
+utilisant \fB/usr/local/bin/make \-f debian/rules\fP comme \fIfichier\-rules\fP).
+.TP 
+\fB\-p\fP\fIcommande\-de\-signature\fP
+Quand \fBdpkg\-buildpackage\fP doit exécuter GPG ou PGP pour signer un fichier
+source de contrôle (\fB.dsc\fP) ou un fichier \fB.changes\fP, il exécute
+\fIcommande\-de\-signature\fP (recherché via \fBPATH\fP si nécessaire) au lieu de
+\fBpgp\fP. \fIcommande\-de\-signature\fP reçoit tous les paramètres qu'aurait
+reçu\fBpgp\fP. Si \fIcommande\-de\-signature\fP veut recevoir ses paramètres à la
+manière de GPG plutôt qu'à la manière de PGP, il faut utiliser l'option
+\fB\-sgpg\fP. \fIcommande\-de\-signature\fP ne contiendra pas d'espace ni aucun
+«\ métacaractère\ » de l'interpréteur de commandes.
+.TP 
+\fB\-k\fP\fIkey\-id\fP
+Précise une clé pour la signature des paquets.
+.TP 
+\fB\-us\fP
+Ne pas signer le paquet source.
+.TP 
+\fB\-uc\fP
+Ne pas signer le fichier \fB.changes\fP.
+.P
+\fB\-i\fP[\fIregexp\fP]
+.br
+\fB\-I\fP\fI[motif]\fP
+.br
+\fB\-s\fP[\fBnsAkurKUR\fP]
+.br
+\fB\-z\fP, \fB\-Z\fP
+.br
+.RS
+Chaîne passée telle quelle à \fBdpkg\-source\fP. Voir la page de manuel
+correspondante.
+.RE
+.TP 
+\fB\-\-source\-option=\fP\fIopt\fP
+Passe l'option \fIopt\fP à \fBdpkg\-source\fP.
+.TP 
+\fB\-\-changes\-option=\fP\fIopt\fP
+Passe l'option \fIopt\fP à \fBdpkg\-genchanges\fP.
+.P
+\fB\-\-admindir\fP=\fIdir\fP
+.br
+\fB\-\-admindir \fP\fIrép\fP
+.RS
+Change l'endroit où se trouve la base de données de \fBdpkg\fP. Par défaut,
+c'est \fI/var/lib/dpkg\fP.
+.RE
+.TP 
+\fB\-h\fP, \fB\-\-help\fP
+Affiche un message d'aide puis quitte.
+.TP 
+\fB\-\-version\fP
+Affiche le numéro de version puis quitte.
+.
+.SH ENVIRONNEMENT
+Même si \fBdpkg\-buildpackage\fP exporte certaines variables, \fBdebian/rules\fP ne
+doit pas dépendre de leur présence, mais doit préférablement utiliser
+l'interface correspondante pour retrouver les valeurs nécessaires.
+.SS "Variables positionnées par \fBdpkg\-architecture\fP"
+\fBdpkg\-architecture\fP est lancé avec les paramètres de \fB\-a\fP and \fB\-t\fP. Toute
+variable retournée par l'option \fB\-s\fP est intégrée dans l'environnement de
+construction.
+.SS "Drapeaux de compilation"
+Les variables d'environnement \fBCFLAGS\fP, \fBCXXFLAGS\fP, \fBFFLAGS\fP, \fBCPPFLAGS\fP
+et \fBLDFLAGS\fP prennent les valeurs renvoyées par
+\fBdpkg\-buildflags\fP. Veuillez consulter la page de manuel de ce programme
+pour plus d'informations.
+.
+.SH BOGUES
+On devrait pouvoir mettre des espaces et des métacaractères du shell dans
+les arguments initiaux de \fIcommande\-pour\-obtenir\-privilèges\-de\-root\fP et
+\fIcommande\-de\-signature\fP.
+.
+.SH "VOIR AUSSI"
+\fBdpkg\-source\fP(1), \fBdpkg\-architecture\fP(1), \fBdpkg\-genchanges\fP(1),
+\fBfakeroot\fP(1), \fBgpg\fP(1).
+.
+.SH AUTEURS
+Copyright \(co 1995\-1996 Ian Jackson
+.br
+Copyright \(co 2000 Wichert Akkerman
+.br
+Copyright \(co 2007 Frank Lichtenheld
+.br
+Copyright \(co 2008\-2010 Rapha\[:e]l Hertzog
+.sp
+Ce programme est un logiciel libre\ ; voyez la «\ GNU General Public Licence\ »
+version 2 ou supérieure pour le copyright. Il n'y a PAS de garantie.
+.SH TRADUCTION
+Ariel VARDI <ariel.vardi@freesbee.fr>, 2002.
+Philippe Batailler, 2006.
+Nicolas François, 2006.
+Veuillez signaler toute erreur à <debian\-l10n\-french@lists.debian.org>.

@@ -1,0 +1,35 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 0014_avoid_pic_overwrite.dpatch by  <fabbe@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: This patch makes sure the non-PIC version of libsasldb.a, which is
+## DP: created out of non-PIC objects, is not going to overwrite the PIC
+## DP: version, which is created out of PIC objects. The PIC version is
+## DP: placed in .libs, and the non-PIC version in the current directory.
+## DP: This ensures that both non-PIC and PIC versions are available in
+## DP: the correct locations.
+
+@DPATCH@
+diff -urNad trunk~/lib/Makefile.am trunk/lib/Makefile.am
+--- trunk~/lib/Makefile.am	2009-06-08 19:19:23.000000000 +0300
++++ trunk/lib/Makefile.am	2009-06-08 19:19:38.000000000 +0300
+@@ -76,7 +76,7 @@
+ 
+ libsasl2.a: libsasl2.la $(SASL_STATIC_OBJS)
+ 	@echo adding static plugins and dependencies
+-	$(AR) cru .libs/$@ $(SASL_STATIC_OBJS)
++	$(AR) cru $@ $(SASL_STATIC_OBJS)
+ 	@for i in ./libsasl2.la ../sasldb/libsasldb.la ../plugins/lib*.la; do \
+ 	if test ! -f $$i; then continue; fi; . $$i; \
+ 	for j in $$dependency_libs foo; do \
+diff -urNad trunk~/sasldb/Makefile.am trunk/sasldb/Makefile.am
+--- trunk~/sasldb/Makefile.am	2009-05-24 18:16:21.000000000 +0300
++++ trunk/sasldb/Makefile.am	2009-06-08 19:19:24.000000000 +0300
+@@ -63,6 +63,6 @@
+ EXTRA_libsasldb_a_SOURCES =
+ 
+ libsasldb.a: libsasldb.la $(SASL_DB_BACKEND_STATIC)
+-	$(AR) cru .libs/$@ $(SASL_DB_BACKEND_STATIC)
++	$(AR) cru $@ $(SASL_DB_BACKEND_STATIC)
+ 
+ 

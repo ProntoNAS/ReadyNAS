@@ -1,0 +1,50 @@
+#!/bin/sh
+
+set -e
+
+
+if [ -e /usr/share/debconf/confmodule ] ; then
+	. /usr/share/debconf/confmodule
+fi
+
+config_to_debconf () {
+	if [ -f /etc/msmtprc ]; then
+		var=$(grep ^$1 /etc/msmtprc | awk '{ print $2 }')
+		if [ "x$var" = "xon" ]; then
+			db_set msmtp/$1 true
+		elif [ "x$var" != "x" ]; then
+			db_set msmtp/$1 $var
+		fi
+	fi
+	db_input $2 msmtp/$1 || true
+	db_go
+}
+
+if [ -f /etc/msmtprc ]; then
+	db_set msmtp/sysconfig true
+else
+	db_input medium msmtp/sysconfig || true
+	db_go
+fi
+
+db_get msmtp/sysconfig
+if [ "$RET" = "false" ]; then
+	exit 0
+else
+
+	config_to_debconf host high
+
+	config_to_debconf port low
+
+	config_to_debconf auto_from medium
+
+	db_get msmtp/auto_from
+	if [ "$RET" = "true" ] ; then
+		config_to_debconf maildomain medium
+	fi
+
+	config_to_debconf tls low
+fi
+
+db_stop
+

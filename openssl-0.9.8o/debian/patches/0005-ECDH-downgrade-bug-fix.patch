@@ -1,0 +1,56 @@
+From e42a2abadc90664e2615dc63ba7f79cf163f780a Mon Sep 17 00:00:00 2001
+From: "Dr. Stephen Henson" <steve@openssl.org>
+Date: Fri, 24 Oct 2014 12:30:33 +0100
+Subject: [PATCH 05/15] ECDH downgrade bug fix.
+
+Fix bug where an OpenSSL client would accept a handshake using an
+ephemeral ECDH ciphersuites with the server key exchange message omitted.
+
+Thanks to Karthikeyan Bhargavan for reporting this issue.
+
+CVE-2014-3572
+Reviewed-by: Matt Caswell <matt@openssl.org>
+
+(cherry picked from commit b15f8769644b00ef7283521593360b7b2135cb63)
+
+Conflicts:
+	ssl/s3_clnt.c
+---
+ ssl/s3_clnt.c | 15 +++++++++++++--
+ 2 files changed, 20 insertions(+), 2 deletions(-)
+
+Index: openssl-0.9.8o/ssl/s3_clnt.c
+===================================================================
+--- openssl-0.9.8o.orig/ssl/s3_clnt.c	2015-01-11 12:53:34.484758441 +0000
++++ openssl-0.9.8o/ssl/s3_clnt.c	2015-01-11 12:54:01.200171717 +0000
+@@ -1113,8 +1113,21 @@
+ 
+ 	if (!ok) return((int)n);
+ 
++	alg=s->s3->tmp.new_cipher->algorithms;
++	EVP_MD_CTX_init(&md_ctx);
++
+ 	if (s->s3->tmp.message_type != SSL3_MT_SERVER_KEY_EXCHANGE)
+ 		{
++		/*
++		 * Can't skip server key exchange if this is an ephemeral
++		 * ciphersuite.
++		 */
++		if (alg & (SSL_kEDH|SSL_kECDHE))
++			{
++			SSLerr(SSL_F_SSL3_GET_KEY_EXCHANGE, SSL_R_UNEXPECTED_MESSAGE);
++			al = SSL_AD_UNEXPECTED_MESSAGE;
++			goto f_err;
++			}
+ 		s->s3->tmp.reuse_message=1;
+ 		return(1);
+ 		}
+@@ -1151,8 +1164,6 @@
+ 		}
+ 
+ 	param_len=0;
+-	alg=s->s3->tmp.new_cipher->algorithms;
+-	EVP_MD_CTX_init(&md_ctx);
+ 
+ #ifndef OPENSSL_NO_RSA
+ 	if (alg & SSL_kRSA)

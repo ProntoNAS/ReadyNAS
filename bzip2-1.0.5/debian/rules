@@ -31,6 +31,8 @@ ifneq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
 DEBSTRIP:=:
 endif
 
+gen_md5sums = cd debian/tmp-$(1)/ && find -type f \! -regex '.*/DEBIAN/.*' -printf '%P\0' | xargs -r0 md5sum >DEBIAN/md5sums
+
 DEBVERSION:=$(shell head -n 1 debian/changelog \
 		    | sed -e 's/^[^(]*(\([^)]*\)).*/\1/')
 UPVERSION:=$(shell echo $(DEBVERSION) | sed -e 's/-[0-9.]*$$//')
@@ -45,14 +47,14 @@ endif
 
 ifneq (,$(findstring /$(DEB_HOST_ARCH)/,/amd64/ppc64/))
 	build32-stamp := build32-stamp
-	lib32 := emul/ia32-linux/usr/lib
+	lib32 := usr/lib32
 endif
 
 build: build-stamp $(build32-stamp) $(build64-stamp)
 build-stamp:
 	$(testdir)
 	# Add here commands to compile the package.
-	$(MAKE) DEBCFLAGS="$(DEBCFLAGS)"
+	$(MAKE) $(CROSS) DEBCFLAGS="$(DEBCFLAGS)"
 ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
 	$(MAKE) DEBCFLAGS="$(DEBCFLAGS)" test
 endif
@@ -132,6 +134,9 @@ binary-indep: build
 	  chmod +x debian/tmp-$$i/DEBIAN/postinst; \
 	  chmod +x debian/tmp-$$i/DEBIAN/prerm; \
 	done
+
+	# Add md5sums
+	$(call gen_md5sums,doc)
 
 	# Fix perms
 	chown -R root.root debian/tmp-doc
@@ -245,6 +250,11 @@ binary-arch: build
 	cp debian/postrm-lib debian/tmp-lib/DEBIAN/postrm
 	chmod +x debian/tmp-run/DEBIAN/preinst debian/tmp-lib/DEBIAN/postrm
 
+	# Add md5sums
+	$(call gen_md5sums,run)
+	$(call gen_md5sums,lib)
+	$(call gen_md5sums,dev)
+
 	# Fix perms
 	chown -R root.root debian/tmp*
 	chmod -R a+rX-wts,u+w debian/tmp*
@@ -260,6 +270,7 @@ ifneq (,$(build64-stamp))
 
 	install -d debian/tmp-lib64/usr/lib64
 	cp -a 64/libbz2.so.* debian/tmp-lib64/usr/lib64/
+	ln -s libbz2.so.1.0.4 debian/tmp-lib64/usr/lib64/libbz2.so.1
 	chmod -x debian/tmp-lib64/usr/lib64/*
 
 	install -d debian/tmp-dev64/usr/lib64
@@ -319,6 +330,9 @@ endif
 	  chmod +x debian/tmp-$${i}64/DEBIAN/prerm; \
 	done
 
+	$(call gen_md5sums,lib64)
+	$(call gen_md5sums,dev64)
+
 	chown -R root.root debian/tmp*64
 	chmod -R a+rX-wts,u+w debian/tmp*64
 
@@ -332,6 +346,7 @@ ifneq (,$(build32-stamp))
 
 	install -d debian/tmp-lib32/$(lib32)
 	cp -a 32/libbz2.so.* debian/tmp-lib32/$(lib32)/
+	ln -s libbz2.so.1.0.4 debian/tmp-lib32/$(lib32)/libbz2.so.1
 	chmod -x debian/tmp-lib32/$(lib32)/*
 
 	install -d debian/tmp-dev32/$(lib32)
@@ -378,6 +393,9 @@ endif
 	  chmod +x debian/tmp-$${i}32/DEBIAN/postinst; \
 	  chmod +x debian/tmp-$${i}32/DEBIAN/prerm; \
 	done
+
+	$(call gen_md5sums,lib32)
+	$(call gen_md5sums,dev32)
 
 	chown -R root.root debian/tmp*32
 	chmod -R a+rX-wts,u+w debian/tmp*32

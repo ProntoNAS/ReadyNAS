@@ -1,0 +1,44 @@
+From b2c2214f91f221ae39c667ae6d3a29a7da682e61 Mon Sep 17 00:00:00 2001
+From: Gerrit Pape <pape@smarden.org>
+Date: Tue, 29 Sep 2009 11:15:55 +0000
+Subject: [PATCH] [INPUT] exit 127 if command_file is given but does not exist
+
+This commit makes dash exit with return code 127 instead of 2 if
+started as non-interactive shell with a non-existent command_file
+specified as argument, as documented in
+ http://www.opengroup.org/onlinepubs/009695399/utilities/sh.html#tag_04_128_14
+
+The wrong exit code was reported by Clint Adams through
+ http://bugs.debian.org/548743
+
+Signed-off-by: Gerrit Pape <pape@smarden.org>
+---
+ src/input.c |    5 ++++-
+ 1 files changed, 4 insertions(+), 1 deletions(-)
+
+diff --git a/src/input.c b/src/input.c
+index 1e198e9..4693bcf 100644
+--- a/src/input.c
++++ b/src/input.c
+@@ -100,6 +100,7 @@ MKINIT struct parsefile basepf;	/* top level input file */
+ MKINIT char basebuf[IBUFSIZ];	/* buffer for top level input file */
+ struct parsefile *parsefile = &basepf;	/* current input file */
+ int whichprompt;		/* 1 == PS1, 2 == PS2 */
++extern int exitstatus;
+ 
+ #ifndef SMALL
+ EditLine *el;			/* cookie for editline package */
+@@ -407,7 +408,9 @@ setinputfile(const char *fname, int flags)
+ 	if ((fd = open(fname, O_RDONLY)) < 0) {
+ 		if (flags & INPUT_NOFILE_OK)
+ 			goto out;
+-		sh_error("Can't open %s", fname);
++		sh_warnx("Can't open %s", fname);
++		exitstatus = 127;
++		exraise(EXEXIT);
+ 	}
+ 	if (fd < 10)
+ 		fd = savefd(fd, fd);
+-- 
+1.6.0.3
+

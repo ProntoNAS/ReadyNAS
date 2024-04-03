@@ -1,0 +1,3384 @@
+SVN update of svn://svn.eglibc.org/branches/eglibc-2_11 from revision 12231
+
+--- a/stdlib/bug-getcontext.c	(revision 0)
++++ b/stdlib/bug-getcontext.c	(revision 16211)
+@@ -0,0 +1,48 @@
++/* BZ 12420 */
++
++#include <errno.h>
++#include <fenv.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <ucontext.h>
++
++static int
++do_test (void)
++{
++  int except_mask =  FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW;
++  int status = feenableexcept (except_mask);
++
++  except_mask = fegetexcept ();
++  if (except_mask == -1)
++    {
++      printf("\nBefore getcontext(): fegetexcept returned: %d\n",
++	     except_mask);
++      return 1;
++    }
++
++  ucontext_t ctx;
++  status = getcontext(&ctx);
++  if (status)
++    {
++      printf("\ngetcontext failed, errno: %d.\n", errno);
++      return 1;
++    }
++
++  printf ("\nDone with getcontext()!\n");
++  fflush (NULL);
++
++  int mask = fegetexcept ();
++  if (mask != except_mask)
++    {
++      printf("\nAfter getcontext(): fegetexcept returned: %d, expected: %d.\n",
++	     mask, except_mask);
++      return 1;
++    }
++
++  printf("\nAt end fegetexcept() returned %d, expected: %d.\n",
++	 mask, except_mask);
++  return 0;
++}
++
++#define TEST_FUNCTION do_test ()
++#include "../test-skeleton.c"
+--- a/stdlib/msort.c	(revision 12231)
++++ b/stdlib/msort.c	(revision 16211)
+@@ -25,6 +25,7 @@
+ #include <unistd.h>
+ #include <memcopy.h>
+ #include <errno.h>
++#include <atomic.h>
+ 
+ struct msort_param
+ {
+@@ -182,7 +183,7 @@
+       static long int phys_pages;
+       static int pagesize;
+ 
+-      if (phys_pages == 0)
++      if (pagesize == 0)
+ 	{
+ 	  phys_pages = __sysconf (_SC_PHYS_PAGES);
+ 
+@@ -197,6 +198,9 @@
+ 	     a quarter of the physical memory.  */
+ 	  phys_pages /= 4;
+ 
++	  /* Make sure phys_pages is written to memory.  */
++	  atomic_write_barrier ();
++
+ 	  pagesize = __sysconf (_SC_PAGESIZE);
+ 	}
+ 
+--- a/stdlib/Makefile	(revision 12231)
++++ b/stdlib/Makefile	(revision 16211)
+@@ -1,4 +1,4 @@
+-# Copyright (C) 1991-2006, 2007, 2008, 2009 Free Software Foundation, Inc.
++# Copyright (C) 1991-2009, 2011 Free Software Foundation, Inc.
+ # This file is part of the GNU C Library.
+ 
+ # The GNU C Library is free software; you can redistribute it and/or
+@@ -80,7 +80,7 @@
+ 		   test-a64l tst-qsort tst-system bug-strtod2		    \
+ 		   tst-atof1 tst-atof2 tst-strtod2 tst-rand48-2             \
+ 		   tst-makecontext tst-qsort2 tst-makecontext2 tst-strtod6  \
+-		   tst-unsetenv1
++		   tst-unsetenv1 bug-getcontext
+ tests-$(OPTION_EGLIBC_LOCALE_CODE) \
+ 		+= tst-strtod3 tst-strtod4 tst-strtod5 testmb2
+ tests-$(OPTION_POSIX_C_LANG_WIDE_CHAR) \
+@@ -159,3 +159,10 @@
+ $(objpfx)tst-putenvmod.so: $(objpfx)tst-putenvmod.os
+ 	$(build-module)
+ CFLAGS-tst-putenvmod.c = -DNOT_IN_libc=1
++
++ifeq ($(build-shared),yes)
++link-libm = $(common-objpfx)math/libm.so
++else
++link-libm = $(common-objpfx)math/libm.a
++endif
++$(objpfx)bug-getcontext: $(link-libm)
+--- a/nscd/hstcache.c	(revision 12231)
++++ b/nscd/hstcache.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Cache handling for host lookup.
+-   Copyright (C) 1998-2008, 2009 Free Software Foundation, Inc.
++   Copyright (C) 1998-2008, 2009, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Ulrich Drepper <drepper@cygnus.com>, 1998.
+ 
+@@ -77,6 +77,20 @@
+ };
+ 
+ 
++/* This is the standard reply in case there are temporary problems.  */
++static const hst_response_header tryagain =
++{
++  .version = NSCD_VERSION,
++  .found = 0,
++  .h_name_len = 0,
++  .h_aliases_cnt = 0,
++  .h_addrtype = -1,
++  .h_length = -1,
++  .h_addr_list_cnt = 0,
++  .error = TRY_AGAIN
++};
++
++
+ static void
+ cache_addhst (struct database_dyn *db, int fd, request_header *req,
+ 	      const void *key, struct hostent *hst, uid_t owner,
+@@ -111,11 +125,15 @@
+       else
+ 	{
+ 	  /* We have no data.  This means we send the standard reply for this
+-	     case.  */
++	     case.  Possibly this is only temporary.  */
+ 	  ssize_t total = sizeof (notfound);
++	  assert (sizeof (notfound) == sizeof (tryagain));
+ 
++	  const hst_response_header *resp = (errval == EAGAIN
++					     ? &tryagain : &notfound);
++
+ 	  if (fd != -1 &&
+-	      TEMP_FAILURE_RETRY (send (fd, &notfound, total,
++	      TEMP_FAILURE_RETRY (send (fd, resp, total,
+ 					MSG_NOSIGNAL)) != total)
+ 	    all_written = false;
+ 
+@@ -135,7 +153,7 @@
+ 					   ? db->negtimeout : ttl);
+ 
+ 	      /* This is the reply.  */
+-	      memcpy (&dataset->resp, &notfound, total);
++	      memcpy (&dataset->resp, resp, total);
+ 
+ 	      /* Copy the key data.  */
+ 	      memcpy (dataset->strdata, key, req->key_len);
+@@ -490,6 +508,7 @@
+ 	      /* We set the error to indicate this is (possibly) a
+ 		 temporary error and that it does not mean the entry
+ 		 is not available at all.  */
++	      h_errno = TRY_AGAIN;
+ 	      errval = EAGAIN;
+ 	      break;
+ 	    }
+--- a/libio/fmemopen.c	(revision 12231)
++++ b/libio/fmemopen.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Fmemopen implementation.
+-   Copyright (C) 2000, 2002, 2005, 2006, 2008, 2009
++   Copyright (C) 2000, 2002, 2005, 2006, 2008, 2009, 2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Hanno Mueller, kontakt@hanno.de, 2000.
+@@ -243,7 +243,7 @@
+   if (mode[0] == 'w')
+     c->buffer[0] = '\0';
+ 
+-  c->maxpos = strlen (c->buffer);
++  c->maxpos = strnlen (c->buffer, len);
+ 
+   if (mode[0] == 'a')
+     c->pos = c->maxpos;
+--- a/libio/fileops.c	(revision 12231)
++++ b/libio/fileops.c	(revision 16211)
+@@ -291,7 +291,7 @@
+ #ifdef _LIBC
+   last_recognized = mode;
+ #endif
+-  for (i = 1; i < 6; ++i)
++  for (i = 1; i < 7; ++i)
+     {
+       switch (*++mode)
+ 	{
+@@ -1005,18 +1005,18 @@
+       /* Adjust for read-ahead (bytes is buffer). */
+       offset -= fp->_IO_read_end - fp->_IO_read_ptr;
+       if (fp->_offset == _IO_pos_BAD)
+-        {
+-          if (mode != 0)
+-            goto dumb;
+-          else
+-            {
+-              result = _IO_SYSSEEK (fp, 0, dir);
+-              if (result == EOF)
+-                return result;
++	{
++	  if (mode != 0)
++	    goto dumb;
++	  else
++	    {
++	      result = _IO_SYSSEEK (fp, 0, dir);
++	      if (result == EOF)
++		return result;
+ 
+-              fp->_offset = result;
+-            }
+-        }
++	      fp->_offset = result;
++	    }
++	}
+       /* Make offset absolute, assuming current pointer is file_ptr(). */
+       offset += fp->_offset;
+       if (offset < 0)
+@@ -1278,7 +1278,7 @@
+ 	{
+ 	  f->_flags |= _IO_ERR_SEEN;
+ 	  break;
+-        }
++	}
+       to_do -= count;
+       data = (void *) ((char *) data + count);
+     }
+@@ -1366,12 +1366,12 @@
+       do_write = to_do - (block_size >= 128 ? to_do % block_size : 0);
+ 
+       if (do_write)
+-        {
++	{
+ 	  count = new_do_write (f, s, do_write);
+ 	  to_do -= count;
+ 	  if (count < do_write)
+ 	    return n - to_do;
+-        }
++	}
+ 
+       /* Now write out the remainder.  Normally, this will fit in the
+ 	 buffer, but it's somewhat messier for line-buffered files,
+--- a/wcsmbs/bits/wchar2.h	(revision 12231)
++++ b/wcsmbs/bits/wchar2.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Checking macros for wchar functions.
+-   Copyright (C) 2005, 2006, 2007 Free Software Foundation, Inc.
++   Copyright (C) 2005, 2006, 2007, 2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -60,15 +60,13 @@
+ 						   __const wchar_t *__s2,
+ 						   size_t __n), wmemmove);
+ extern wchar_t *__REDIRECT_NTH (__wmemmove_chk_warn,
+-				(wchar_t *__restrict __s1,
+-				 __const wchar_t *__restrict __s2, size_t __n,
+-				 size_t __ns1), __wmemmove_chk)
++				(wchar_t *__s1, __const wchar_t *__s2,
++				 size_t __n, size_t __ns1), __wmemmove_chk)
+      __warnattr ("wmemmove called with length bigger than size of destination "
+ 		 "buffer");
+ 
+ __extern_always_inline wchar_t *
+-__NTH (wmemmove (wchar_t *__restrict __s1, __const wchar_t *__restrict __s2,
+-		 size_t __n))
++__NTH (wmemmove (wchar_t *__s1, __const wchar_t *__s2, size_t __n))
+ {
+   if (__bos0 (__s1) != (size_t) -1)
+     {
+@@ -129,7 +127,7 @@
+ 		 "buffer");
+ 
+ __extern_always_inline wchar_t *
+-__NTH (wmemset (wchar_t *__restrict __s, wchar_t __c, size_t __n))
++__NTH (wmemset (wchar_t *__s, wchar_t __c, size_t __n))
+ {
+   if (__bos0 (__s) != (size_t) -1)
+     {
+@@ -152,7 +150,7 @@
+ 				 __const wchar_t *__restrict __src), wcscpy);
+ 
+ __extern_always_inline wchar_t *
+-__NTH (wcscpy (wchar_t *__dest, __const wchar_t *__src))
++__NTH (wcscpy (wchar_t *__restrict __dest, __const wchar_t *__restrict __src))
+ {
+   if (__bos (__dest) != (size_t) -1)
+     return __wcscpy_chk (__dest, __src, __bos (__dest) / sizeof (wchar_t));
+@@ -160,14 +158,15 @@
+ }
+ 
+ 
+-extern wchar_t *__wcpcpy_chk (wchar_t *__dest, __const wchar_t *__src,
++extern wchar_t *__wcpcpy_chk (wchar_t *__restrict __dest,
++			      __const wchar_t *__restrict __src,
+ 			      size_t __destlen) __THROW;
+-extern wchar_t *__REDIRECT_NTH (__wcpcpy_alias, (wchar_t *__dest,
+-						 __const wchar_t *__src),
+-				wcpcpy);
++extern wchar_t *__REDIRECT_NTH (__wcpcpy_alias,
++				(wchar_t *__restrict __dest,
++				 __const wchar_t *__restrict __src), wcpcpy);
+ 
+ __extern_always_inline wchar_t *
+-__NTH (wcpcpy (wchar_t *__dest, __const wchar_t *__src))
++__NTH (wcpcpy (wchar_t *__restrict __dest, __const wchar_t *__restrict __src))
+ {
+   if (__bos (__dest) != (size_t) -1)
+     return __wcpcpy_chk (__dest, __src, __bos (__dest) / sizeof (wchar_t));
+@@ -190,7 +189,8 @@
+ 		 "buffer");
+ 
+ __extern_always_inline wchar_t *
+-__NTH (wcsncpy (wchar_t *__dest, __const wchar_t *__src, size_t __n))
++__NTH (wcsncpy (wchar_t *__restrict __dest, __const wchar_t *__restrict __src,
++		size_t __n))
+ {
+   if (__bos (__dest) != (size_t) -1)
+     {
+@@ -220,7 +220,8 @@
+ 		 "buffer");
+ 
+ __extern_always_inline wchar_t *
+-__NTH (wcpncpy (wchar_t *__dest, __const wchar_t *__src, size_t __n))
++__NTH (wcpncpy (wchar_t *__restrict __dest, __const wchar_t *__restrict __src,
++		size_t __n))
+ {
+   if (__bos (__dest) != (size_t) -1)
+     {
+@@ -243,7 +244,7 @@
+ 				 __const wchar_t *__restrict __src), wcscat);
+ 
+ __extern_always_inline wchar_t *
+-__NTH (wcscat (wchar_t *__dest, __const wchar_t *__src))
++__NTH (wcscat (wchar_t *__restrict __dest, __const wchar_t *__restrict __src))
+ {
+   if (__bos (__dest) != (size_t) -1)
+     return __wcscat_chk (__dest, __src, __bos (__dest) / sizeof (wchar_t));
+@@ -260,7 +261,8 @@
+ 				 size_t __n), wcsncat);
+ 
+ __extern_always_inline wchar_t *
+-__NTH (wcsncat (wchar_t *__dest, __const wchar_t *__src, size_t __n))
++__NTH (wcsncat (wchar_t *__restrict __dest, __const wchar_t *__restrict __src,
++		size_t __n))
+ {
+   if (__bos (__dest) != (size_t) -1)
+     return __wcsncat_chk (__dest, __src, __n,
+@@ -428,14 +430,16 @@
+ #endif
+ 
+ 
+-extern size_t __wcrtomb_chk (char *__s, wchar_t __wchar, mbstate_t *__p,
+-			  size_t __buflen) __THROW __wur;
++extern size_t __wcrtomb_chk (char *__restrict __s, wchar_t __wchar,
++			     mbstate_t *__restrict __p,
++			     size_t __buflen) __THROW __wur;
+ extern size_t __REDIRECT_NTH (__wcrtomb_alias,
+ 			      (char *__restrict __s, wchar_t __wchar,
+ 			       mbstate_t *__restrict __ps), wcrtomb) __wur;
+ 
+ __extern_always_inline __wur size_t
+-__NTH (wcrtomb (char *__s, wchar_t __wchar, mbstate_t *__ps))
++__NTH (wcrtomb (char *__restrict __s, wchar_t __wchar,
++		mbstate_t *__restrict __ps))
+ {
+   /* We would have to include <limits.h> to get a definition of MB_LEN_MAX.
+      But this would only disturb the namespace.  So we define our own
+--- a/wcsmbs/wchar.h	(revision 12231)
++++ b/wcsmbs/wchar.h	(revision 16211)
+@@ -319,8 +319,7 @@
+ #endif
+ 
+ /* Compare N wide characters of S1 and S2.  */
+-extern int wmemcmp (__const wchar_t *__restrict __s1,
+-		    __const wchar_t *__restrict __s2, size_t __n)
++extern int wmemcmp (__const wchar_t *__s1, __const wchar_t *__s2, size_t __n)
+      __THROW __attribute_pure__;
+ 
+ /* Copy N wide characters of SRC to DEST.  */
+@@ -561,11 +560,13 @@
+ #ifdef	__USE_XOPEN2K8
+ /* Copy SRC to DEST, returning the address of the terminating L'\0' in
+    DEST.  */
+-extern wchar_t *wcpcpy (wchar_t *__dest, __const wchar_t *__src) __THROW;
++extern wchar_t *wcpcpy (wchar_t *__restrict __dest,
++			__const wchar_t *__restrict __src) __THROW;
+ 
+ /* Copy no more than N characters of SRC to DEST, returning the address of
+    the last character written into DEST.  */
+-extern wchar_t *wcpncpy (wchar_t *__dest, __const wchar_t *__src, size_t __n)
++extern wchar_t *wcpncpy (wchar_t *__restrict __dest,
++			 __const wchar_t *__restrict __src, size_t __n)
+      __THROW;
+ #endif	/* use GNU */
+ 
+--- a/include/alloca.h	(revision 12231)
++++ b/include/alloca.h	(revision 16211)
+@@ -14,6 +14,7 @@
+ 
+ extern int __libc_use_alloca (size_t size) __attribute__ ((const));
+ extern int __libc_alloca_cutoff (size_t size) __attribute__ ((const));
++libc_hidden_proto (__libc_alloca_cutoff)
+ 
+ #define __MAX_ALLOCA_CUTOFF	65536
+ 
+--- a/include/atomic.h	(revision 12231)
++++ b/include/atomic.h	(revision 16211)
+@@ -33,7 +33,7 @@
+      the multi-thread case.  The interfaces have the prefix
+      "catomic_".
+ 
+-   - support functions like barriers.  They also have the preifx
++   - support functions like barriers.  They also have the prefix
+      "atomic_".
+ 
+    Architectures must provide a few lowlevel macros (the compare
+--- a/ChangeLog	(revision 12231)
++++ b/ChangeLog	(revision 16211)
+@@ -1,3 +1,369 @@
++2011-05-29  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12350]
++	* sysdeps/posix/getaddrinfo.c (gethosts): Restore only RES_USE_IENT6
++	bit from old_res_options.
++	(gaih_inet): Likewise.
++
++2011-05-28  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12811]
++	* posix/regex_internal.c (build_wcs_buffer): Don't signal we have to
++	grow the buffers more if it already has to be sufficient.
++	(build_wcs_upper_buffer): Likewise.
++	* posix/regexec.c (check_matching): Likewise.
++	(clean_state_log_if_needed): Likewise.
++	(extend_buffers): Don't enlarge buffers beyond size of the input
++	buffer.
++	Patches mostly by Emil Wojak <emil@wojak.eu>.
++	* posix/bug-regex32.c: New file.
++	* posix/Makefile (tests): Add bug-regex32.
++
++2011-05-14  Ulrich Drepper  <drepper@gmail.com>
++
++	* iconv/loop.c (SINGLE) [STORE_REST]: Add input bytes to bytebuf before
++	storing incomplete byte sequence in state object.
++
++2011-05-17  H.J. Lu  <hongjiu.lu@intel.com>
++
++	[BZ #12775]
++	* sysdeps/x86_64/fpu/e_powl.S: Fix a typo.
++	* math/Makefile (tests): Add test-powl.
++	(CFLAGS-test-powl.c): Define.
++	* math/test-powl.c: New file.
++
++2011-05-16  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12766]
++	* misc/error.c (error_at_line): Ensure file_name and old_file_name
++	point to strings before performing equality test for error_one_per_line
++	mode.
++
++	[BZ #11697]
++	* login/programs/pt_chown.c (do_pt_chown): Always call chown.
++
++2011-05-14  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12083]
++	* sysdeps/pthread/aio_misc.c (__aio_init): Compute optim.aio_num
++	correctly.
++
++	* libio/fileops.c (_IO_new_file_close_it): Initialize write_status.
++
++	* iconv/loop.c (SINGLE) [STORE_REST]: Add input bytes to bytebuf before
++	storing incomplete byte sequence in state object.  Avoid testing for
++	guaranteed too small input if we know there is enough data available.
++
++2011-05-12  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12511]
++	* elf/dl-lookup.c (enter): Don't test for copy relocation here and
++	don't set DF_1_NODELETE here.
++	(do_lookup_x): When entering new entry test for copy relocation
++	and if necessary set DF_1_NODELETE flag.
++	Patch by Piotr Bury <pbury@goahead.com>.
++
++2011-05-11  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12052]
++	* sysdeps/posix/spawni.c (__spawni): Fix sched_setscheduler call.
++
++	[BZ #12625]
++	* misc/mntent_r.c (addmntent): Flush the stream after the output
++
++	[BZ #12393]
++	* elf/dl-load.c (is_trusted_path): Remove unnecessary test.
++	(is_trusted_path_normalize): Skip initial colon.  Append slash
++	to empty buffer.  Duplicate is_trusted_path code but allow
++	constructed patch to be prefix.
++	(is_dst): Allow $ORIGIN followed by /.
++	(_dl_dst_substitute): Correct clearing of check_for_trusted.
++	Correct testing of result of is_trusted_path_normalize
++	(decompose_rpath): Fix warning.
++
++2011-05-07  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12734]
++	* resolv/resolv.h: Define RES_NOTLDQUERY.
++	* resolv/res_init.c (res_setoptions): Recognize no_tld_query and
++	no-tld-query and set RES_NOTLDQUERY.
++	* resolv/res_debug.c (p_option): Handle RES_NOTLDQUERY.
++	* resolv/res_query.c (__libc_res_nsearch): Backport changes from
++	modern BIND to search name as TLD unless forbidden.
++
++2011-05-07  Petr Baudis  <pasky@suse.cz>
++	    Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12393]
++	* elf/dl-load.c (fillin_rpath): Move trusted path check...
++	(is_trusted_path): ...to here.
++	(is_norm_trusted_path): Add wrapper for /../ and /./ normalization.
++	(_dl_dst_substitute): Verify expanded $ORIGIN path elements
++	using is_norm_trusted_path() in setuid scripts.
++
++2011-05-03  Andreas Schwab  <schwab@redhat.com>
++
++	* elf/ldconfig.c (add_dir): Don't crash on empty path.
++
++2011-04-30  Bruno Haible  <bruno@clisp.org>
++
++	[BZ #12717]
++	* conform/data/netdb.h-data (getnameinfo): Make POSIX compliant.
++	* resolv/netdb.h (getnameinfo): Change type of flags parameter
++	to 'int'.
++	* inet/getnameinfo.c (getnameinfo): Likewise.
++
++2011-04-22  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12685]
++	* libio/fileops.c (_IO_new_file_fopen): Scan up to 7 bytes of the
++	mode string.
++	Patch by Eric Blake <eblake@redhat.com>.
++
++2011-04-17  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12420]
++	* sysdeps/unix/sysv/linux/x86_64/getcontext.S: Reload context after
++	storing it.
++	* stdlib/bug-getcontext.c: New file.
++	* stdlib/Makefile: Add rules to build and run bug-getcontext.
++
++2011-04-10  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12650]
++	* sysdeps/i386/dl-tls.h: Define TLS_DTV_UNALLOCATED.
++	* sysdeps/ia64/dl-tls.h: Likewise.
++	* sysdeps/powerpc/dl-tls.h: Likewise.
++	* sysdeps/s390/dl-tls.h: Likewise.
++	* sysdeps/sh/dl-tls.h: Likewise.
++	* sysdeps/sparc/dl-tls.h: Likewise.
++	* sysdeps/x86_64/dl-tls.h: Likewise.
++	* elf/dl-tls.c: Don't define TLS_DTV_UNALLOCATED here.
++
++2011-03-14  Andreas Schwab  <schwab@redhat.com>
++
++	* elf/dl-load.c (_dl_dst_substitute): When skipping the first
++	rpath element also skip the following colon.
++	(expand_dynamic_string_token): Add is_path parameter and pass
++	down to DL_DST_REQUIRED and _dl_dst_substitute.
++	(decompose_rpath): Call expand_dynamic_string_token with
++	non-zero is_path.  Ignore empty rpaths.
++	(_dl_map_object_from_fd): Call expand_dynamic_string_token
++	with zero is_path.
++
++2011-04-07  Andreas Schwab  <schwab@redhat.com>
++
++	* sysdeps/unix/sysv/linux/x86_64/____longjmp_chk.S (CALL_FAIL):
++	Maintain aligned stack.
++	(CHECK_RSP): Remove unused macro.
++
++2011-03-18  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12583]
++	* posix/fnmatch.c (fnmatch): Check size of pattern in wide
++	character representation.
++	Partly based on a patch by Tomas Hoger <thoger@redhat.com>.
++
++2011-03-16  Ryan S. Arnold  <rsa@us.ibm.com>
++
++	* sysdeps/powerpc/powerpc32/power6/fpu/s_isnanf.S (isnanf): Fix
++	END(__isnan) to END(__isnanf) to match function entry point/label
++	EALIGN(__isnanf,...).
++
++2011-03-10  Jakub Jelinek  <jakub@redhat.com>
++
++	* wcsmbs/wchar.h (wmemcmp): Remove __restrict qualifiers.
++
++2011-03-10  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12510]
++	* elf/dl-lookup.c (do_lookup_x): For copy relocations of unique objects
++	copy from the symbol referenced in the relocation to initialize the
++	used variable.
++	Patch by Piotr Bury <pbury@goahead.com>.
++
++2011-03-06  Ulrich Drepper  <drepper@gmail.com>
++
++	* elf/dl-load.c (_dl_map_object): If we are looking for the first
++	to-be-loaded object along a path to loader is ld.so.
++
++2011-03-03  Andreas Schwab  <schwab@redhat.com>
++
++	* libio/fmemopen.c (fmemopen): Don't read past end of buffer.
++
++2011-02-17  Andreas Schwab  <schwab@redhat.com>
++
++	[BZ #12454]
++	* elf/dl-deps.c (_dl_map_object_deps): Signal error early when
++	dependencies are missing.
++
++2011-02-22  Samuel Thibault  <samuel.thibault@ens-lyon.org>
++
++	Fix __if_freereq crash: Unlike the generic version which uses free,
++	Hurd needs munmap.
++	* sysdeps/mach/hurd/ifreq.h: New file.
++
++2011-01-27  Petr Baudis  <pasky@suse.cz>
++	    Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12445]
++	* stdio-common/vfprintf.c (vfprintf): Pass correct newlen
++	to extend_alloca().
++	* stdio-common/bug23.c: New file.
++	* stdio-common/Makefile (tests): Add bug23.
++
++2011-02-16  Ryan S. Arnold  <rsa@us.ibm.com>
++
++	* sysdeps/unix/sysv/linux/powerpc/powerpc64/sysdep.h:
++	(INTERNAL_VSYSCALL_NCS INTERNAL_SYSCALL_NCS): Remove erroneous (int)
++	cast from r3.
++	* sysdeps/wordsize-64/Makefile: New file.  Add tst-writev to
++	'tests' variable.
++	* sysdeps/wordsize-64/tst-writev.c: New file.
++
++2011-02-15  Ryan S. Arnold  <rsa@us.ibm.com>
++
++	* sysdeps/powerpc/powerpc64/power7/Makefile: New file which adds
++	-mno-vsx to the CFLAGS-rtld.c variable to avoid using VSX registers and
++	insns in _dl_start to prevent a TOC reference before relocs are
++	resolved.
++
++2011-02-11  Jakub Jelinek  <jakub@redhat.com>
++
++	* stdio-common/printf-parsemb.c (__parse_one_specmb): Handle
++	arginfo fn returning -1.
++
++	* stdio-common/_i18n_number.h (_i18n_number_rewrite): Ensure decimal
++	and thousands string is zero terminated.
++
++2011-02-02  Ulrich Drepper  <drepper@gmail.com>
++
++	* elf/dl-runtime.c (_dl_call_pltexit): Pass correct address of the
++	function to the callback.
++	Patch partly by Jiri Olsa <jolsa@redhat.com>.
++
++2011-02-02  Andreas Schwab  <schwab@redhat.com>
++
++	* shadow/sgetspent.c: Check return value of __sgetspent_r instead
++	of errno.
++
++2010-10-01  Andreas Schwab  <schwab@redhat.com>
++
++	* sysdeps/posix/getaddrinfo.c (gaih_inet): Don't discard result of
++	decoding ACE if AI_CANONIDN.
++
++2011-01-17  Ulrich Drepper  <drepper@gmail.com>
++
++	* io/fcntl.h: Define AT_NO_AUTOMOUNT.
++
++	* sysdeps/unix/sysv/linux/i386/bits/mman.h: Define MADV_HUGEPAGE and
++	MADV_NOHUGEPAGE.
++	* sysdeps/unix/sysv/linux/ia64/bits/mman.h: Likewise.
++	* sysdeps/unix/sysv/linux/powerpc/bits/mman.h: Likewise.
++	* sysdeps/unix/sysv/linux/s390/bits/mman.h: Likewise.
++	* sysdeps/unix/sysv/linux/sh/bits/mman.h: Likewise.
++	* sysdeps/unix/sysv/linux/sparc/bits/mman.h: Likewise.
++	* sysdeps/unix/sysv/linux/x86_64/bits/mman.h: Likewise.
++
++	* sysdeps/unix/sysv/linux/bits/socket.h: Define AF_CAIF, AF_ALG,
++	PF_CAIF, and PF_ALG.
++	* sysdeps/unix/sysv/linux/sparc/bits/socket.h: Likewise.
++
++2011-01-15  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #6812]
++	* nscd/hstcache.c (tryagain): Define.
++	(cache_addhst): Return tryagain not notfound for temporary errors.
++	(addhstbyX): Also set h_errno to TRY_AGAIN when memory allocation
++	failed.
++
++2011-01-13  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12397]
++	* sysdeps/unix/sysv/linux/mkdirat.c (mkdirat): Fix handling of missing
++	syscall.
++
++	[BZ #10484]
++	* nss/nss_files/files-hosts.c (HOST_DB_LOOKUP): Handle overflows of
++	temporary buffer used to handle multi lookups locally.
++	* include/alloca.h: Add libc_hidden_proto for __libc_alloca_cutoff.
++
++2011-01-12  Ulrich Drepper  <drepper@gmail.com>
++
++	* elf/dl-dst.h (DL_DST_REQUIRED): Allow l_origin to be NULL when
++	loader is ld.so.
++
++2010-03-12  Andreas Schwab  <schwab@redhat.com>
++
++	* elf/dl-dst.h: Include "trusted-dirs.h".
++	(DL_DST_REQUIRED): Take $LIB into account.
++
++2011-01-10  Paul Pluzhnikov  <ppluzhnikov@google.com>
++
++	* sysdeps/i386/Makefile: stdlib/cxa_finalize.c needs 16-byte stack
++	alignment for SSE2.
++
++2011-01-12  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12394]
++	* stdio-common/printf_fp.c (__printf_fp): Add more room for grouping
++	characters.  When rounding increased number of integer digits recompute
++	number of groups.
++	* stdio-common/tst-grouping.c: New file.
++	* stdio-common/Makefile: Add rules to build and run tst-grouping.
++
++2011-01-04  David S. Miller  <davem@sunset.davemloft.net>
++
++	[BZ #11155]
++	* sysdeps/unix/sysv/linux/sparc/sparc64/fxstat.c: Use i386's
++	implementation just like for lxstat, fxstatat, et al.
++
++2010-12-27  Jim Meyering  <meyering@redhat.com>
++
++	[BZ #12348]
++	* posix/regexec.c (build_trtable): Return failure indication upon
++	calloc failure.  Otherwise, re_search_internal could infloop on OOM.
++
++2010-12-25  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12207]
++	* malloc/malloc.c (do_check_malloc_state): Use fastbin macro.
++
++2010-12-19  Ulrich Drepper  <drepper@gmail.com>
++
++	* sysdeps/unix/readdir_r.c (__READDIR_R): Compute reclen more
++	accurately.
++	* sysdeps/unix/sysv/linux/wordsize-64/readdir_r.c: Define
++	GETDENTS_64BIT_ALIGNED.
++
++2010-12-10  Andreas Schwab  <schwab@redhat.com>
++
++	* wcsmbs/wchar.h (wcpcpy, wcpncpy): Add __restrict.
++	* wcsmbs/bits/wchar2.h (__wmemmove_chk_warn, wmemmove, wmemset):
++	Remove __restrict.
++	(wcscpy, __wcpcpy_chk, __wcpcpy_alias, wcpcpy, wcsncpy, wcpncpy)
++	(wcscat, wcsncat, __wcrtomb_chk, wcrtomb): Add __restrict.
++
++2010-12-09  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #11655]
++	* stdlib/msort.c (qsort_r): Make sure both phys_pages and pagesize
++	are initialized.
++
++2010-12-09  Jakub Jelinek  <jakub@redhat.com>
++
++	* string/bits/string3.h (memmove, bcopy): Remove __restrict.
++
++2010-11-30  Ulrich Drepper  <drepper@gmail.com>
++
++	* sysdeps/i386/fpu/libm-test-ulps: Relax ynf(10,0.75) test expectations.
++
++2010-11-24  Andreas Schwab  <schwab@redhat.com>
++
++	* resolv/nss_dns/dns-host.c (getanswer_r): Don't handle ttl == 0
++	specially.
++	(gaih_getanswer_slice): Likewise.
++
+ 2010-05-31  Petr Baudis  <pasky@suse.cz>
+ 
+ 	[BZ #11149]
+--- a/sysdeps/powerpc/powerpc32/power6/fpu/s_isnanf.S	(revision 12231)
++++ b/sysdeps/powerpc/powerpc32/power6/fpu/s_isnanf.S	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* isnanf().  PowerPC32 version.
+-   Copyright (C) 2008 Free Software Foundation, Inc.
++   Copyright (C) 2008, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -39,8 +39,7 @@
+ L(NaN):
+ 	li	r3,1		/* else return 1 */
+ 	blr
+-	END (__isnan)
++	END (__isnanf)
+ 
+ hidden_def (__isnanf)
+ weak_alias (__isnanf, isnanf)
+-
+--- a/sysdeps/powerpc/dl-tls.h	(revision 12231)
++++ b/sysdeps/powerpc/dl-tls.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Thread-local storage handling in the ELF dynamic linker.  PowerPC version.
+-   Copyright (C) 2003 Free Software Foundation, Inc.
++   Copyright (C) 2003, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -47,3 +47,6 @@
+ # define GET_ADDR_OFFSET	(ti->ti_offset + TLS_DTV_OFFSET)
+ # define __TLS_GET_ADDR(__ti)	(__tls_get_addr (__ti) - TLS_DTV_OFFSET)
+ #endif
++
++/* Value used for dtv entries for which the allocation is delayed.  */
++#define TLS_DTV_UNALLOCATED	((void *) -1l)
+--- a/sysdeps/unix/sysv/linux/s390/bits/mman.h	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/s390/bits/mman.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Definitions for POSIX memory map interface.  Linux/s390 version.
+-   Copyright (C) 2000-2003,2005,2006,2009 Free Software Foundation, Inc.
++   Copyright (C) 2000-2003,2005,2006,2009,2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -94,6 +94,8 @@
+ # define MADV_DOFORK	  11	/* Do inherit across fork.  */
+ # define MADV_MERGEABLE	  12	/* KSM may merge identical pages.  */
+ # define MADV_UNMERGEABLE 13	/* KSM may not merge identical pages.  */
++# define MADV_HUGEPAGE	  14	/* Worth backing with hugepages.  */
++# define MADV_NOHUGEPAGE  15	/* Not worth backing with hugepages.  */
+ # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+ #endif
+ 
+--- a/sysdeps/unix/sysv/linux/sparc/sparc64/fxstat.c	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/sparc/sparc64/fxstat.c	(revision 16211)
+@@ -1 +1 @@
+-#include "../../fxstat.c"
++#include "../../i386/fxstat.c"
+--- a/sysdeps/unix/sysv/linux/sparc/bits/mman.h	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/sparc/bits/mman.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Definitions for POSIX memory map interface.  Linux/SPARC version.
+-   Copyright (C) 1997,1999,2000,2003,2005,2006,2009
++   Copyright (C) 1997,1999,2000,2003,2005,2006,2009,2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -97,6 +97,8 @@
+ # define MADV_DOFORK	  11	/* Do inherit across fork.  */
+ # define MADV_MERGEABLE	  12	/* KSM may merge identical pages.  */
+ # define MADV_UNMERGEABLE 13	/* KSM may not merge identical pages.  */
++# define MADV_HUGEPAGE	  14	/* Worth backing with hugepages.  */
++# define MADV_NOHUGEPAGE  15	/* Not worth backing with hugepages.  */
+ # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+ #endif
+ 
+--- a/sysdeps/unix/sysv/linux/sparc/bits/socket.h	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/sparc/bits/socket.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* System-specific socket constants and types.  Linux/SPARC version.
+-   Copyright (C) 1991, 1992, 1994-2001, 2004, 2006, 2007, 2008, 2009
++   Copyright (C) 1991, 1992, 1994-2001, 2004, 2006, 2007, 2008, 2009, 2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -108,7 +108,9 @@
+ #define PF_ISDN		34	/* mISDN sockets.  */
+ #define PF_PHONET	35	/* Phonet sockets.  */
+ #define PF_IEEE802154	36	/* IEEE 802.15.4 sockets.  */
+-#define	PF_MAX		37	/* For now..  */
++#define PF_CAIF		37	/* CAIF sockets.  */
++#define PF_ALG		38	/* Algorithm sockets.  */
++#define	PF_MAX		39	/* For now..  */
+ 
+ /* Address families.  */
+ #define	AF_UNSPEC	PF_UNSPEC
+@@ -149,6 +151,8 @@
+ #define AF_ISDN		PF_ISDN
+ #define AF_PHONET	PF_PHONET
+ #define AF_IEEE802154	PF_IEEE802154
++#define AF_CAIF		PF_CAIF
++#define AF_ALG		PF_ALG
+ #define	AF_MAX		PF_MAX
+ 
+ /* Socket level values.  Others are defined in the appropriate headers.
+@@ -233,8 +237,8 @@
+ #define	MSG_MORE	MSG_MORE
+ 
+     MSG_CMSG_CLOEXEC	= 0x40000000	/* Set close_on_exit for file
+-                                           descriptor received through
+-                                           SCM_RIGHTS.  */
++					   descriptor received through
++					   SCM_RIGHTS.  */
+ #define MSG_CMSG_CLOEXEC MSG_CMSG_CLOEXEC
+   };
+ 
+--- a/sysdeps/unix/sysv/linux/i386/bits/mman.h	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/i386/bits/mman.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Definitions for POSIX memory map interface.  Linux/i386 version.
+-   Copyright (C) 1997,2000,2003,2005,2006,2009,2010
++   Copyright (C) 1997,2000,2003,2005,2006,2009,2010,2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -96,6 +96,8 @@
+ # define MADV_DOFORK	  11	/* Do inherit across fork.  */
+ # define MADV_MERGEABLE	  12	/* KSM may merge identical pages.  */
+ # define MADV_UNMERGEABLE 13	/* KSM may not merge identical pages.  */
++# define MADV_HUGEPAGE	  14	/* Worth backing with hugepages.  */
++# define MADV_NOHUGEPAGE  15	/* Not worth backing with hugepages.  */
+ # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+ #endif
+ 
+--- a/sysdeps/unix/sysv/linux/powerpc/powerpc64/sysdep.h	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/powerpc/powerpc64/sysdep.h	(revision 16211)
+@@ -172,7 +172,7 @@
+        : "r9", "r10", "r11", "r12",					\
+          "cr0", "ctr", "lr", "memory");					\
+ 	  err = (long int) r0;						\
+-    (int) r3;								\
++    r3;								\
+   })
+ 
+ #undef INLINE_SYSCALL
+@@ -219,7 +219,7 @@
+        : "r9", "r10", "r11", "r12",					\
+          "cr0", "ctr", "memory");					\
+ 	  err = r0;  \
+-    (int) r3;  \
++    r3;  \
+   })
+ #define INTERNAL_SYSCALL(name, err, nr, args...)			\
+   INTERNAL_SYSCALL_NCS (__NR_##name, err, nr, args)
+--- a/sysdeps/unix/sysv/linux/powerpc/bits/mman.h	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/powerpc/bits/mman.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Definitions for POSIX memory map interface.  Linux/PowerPC version.
+-   Copyright (C) 1997,2000,2003,2005,2006,2008,2009
++   Copyright (C) 1997,2000,2003,2005,2006,2008,2009,2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -96,6 +96,8 @@
+ # define MADV_DOFORK	  11	/* Do inherit across fork.  */
+ # define MADV_MERGEABLE	  12	/* KSM may merge identical pages.  */
+ # define MADV_UNMERGEABLE 13	/* KSM may not merge identical pages.  */
++# define MADV_HUGEPAGE	  14	/* Worth backing with hugepages.  */
++# define MADV_NOHUGEPAGE  15	/* Not worth backing with hugepages.  */
+ # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+ #endif
+ 
+--- a/sysdeps/unix/sysv/linux/mkdirat.c	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/mkdirat.c	(revision 16211)
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2005, 2006, 2009 Free Software Foundation, Inc.
++/* Copyright (C) 2005, 2006, 2009, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -43,7 +43,7 @@
+     {
+       res = INLINE_SYSCALL (mkdirat, 3, fd, file, mode);
+ # ifndef __ASSUME_ATFCTS
+-      if (res == -1 && res == ENOSYS)
++      if (res == -1 && errno == ENOSYS)
+ 	__have_atfcts = -1;
+       else
+ # endif
+--- a/sysdeps/unix/sysv/linux/bits/socket.h	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/bits/socket.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* System-specific socket constants and types.  Linux version.
+-   Copyright (C) 1991, 1992, 1994-2001, 2004, 2006, 2007, 2008, 2009
++   Copyright (C) 1991, 1992, 1994-2001, 2004, 2006-2010, 2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -109,7 +109,9 @@
+ #define PF_ISDN		34	/* mISDN sockets.  */
+ #define PF_PHONET	35	/* Phonet sockets.  */
+ #define PF_IEEE802154	36	/* IEEE 802.15.4 sockets.  */
+-#define	PF_MAX		37	/* For now..  */
++#define PF_CAIF		37	/* CAIF sockets.  */
++#define PF_ALG		38	/* Algorithm sockets.  */
++#define	PF_MAX		39	/* For now..  */
+ 
+ /* Address families.  */
+ #define	AF_UNSPEC	PF_UNSPEC
+@@ -150,6 +152,8 @@
+ #define AF_ISDN		PF_ISDN
+ #define AF_PHONET	PF_PHONET
+ #define AF_IEEE802154	PF_IEEE802154
++#define AF_CAIF		PF_CAIF
++#define AF_ALG		PF_ALG
+ #define	AF_MAX		PF_MAX
+ 
+ /* Socket level values.  Others are defined in the appropriate headers.
+--- a/sysdeps/unix/sysv/linux/sh/bits/mman.h	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/sh/bits/mman.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Definitions for POSIX memory map interface.  Linux/SH version.
+-   Copyright (C) 1997,1999,2000,2003,2005,2006,2009
++   Copyright (C) 1997,1999,2000,2003,2005,2006,2009,2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -94,6 +94,8 @@
+ # define MADV_DOFORK	  11	/* Do inherit across fork.  */
+ # define MADV_MERGEABLE	  12	/* KSM may merge identical pages.  */
+ # define MADV_UNMERGEABLE 13	/* KSM may not merge identical pages.  */
++# define MADV_HUGEPAGE	  14	/* Worth backing with hugepages.  */
++# define MADV_NOHUGEPAGE  15	/* Not worth backing with hugepages.  */
+ # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+ #endif
+ 
+--- a/sysdeps/unix/sysv/linux/x86_64/getcontext.S	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/x86_64/getcontext.S	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Save current context.
+-   Copyright (C) 2002, 2005 Free Software Foundation, Inc.
++   Copyright (C) 2002, 2005, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Andreas Jaeger <aj@suse.de>, 2002.
+ 
+@@ -62,6 +62,7 @@
+ 	movq	%rcx, oFPREGS(%rdi)
+ 	/* Save the floating-point environment.  */
+ 	fnstenv	(%rcx)
++	fldenv	(%rcx)
+ 	stmxcsr oMXCSR(%rdi)
+ 
+ 	/* Save the current signal mask with
+--- a/sysdeps/unix/sysv/linux/x86_64/____longjmp_chk.S	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/x86_64/____longjmp_chk.S	(revision 16211)
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2001,2004,2005,2006,2009,2010 Free Software Foundation, Inc.
++/* Copyright (C) 2001,2004,2005,2006,2009,2010,2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -30,19 +30,23 @@
+ //#define __longjmp ____longjmp_chk
+ 
+ #ifdef PIC
+-# define CALL_FAIL	leaq	longjmp_msg(%rip), %rdi;		      \
+-			call	__GI___fortify_fail
++# define CALL_FAIL	subq	$8, %rsp;				      \
++			cfi_remember_state;				      \
++			cfi_def_cfa_offset(16);				      \
++			leaq	longjmp_msg(%rip), %rdi;		      \
++			call	__GI___fortify_fail;			      \
++			nop;						      \
++			cfi_restore_state
+ #else
+-# define CALL_FAIL	movq	$longjmp_msg, %rdi;			      \
+-			call	__fortify_fail
++# define CALL_FAIL	subq	$8, %rsp;				      \
++			cfi_remember_state;				      \
++			cfi_def_cfa_offset(16);				      \
++			movq	$longjmp_msg, %rdi;			      \
++			call	__fortify_fail;				      \
++			nop;						      \
++			cfi_restore_state
+ #endif
+ 
+-#define CHECK_RSP(reg) \
+-	cmpq	reg, %rsp;						      \
+-	jbe	.Lok;							      \
+-	CALL_FAIL;							      \
+-.Lok:
+-
+ /* Jump to the position specified by ENV, causing the
+    setjmp call there to return VAL, or 1 if VAL is 0.
+    void __longjmp (__jmp_buf env, int val).  */
+--- a/sysdeps/unix/sysv/linux/x86_64/bits/mman.h	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/x86_64/bits/mman.h	(revision 16211)
+@@ -1,5 +1,6 @@
+ /* Definitions for POSIX memory map interface.  Linux/x86_64 version.
+-   Copyright (C) 2001,2003,2005,2006,2009,2010 Free Software Foundation, Inc.
++   Copyright (C) 2001,2003,2005,2006,2009,2010,2011
++   Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -96,6 +97,8 @@
+ # define MADV_DOFORK	  11	/* Do inherit across fork.  */
+ # define MADV_MERGEABLE	  12	/* KSM may merge identical pages.  */
+ # define MADV_UNMERGEABLE 13	/* KSM may not merge identical pages.  */
++# define MADV_HUGEPAGE	  14	/* Worth backing with hugepages.  */
++# define MADV_NOHUGEPAGE  15	/* Not worth backing with hugepages.  */
+ # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+ #endif
+ 
+--- a/sysdeps/unix/sysv/linux/ia64/bits/mman.h	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/ia64/bits/mman.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Definitions for POSIX memory map interface.  Linux/ia64 version.
+-   Copyright (C) 1997,1998,2000,2003,2005,2006,2009
++   Copyright (C) 1997,1998,2000,2003,2005,2006,2009,2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -95,6 +95,8 @@
+ # define MADV_DOFORK	  11	/* Do inherit across fork.  */
+ # define MADV_MERGEABLE	  12	/* KSM may merge identical pages.  */
+ # define MADV_UNMERGEABLE 13	/* KSM may not merge identical pages.  */
++# define MADV_HUGEPAGE	  14	/* Worth backing with hugepages.  */
++# define MADV_NOHUGEPAGE  15	/* Not worth backing with hugepages.  */
+ # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+ #endif
+ 
+--- a/sysdeps/unix/sysv/linux/wordsize-64/readdir_r.c	(revision 12231)
++++ b/sysdeps/unix/sysv/linux/wordsize-64/readdir_r.c	(revision 16211)
+@@ -1,4 +1,5 @@
+ #define readdir64_r __no_readdir64_r_decl
++#define GETDENTS_64BIT_ALIGNED 1
+ #include <sysdeps/unix/readdir_r.c>
+ #undef readdir64_r
+ weak_alias (__readdir_r, readdir64_r)
+--- a/sysdeps/unix/readdir_r.c	(revision 12231)
++++ b/sysdeps/unix/readdir_r.c	(revision 16211)
+@@ -117,7 +117,8 @@
+ #ifdef GETDENTS_64BIT_ALIGNED
+       /* The d_reclen value might include padding which is not part of
+ 	 the DIRENT_TYPE data structure.  */
+-      reclen = MIN (reclen, sizeof (DIRENT_TYPE));
++      reclen = MIN (reclen,
++		    offsetof (DIRENT_TYPE, d_name) + sizeof (dp->d_name));
+ #endif
+       *result = memcpy (entry, dp, reclen);
+ #ifdef GETDENTS_64BIT_ALIGNED
+--- a/sysdeps/pthread/aio_misc.c	(revision 12231)
++++ b/sysdeps/pthread/aio_misc.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Handle general operations.
+-   Copyright (C) 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2006, 2007, 2009
++   Copyright (C) 1997-2001, 2003, 2004, 2006, 2007, 2009, 2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Ulrich Drepper <drepper@cygnus.com>, 1997.
+@@ -26,6 +26,7 @@
+ #include <pthread.h>
+ #include <stdlib.h>
+ #include <unistd.h>
++#include <sys/param.h>
+ #include <sys/stat.h>
+ #include <sys/time.h>
+ #include <aio_misc.h>
+@@ -87,7 +88,7 @@
+ static struct aioinit optim =
+ {
+   20,	/* int aio_threads;	Maximal number of threads.  */
+-  64,	/* int aio_num;		Number of expected simultanious requests. */
++  64,	/* int aio_num;		Number of expected simultaneous requests. */
+   0,
+   0,
+   0,
+@@ -282,9 +283,10 @@
+   if (pool == NULL)
+     {
+       optim.aio_threads = init->aio_threads < 1 ? 1 : init->aio_threads;
++      assert (powerof2 (ENTRIES_PER_ROW));
+       optim.aio_num = (init->aio_num < ENTRIES_PER_ROW
+ 		       ? ENTRIES_PER_ROW
+-		       : init->aio_num & ~ENTRIES_PER_ROW);
++		       : init->aio_num & ~(ENTRIES_PER_ROW - 1));
+     }
+ 
+   if (init->aio_idle_time != 0)
+--- a/sysdeps/i386/dl-tls.h	(revision 12231)
++++ b/sysdeps/i386/dl-tls.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Thread-local storage handling in the ELF dynamic linker.  i386 version.
+-   Copyright (C) 2002, 2004 Free Software Foundation, Inc.
++   Copyright (C) 2002, 2004, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -58,3 +58,6 @@
+ 
+ # endif
+ #endif
++
++/* Value used for dtv entries for which the allocation is delayed.  */
++#define TLS_DTV_UNALLOCATED	((void *) -1l)
+--- a/sysdeps/i386/Makefile	(revision 12231)
++++ b/sysdeps/i386/Makefile	(revision 16211)
+@@ -51,6 +51,7 @@
+ # And a couple of other routines
+ ifeq ($(subdir),stdlib)
+ CFLAGS-exit.c += -mpreferred-stack-boundary=4
++CFLAGS-cxa_finalize.c += -mpreferred-stack-boundary=4
+ endif
+ ifeq ($(subdir),elf)
+ CFLAGS-dl-init.c += -mpreferred-stack-boundary=4
+--- a/sysdeps/i386/fpu/libm-test-ulps	(revision 12231)
++++ b/sysdeps/i386/fpu/libm-test-ulps	(revision 16211)
+@@ -857,8 +857,8 @@
+ ildouble: 2
+ ldouble: 2
+ Test "yn (10, 0.75) == -2133501638.90573424452445412893839236":
+-float: 1
+-ifloat: 1
++float: 2
++ifloat: 2
+ ildouble: 4
+ ldouble: 4
+ Test "yn (10, 1.0) == -121618014.278689189288130426667971145":
+--- a/sysdeps/wordsize-64/tst-writev.c	(revision 0)
++++ b/sysdeps/wordsize-64/tst-writev.c	(revision 16211)
+@@ -0,0 +1,107 @@
++/* Copyright (C) 2011 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Ryan S. Arnold <rsa@us.ibm.com>, 2011.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <fcntl.h>
++#include <paths.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
++#include <sys/uio.h>
++
++
++/* The purpose of this test is to verify that the INTERNAL_[V]SYSCALL_NCS
++   macros on 64-bit platforms don't cast the return type to (int) which would
++   erroneously sign extend the return value should the high bit of the bottom
++   half of the word be '1'.  */
++
++#if 0
++/* Used to test the non power-of-2 code path.  */
++#undef IOV_MAX
++#define IOV_MAX 1000
++#endif
++
++/* writev() should report that it has written EXPECTED number of bytes.  */
++#define EXPECTED ((size_t) INT32_MAX + 1)
++
++static int
++do_test (void)
++{
++  struct iovec iv[IOV_MAX];
++  /* POSIX doesn't guarantee that IOV_MAX is pow of 2 but we're optimistic.  */
++  size_t bufsz = EXPECTED / IOV_MAX;
++  size_t bufrem = EXPECTED % IOV_MAX;
++
++  /* If there's a remainder then IOV_MAX probably isn't a power of 2 and we
++     need to make bufsz bigger so that the last iovec, iv[IOV_MAX-1], is free
++     for the remainder.  */
++  if (bufrem)
++    {
++      bufsz = bufsz + 1;
++      bufrem = EXPECTED - (bufsz * (IOV_MAX - 1));
++    }
++
++  /* We writev to /dev/null since we're just testing writev's return value.  */
++  int fd = open (_PATH_DEVNULL, O_WRONLY);
++  if (fd == -1)
++    {
++      printf ("Unable to open /dev/null for writing.\n");
++      return -1;
++    }
++
++  iv[0].iov_base = malloc (bufsz);
++  if (iv[0].iov_base == NULL)
++    {
++      printf ("malloc (%zu) failed.\n", bufsz);
++      close (fd);
++      return -1;
++    }
++  iv[0].iov_len = bufsz;
++
++  /* We optimistically presume that there isn't a remainder and set all iovec
++     instances to the same base and len as the first instance.  */
++  for (int i = 1; i < IOV_MAX; i++)
++    {
++      /* We don't care what the data is so reuse the allocation from iv[0];  */
++      iv[i].iov_base = iv[0].iov_base;
++      iv[i].iov_len = iv[0].iov_len;
++    }
++
++  /* If there is a remainder then we correct the last iov_len.  */
++  if (bufrem)
++    iv[IOV_MAX - 1].iov_len = bufrem;
++
++  /* Write junk to /dev/null with the writev syscall in order to get a return
++     of INT32_MAX+1 bytes to verify that the INTERNAL_SYSCALL wrappers aren't
++     mangling the result if the signbit of a 32-bit number is set.  */
++  ssize_t ret = writev (fd, iv, IOV_MAX);
++
++  free (iv[0].iov_base);
++  close (fd);
++
++  if (ret != (ssize_t) EXPECTED)
++    {
++      printf ("writev() return value: %zd != EXPECTED: %zd\n", ret, EXPECTED);
++      return 1;
++    }
++
++  return 0;
++}
++
++#define TEST_FUNCTION do_test ()
++#include "../test-skeleton.c"
+--- a/sysdeps/s390/dl-tls.h	(revision 12231)
++++ b/sysdeps/s390/dl-tls.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Thread-local storage handling in the ELF dynamic linker.  s390 version.
+-   Copyright (C) 2003, 2004 Free Software Foundation, Inc.
++   Copyright (C) 2003, 2004, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -72,6 +72,9 @@
+ # define __TLS_GET_ADDR(__ti) \
+   ({ extern char _GLOBAL_OFFSET_TABLE_[] attribute_hidden;		  \
+      (void *) __tls_get_offset ((char *) (__ti) - _GLOBAL_OFFSET_TABLE_)  \
+-     + (unsigned long) __builtin_thread_pointer (); }) 
++     + (unsigned long) __builtin_thread_pointer (); })
+ 
+ #endif
++
++/* Value used for dtv entries for which the allocation is delayed.  */
++#define TLS_DTV_UNALLOCATED	((void *) -1l)
+--- a/sysdeps/x86_64/dl-tls.h	(revision 12231)
++++ b/sysdeps/x86_64/dl-tls.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Thread-local storage handling in the ELF dynamic linker.  x86-64 version.
+-   Copyright (C) 2002, 2005 Free Software Foundation, Inc.
++   Copyright (C) 2002, 2005, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -27,3 +27,6 @@
+ 
+ 
+ extern void *__tls_get_addr (tls_index *ti);
++
++/* Value used for dtv entries for which the allocation is delayed.  */
++#define TLS_DTV_UNALLOCATED	((void *) -1l)
+--- a/sysdeps/x86_64/fpu/e_powl.S	(revision 12231)
++++ b/sysdeps/x86_64/fpu/e_powl.S	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* ix87 specific implementation of pow function.
+-   Copyright (C) 1996, 1997, 1998, 1999, 2001, 2004, 2007
++   Copyright (C) 1996, 1997, 1998, 1999, 2001, 2004, 2007, 2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Ulrich Drepper <drepper@cygnus.com>, 1996.
+@@ -154,7 +154,7 @@
+ 	fucompp			// 1.0 : x : y
+ 	fnstsw
+ 	fxch			// x : 1.0 : y
+-	test	$4500,%eax
++	test	$0x4500,%eax
+ 	jz	7f
+ 	fsub	%st(1)		// x-1 : 1.0 : y
+ 	fyl2xp1			// log2(x) : y
+--- a/sysdeps/posix/spawni.c	(revision 12231)
++++ b/sysdeps/posix/spawni.c	(revision 16211)
+@@ -142,9 +142,7 @@
+     }
+   else if ((flags & POSIX_SPAWN_SETSCHEDULER) != 0)
+     {
+-      if (__sched_setscheduler (0, attrp->__policy,
+-				(flags & POSIX_SPAWN_SETSCHEDPARAM) != 0
+-				? &attrp->__sp : NULL) == -1)
++      if (__sched_setscheduler (0, attrp->__policy, &attrp->__sp) == -1)
+ 	_exit (SPAWN_ERROR);
+     }
+ #endif
+--- a/sysdeps/posix/getaddrinfo.c	(revision 12231)
++++ b/sysdeps/posix/getaddrinfo.c	(revision 16211)
+@@ -207,7 +207,7 @@
+       if (herrno == NETDB_INTERNAL)					      \
+ 	{								      \
+ 	  __set_h_errno (herrno);					      \
+-	  _res.options = old_res_options;				      \
++	  _res.options |= old_res_options & RES_USE_INET6;		      \
+ 	  return -EAI_SYSTEM;						      \
+ 	}								      \
+       if (herrno == TRY_AGAIN)						      \
+@@ -842,7 +842,7 @@
+ 		nip = nip->next;
+ 	    }
+ 
+-	  _res.options = old_res_options;
++	  _res.options |= old_res_options & RES_USE_INET6;
+ 
+ 	  if (no_data != 0 && no_inet6_data != 0)
+ 	    {
+@@ -963,6 +963,7 @@
+ 		   make a copy.  */
+ 		if (out == canon)
+ 		  goto make_copy;
++		canon = out;
+ 	      }
+ 	    else
+ #endif
+--- a/sysdeps/ia64/dl-tls.h	(revision 12231)
++++ b/sysdeps/ia64/dl-tls.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Thread-local storage handling in the ELF dynamic linker.  IA-64 version.
+-   Copyright (C) 2002, 2003 Free Software Foundation, Inc.
++   Copyright (C) 2002, 2003, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -28,3 +28,6 @@
+ #define DONT_USE_TLS_INDEX	1
+ 
+ extern void *__tls_get_addr (size_t m, size_t offset);
++
++/* Value used for dtv entries for which the allocation is delayed.  */
++#define TLS_DTV_UNALLOCATED	((void *) -1l)
+--- a/sysdeps/mach/hurd/ifreq.h	(revision 0)
++++ b/sysdeps/mach/hurd/ifreq.h	(revision 16211)
+@@ -0,0 +1,45 @@
++/* Copyright (C) 1999, 2002, 2003, 2011 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Andreas Jaeger <aj@suse.de>.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
++#include <net/if.h>
++#include <sys/socket.h>
++#include <sys/ioctl.h>
++#include <sys/mman.h>
++
++static inline struct ifreq *
++__if_nextreq (struct ifreq *ifr)
++{
++#ifdef _HAVE_SA_LEN
++  if (ifr->ifr_addr.sa_len > sizeof ifr->ifr_addr)
++    return (struct ifreq *) ((char *) &ifr->ifr_addr + ifr->ifr_addr.sa_len);
++#endif
++  return ifr + 1;
++}
++
++extern void __ifreq (struct ifreq **ifreqs, int *num_ifs, int sockfd);
++
++
++static inline void
++__if_freereq (struct ifreq *ifreqs, int num_ifs)
++{
++  munmap (ifreqs, num_ifs * sizeof (struct ifreq));
++}
+--- a/sysdeps/sparc/dl-tls.h	(revision 12231)
++++ b/sysdeps/sparc/dl-tls.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Thread-local storage handling in the ELF dynamic linker.  SPARC version.
+-   Copyright (C) 2003 Free Software Foundation, Inc.
++   Copyright (C) 2003, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -27,3 +27,6 @@
+ 
+ 
+ extern void *__tls_get_addr (tls_index *ti);
++
++/* Value used for dtv entries for which the allocation is delayed.  */
++#define TLS_DTV_UNALLOCATED	((void *) -1l)
+--- a/sysdeps/sh/dl-tls.h	(revision 12231)
++++ b/sysdeps/sh/dl-tls.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Thread-local storage handling in the ELF dynamic linker.  SH version.
+-   Copyright (C) 2002 Free Software Foundation, Inc.
++   Copyright (C) 2002, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -27,3 +27,6 @@
+ 
+ 
+ extern void *__tls_get_addr (tls_index *ti);
++
++/* Value used for dtv entries for which the allocation is delayed.  */
++#define TLS_DTV_UNALLOCATED	((void *) -1l)
+--- a/misc/mntent_r.c	(revision 12231)
++++ b/misc/mntent_r.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Utilities for reading/writing fstab, mtab, etc.
+-   Copyright (C) 1995-2000, 2001, 2002, 2003, 2006, 2010
++   Copyright (C) 1995-2000, 2001, 2002, 2003, 2006, 2010, 2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -263,8 +263,8 @@
+ 		   mntcopy.mnt_type,
+ 		   mntcopy.mnt_opts,
+ 		   mntcopy.mnt_freq,
+-		   mntcopy.mnt_passno)
+-	  < 0 ? 1 : 0);
++		   mntcopy.mnt_passno) < 0
++	  || fflush (stream) != 0);
+ }
+ weak_alias (__addmntent, addmntent)
+ 
+--- a/misc/error.c	(revision 12231)
++++ b/misc/error.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Error handler for noninteractive utilities
+-   Copyright (C) 1990-1998, 2000-2005, 2006 Free Software Foundation, Inc.
++   Copyright (C) 1990-1998, 2000-2006, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -277,7 +277,9 @@
+ 
+       if (old_line_number == line_number
+ 	  && (file_name == old_file_name
+-	      || strcmp (old_file_name, file_name) == 0))
++	      || (old_file_name != NULL
++		  && file_name != NULL
++		  && strcmp (old_file_name, file_name) == 0)))
+ 	/* Simply return and print nothing.  */
+ 	return;
+ 
+--- a/inet/getnameinfo.c	(revision 12231)
++++ b/inet/getnameinfo.c	(revision 16211)
+@@ -159,7 +159,7 @@
+ int
+ getnameinfo (const struct sockaddr *sa, socklen_t addrlen, char *host,
+ 	     socklen_t hostlen, char *serv, socklen_t servlen,
+-	     unsigned int flags)
++	     int flags)
+ {
+   int serrno = errno;
+   int tmpbuflen = 1024;
+@@ -385,7 +385,7 @@
+ 	break;
+ 
+       default:
+-        return EAI_FAMILY;
++	return EAI_FAMILY;
+     }
+ 
+   if (serv && (servlen > 0))
+--- a/nss/nss_files/files-hosts.c	(revision 12231)
++++ b/nss/nss_files/files-hosts.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Hosts file parser in nss_files module.
+-   Copyright (C) 1996-2001, 2003-2008, 2009 Free Software Foundation, Inc.
++   Copyright (C) 1996-2001, 2003-2009, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -129,19 +129,22 @@
+ 	  && _res_hconf.flags & HCONF_FLAG_MULTI)			      \
+ 	{								      \
+ 	  /* We have to get all host entries from the file.  */		      \
+-	  const size_t tmp_buflen = MIN (buflen, 4096);			      \
+-	  char tmp_buffer[tmp_buflen]					      \
++	  size_t tmp_buflen = MIN (buflen, 4096);			      \
++	  char tmp_buffer_stack[tmp_buflen]				      \
+ 	    __attribute__ ((__aligned__ (__alignof__ (struct hostent_data))));\
++	  char *tmp_buffer = tmp_buffer_stack;				      \
+ 	  struct hostent tmp_result_buf;				      \
+ 	  int naddrs = 1;						      \
+ 	  int naliases = 0;						      \
+ 	  char *bufferend;						      \
++	  bool tmp_buffer_malloced = false;				      \
+ 									      \
+ 	  while (result->h_aliases[naliases] != NULL)			      \
+ 	    ++naliases;							      \
+ 									      \
+ 	  bufferend = (char *) &result->h_aliases[naliases + 1];	      \
+ 									      \
++	again:								      \
+ 	  while ((status = internal_getent (&tmp_result_buf, tmp_buffer,      \
+ 					    tmp_buflen, errnop H_ERRNO_ARG    \
+ 					    EXTRA_ARGS_VALUE))		      \
+@@ -182,7 +185,7 @@
+ 		    }							      \
+ 		  /* If the real name is different add it also to the	      \
+ 		     aliases.  This means that there is a duplication	      \
+-		     in the alias list but this is really the users	      \
++		     in the alias list but this is really the user's	      \
+ 		     problem.  */					      \
+ 		  if (strcmp (old_result->h_name,			      \
+ 			      tmp_result_buf.h_name) != 0)		      \
+@@ -204,7 +207,7 @@
+ 		      *errnop = ERANGE;					      \
+ 		      *herrnop = NETDB_INTERNAL;			      \
+ 		      status = NSS_STATUS_TRYAGAIN;			      \
+-		      break;						      \
++		      goto out;						      \
+ 		    }							      \
+ 									      \
+ 		  new_h_addr_list =					      \
+@@ -268,8 +271,54 @@
+ 		}							      \
+ 	    }								      \
+ 									      \
+-	  if (status != NSS_STATUS_TRYAGAIN)				      \
++	  if (status == NSS_STATUS_TRYAGAIN)				      \
++	    {								      \
++	      size_t newsize = 2 * tmp_buflen;				      \
++	      if (tmp_buffer_malloced)					      \
++		{							      \
++		  char *newp = realloc (tmp_buffer, newsize);		      \
++		  if (newp != NULL)					      \
++		    {							      \
++		      assert ((((uintptr_t) newp)			      \
++			       & (__alignof__ (struct hostent_data) - 1))     \
++			      == 0);					      \
++		      tmp_buffer = newp;				      \
++		      tmp_buflen = newsize;				      \
++		      goto again;					      \
++		    }							      \
++		}							      \
++	      else if (!__libc_use_alloca (buflen + newsize))		      \
++		{							      \
++		  tmp_buffer = malloc (newsize);			      \
++		  if (tmp_buffer != NULL)				      \
++		    {							      \
++		      assert ((((uintptr_t) tmp_buffer)			      \
++			       & (__alignof__ (struct hostent_data) - 1))     \
++			      == 0);					      \
++		      tmp_buffer_malloced = true;			      \
++		      tmp_buflen = newsize;				      \
++		      goto again;					      \
++		    }							      \
++		}							      \
++	      else							      \
++		{							      \
++		  tmp_buffer						      \
++		    = extend_alloca (tmp_buffer, tmp_buflen,		      \
++				     newsize				      \
++				     + __alignof__ (struct hostent_data));    \
++		  tmp_buffer = (char *) (((uintptr_t) tmp_buffer	      \
++					  + __alignof__ (struct hostent_data) \
++					  - 1)				      \
++					 & ~(__alignof__ (struct hostent_data)\
++					     - 1));			      \
++		  goto again;						      \
++		}							      \
++	    }								      \
++	  else								      \
+ 	    status = NSS_STATUS_SUCCESS;				      \
++	out:								      \
++	  if (tmp_buffer_malloced)					      \
++	    free (tmp_buffer);						      \
+ 	}								      \
+ 									      \
+ 									      \
+--- a/string/bits/string3.h	(revision 12231)
++++ b/string/bits/string3.h	(revision 16211)
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2004, 2005, 2007, 2009 Free Software Foundation, Inc.
++/* Copyright (C) 2004, 2005, 2007, 2009, 2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -53,8 +53,7 @@
+ }
+ 
+ __extern_always_inline void *
+-__NTH (memmove (void *__restrict __dest, __const void *__restrict __src,
+-		size_t __len))
++__NTH (memmove (void *__dest, __const void *__src, size_t __len))
+ {
+   return __builtin___memmove_chk (__dest, __src, __len, __bos0 (__dest));
+ }
+@@ -88,8 +87,7 @@
+ 
+ #ifdef __USE_BSD
+ __extern_always_inline void
+-__NTH (bcopy (__const void *__restrict __src, void *__restrict __dest,
+-	      size_t __len))
++__NTH (bcopy (__const void *__src, void *__dest, size_t __len))
+ {
+   (void) __builtin___memmove_chk (__dest, __src, __len, __bos0 (__dest));
+ }
+--- a/iconv/loop.c	(revision 12231)
++++ b/iconv/loop.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Conversion loop frame work.
+-   Copyright (C) 1998-2002, 2003, 2005, 2008 Free Software Foundation, Inc.
++   Copyright (C) 1998-2003, 2005, 2008, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Ulrich Drepper <drepper@cygnus.com>, 1998.
+ 
+@@ -399,6 +399,9 @@
+     {
+       *inptrp = inend;
+ #ifdef STORE_REST
++      while (inptr < inend)
++	bytebuf[inlen++] = *inptr++;
++
+       inptr = bytebuf;
+       inptrp = &inptr;
+       inend = &bytebuf[inlen];
+--- a/math/test-powl.c	(revision 0)
++++ b/math/test-powl.c	(revision 16211)
+@@ -0,0 +1,51 @@
++/* Test for powl
++   Copyright (C) 2011 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <stdio.h>
++#include <math.h>
++#include <float.h>
++#include <ieee754.h>
++
++int
++main (void)
++{
++  int result = 0;
++
++#ifndef NO_LONG_DOUBLE
++# if LDBL_MANT_DIG == 64
++    {
++      long double x = 1e-20;
++      union ieee854_long_double u;
++      u.ieee.mantissa0 = 1;
++      u.ieee.mantissa1 = 1;
++      u.ieee.exponent = 0;
++      u.ieee.negative = 0;
++      (void) powl (0.2, u.d);
++      x = powl (x, 1.5);
++      if (fabsl (x - 1e-30) > 1e-10)
++	{
++	  printf ("powl (1e-20, 1.5): wrong result: %Lg\n", x);
++	  result = 1;
++	}
++    }
++# endif
++#endif
++
++  return result;
++}
+--- a/math/Makefile	(revision 12231)
++++ b/math/Makefile	(revision 16211)
+@@ -92,7 +92,8 @@
+ # Rules for the test suite.
+ tests = test-matherr test-fenv atest-exp atest-sincos atest-exp2 basic-test \
+ 	test-misc test-fpucw tst-definitions test-tgmath test-tgmath-ret \
+-	bug-nextafter bug-nexttoward bug-tgmath1 test-tgmath-int test-tgmath2
++	bug-nextafter bug-nexttoward bug-tgmath1 test-tgmath-int \
++	test-tgmath2 test-powl
+ # We do the `long double' tests only if this data type is available and
+ # distinct from `double'.
+ test-longdouble-yes = test-ldouble test-ildoubl
+@@ -133,6 +134,7 @@
+ CFLAGS-test-tgmath.c = -fno-builtin
+ CFLAGS-test-tgmath2.c = -fno-builtin
+ CFLAGS-test-tgmath-ret.c = -fno-builtin
++CFLAGS-test-powl.c = -fno-builtin
+ CPPFLAGS-test-ifloat.c = -U__LIBC_INTERNAL_MATH_INLINES -D__FAST_MATH__ \
+ 			 -DTEST_FAST_MATH -fno-builtin
+ CPPFLAGS-test-idouble.c = -U__LIBC_INTERNAL_MATH_INLINES -D__FAST_MATH__ \
+--- a/malloc/malloc.c	(revision 12231)
++++ b/malloc/malloc.c	(revision 16211)
+@@ -2832,7 +2832,7 @@
+   max_fast_bin = fastbin_index(get_max_fast ());
+ 
+   for (i = 0; i < NFASTBINS; ++i) {
+-    p = av->fastbins[i];
++    p = fastbin (av, i);
+ 
+     /* The following test can only be performed for the main arena.
+        While mallopt calls malloc_consolidate to get rid of all fast
+--- a/nptl/ChangeLog	(revision 12231)
++++ b/nptl/ChangeLog	(revision 16211)
+@@ -1,3 +1,21 @@
++2011-05-11  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #386]
++	* allocatestack.c (allocate_stack): Convert ENOMEM error to EAGAIN.
++
++2011-04-10  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #12650]
++	* allocatestack.c (get_cached_stack): Deallocate DTV entries before
++	clearing memory.
++	Patch partly by Robert Rex <robert.rex@exasol.com>.
++
++2011-01-13  Ulrich Drepper  <drepper@gmail.com>
++
++	[BZ #10484]
++	* Versions [libc] (GLIBC_PRIVATE): Export __libc_alloca_cutoff.
++	* alloca_cutoff.c: Add libc_hidden_def.
++
+ 2010-08-12  H.J. Lu  <hongjiu.lu@intel.com>
+ 
+ 	* nptl/sysdeps/unix/sysv/linux/i386/Makefile: New file.
+--- a/nptl/alloca_cutoff.c	(revision 12231)
++++ b/nptl/alloca_cutoff.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Determine whether block of given size can be allocated on the stack or not.
+-   Copyright (C) 2002 Free Software Foundation, Inc.
++   Copyright (C) 2002, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -34,3 +34,4 @@
+ 			  assume the maximum available stack space.  */
+ 		       ?: __MAX_ALLOCA_CUTOFF * 4));
+ }
++libc_hidden_def (__libc_alloca_cutoff)
+--- a/nptl/allocatestack.c	(revision 12231)
++++ b/nptl/allocatestack.c	(revision 16211)
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2002-2007, 2009 Free Software Foundation, Inc.
++/* Copyright (C) 2002-2007, 2009, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Ulrich Drepper <drepper@redhat.com>, 2002.
+ 
+@@ -26,6 +26,7 @@
+ #include <sys/mman.h>
+ #include <sys/param.h>
+ #include <dl-sysdep.h>
++#include <dl-tls.h>
+ #include <tls.h>
+ #include <lowlevellock.h>
+ #include <kernel-features.h>
+@@ -238,6 +239,10 @@
+ 
+   /* Clear the DTV.  */
+   dtv_t *dtv = GET_DTV (TLS_TPADJ (result));
++  for (size_t cnt = 0; cnt < dtv[-1].counter; ++cnt)
++    if (! dtv[1 + cnt].pointer.is_static
++	&& dtv[1 + cnt].pointer.val != TLS_DTV_UNALLOCATED)
++      free (dtv[1 + cnt].pointer.val);
+   memset (dtv, '\0', (dtv[-1].counter + 1) * sizeof (dtv_t));
+ 
+   /* Re-initialize the TLS.  */
+@@ -623,7 +628,7 @@
+ 	    {
+ 	      int err;
+ 	    mprot_error:
+-	      err = errno;
++	      err = errno == ENOMEM ? EAGAIN : errno;
+ 
+ 	      lll_lock (stack_cache_lock, LLL_PRIVATE);
+ 
+--- a/nptl/Versions	(revision 12231)
++++ b/nptl/Versions	(revision 16211)
+@@ -27,6 +27,7 @@
+     pthread_cond_broadcast; pthread_cond_timedwait;
+   }
+   GLIBC_PRIVATE {
++    __libc_alloca_cutoff;
+     # Internal libc interface to libpthread
+     __libc_dl_error_tsd;
+   }
+--- a/login/programs/pt_chown.c	(revision 12231)
++++ b/login/programs/pt_chown.c	(revision 16211)
+@@ -64,7 +64,7 @@
+ Copyright (C) %s Free Software Foundation, Inc.\n\
+ This is free software; see the source for copying conditions.  There is NO\n\
+ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\
+-"), "1999");
++"), "2011");
+ }
+ 
+ static char *
+@@ -123,7 +123,7 @@
+ 
+   /* Set the owner to the real user ID, and the group to that special
+      group ID.  */
+-  if (st.st_gid != gid && chown (pty, getuid (), gid) < 0)
++  if (chown (pty, getuid (), gid) < 0)
+     return FAIL_EACCES;
+ 
+   /* Set the permission mode to readable and writable by the owner,
+--- a/shadow/sgetspent.c	(revision 12231)
++++ b/shadow/sgetspent.c	(revision 16211)
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 1996, 1997 Free Software Foundation, Inc.
++/* Copyright (C) 1996, 1997, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -49,8 +49,8 @@
+     }
+ 
+   while (buffer != NULL
+-	 && __sgetspent_r (string, &resbuf, buffer, buffer_size, &result) != 0
+-	 && errno == ERANGE)
++	 && (__sgetspent_r (string, &resbuf, buffer, buffer_size, &result)
++	     == ERANGE))
+     {
+       char *new_buf;
+       buffer_size += BUFLEN_SPWD;
+--- a/posix/regex_internal.c	(revision 12231)
++++ b/posix/regex_internal.c	(revision 16211)
+@@ -237,14 +237,9 @@
+       else
+ 	p = (const char *) pstr->raw_mbs + pstr->raw_mbs_idx + byte_idx;
+       mbclen = __mbrtowc (&wc, p, remain_len, &pstr->cur_state);
+-      if (BE (mbclen == (size_t) -2, 0))
++      if (BE (mbclen == (size_t) -1 || mbclen == 0
++	      || (mbclen == (size_t) -2 && pstr->bufs_len >= pstr->len), 0))
+ 	{
+-	  /* The buffer doesn't have enough space, finish to build.  */
+-	  pstr->cur_state = prev_st;
+-	  break;
+-	}
+-      else if (BE (mbclen == (size_t) -1 || mbclen == 0, 0))
+-	{
+ 	  /* We treat these cases as a singlebyte character.  */
+ 	  mbclen = 1;
+ 	  wc = (wchar_t) pstr->raw_mbs[pstr->raw_mbs_idx + byte_idx];
+@@ -252,6 +247,12 @@
+ 	    wc = pstr->trans[wc];
+ 	  pstr->cur_state = prev_st;
+ 	}
++      else if (BE (mbclen == (size_t) -2, 0))
++	{
++	  /* The buffer doesn't have enough space, finish to build.  */
++	  pstr->cur_state = prev_st;
++	  break;
++	}
+ 
+       /* Write wide character and padding.  */
+       pstr->wcs[byte_idx++] = wc;
+@@ -334,9 +335,11 @@
+ 	      for (remain_len = byte_idx + mbclen - 1; byte_idx < remain_len ;)
+ 		pstr->wcs[byte_idx++] = WEOF;
+ 	    }
+-	  else if (mbclen == (size_t) -1 || mbclen == 0)
++	  else if (mbclen == (size_t) -1 || mbclen == 0
++		   || (mbclen == (size_t) -2 && pstr->bufs_len >= pstr->len))
+ 	    {
+-	      /* It is an invalid character or '\0'.  Just use the byte.  */
++	      /* It is an invalid character, an incomplete character
++		 at the end of the string, or '\0'.  Just use the byte.  */
+ 	      int ch = pstr->raw_mbs[pstr->raw_mbs_idx + byte_idx];
+ 	      pstr->mbs[byte_idx] = ch;
+ 	      /* And also cast it to wide char.  */
+@@ -449,7 +452,8 @@
+ 	    for (remain_len = byte_idx + mbclen - 1; byte_idx < remain_len ;)
+ 	      pstr->wcs[byte_idx++] = WEOF;
+ 	  }
+-	else if (mbclen == (size_t) -1 || mbclen == 0)
++	else if (mbclen == (size_t) -1 || mbclen == 0
++		 || (mbclen == (size_t) -2 && pstr->bufs_len >= pstr->len))
+ 	  {
+ 	    /* It is an invalid character or '\0'.  Just use the byte.  */
+ 	    int ch = pstr->raw_mbs[pstr->raw_mbs_idx + src_idx];
+--- a/posix/regexec.c	(revision 12231)
++++ b/posix/regexec.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Extended regular expression matching and search library.
+-   Copyright (C) 2002, 2003, 2004, 2005, 2007, 2009 Free Software Foundation, Inc.
++   Copyright (C) 2002-2005,2007,2009,2010,2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Isamu Hasegawa <isamu@yamato.ibm.com>.
+ 
+@@ -1120,12 +1120,13 @@
+       re_dfastate_t *old_state = cur_state;
+       int next_char_idx = re_string_cur_idx (&mctx->input) + 1;
+ 
+-      if (BE (next_char_idx >= mctx->input.bufs_len, 0)
+-          || (BE (next_char_idx >= mctx->input.valid_len, 0)
+-              && mctx->input.valid_len < mctx->input.len))
+-        {
+-          err = extend_buffers (mctx);
+-          if (BE (err != REG_NOERROR, 0))
++      if ((BE (next_char_idx >= mctx->input.bufs_len, 0)
++	   && mctx->input.bufs_len < mctx->input.len)
++	  || (BE (next_char_idx >= mctx->input.valid_len, 0)
++	      && mctx->input.valid_len < mctx->input.len))
++	{
++	  err = extend_buffers (mctx);
++	  if (BE (err != REG_NOERROR, 0))
+ 	    {
+ 	      assert (err == REG_ESPACE);
+ 	      return -2;
+@@ -1696,7 +1697,8 @@
+ {
+   int top = mctx->state_log_top;
+ 
+-  if (next_state_log_idx >= mctx->input.bufs_len
++  if ((next_state_log_idx >= mctx->input.bufs_len
++       && mctx->input.bufs_len < mctx->input.len)
+       || (next_state_log_idx >= mctx->input.valid_len
+ 	  && mctx->input.valid_len < mctx->input.len))
+     {
+@@ -3333,6 +3335,8 @@
+ 	{
+ 	  state->trtable = (re_dfastate_t **)
+ 	    calloc (sizeof (re_dfastate_t *), SBC_MAX);
++	  if (BE (state->trtable == NULL, 0))
++	    return 0;
+ 	  return 1;
+ 	}
+       return 0;
+@@ -4066,7 +4070,7 @@
+   re_string_t *pstr = &mctx->input;
+ 
+   /* Double the lengthes of the buffers.  */
+-  ret = re_string_realloc_buffers (pstr, pstr->bufs_len * 2);
++  ret = re_string_realloc_buffers (pstr, MIN (pstr->len, pstr->bufs_len * 2));
+   if (BE (ret != REG_NOERROR, 0))
+     return ret;
+ 
+--- a/posix/Makefile	(revision 12231)
++++ b/posix/Makefile	(revision 16211)
+@@ -106,7 +106,7 @@
+ 		   tst-fnmatch2 tst-cpucount tst-cpuset
+ tests-$(OPTION_EGLIBC_LOCALE_CODE)					    \
+ 		+= tst-fnmatch tst-regexloc bug-regex1 bug-regex5 \
+-		   bug-regex23 bug-regex25
++		   bug-regex23 bug-regex25 bug-regex32
+ tests-$(OPTION_EGLIBC_INET) \
+ 	        += tst-getaddrinfo bug-ga1 tst-getaddrinfo2 \
+ 		   tst-rfc3484 tst-rfc3484-2 tst-rfc3484-3 tst-getaddrinfo3
+--- a/posix/bug-regex32.c	(revision 0)
++++ b/posix/bug-regex32.c	(revision 16211)
+@@ -0,0 +1,36 @@
++// BZ 12811
++#include <regex.h>
++#include <stdio.h>
++#include <locale.h>
++
++static int
++do_test (void)
++{
++  char buf[1000];
++  regex_t preg;
++  if (setlocale (LC_CTYPE, "de_DE.UTF-8") == NULL)
++    {
++      puts ("setlocale failed");
++      return 1;
++    }
++
++  int e = regcomp (&preg, ".*ab", REG_ICASE);
++  if (e != 0)
++    {
++      regerror (e, &preg, buf, sizeof (buf));
++      printf ("regcomp = %d \"%s\"\n", e, buf);
++      return 1;
++    }
++
++  // Incomplete character at the end of the buffer
++  e = regexec (&preg, "aaaaaaaaaaaa\xc4", 0, NULL, 0);
++
++  regfree (&preg);
++  regerror (e, &preg, buf, sizeof (buf));
++  printf ("regexec = %d \"%s\"\n", e, buf);
++
++  return e != REG_NOMATCH;
++}
++
++#define TEST_FUNCTION do_test ()
++#include "../test-skeleton.c"
+--- a/posix/fnmatch.c	(revision 12231)
++++ b/posix/fnmatch.c	(revision 16211)
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 1991,1992,1993,1996,1997,1998,1999,2000,2001,2002,2003,2007,2010
++/* Copyright (C) 1991,1992,1993,1996,1997,1998,1999,2000,2001,2002,2003,2007,2010,2011
+ 	Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -379,6 +379,11 @@
+ 	       XXX Do we have to set `errno' to something which mbsrtows hasn't
+ 	       already done?  */
+ 	    return -1;
++	  if (__builtin_expect (n >= (size_t) -1 / sizeof (wchar_t), 0))
++	    {
++	      __set_errno (ENOMEM);
++	      return -2;
++	    }
+ 	  wpattern_malloc = wpattern
+ 	    = (wchar_t *) malloc ((n + 1) * sizeof (wchar_t));
+ 	  assert (mbsinit (&ps));
+@@ -423,6 +428,12 @@
+ 	       XXX Do we have to set `errno' to something which mbsrtows hasn't
+ 	       already done?  */
+ 	    goto free_return;
++	  if (__builtin_expect (n >= (size_t) -1 / sizeof (wchar_t), 0))
++	    {
++	      free (wpattern_malloc);
++	      __set_errno (ENOMEM);
++	      return -2;
++	    }
+ 
+ 	  wstring_malloc = wstring
+ 	    = (wchar_t *) malloc ((n + 1) * sizeof (wchar_t));
+--- a/stdio-common/printf_fp.c	(revision 12231)
++++ b/stdio-common/printf_fp.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Floating point output for `printf'.
+-   Copyright (C) 1995-2003, 2006, 2007, 2008 Free Software Foundation, Inc.
++   Copyright (C) 1995-2003, 2006-2008, 2011 Free Software Foundation, Inc.
+ 
+    This file is part of the GNU C Library.
+    Written by Ulrich Drepper <drepper@gnu.ai.mit.edu>, 1995.
+@@ -906,7 +906,9 @@
+ 	/* Guess the number of groups we will make, and thus how
+ 	   many spaces we need for separator characters.  */
+ 	ngroups = __guess_grouping (intdig_max, grouping);
+-	chars_needed += ngroups;
++	/* Allocate one more character in case rounding increases the
++	   number of groups.  */
++	chars_needed += ngroups + 1;
+       }
+ 
+     /* Allocate buffer for output.  We need two more because while rounding
+@@ -1110,10 +1112,17 @@
+       --wcp;
+ 
+     if (grouping)
+-      /* Add in separator characters, overwriting the same buffer.  */
+-      wcp = group_number (wstartp, wcp, intdig_no, grouping, thousands_sepwc,
+-			  ngroups);
++      {
++	/* Rounding might have changed the number of groups.  We allocated
++	   enough memory but we need here the correct number of groups.  */
++	if (intdig_no != intdig_max)
++	  ngroups = __guess_grouping (intdig_no, grouping);
+ 
++	/* Add in separator characters, overwriting the same buffer.  */
++	wcp = group_number (wstartp, wcp, intdig_no, grouping, thousands_sepwc,
++			    ngroups);
++      }
++
+     /* Write the exponent if it is needed.  */
+     if (type != 'f')
+       {
+@@ -1232,7 +1241,7 @@
+ 
+       tmpptr = buffer;
+       if (__builtin_expect (info->i18n, 0))
+-        {
++	{
+ #ifdef COMPILE_WPRINTF
+ 	  wstartp = _i18n_number_rewrite (wstartp, wcp,
+ 					  wbuffer + wbuffer_to_alloc);
+@@ -1246,7 +1255,7 @@
+ 	  assert ((uintptr_t) buffer <= (uintptr_t) tmpptr);
+ 	  assert ((uintptr_t) tmpptr < (uintptr_t) buffer_end);
+ #endif
+-        }
++	}
+ 
+       PRINT (tmpptr, wstartp, wide ? wcp - wstartp : cp - tmpptr);
+ 
+--- a/stdio-common/tst-grouping.c	(revision 0)
++++ b/stdio-common/tst-grouping.c	(revision 16211)
+@@ -0,0 +1,83 @@
++/* BZ 12394, test by Bruno Haible.  */
++#include <locale.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++
++static int
++do_test (void)
++{
++  char buf1[1000];
++  char buf2[1000];
++  int result = 0;
++
++  if (setlocale (LC_NUMERIC, "de_DE.UTF-8") == NULL)
++    return 1;
++
++  sprintf (buf1, "%'.2f",  999.996);
++  sprintf (buf2, "%'.2f", 1000.004);
++  printf ("%d: \"%s\" vs \"%s\"\n", __LINE__, buf1, buf2);
++  if (strcmp (buf1, buf2) != 0)
++    result |= 2;
++
++  sprintf (buf1, "%'.2f",  999999.996);
++  sprintf (buf2, "%'.2f", 1000000.004);
++  printf ("%d: \"%s\" vs \"%s\"\n", __LINE__, buf1, buf2);
++  if (strcmp (buf1, buf2) != 0)
++    result |= 2;
++
++  sprintf (buf1, "%'.2f",  999999999.996);
++  sprintf (buf2, "%'.2f", 1000000000.004);
++  printf ("%d: \"%s\" vs \"%s\"\n", __LINE__, buf1, buf2);
++  if (strcmp (buf1, buf2) != 0)
++    result |= 2;
++
++  sprintf (buf1, "%'.2f",  999999999999.996);
++  sprintf (buf2, "%'.2f", 1000000000000.004);
++  printf ("%d: \"%s\" vs \"%s\"\n", __LINE__, buf1, buf2);
++  if (strcmp (buf1, buf2) != 0)
++    result |= 2;
++
++  sprintf (buf1, "%'.2f",  999999999999999.996);
++  sprintf (buf2, "%'.2f", 1000000000000000.004);
++  printf ("%d: \"%s\" vs \"%s\"\n", __LINE__, buf1, buf2);
++  if (strcmp (buf1, buf2) != 0)
++    result |= 2;
++
++  sprintf (buf1, "%'.5g",  999.996);
++  sprintf (buf2, "%'.5g", 1000.004);
++  printf ("%d: \"%s\" vs \"%s\"\n", __LINE__, buf1, buf2);
++  if (strcmp (buf1, buf2) != 0)
++    result |= 4;
++
++  sprintf (buf1, "%'.4g",  9999.996);
++  sprintf (buf2, "%'.4g", 10000.004);
++  printf ("%d: \"%s\" vs \"%s\"\n", __LINE__, buf1, buf2);
++  if (strcmp (buf1, buf2) != 0)
++    result |= 8;
++
++  sprintf (buf1, "%'.5g",  99999.996);
++  sprintf (buf2, "%'.5g", 100000.004);
++  printf ("%d: \"%s\" vs \"%s\"\n", __LINE__, buf1, buf2);
++  if (strcmp (buf1, buf2) != 0)
++    result |= 8;
++
++  sprintf (buf1, "%'.6g",  999999.996);
++  sprintf (buf2, "%'.6g", 1000000.004);
++  printf ("%d: \"%s\" vs \"%s\"\n", __LINE__, buf1, buf2);
++  if (strcmp (buf1, buf2) != 0)
++    result |= 8;
++
++  sprintf (buf1, "%'.7g",  9999999.996);
++  sprintf (buf2, "%'.7g", 10000000.004);
++  printf ("%d: \"%s\" vs \"%s\"\n", __LINE__, buf1, buf2);
++  if (strcmp (buf1, buf2) != 0)
++    result |= 8;
++
++  return result;
++}
++
++
++#define TEST_FUNCTION do_test ()
++#include "../test-skeleton.c"
+--- a/stdio-common/_i18n_number.h	(revision 12231)
++++ b/stdio-common/_i18n_number.h	(revision 16211)
+@@ -33,8 +33,8 @@
+ # define decimal NULL
+ # define thousands NULL
+ #else
+-  char decimal[MB_LEN_MAX];
+-  char thousands[MB_LEN_MAX];
++  char decimal[MB_LEN_MAX + 1];
++  char thousands[MB_LEN_MAX + 1];
+ #endif
+ 
+   /* "to_outpunct" is a map from ASCII decimal point and thousands-sep
+@@ -50,13 +50,19 @@
+       mbstate_t state;
+       memset (&state, '\0', sizeof (state));
+ 
+-      if (__wcrtomb (decimal, wdecimal, &state) == (size_t) -1)
++      size_t n = __wcrtomb (decimal, wdecimal, &state);
++      if (n == (size_t) -1)
+ 	memcpy (decimal, ".", 2);
++      else
++	decimal[n] = '\0';
+ 
+       memset (&state, '\0', sizeof (state));
+ 
+-      if (__wcrtomb (thousands, wthousands, &state) == (size_t) -1)
++      n = __wcrtomb (thousands, wthousands, &state);
++      if (n == (size_t) -1)
+ 	memcpy (thousands, ",", 2);
++      else
++	thousands[n] = '\0';
+     }
+ #endif
+ 
+--- a/stdio-common/bug23.c	(revision 0)
++++ b/stdio-common/bug23.c	(revision 16211)
+@@ -0,0 +1,21 @@
++#include <stdio.h>
++#include <string.h>
++
++static char buf[32768];
++static const char expected[] = "\
++\n\
++a\n\
++abbcd55%%%%%%%%%%%%%%%%%%%%%%%%%%\n";
++
++static int
++do_test (void)
++{
++  snprintf (buf, sizeof (buf),
++	    "\n%1$s\n" "%1$s" "%2$s" "%2$s" "%3$s" "%4$s" "%5$d" "%5$d"
++	    "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n",
++	    "a", "b", "c", "d", 5);
++  return strcmp (buf, expected) != 0;
++}
++
++#define TEST_FUNCTION do_test ()
++#include "../test-skeleton.c"
+--- a/stdio-common/Makefile	(revision 12231)
++++ b/stdio-common/Makefile	(revision 16211)
+@@ -1,4 +1,4 @@
+-# Copyright (C) 1991-2006, 2007, 2008, 2009 Free Software Foundation, Inc.
++# Copyright (C) 1991-2009, 2011 Free Software Foundation, Inc.
+ # This file is part of the GNU C Library.
+ 
+ # The GNU C Library is free software; you can redistribute it and/or
+@@ -68,9 +68,9 @@
+ 	 tst-popen tst-unlockedio tst-fmemopen2 tst-put-error tst-fgets \
+ 	 tst-fwrite bug16 bug17 tst-sprintf2 bug18 \
+ 	 bug19 tst-popen2 scanf14 scanf15 bug21 bug22 scanf16 scanf17 \
+-	 tst-setvbuf1
++	 tst-setvbuf1 bug23
+ tests-$(OPTION_EGLIBC_LOCALE_CODE) \
+-      += tst-sscanf tst-swprintf bug15 test-vfprintf bug14 scanf13
++      += tst-sscanf tst-swprintf bug15 test-vfprintf bug14 scanf13 tst-grouping
+ tests-$(OPTION_POSIX_WIDE_CHAR_DEVICE_IO) \
+       += tst-perror bug19a bug20
+ tests-$(OPTION_POSIX_C_LANG_WIDE_CHAR) \
+@@ -142,6 +142,7 @@
+ scanf13-ENV = LOCPATH=$(common-objpfx)localedata
+ bug14-ENV = LOCPATH=$(common-objpfx)localedata
+ bug15-ENV = LOCPATH=$(common-objpfx)localedata
++tst-grouping-ENV = LOCPATH=$(common-objpfx)localedata
+ 
+ ifneq (,$(filter %REENTRANT, $(defines)))
+ CPPFLAGS += -D_IO_MTSAFE_IO
+--- a/stdio-common/vfprintf.c	(revision 12231)
++++ b/stdio-common/vfprintf.c	(revision 16211)
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 1991-2008, 2009   Free Software Foundation, Inc.
++/* Copyright (C) 1991-2008, 2009, 2011   Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -1699,7 +1699,8 @@
+ 	  {
+ 	    /* Extend the array of format specifiers.  */
+ 	    struct printf_spec *old = specs;
+-	    specs = extend_alloca (specs, nspecs_max, 2 * nspecs_max);
++	    specs = extend_alloca (specs, nspecs_max,
++				   2 * nspecs_max * sizeof (*specs));
+ 
+ 	    /* Copy the old array's elements to the new space.  */
+ 	    memmove (specs, old, nspecs * sizeof (struct printf_spec));
+--- a/stdio-common/printf-parsemb.c	(revision 12231)
++++ b/stdio-common/printf-parsemb.c	(revision 16211)
+@@ -295,9 +295,9 @@
+       /* We don't try to get the types for all arguments if the format
+ 	 uses more than one.  The normal case is covered though.  If
+ 	 the call returns -1 we continue with the normal specifiers.  */
+-      || (spec->ndata_args = (*__printf_arginfo_table[spec->info.spec])
+-	  (&spec->info, 1, &spec->data_arg_type,
+-	   &spec->size)) < 0)
++      || (int) (spec->ndata_args = (*__printf_arginfo_table[spec->info.spec])
++				   (&spec->info, 1, &spec->data_arg_type,
++				    &spec->size)) < 0)
+     {
+       /* Find the data argument types of a built-in spec.  */
+       spec->ndata_args = 1;
+--- a/resolv/res_debug.c	(revision 12231)
++++ b/resolv/res_debug.c	(revision 16211)
+@@ -189,7 +189,7 @@
+ 						buf = malloc(buflen += 1024);
+ 					if (buf == NULL) {
+ 						fprintf(file,
+-				              ";; memory allocation failure\n");
++					      ";; memory allocation failure\n");
+ 					      return;
+ 					}
+ 					continue;
+@@ -356,7 +356,7 @@
+ 	{C_HS,		"HESIOD"},
+ 	{C_ANY,		"ANY"},
+ 	{C_NONE,	"NONE"},
+-	{C_IN, 		(char *)0}
++	{C_IN,		(char *)0}
+ };
+ libresolv_hidden_data_def (__p_class_syms)
+ 
+@@ -588,6 +588,7 @@
+ 	case RES_USEBSTRING:	return "ip6-bytstring";
+ 	case RES_USE_EDNS0:	return "edns0";
+ 	case RES_USE_DNSSEC:	return "dnssec";
++	case RES_NOTLDQUERY:	return "no-tld-query";
+ 				/* XXX nonreentrant */
+ 	default:		sprintf(nbuf, "?0x%lx?", (u_long)option);
+ 				return (nbuf);
+--- a/resolv/netdb.h	(revision 12231)
++++ b/resolv/netdb.h	(revision 16211)
+@@ -1,4 +1,4 @@
+-  /* Copyright (C) 1996-2002, 2003, 2004, 2009 Free Software Foundation, Inc.
++  /* Copyright (C) 1996-2004, 2009, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -677,7 +677,7 @@
+ extern int getnameinfo (__const struct sockaddr *__restrict __sa,
+ 			socklen_t __salen, char *__restrict __host,
+ 			socklen_t __hostlen, char *__restrict __serv,
+-			socklen_t __servlen, unsigned int __flags);
++			socklen_t __servlen, int __flags);
+ #endif	/* POSIX */
+ 
+ #ifdef __USE_GNU
+--- a/resolv/res_init.c	(revision 12231)
++++ b/resolv/res_init.c	(revision 16211)
+@@ -545,6 +545,11 @@
+ 		} else if (!strncmp(cp, "single-request",
+ 				    sizeof("single-request") - 1)) {
+ 			statp->options |= RES_SNGLKUP;
++		} else if (!strncmp(cp, "no_tld_query",
++				    sizeof("no_tld_query") - 1) ||
++			   !strncmp(cp, "no-tld-query",
++				    sizeof("no-tld-query") - 1)) {
++			statp->options |= RES_NOTLDQUERY;
+ 		} else {
+ 			/* XXX - print a warning here? */
+ 		}
+--- a/resolv/res_query.c	(revision 12231)
++++ b/resolv/res_query.c	(revision 16211)
+@@ -123,7 +123,7 @@
+ {
+ 	HEADER *hp = (HEADER *) answer;
+ 	int n, use_malloc = 0;
+-        u_int oflags = statp->_flags;
++	u_int oflags = statp->_flags;
+ 
+ 	size_t bufsize = (type == T_UNSPEC ? 2 : 1) * QUERYSIZE;
+ 	u_char *buf = alloca (bufsize);
+@@ -210,7 +210,7 @@
+ 			if (statp->options & RES_DEBUG)
+ 				printf(";; res_nquery: retry without EDNS0\n");
+ #endif
+-                        goto again;
++			goto again;
+ 		}
+ #ifdef DEBUG
+ 		if (statp->options & RES_DEBUG)
+@@ -344,6 +344,7 @@
+ 	int trailing_dot, ret, saved_herrno;
+ 	int got_nodata = 0, got_servfail = 0, root_on_list = 0;
+ 	int tried_as_is = 0;
++	int searched = 0;
+ 
+ 	__set_errno (0);
+ 	RES_SET_H_ERRNO(statp, HOST_NOT_FOUND);  /* True if we never query. */
+@@ -406,6 +407,7 @@
+ 		for (domain = (const char * const *)statp->dnsrch;
+ 		     *domain && !done;
+ 		     domain++) {
++			searched = 1;
+ 
+ 			if (domain[0][0] == '\0' ||
+ 			    (domain[0][0] == '.' && domain[0][1] == '\0'))
+@@ -477,11 +479,11 @@
+ 	}
+ 
+ 	/*
+-	 * If the name has any dots at all, and no earlier 'as-is' query
+-	 * for the name, and "." is not on the search list, then try an as-is
+-	 * query now.
++	 * f the query has not already been tried as is then try it
++	 * unless RES_NOTLDQUERY is set and there were no dots.
+ 	 */
+-	if (dots && !(tried_as_is || root_on_list)) {
++	if ((dots || !searched || (statp->options & RES_NOTLDQUERY) == 0)
++	    && !(tried_as_is || root_on_list)) {
+ 		ret = __libc_res_nquerydomain(statp, name, NULL, class, type,
+ 					      answer, anslen, answerp,
+ 					      answerp2, nanswerp2, resplen2);
+--- a/resolv/resolv.h	(revision 12231)
++++ b/resolv/resolv.h	(revision 16211)
+@@ -102,7 +102,7 @@
+ # define RES_MAXTIME		65535	/* Infinity, in milliseconds. */
+ 
+ struct __res_state {
+-	int	retrans;	 	/* retransmition time interval */
++	int	retrans;		/* retransmition time interval */
+ 	int	retry;			/* number of times to retransmit */
+ 	u_long	options;		/* option flags - see below. */
+ 	int	nscount;		/* number of name servers */
+@@ -219,6 +219,8 @@
+ #define RES_SNGLKUPREOP	0x00400000	/* -"-, but open new socket for each
+ 					   request */
+ #define RES_USE_DNSSEC	0x00800000	/* use DNSSEC using OK bit in OPT */
++#define RES_NOTLDQUERY	0x01000000	/* Do not look up unqualified name
++					   as a TLD.  */
+ 
+ #define RES_DEFAULT	(RES_RECURSE|RES_DEFNAMES|RES_DNSRCH|RES_NOIP6DOTINT)
+ 
+--- a/resolv/nss_dns/dns-host.c	(revision 12231)
++++ b/resolv/nss_dns/dns-host.c	(revision 16211)
+@@ -599,7 +599,6 @@
+   int (*name_ok) (const char *);
+   u_char packtmp[NS_MAXCDNAME];
+   int have_to_map = 0;
+-  int32_t ttl = 0;
+   uintptr_t pad = -(uintptr_t) buffer % __alignof__ (struct host_data);
+   buffer += pad;
+   if (__builtin_expect (buflen < sizeof (struct host_data) + pad, 0))
+@@ -733,7 +732,7 @@
+       cp += INT16SZ;			/* type */
+       class = __ns_get16 (cp);
+       cp += INT16SZ;			/* class */
+-      ttl = __ns_get32 (cp);
++      int32_t ttl = __ns_get32 (cp);
+       cp += INT32SZ;			/* TTL */
+       n = __ns_get16 (cp);
+       cp += INT16SZ;			/* len */
+@@ -907,7 +906,7 @@
+ 	    {
+ 	      register int nn;
+ 
+-	      if (ttlp != NULL && ttl != 0)
++	      if (ttlp != NULL)
+ 		*ttlp = ttl;
+ 	      if (canonp != NULL)
+ 		*canonp = bp;
+@@ -1163,7 +1162,7 @@
+ 
+       if (*firstp)
+ 	{
+-	  if (ttl != 0 && ttlp != NULL)
++	  if (ttlp != NULL)
+ 	    *ttlp = ttl;
+ 
+ 	  (*pat)->name = canon ?: h_name;
+--- a/conform/data/netdb.h-data	(revision 12231)
++++ b/conform/data/netdb.h-data	(revision 16211)
+@@ -87,7 +87,7 @@
+ function {struct hostent*} gethostbyaddr (const void*, socklen_t, int)
+ function {struct hostent*} gethostbyname (const char*)
+ function {struct hostent*} gethostent (void)
+-function int getnameinfo (const struct sockaddr*, socklen_t, char*, socklen_t, char*, socklen_t, unsigned)
++function int getnameinfo (const struct sockaddr*, socklen_t, char*, socklen_t, char*, socklen_t, int)
+ function {struct netent*} getnetbyaddr (uint32_t, int)
+ function {struct netent*} getnetbyname (const char*)
+ function {struct netent*} getnetent (void)
+--- a/elf/dl-tls.c	(revision 12231)
++++ b/elf/dl-tls.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Thread-local storage handling in the ELF dynamic linker.  Generic version.
+-   Copyright (C) 2002,2003,2004,2005,2006,2008 Free Software Foundation, Inc.
++   Copyright (C) 2002-2006,2008,2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -33,10 +33,7 @@
+    to allow dynamic loading of modules defining IE-model TLS data.  */
+ #define TLS_STATIC_SURPLUS	64 + DL_NNS * 100
+ 
+-/* Value used for dtv entries for which the allocation is delayed.  */
+-#define TLS_DTV_UNALLOCATED	((void *) -1l)
+ 
+-
+ /* Out-of-memory handler.  */
+ #ifdef SHARED
+ static void
+--- a/elf/dl-deps.c	(revision 12231)
++++ b/elf/dl-deps.c	(revision 16211)
+@@ -491,6 +491,10 @@
+   if (errno == 0 && errno_saved != 0)
+     __set_errno (errno_saved);
+ 
++  if (errno_reason)
++    _dl_signal_error (errno_reason == -1 ? 0 : errno_reason, objname,
++		      NULL, errstring);
++
+   struct link_map **old_l_initfini = NULL;
+   if (map->l_initfini != NULL && map->l_type == lt_loaded)
+     {
+@@ -666,8 +670,4 @@
+     }
+   if (old_l_initfini != NULL)
+     _dl_scope_free (old_l_initfini);
+-
+-  if (errno_reason)
+-    _dl_signal_error (errno_reason == -1 ? 0 : errno_reason, objname,
+-		      NULL, errstring);
+ }
+--- a/elf/dl-dst.h	(revision 12231)
++++ b/elf/dl-dst.h	(revision 16211)
+@@ -1,6 +1,5 @@
+ /* Handling of dynamic sring tokens.
+-   Copyright (C) 1999,2001,2002,2003,2004,2006,2007
+-   Free Software Foundation, Inc.
++   Copyright (C) 1999,2001-2004,2006,2007,2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -18,6 +17,8 @@
+    Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+    02111-1307 USA.  */
+ 
++#include "trusted-dirs.h"
++
+ /* Determine the number of DST elements in the name.  Only if IS_PATH is
+    nonzero paths are recognized (i.e., multiple, ':' separated filenames).  */
+ #define DL_DST_COUNT(name, is_path) \
+@@ -31,6 +32,11 @@
+     __cnt; })
+ 
+ 
++#ifdef SHARED
++# define IS_RTLD(l) (l) == &GL(dl_rtld_map)
++#else
++# define IS_RTLD(l) 0
++#endif
+ /* Guess from the number of DSTs the length of the result string.  */
+ #define DL_DST_REQUIRED(l, name, len, cnt) \
+   ({									      \
+@@ -39,28 +45,32 @@
+ 									      \
+     if (__cnt > 0)							      \
+       {									      \
+-	size_t origin_len;						      \
++	size_t dst_len;							      \
+ 	/* Now we make a guess how many extra characters on top of the	      \
+ 	   length of S we need to represent the result.  We know that	      \
+ 	   we have CNT replacements.  Each at most can use		      \
+-	     MAX (strlen (ORIGIN), strlen (_dl_platform))		      \
+-	   minus 7 (which is the length of "$ORIGIN").			      \
++	     MAX (MAX (strlen (ORIGIN), strlen (_dl_platform)),		      \
++		  strlen (DL_DST_LIB))					      \
++	   minus 4 (which is the length of "$LIB").			      \
+ 									      \
+ 	   First get the origin string if it is not available yet.	      \
+-	   This can only happen for the map of the executable.  */	      \
++	   This can only happen for the map of the executable or, when	      \
++	   auditing, in ld.so.  */					      \
+ 	DL_DST_REQ_STATIC (l)						      \
+ 	if ((l)->l_origin == NULL)					      \
+ 	  {								      \
+-	    assert ((l)->l_name[0] == '\0');				      \
++	    assert ((l)->l_name[0] == '\0' || IS_RTLD (l));		      \
+ 	    (l)->l_origin = _dl_get_origin ();				      \
+-	    origin_len = ((l)->l_origin && (l)->l_origin != (char *) -1	      \
++	    dst_len = ((l)->l_origin && (l)->l_origin != (char *) -1	      \
+ 			  ? strlen ((l)->l_origin) : 0);		      \
+ 	  }								      \
+ 	else								      \
+-	  origin_len = (l)->l_origin == (char *) -1			      \
++	  dst_len = (l)->l_origin == (char *) -1			      \
+ 	    ? 0 : strlen ((l)->l_origin);				      \
+-									      \
+-	__len += __cnt * (MAX (origin_len, GLRO(dl_platformlen)) - 7);	      \
++	dst_len = MAX (MAX (dst_len, GLRO(dl_platformlen)),		      \
++		       strlen (DL_DST_LIB));				      \
++	if (dst_len > 4)						      \
++	  __len += __cnt * (dst_len - 4);				      \
+       }									      \
+ 									      \
+     __len; })
+@@ -72,7 +82,7 @@
+   if ((l) == NULL)							      \
+     {									      \
+       const char *origin = _dl_get_origin ();				      \
+-      origin_len = (origin && origin != (char *) -1 ? strlen (origin) : 0);   \
++      dst_len = (origin && origin != (char *) -1 ? strlen (origin) : 0);      \
+     }									      \
+   else
+ #endif
+--- a/elf/dl-runtime.c	(revision 12231)
++++ b/elf/dl-runtime.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* On-demand PLT fixup for shared objects.
+-   Copyright (C) 1995-2009, 2010 Free Software Foundation, Inc.
++   Copyright (C) 1995-2009, 2010, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -446,6 +446,7 @@
+ 
+   /* Set up the sym parameter.  */
+   ElfW(Sym) sym = *defsym;
++  sym.st_value = DL_FIXUP_VALUE_ADDR (reloc_result->addr);
+ 
+   /* Get the symbol name.  */
+   const char *strtab = (const void *) D_PTR (reloc_result->bound,
+--- a/elf/dl-load.c	(revision 12231)
++++ b/elf/dl-load.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Map in a shared object's segments from the file.
+-   Copyright (C) 1995-2005, 2006, 2007, 2009 Free Software Foundation, Inc.
++   Copyright (C) 1995-2007, 2009, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -168,6 +168,87 @@
+ }
+ 
+ 
++static bool
++is_trusted_path (const char *path, size_t len)
++{
++  const char *trun = system_dirs;
++
++  for (size_t idx = 0; idx < nsystem_dirs_len; ++idx)
++    {
++      if (len == system_dirs_len[idx] && memcmp (trun, path, len) == 0)
++	/* Found it.  */
++	return true;
++
++      trun += system_dirs_len[idx] + 1;
++    }
++
++  return false;
++}
++
++
++static bool
++is_trusted_path_normalize (const char *path, size_t len)
++{
++  if (len == 0)
++    return false;
++
++  if (*path == ':')
++    {
++      ++path;
++      --len;
++    }
++
++  char *npath = (char *) alloca (len + 2);
++  char *wnp = npath;
++  while (*path != '\0')
++    {
++      if (path[0] == '/')
++	{
++	  if (path[1] == '.')
++	    {
++	      if (path[2] == '.' && (path[3] == '/' || path[3] == '\0'))
++		{
++		  while (wnp > npath && *--wnp != '/')
++		    ;
++		  path += 3;
++		  continue;
++		}
++	      else if (path[2] == '/' || path[2] == '\0')
++		{
++		  path += 2;
++		  continue;
++		}
++	    }
++
++	  if (wnp > npath && wnp[-1] == '/')
++	    {
++	      ++path;
++	      continue;
++	    }
++	}
++
++      *wnp++ = *path++;
++    }
++
++  if (wnp == npath || wnp[-1] != '/')
++    *wnp++ = '/';
++
++  const char *trun = system_dirs;
++
++  for (size_t idx = 0; idx < nsystem_dirs_len; ++idx)
++    {
++      if (wnp - npath >= system_dirs_len[idx]
++	  && memcmp (trun, npath, system_dirs_len[idx]) == 0)
++	/* Found it.  */
++	return true;
++
++      trun += system_dirs_len[idx] + 1;
++    }
++
++  return false;
++}
++
++
+ static size_t
+ is_dst (const char *start, const char *name, const char *str,
+ 	int is_path, int secure)
+@@ -200,7 +281,8 @@
+     return 0;
+ 
+   if (__builtin_expect (secure, 0)
+-      && ((name[len] != '\0' && (!is_path || name[len] != ':'))
++      && ((name[len] != '\0' && name[len] != '/'
++	   && (!is_path || name[len] != ':'))
+ 	  || (name != start + 1 && (!is_path || name[-2] != ':'))))
+     return 0;
+ 
+@@ -240,13 +322,14 @@
+ 		    int is_path)
+ {
+   const char *const start = name;
+-  char *last_elem, *wp;
+ 
+   /* Now fill the result path.  While copying over the string we keep
+      track of the start of the last path element.  When we come accross
+      a DST we copy over the value or (if the value is not available)
+      leave the entire path element out.  */
+-  last_elem = wp = result;
++  char *wp = result;
++  char *last_elem = result;
++  bool check_for_trusted = false;
+ 
+   do
+     {
+@@ -265,6 +348,9 @@
+ 	      else
+ #endif
+ 		repl = l->l_origin;
++
++	      check_for_trusted = (INTUSE(__libc_enable_secure)
++				   && l->l_type == lt_executable);
+ 	    }
+ 	  else if ((len = is_dst (start, name, "PLATFORM", is_path, 0)) != 0)
+ 	    repl = GLRO(dl_platform);
+@@ -284,6 +370,10 @@
+ 	      name += len;
+ 	      while (*name != '\0' && (!is_path || *name != ':'))
+ 		++name;
++	      /* Also skip following colon if this is the first rpath
++		 element, but keep an empty element at the end.  */
++	      if (wp == result && is_path && *name == ':' && name[1] != '\0')
++		++name;
+ 	    }
+ 	  else
+ 	    /* No DST we recognize.  */
+@@ -293,11 +383,28 @@
+ 	{
+ 	  *wp++ = *name++;
+ 	  if (is_path && *name == ':')
+-	    last_elem = wp;
++	    {
++	      /* In SUID/SGID programs, after $ORIGIN expansion the
++		 normalized path must be rooted in one of the trusted
++		 directories.  */
++	      if (__builtin_expect (check_for_trusted, false)
++		  && !is_trusted_path_normalize (last_elem, wp - last_elem))
++		wp = last_elem;
++	      else
++		last_elem = wp;
++
++	      check_for_trusted = false;
++	    }
+ 	}
+     }
+   while (*name != '\0');
+ 
++  /* In SUID/SGID programs, after $ORIGIN expansion the normalized
++     path must be rooted in one of the trusted directories.  */
++  if (__builtin_expect (check_for_trusted, false)
++      && !is_trusted_path_normalize (last_elem, wp - last_elem))
++    wp = last_elem;
++
+   *wp = '\0';
+ 
+   return result;
+@@ -310,7 +417,7 @@
+    belonging to the map is loaded.  In this case the path element
+    containing $ORIGIN is left out.  */
+ static char *
+-expand_dynamic_string_token (struct link_map *l, const char *s)
++expand_dynamic_string_token (struct link_map *l, const char *s, int is_path)
+ {
+   /* We make two runs over the string.  First we determine how large the
+      resulting string is and then we copy it over.  Since this is now
+@@ -321,7 +428,7 @@
+   char *result;
+ 
+   /* Determine the number of DST elements.  */
+-  cnt = DL_DST_COUNT (s, 1);
++  cnt = DL_DST_COUNT (s, is_path);
+ 
+   /* If we do not have to replace anything simply copy the string.  */
+   if (__builtin_expect (cnt, 0) == 0)
+@@ -335,7 +442,7 @@
+   if (result == NULL)
+     return NULL;
+ 
+-  return _dl_dst_substitute (l, s, result, 1);
++  return _dl_dst_substitute (l, s, result, is_path);
+ }
+ 
+ 
+@@ -407,34 +514,9 @@
+ 	cp[len++] = '/';
+ 
+       /* Make sure we don't use untrusted directories if we run SUID.  */
+-      if (__builtin_expect (check_trusted, 0))
+-	{
+-	  const char *trun = system_dirs;
+-	  size_t idx;
+-	  int unsecure = 1;
++      if (__builtin_expect (check_trusted, 0) && !is_trusted_path (cp, len))
++	continue;
+ 
+-	  /* All trusted directories must be complete names.  */
+-	  if (cp[0] == '/')
+-	    {
+-	      for (idx = 0; idx < nsystem_dirs_len; ++idx)
+-		{
+-		  if (len == system_dirs_len[idx]
+-		      && memcmp (trun, cp, len) == 0)
+-		    {
+-		      /* Found it.  */
+-		      unsecure = 0;
+-		      break;
+-		    }
+-
+-		  trun += system_dirs_len[idx] + 1;
+-		}
+-	    }
+-
+-	  if (unsecure)
+-	    /* Simply drop this directory.  */
+-	    continue;
+-	}
+-
+       /* See if this directory is already known.  */
+       for (dirp = GL(dl_all_dirs); dirp != NULL; dirp = dirp->next)
+ 	if (dirp->dirnamelen == len && memcmp (cp, dirp->dirname, len) == 0)
+@@ -551,13 +633,21 @@
+ 
+   /* Make a writable copy.  At the same time expand possible dynamic
+      string tokens.  */
+-  copy = expand_dynamic_string_token (l, rpath);
++  copy = expand_dynamic_string_token (l, rpath, 1);
+   if (copy == NULL)
+     {
+       errstring = N_("cannot create RUNPATH/RPATH copy");
+       goto signal_error;
+     }
+ 
++  /* Ignore empty rpaths.  */
++  if (*copy == 0)
++    {
++      free (copy);
++      sps->dirs = (struct r_search_path_elem **) -1;
++      return false;
++    }
++
+   /* Count the number of necessary elements in the result array.  */
+   nelems = 0;
+   for (cp = copy; *cp != '\0'; ++cp)
+@@ -2100,7 +2190,9 @@
+ 	    {
+ #ifdef SHARED
+ 	      // XXX Correct to unconditionally default to namespace 0?
+-	      l = loader ?: GL(dl_ns)[LM_ID_BASE]._ns_loaded;
++	      l = (loader
++		   ?: GL(dl_ns)[LM_ID_BASE]._ns_loaded
++		   ?: &GL(dl_rtld_map));
+ #else
+ 	      l = loader;
+ #endif
+@@ -2166,7 +2258,7 @@
+     {
+       /* The path may contain dynamic string tokens.  */
+       realname = (loader
+-		  ? expand_dynamic_string_token (loader, name)
++		  ? expand_dynamic_string_token (loader, name, 0)
+ 		  : local_strdup (name));
+       if (realname == NULL)
+ 	fd = -1;
+--- a/elf/ldconfig.c	(revision 12231)
++++ b/elf/ldconfig.c	(revision 16211)
+@@ -387,15 +387,18 @@
+     }
+ 
+   /* Canonify path: for now only remove leading and trailing
+-     whitespace and the trailing slashes slashes.  */
+-  i = strlen (entry->path) - 1;
++     whitespace and the trailing slashes.  */
++  i = strlen (entry->path);
+ 
+-  while (isspace (entry->path[i]) && i > 0)
+-    entry->path[i--] = '\0';
++  while (i > 0 && isspace (entry->path[i - 1]))
++    entry->path[--i] = '\0';
+ 
+-  while (entry->path[i] == '/' && i > 0)
+-    entry->path[i--] = '\0';
++  while (i > 0 && entry->path[i - 1] == '/')
++    entry->path[--i] = '\0';
+ 
++  if (i == 0)
++    return;
++
+   char *path = entry->path;
+   if (opt_chroot)
+     path = chroot_canon (opt_chroot, path);
+--- a/elf/dl-lookup.c	(revision 12231)
++++ b/elf/dl-lookup.c	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Look up a symbol in the loaded objects.
+-   Copyright (C) 1995-2005, 2006, 2007, 2009 Free Software Foundation, Inc.
++   Copyright (C) 1995-2007, 2009, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -312,39 +312,21 @@
+ 		 definition we have to use it.  */
+ 	      void enter (struct unique_sym *table, size_t size,
+ 			  unsigned int hash, const char *name,
+-			  const ElfW(Sym) *sym, struct link_map *map)
++			  const ElfW(Sym) *sym, const struct link_map *map)
+ 	      {
+ 		size_t idx = hash % size;
+ 		size_t hash2 = 1 + hash % (size - 2);
+-		while (1)
++		while (table[idx].name != NULL)
+ 		  {
+-		    if (table[idx].name == NULL)
+-		      {
+-			table[idx].hashval = hash;
+-			table[idx].name = name;
+-			if ((type_class & ELF_RTYPE_CLASS_COPY) != 0)
+-			  {
+-			    table[idx].sym = ref;
+-			    table[idx].map = undef_map;
+-			  }
+-			else
+-			  {
+-			    table[idx].sym = sym;
+-			    table[idx].map = map;
+-
+-			    if (map->l_type == lt_loaded)
+-			      /* Make sure we don't unload this object by
+-				 setting the appropriate flag.  */
+-			      map->l_flags_1 |= DF_1_NODELETE;
+-			  }
+-
+-			return;
+-		      }
+-
+ 		    idx += hash2;
+ 		    if (idx >= size)
+ 		      idx -= size;
+ 		  }
++
++		table[idx].hashval = hash;
++		table[idx].name = name;
++		table[idx].sym = sym;
++		table[idx].map = map;
+ 	      }
+ 
+ 	      struct unique_sym_table *tab
+@@ -363,8 +345,19 @@
+ 		      if (entries[idx].hashval == new_hash
+ 			  && strcmp (entries[idx].name, undef_name) == 0)
+ 			{
+-			  result->s = entries[idx].sym;
+-			  result->m = (struct link_map *) entries[idx].map;
++			  if ((type_class & ELF_RTYPE_CLASS_COPY) != 0)
++			    {
++			      /* We possibly have to initialize the central
++				 copy from the copy addressed through the
++				 relocation.  */
++			      result->s = sym;
++			      result->m = (struct link_map *) map;
++			    }
++			  else
++			    {
++			      result->s = entries[idx].sym;
++			      result->m = (struct link_map *) entries[idx].map;
++			    }
+ 			  __rtld_lock_unlock_recursive (tab->lock);
+ 			  return 1;
+ 			}
+@@ -425,8 +418,19 @@
+ 		  tab->free = free;
+ 		}
+ 
+-	      enter (entries, size, new_hash, strtab + sym->st_name, sym,
+-		     (struct link_map *) map);
++	      if ((type_class & ELF_RTYPE_CLASS_COPY) != 0)
++		enter (entries, size, new_hash, strtab + sym->st_name, ref,
++		       undef_map);
++	      else
++		{
++		  enter (entries, size, new_hash, strtab + sym->st_name, sym,
++			 map);
++
++		  if (map->l_type == lt_loaded)
++		    /* Make sure we don't unload this object by
++		       setting the appropriate flag.  */
++		    ((struct link_map *) map)->l_flags_1 |= DF_1_NODELETE;
++		}
+ 	      ++tab->n_elements;
+ 
+ 	      __rtld_lock_unlock_recursive (tab->lock);
+--- a/io/fcntl.h	(revision 12231)
++++ b/io/fcntl.h	(revision 16211)
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 1991,1992,1994-2001,2003,2004,2005,2006,2007, 2009
++/* Copyright (C) 1991,1992,1994-2001,2003,2004,2005,2006,2007,2009,2010,2011
+ 	Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -64,6 +64,8 @@
+ # define AT_REMOVEDIR		0x200	/* Remove directory instead of
+ 					   unlinking file.  */
+ # define AT_SYMLINK_FOLLOW	0x400	/* Follow symbolic links.  */
++# define AT_NO_AUTOMOUNT	0x800	/* Suppress terminal automount
++					   traversal.  */
+ # define AT_EACCESS		0x200	/* Test access permitted for
+ 					   effective IDs, not real IDs.  */
+ #endif
+--- a/ports/sysdeps/arm/sysdep.h	(revision 12231)
++++ b/ports/sysdeps/arm/sysdep.h	(revision 16211)
+@@ -18,6 +18,7 @@
+    02111-1307 USA.  */
+ 
+ #include <sysdeps/generic/sysdep.h>
++#include <features.h>
+ 
+ #if (!defined (__ARM_ARCH_2__) && !defined (__ARM_ARCH_3__) \
+      && !defined (__ARM_ARCH_3M__) && !defined (__ARM_ARCH_4__))
+@@ -89,10 +90,16 @@
+ 
+ /* If compiled for profiling, call `mcount' at the start of each function.  */
+ #ifdef	PROF
++#if __GNUC_PREREQ(4,4) && defined(__ARM_EABI__)
+ #define CALL_MCOUNT			\
+ 	str	lr,[sp, #-4]!	;	\
++	bl	PLTJMP(mcount)	;
++#else
++#define CALL_MCOUNT			\
++	str	lr,[sp, #-4]!	;	\
+ 	bl	PLTJMP(mcount)	;	\
+ 	ldr	lr, [sp], #4	;
++#endif
+ #else
+ #define CALL_MCOUNT		/* Do nothing.  */
+ #endif
+@@ -102,8 +109,12 @@
+    on this system, the asm identifier `syscall_error' intrudes on the
+    C name space.  Make sure we use an innocuous name.  */
+ #define	syscall_error	__syscall_error
++#if __GNUC_PREREQ(4,4) && defined(__ARM_EABI__)
++#define mcount		__gnu_mcount_nc
++#else
+ #define mcount		_mcount
+ #endif
++#endif
+ 
+ #if defined(__ARM_EABI__)
+ /* Tag_ABI_align8_preserved: This code preserves 8-byte
+--- a/ports/sysdeps/arm/elf/start.S	(revision 12231)
++++ b/ports/sysdeps/arm/elf/start.S	(revision 16211)
+@@ -134,6 +134,7 @@
+ 	bl abort
+ 
+ #ifdef SHARED
++	.align 2
+ .L_GOT:
+ 	.word _GLOBAL_OFFSET_TABLE_ - .L_GOT
+ 	.word __libc_csu_fini(GOT)
+--- a/ports/sysdeps/unix/sysv/linux/arm/bits/mman.h	(revision 12231)
++++ b/ports/sysdeps/unix/sysv/linux/arm/bits/mman.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Definitions for POSIX memory map interface.  Linux/ARM version.
+-   Copyright (C) 1997, 2000, 2003, 2005, 2006, 2009
++   Copyright (C) 1997, 2000, 2003, 2005, 2006, 2009, 2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -94,6 +94,8 @@
+ # define MADV_DOFORK	  11	/* Do inherit across fork.  */
+ # define MADV_MERGEABLE	  12	/* KSM may merge identical pages.  */
+ # define MADV_UNMERGEABLE 13	/* KSM may not merge identical pages.  */
++# define MADV_HUGEPAGE	  14	/* Worth backing with hugepages.  */
++# define MADV_NOHUGEPAGE  15	/* Not worth backing with hugepages.  */
+ # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+ #endif
+ 
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/mman.h	(revision 12231)
++++ b/ports/sysdeps/unix/sysv/linux/m68k/bits/mman.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Definitions for POSIX memory map interface.  Linux/m68k version.
+-   Copyright (C) 1997, 2000, 2003, 2005, 2008, 2009
++   Copyright (C) 1997, 2000, 2003, 2005, 2008, 2009, 2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -94,6 +94,8 @@
+ # define MADV_DOFORK	  11	/* Do inherit across fork.  */
+ # define MADV_MERGEABLE	  12	/* KSM may merge identical pages.  */
+ # define MADV_UNMERGEABLE 13	/* KSM may not merge identical pages.  */
++# define MADV_HUGEPAGE	  14	/* Worth backing with hugepages.  */
++# define MADV_NOHUGEPAGE  15	/* Not worth backing with hugepages.  */
+ # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+ #endif
+ 
+--- a/ports/sysdeps/unix/sysv/linux/mips/mips64/n64/ftw.c	(revision 0)
++++ b/ports/sysdeps/unix/sysv/linux/mips/mips64/n64/ftw.c	(revision 16211)
+@@ -0,0 +1 @@
++#include <io/ftw.c>
+--- a/ports/sysdeps/unix/sysv/linux/mips/mips64/n64/ftw64.c	(revision 0)
++++ b/ports/sysdeps/unix/sysv/linux/mips/mips64/n64/ftw64.c	(revision 16211)
+@@ -0,0 +1 @@
++#include <io/ftw64.c>
+--- a/ports/sysdeps/unix/sysv/linux/mips/mips64/n64/statfs64.c	(revision 0)
++++ b/ports/sysdeps/unix/sysv/linux/mips/mips64/n64/statfs64.c	(revision 16211)
+@@ -0,0 +1 @@
++/* Empty.  */
+--- a/ports/sysdeps/unix/sysv/linux/mips/mips64/n64/fstatfs64.c	(revision 0)
++++ b/ports/sysdeps/unix/sysv/linux/mips/mips64/n64/fstatfs64.c	(revision 16211)
+@@ -0,0 +1 @@
++/* Empty.  */
+--- a/ports/sysdeps/unix/sysv/linux/mips/mips64/n64/syscalls.list	(revision 0)
++++ b/ports/sysdeps/unix/sysv/linux/mips/mips64/n64/syscalls.list	(revision 16211)
+@@ -0,0 +1,4 @@
++# File name	Caller	Syscall name	# args	Strong name	Weak names
++
++fstatfs		-	fstatfs		i:ip	__fstatfs	fstatfs fstatfs64 __fstatfs64
++statfs		-	statfs		i:sp	__statfs	statfs statfs64 __statfs64
+--- a/ports/sysdeps/unix/sysv/linux/mips/bits/mman.h	(revision 12231)
++++ b/ports/sysdeps/unix/sysv/linux/mips/bits/mman.h	(revision 16211)
+@@ -1,5 +1,5 @@
+ /* Definitions for POSIX memory map interface.  Linux/MIPS version.
+-   Copyright (C) 1997, 2000, 2003, 2004, 2005, 2006, 2009
++   Copyright (C) 1997, 2000, 2003, 2004, 2005, 2006, 2009, 2011
+    Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -96,6 +96,8 @@
+ # define MADV_DOFORK	  11	/* Do inherit across fork.  */
+ # define MADV_MERGEABLE	  12	/* KSM may merge identical pages.  */
+ # define MADV_UNMERGEABLE 13	/* KSM may not merge identical pages.  */
++# define MADV_HUGEPAGE	  14	/* Worth backing with hugepages.  */
++# define MADV_NOHUGEPAGE  15	/* Not worth backing with hugepages.  */
+ # define MADV_HWPOISON	  100	/* Poison a page for testing.  */
+ #endif
+ 
+--- a/ports/sysdeps/unix/sysv/linux/mips/bits/socket.h	(revision 12231)
++++ b/ports/sysdeps/unix/sysv/linux/mips/bits/socket.h	(revision 16211)
+@@ -1,6 +1,6 @@
+ /* System-specific socket constants and types.  Linux/MIPS version.
+    Copyright (C) 1991, 92, 1994-1999, 2000, 2001, 2004, 2005, 2006, 2007, 2008,
+-   2009 Free Software Foundation, Inc.
++   2009, 2010, 2011 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -109,7 +109,9 @@
+ #define PF_ISDN		34	/* mISDN sockets.  */
+ #define PF_PHONET	35	/* Phonet sockets.  */
+ #define PF_IEEE802154	36	/* IEEE 802.15.4 sockets.  */
+-#define	PF_MAX		37	/* For now..  */
++#define PF_CAIF		37	/* CAIF sockets.  */
++#define PF_ALG		38	/* Algorithm sockets.  */
++#define	PF_MAX		39	/* For now..  */
+ 
+ /* Address families.  */
+ #define	AF_UNSPEC	PF_UNSPEC
+@@ -150,6 +152,8 @@
+ #define AF_ISDN		PF_ISDN
+ #define AF_PHONET	PF_PHONET
+ #define AF_IEEE802154	PF_IEEE802154
++#define AF_CAIF		PF_CAIF
++#define AF_ALG		PF_ALG
+ #define	AF_MAX		PF_MAX
+ 
+ /* Socket level values.  Others are defined in the appropriate headers.
+--- a/ports/ChangeLog.mips	(revision 12231)
++++ b/ports/ChangeLog.mips	(revision 16211)
+@@ -1,3 +1,26 @@
++2011-11-17  Joseph Myers  <joseph@codesourcery.com>
++
++	* sysdeps/unix/sysv/linux/mips/mips64/n64/ftw.c,
++	sysdeps/unix/sysv/linux/mips/mips64/n64/ftw64.c: New.
++
++2011-09-06  Joseph Myers  <joseph@codesourcery.com>
++
++	[BZ #13109]
++	* sysdeps/unix/sysv/linux/mips/mips64/n64/syscalls.list (fstatfs)
++	(statfs): New.
++	* sysdeps/unix/sysv/linux/mips/mips64/n64/fstatfs64.c,
++	sysdeps/unix/sysv/linux/mips/mips64/n64/statfs64.c: New.
++
++2011-01-25  Joseph Myers  <joseph@codesourcery.com>
++
++	* sysdeps/unix/sysv/linux/mips/bits/mman.h (MADV_HUGEPAGE,
++	MADV_NOHUGEPAGE): Define.
++
++2011-01-25  Joseph Myers  <joseph@codesourcery.com>
++
++	* sysdeps/unix/sysv/linux/mips/bits/socket.h (AF_CAIF, AF_ALG,
++	PF_CAIF, PF_ALG): Define.
++
+ 2009-12-16  Joseph Myers  <joseph@codesourcery.com>
+ 
+ 	* sysdeps/mips/dl-lookup.c: Update from generic version.
+--- a/ports/ChangeLog.arm	(revision 12231)
++++ b/ports/ChangeLog.arm	(revision 16211)
+@@ -1,3 +1,19 @@
++2011-06-30  Richard Sandiford  <richard.sandiford@linaro.org>
++
++	* sysdeps/arm/elf/start.S (_start): Align the constant pool to 4 bytes.
++
++2011-02-16  Manjunath Matti  <manjunath81@gmail.com>
++
++	* sysdeps/arm/sysdep.h (CALL_MCOUNT): Use __gnu_mcount_nc
++	interface for EABI with GCC 4.4 or later.
++	(mcount): Define to __gnu_mcount_nc for EABI with GCC 4.4 or
++	later.
++
++2011-01-25  Joseph Myers  <joseph@codesourcery.com>
++
++	* sysdeps/unix/sysv/linux/arm/bits/mman.h (MADV_HUGEPAGE,
++	MADV_NOHUGEPAGE): Define.
++
+ 2009-11-19  Joseph Myers  <joseph@codesourcery.com>
+ 
+ 	* sysdeps/unix/sysv/linux/arm/kernel-features.h (__ASSUME_PSELECT,
+--- a/ports/ChangeLog.m68k	(revision 12231)
++++ b/ports/ChangeLog.m68k	(revision 16211)
+@@ -1,3 +1,8 @@
++2011-01-18  Andreas Schwab  <schwab@linux-m68k.org>
++
++	* sysdeps/unix/sysv/linux/m68k/bits/mman.h (MADV_HUGEPAGE)
++	(MADV_NOHUGEPAGE): Define.
++
+ 2009-11-17  Joseph Myers  <joseph@codesourcery.com>
+ 
+ 	[BZ #10972]

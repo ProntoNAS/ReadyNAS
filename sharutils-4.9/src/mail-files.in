@@ -1,0 +1,108 @@
+#!/bin/sh
+# Mail a list of files, as they are.
+# Copyright (C) 1990, 1995, 2005 Free Software Foundation, Inc.
+# François Pinard <pinard@iro.umontreal.ca>, 1991.
+
+package="@PACKAGE@"
+version="@VERSION@"
+
+progname=`echo $0 | sed -e 's,.*/,,'`
+
+usage()
+{
+  if test $# -gt 0
+  then
+    exec >&2
+    echo "$*"
+  fi
+  cat <<- _EOF_
+	Usage: $progname [OPTION] DESTIN TYPE SUBJECT FILE ...
+	Where:
+	  OPTION is:
+	      --help      display this help and exit
+	      --version   output version information and exit
+
+	      -x          trace script
+
+	  DESTIN    is a list of email addresses
+	  TYPE      is a subject introduction word or short phrase
+	  SUBJECT   is a longer description of the contents
+	  FILE ...  is a list of files to send
+	_EOF_
+  exit $#
+}
+
+SLEEP=2
+
+### Decode the options.
+
+while test $# -gt 0
+do
+  case $1 in
+    -x)     trace=-x; set -x; shift ;;
+    --v* )  echo "$progname - $package $version"; exit 0 ;;
+    --h* |  \
+    '-?' )  usage ;;
+    --)     shift ; break ;;
+    -*)     usage "'$1' is an unknown option" ;;
+    *)      break
+  esac
+done
+
+test $# -ge 4 || usage "Too few arguments."
+
+destin="$1"; shift
+type="$1"; shift
+subject="$1"; shift
+
+maxcount=$#
+files="$*"
+
+for f in ${files}
+do test -f ${f} || usage "Error:  \`$f' is not a file" ; done
+
+### Mail all files, making a proper subject for each message.
+
+( if [ -f $destin ]; then
+    cat $destin
+  else
+     echo $destin
+  fi
+) | (
+  total=0
+  while read destin; do
+    count=0
+    for file in $files; do
+      count=`expr $count + 1`
+      if [ $maxcount = 1 ]; then
+	string="$type"
+      else
+	string="$type ($count/$maxcount)"
+      fi
+      echo "Mailing $string to $destin"
+      [ $total -ne 0 ] && sleep $SLEEP
+      mail -s "$string: $subject" $destin < $file
+      total=`expr $total + 1`
+      [ $count -lt $maxcount ] && sleep $SLEEP
+    done
+  done
+  if [ $total -eq 0 ]; then
+    echo 'No message queued'
+  elif [ $total -eq 1 ]; then
+    echo 'Message queued'
+  else
+    echo "$count messages queued"
+  fi
+)
+
+exit 0
+
+## Local Variables:
+## mode: shell-script
+## tab-width: 8
+## indent-tabs-mode: nil
+## sh-indentation: 2
+## sh-basic-offset: 2
+## End:
+##
+## end of get-incidents.sh

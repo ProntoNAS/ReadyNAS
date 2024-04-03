@@ -1,0 +1,32 @@
+Do not modify /dev until DB_DIR has been created.
+
+--- a/udev_device.c
++++ b/udev_device.c
+@@ -166,10 +166,27 @@ exit:
+ 	return retval;
+ }
+ 
++/* return true if the udev database exists */
++static int dynamic_dev(void) {
++	char dbpath[PATH_MAX];
++	struct stat stats;
++
++	strlcpy(dbpath, udev_root, sizeof(dbpath));
++	strlcat(dbpath, "/"DB_DIR, sizeof(dbpath));
++	if (stat(dbpath, &stats) == 0)
++		return 1;
++	return 0;
++}
++
+ int udev_device_event(struct udev_rules *rules, struct udevice *udev)
+ {
+ 	int retval = 0;
+ 
++	if (major(udev->devt) != 0 && !dynamic_dev()) {
++		dbg("db not found, ignoring add event for %s", udev->dev->devpath);
++		return 0;
++	}
++
+ 	if (udev->devpath_old != NULL)
+ 		if (udev_db_rename(udev->devpath_old, udev->dev->devpath) == 0)
+ 			info("moved database from '%s' to '%s'\n", udev->devpath_old, udev->dev->devpath);

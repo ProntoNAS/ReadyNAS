@@ -1,0 +1,81 @@
+From e3a53fc8a3b78bdb30dfe6b84bd8c41239ef470c Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Tue, 11 Mar 2014 14:46:21 -0700
+Subject: [PATCH] clients: separate Samsung BDP and TV client types again
+
+Advertising the DCM10 vendor-specific feature to Samsung Series
+C and D (at least) players causes them to always browse ContainerID
+1, no matter which section is chosen from their GUI.
+
+Treat TVs and BDPs as separate client types with unique features.
+---
+ clients.c  |   16 ++++++++++++++--
+ clients.h  |    3 ++-
+ upnphttp.c |    2 +-
+ 3 files changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/clients.c b/clients.c
+index e15f3e0..7cdf863 100644
+--- a/clients.c
++++ b/clients.c
+@@ -53,9 +53,21 @@ struct client_type_s client_types[] =
+ 	  EXAVClientInfo
+ 	},
+ 
++	/* Samsung Series [CDE] BDPs and TVs must be separated, or some of our
++	 * advertised extra features trigger a folder browsing bug on BDPs. */
++	/* User-Agent: DLNADOC/1.50 SEC_HHP_BD-D5100/1.0 */
++	{ ESamsungSeriesCDEBDP,
++	  FLAG_SAMSUNG | FLAG_DLNA | FLAG_NO_RESIZE,
++	  "Samsung Series [CDE] BDP",
++	  "SEC_HHP_BD",
++	  EUserAgent
++	},
++
++	/* User-Agent: DLNADOC/1.50 SEC_HHP_[TV]UE40D7000/1.0 */
++	/* User-Agent: DLNADOC/1.50 SEC_HHP_ Family TV/1.0 */
+ 	{ ESamsungSeriesCDE,
+-	  FLAG_SAMSUNG | FLAG_DLNA | FLAG_NO_RESIZE | FLAG_SAMSUNG_TV,
+-	  "Samsung Series C/D/E",
++	  FLAG_SAMSUNG | FLAG_DLNA | FLAG_NO_RESIZE | FLAG_SAMSUNG_DCM10,
++	  "Samsung Series [CDE]",
+ 	  "SEC_HHP_",
+ 	  EUserAgent
+ 	},
+diff --git a/clients.h b/clients.h
+index 654e94b..7c7cbf7 100644
+--- a/clients.h
++++ b/clients.h
+@@ -32,7 +32,7 @@
+ #define FLAG_NO_RESIZE          0x00000040
+ #define FLAG_MS_PFS             0x00000080 // Microsoft PlaysForSure client
+ #define FLAG_SAMSUNG            0x00000100
+-#define FLAG_SAMSUNG_TV         0x00000200
++#define FLAG_SAMSUNG_DCM10      0x00000200
+ #define FLAG_AUDIO_ONLY         0x00000400
+ #define FLAG_FORCE_SORT         0x00000800
+ 
+@@ -61,6 +61,7 @@ enum client_types {
+ 	ERokuSoundBridge,
+ 	ESamsungSeriesA,
+ 	ESamsungSeriesB,
++	ESamsungSeriesCDEBDP,
+ 	ESamsungSeriesCDE,
+ 	ESonyBDP,
+ 	ESonyBravia,
+diff --git a/upnphttp.c b/upnphttp.c
+index 141a118..33e8253 100644
+--- a/upnphttp.c
++++ b/upnphttp.c
+@@ -918,7 +918,7 @@ ProcessHttpQuery_upnphttp(struct upnphttp * h)
+ 					friendly_name[i] = '\0';
+ 				memcpy(modelnumber, model_sav, 2);
+ 			}
+-			else if( client_types[h->req_client].flags & FLAG_SAMSUNG_TV )
++			else if( client_types[h->req_client].flags & FLAG_SAMSUNG_DCM10 )
+ 			{
+ 				sendXMLdesc(h, genRootDescSamsung);
+ 			}
+-- 
+1.7.9.5
+

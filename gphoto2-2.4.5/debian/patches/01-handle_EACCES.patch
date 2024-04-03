@@ -1,0 +1,31 @@
+From: David Paleino <dapal@debian.org>
+Subject: exit with an error if files couldn't be written to disk
+Bug-Debian: http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=512883
+Origin: vendor
+Forwarded: yes, https://sourceforge.net/tracker/index.php?func=detail&aid=3109145&group_id=8874&atid=308874
+
+---
+ gphoto2/main.c |    5 +++++
+ 1 file changed, 5 insertions(+)
+
+--- gphoto2-2.4.5.orig/gphoto2/main.c
++++ gphoto2-2.4.5/gphoto2/main.c
+@@ -43,6 +43,7 @@
+ #include <fcntl.h>
+ #include <utime.h>
+ #include <limits.h>
++#include <errno.h>
+ 
+ #ifdef HAVE_POPT
+ #  include <popt.h>
+@@ -501,6 +502,10 @@ save_file_to_file (Camera *camera, GPCon
+ 	strcpy (tmpname, "tmpfileXXXXXX");
+ 	fd = mkstemp(tmpname);
+ 	if (fd == -1) {
++	    if (errno == EACCES) {
++	        gp_context_error (context, _("Permission denied"));
++	        return GP_ERROR;
++	    }
+         	CR (gp_file_new (&file));
+ 		tmpfilename = NULL;
+ 	} else {

@@ -1,0 +1,43 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 45_increase_canon_timeout.dpatch by  <fpeters@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Increase timeout wait for an URB to come back on an interrupt endpoint
+##
+## Reported by Shai Berger <shai@platonix.com> as Bug#453114:
+##
+## Version 2.4.0 of libgphoto2 broke support for several Canon camares,
+## it seems, by using a parameter CANON_FAST_TIMEOUT whose value
+## seems to be set too low. The result is that libgphoto fails to
+## connect to the camera, reporting something like
+## 
+##   Error (-114: 'OS error in camera communication')
+## 
+## This is all reported in an upstream bug:
+## http://sourceforge.net/tracker/index.php?func=detail&aid=1790633&group_id=8874&atid=108874
+## 
+## The upstream bug includes a suggestion for a fix -- increase
+## the timeout constant. The fix seems to have helped the original
+## reporter, and he said so over two months ago; it seems to have
+## corrected the problem completely for me. So I'm filing this
+## bug, hoping to get the fix tested in debian as long as upstream
+## hesitates.
+##
+## Update (2008-11-05) by Cyril Brulebois <kibi@debian.org>:
+##   Upstream bumped the timeout from 75 to 150, but users reported that
+##   a single image only would then be downloaded. Keeping the timeout
+##   to 750 as in the previous version of that patch.
+##
+@DPATCH@
+diff -urNad libgphoto2-2.4.0~/camlibs/canon/usb.c libgphoto2-2.4.0/camlibs/canon/usb.c
+--- libgphoto2-2.4.0~/camlibs/canon/usb.c	2007-07-27 02:35:50.000000000 +0200
++++ libgphoto2-2.4.0/camlibs/canon/usb.c	2007-11-27 15:11:33.290924579 +0100
+@@ -72,7 +72,7 @@
+ 
+ /* CANON_FAST_TIMEOUT: how long (in milliseconds) we should wait for
+  * an URB to come back on an interrupt endpoint */
+-#define CANON_FAST_TIMEOUT 150
++#define CANON_FAST_TIMEOUT 750
+ 
+ /* WARNING: This destroys reentrancy of the code. Better to put this
+  * in the camera descriptor somewhere. */

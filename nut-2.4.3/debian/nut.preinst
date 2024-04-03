@@ -1,0 +1,26 @@
+#!/bin/sh -e
+
+if [ "$1" = upgrade ]; then
+    # remove the obsolete udev file
+    [ -f /etc/udev/rules.d/025_nut-usbups.rules ] && rm -f /etc/udev/rules.d/025_nut-usbups.rules
+
+    # Remove previous rules if unchanged, otherwise move to new filename.
+    if [ -e "/etc/udev/rules.d/52_nut-usbups.rules" ]; then
+	    if [ "`md5sum \"/etc/udev/rules.d/52_nut-usbups.rules\" | sed -e \"s/ .*//\"`" = \
+		 "`dpkg-query -W -f='${Conffiles}' nut | sed -n -e \"\\\\' /etc/udev/rules.d/52_nut-usbups.rules's/.* //p\"`" ]
+	    then
+		    rm -f "/etc/udev/rules.d/52_nut-usbups.rules"
+	    else
+		    mv "/etc/udev/rules.d/52_nut-usbups.rules" "/etc/udev/rules.d/52-nut-usbups.rules"
+	    fi
+    fi
+
+	# migrate /etc/default/nut to /etc/nut/nut.conf (part #1)
+	# we need to do this before default gets trashed
+	if [ -f /etc/default/nut ] ; then
+		# backup /etc/default/nut
+		cp /etc/default/nut /etc/default/nut.bak
+	fi
+fi
+
+#DEBHELPER#

@@ -1,0 +1,32 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: * network_io/unix/sockets.c (apr_socket_connect): Copy the remote
+## DP: * address by value rather than by reference.  This ensures that the
+## DP: * sockaddr object returned by apr_socket_addr_get is allocated from
+## DP: * the same pool as the socket object itself, as apr_socket_accept
+## DP: * does; avoiding any potential lifetime mismatches.
+@DPATCH@
+Modified: apr/apr/trunk/network_io/unix/sockets.c
+URL: http://svn.apache.org/viewvc/apr/apr/trunk/network_io/unix/sockets.c?rev=983618&r1=983617&r2=983618&view=diff
+==============================================================================
+--- trunk/network_io/unix/sockets.c (original)
++++ trunk/network_io/unix/sockets.c Mon Aug  9 12:51:29 2010
+@@ -387,10 +387,13 @@ apr_status_t apr_socket_connect(apr_sock
+         /* A real remote address was passed in.  If the unspecified
+          * address was used, the actual remote addr will have to be
+          * determined using getpeername() if required. */
+-        /* ### this should probably be a structure copy + fixup as per
+-         * _accept()'s handling of local_addr */
+-        sock->remote_addr = sa;
+         sock->remote_addr_unknown = 0;
++
++        /* Copy the address structure details in. */
++        sock->remote_addr->sa = sa->sa;
++        sock->remote_addr->salen = sa->salen;
++        /* Adjust ipaddr_ptr et al. */
++        apr_sockaddr_vars_set(sock->remote_addr, sa->family, sa->port);
+     }
+ 
+     if (sock->local_addr->port == 0) {
+

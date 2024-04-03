@@ -1,0 +1,42 @@
+Purpose: Make sure startpar do not fail when booting OpenVZ machines,
+	 where stdin/stdout is a pipe and not a tty.  If no tty is
+	 used, run all scripts sequencially, as if they were interactive.
+	 A better approach would be to get parallel booting working in
+	 such setting.
+Fixes:   #584102
+Authour: Petter Reinholdtsen, with modification from Kel Modderman to
+         co-exist with 01_dev_pts_workaround.patch without fuzz.
+Status:  Not applied upstream
+
+--- a/startpar.c
++++ b/startpar.c
+@@ -698,6 +698,7 @@ int main(int argc, char **argv)
+   char *prev_level = getenv("PREVLEVEL");
+   char *run_level = getenv("RUNLEVEL");
+   char *splashopt = 0;
++  int notty = 0;
+ 
+   (void)signal(SIGUSR1, sighandler_preload);
+   (void)signal(SIGUSR2, sighandler_nopreload);
+@@ -880,8 +881,7 @@ int main(int argc, char **argv)
+ 
+   if (tcgetattr(0, &tio))
+     {
+-      perror("tcgetattr");
+-      exit(1);
++      notty = 1;
+     }
+   if (ioctl(0, TIOCGWINSZ, &wz) == 0)
+     wzok = 1;
+@@ -976,9 +976,9 @@ int main(int argc, char **argv)
+ 		  p->num = num++;
+ 		  if (interactive_task)
+ 		    continue;			/* don't start this here */
+-		  if (!devpts)
++		  if (!devpts || notty)
+ 		    {
+-		      interactive_task = p;	/* no /dev/pts, treat as interactive */
++		      interactive_task = p;	/* no /dev/pts or tty, treat as interactive */
+ 		      continue;
+ 		    }
+ 		  run(p);

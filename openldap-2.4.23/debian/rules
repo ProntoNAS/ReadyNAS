@@ -1,0 +1,226 @@
+#!/usr/bin/make -f
+
+#export DH_VERBOSE = 1
+
+# Set this variable if you're building packages outside of Debian and don't
+# want the checks for DFSG-freeness.
+#DFSG_NONFREE = 1
+
+CFLAGS = -Wall -g -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE
+INSTALL = install
+INSTALL_FILE    = $(INSTALL) -p    -o root -g root  -m  644
+INSTALL_PROGRAM = $(INSTALL) -p    -o root -g root  -m  755
+INSTALL_SCRIPT  = $(INSTALL) -p    -o root -g root  -m  755
+INSTALL_DIR     = $(INSTALL) -p -d -o root -g root  -m  755
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+    CFLAGS += -O0
+else
+    CFLAGS += -O2
+endif
+
+# Tell Autoconf the correct system types.
+DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+    SYSTEM = --build $(DEB_HOST_GNU_TYPE)
+else
+    SYSTEM = --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+endif
+
+CONFIG		= $(shell grep -v "^\#" debian/configure.options)
+
+installdir	:= $(CURDIR)/debian/install
+tmpdir		:= $(CURDIR)/debian/tmp
+builddir	:= $(CURDIR)/debian/build
+slapddir	:= $(CURDIR)/debian/slapd/usr/sbin
+
+MAKEVARS	:= DESTDIR=$(installdir) STRIP=
+
+# Include the quilt patch system.
+include /usr/share/quilt/quilt.make
+
+# These variables are used only by get-orig-source, which will normally only
+# be run by maintainers.
+VERSION = 2.4.23
+URL     = http://www.openldap.org/software/download/OpenLDAP/openldap-release/
+
+# Download the upstream source and make changes as required for DFSG reasons.
+# Assumes wget is available, as this is generally only used by the package
+# maintainers.
+get-orig-source:
+	@if [ ! -d "debian/schema" ] ; then \
+	    echo 'Run this from the top directory of the Debian source' >&2; \
+	    exit 1; \
+	fi
+	wget $(URL)/openldap-$(VERSION).tgz
+	tar xzf openldap-$(VERSION).tgz
+	rm -r openldap-$(VERSION)/doc/drafts
+	rm -r openldap-$(VERSION)/doc/rfc
+	set -e; for schema in debian/schema/*.schema debian/schema/*.ldif ; do \
+	    file=`basename "$$schema"`; \
+	    rm openldap-$(VERSION)/servers/slapd/schema/$$file; \
+	done
+	mv openldap-$(VERSION) openldap_$(VERSION).orig
+	tar cf openldap_$(VERSION).orig.tar openldap_$(VERSION).orig
+	rm -r openldap_$(VERSION).orig
+	gzip -9 openldap_$(VERSION).orig.tar
+
+configure: configure-stamp
+configure-stamp: $(QUILT_STAMPFN)
+	# Check if we include the RFCs, Internet-Drafts, or upstream schemas
+	# with RFC text (which are non DFSG-free).  You can set DFSG_NONFREE
+	# to build the packages from the unchanged upstream sources but Debian
+	# can not ship the RFCs in main so this test is here to make sure it
+	# does not get in by accident again. -- Torsten
+	if [ -z "$(DFSG_NONFREE)" ]; then \
+	    if [ -e doc/drafts ]; then exit 1; fi; \
+	    if [ -e doc/rfc ]; then exit 1; fi; \
+	    if [ -e servers/slapd/schema/core.schema ]; then exit 1; fi; \
+	fi
+
+	# Copy our stripped schema versions into where upstream expects them.
+	if [ -z "$(DFSG_NONFREE)" ]; then \
+	    set -e; for s in debian/schema/*.schema debian/schema/*.ldif; do \
+	        cp $$s servers/slapd/schema/`basename $$s`; \
+	    done; \
+	fi
+
+	cp -f /usr/share/misc/config.* build/
+	cp -f /usr/share/misc/config.* contrib/ldapc++/
+	mkdir -p $(builddir)
+	chmod 755 $(CURDIR)/autogen.sh
+	./autogen.sh
+	cd $(builddir) && CFLAGS="$(CFLAGS)" $(CURDIR)/configure \
+		$(CONFIG) $(SYSTEM)
+	perl debian/check_config
+	$(MAKE) -C $(builddir) depend
+	touch $@
+
+build: build-arch build-indep
+build-arch: build-stamp
+build-indep:
+build-stamp: configure-stamp
+	$(MAKE) -C $(builddir) $(MAKEVARS)
+	$(MAKE) -C contrib/slapd-modules/smbk5pwd
+	$(MAKE) -C contrib/slapd-modules/autogroup
+ifeq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
+	RESOLV_MULTI=off $(MAKE) -C $(builddir) test
+endif
+	touch $@
+
+# Check all built libraries for unresolved symbols except for the libslapi
+# library.  It is a special case since the SLAPI interface depends on symbols
+# defined in slapd itself.  Those symbols will remain unresolved until the
+# plugin is loaded into slapd.
+install: install-stamp
+install-stamp: build-stamp
+	$(MAKE) -C $(builddir) $(MAKEVARS) install
+	$(MAKE) -C contrib/slapd-modules/smbk5pwd install DESTDIR=$(installdir)
+	$(MAKE) -C contrib/slapd-modules/autogroup install DESTDIR=$(installdir)
+	
+	# Empty the dependency_libs file in the .la files.
+	for F in $(installdir)/usr/lib/ldap/*.la; do \
+		sed -i "s/^dependency_libs=.*/dependency_libs=''/" $$F; \
+	done
+	
+	for F in $(installdir)/usr/lib/*.so.*.*.*; do \
+	    if echo "$$F" | grep -q libslapi ; then \
+	        continue; \
+	    fi; \
+	    if LD_LIBRARY_PATH=$(installdir)/usr/lib ldd -d -r $$F 2>&1 | grep '^undefined symbol:'; then \
+	        echo; \
+	        echo "library $$F has undefined references.  Please fix this before continuing."; \
+		exit 1; \
+	    fi; \
+	done
+	# Upstream installs schema files in mode 0444 - policy wants 0644
+	find $(installdir)/etc -type f|xargs chmod 0644
+	# Upstream manpages are section 8C but installed as section 8
+	find $(installdir)/usr/share/man -name \*.8 \
+		| xargs perl -pi -e 's#(\.TH \w+ 8)C#$$1#'
+	touch $@
+
+binary: binary-arch binary-indep
+binary-indep:
+binary-arch: install-stamp
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+
+	dh_installdirs -a
+	cp -al $(installdir) $(tmpdir)
+
+	dh_install -a
+	rm -rf $(CURDIR)/debian/slapd/usr/lib/ldap/smbk5pwd*
+	chmod 0755 $(CURDIR)/debian/slapd/usr/share/slapd/ldiftopasswd
+
+	dh_installchangelogs -a
+	dh_installdocs -a
+	dh_installexamples -a
+	dh_installman -a
+	dh_installinit -Xslapd.prerm -a -- "defaults 19 80"
+	dh_installdebconf -a
+	dh_lintian -a
+	dh_strip -plibldap-2.4-2 --dbg-package=libldap-2.4-2-dbg
+	dh_strip -pslapd --dbg-package=slapd-dbg
+	dh_strip -pldap-utils
+	dh_strip -pslapd-smbk5pwd
+	dh_link -a
+
+	# hardlink these so not confined by apparmor
+	for f in slapacl slapadd slapauth slapcat slapdn slapindex slappasswd slaptest ; do \
+	    ln -f $(slapddir)/slapd $(slapddir)/$$f ; \
+	done ;
+
+	dh_compress -a
+	dh_fixperms -a
+	# ideally we would do this and not have any libldap-2.4.so.2 links
+	# at all, but that requires adjusting the build scripts first to
+	# link against libldap_r, otherwise dh_shlibdeps fails
+	#dh_makeshlibs -plibldap-2.4-2 -V 'libldap-2.4-2 (>= 2.4.7)'
+	echo "slapd:Provides=$$(objdump -p debian/slapd/usr/lib/libslapi-*.so.* \
+		| sed -ne '/SONAME/ { s/[[:space:]]*SONAME[[:space:]]*//; \
+		                      s/\.so\./-/; p; q }' \
+	)" >> debian/slapd.substvars
+	dh_makeshlibs -pslapd -X/usr/lib/ldap/ -V "$$(sed -ne's/slapd:Provides=//p' debian/slapd.substvars)"
+	dh_installdeb -a
+	perl -w debian/dh_installscripts-common -p slapd
+	dh_shlibdeps -a -L libldap-2.4-2 -l $(installdir)/usr/lib
+	# Strip duplicate dependency out of substvars.
+	sed -i -e 's/ libldap-2.4-2,//' debian/*.substvars
+	dh_gencontrol -a
+	dh_md5sums -a
+	dh_builddeb -a
+
+clean: unpatch
+	dh_testdir
+	dh_testroot
+	rm -f install-stamp build-stamp configure-stamp
+	# Update translation templates for debconf
+	debconf-updatepo
+	# Remove our stripped schema from the upstream source area.
+	if [ -z "$(DFSG_NONFREE)" ]; then \
+	    set -e; for s in debian/schema/*.schema debian/schema/*.ldif; do \
+	        rm -f servers/slapd/schema/`basename $$s`; \
+	    done; \
+	fi
+	# Remove updated config.guess and config.sub for a clean diff.
+	rm -f build/config.sub build/config.guess
+	rm -f contrib/ldapc++/config.sub contrib/ldapc++/config.guess
+	rm -rf $(builddir) $(builddir_notls) $(installdir)
+	rm -rf build/ltmain.sh autom4te.cache configure aclocal.m4
+	
+	# Clean the contrib directory
+	rm -rf contrib/slapd-modules/smbk5pwd/.libs \
+		contrib/slapd-modules/smbk5pwd/smbk5pwd.lo \
+		contrib/slapd-modules/smbk5pwd/smbk5pwd.la \
+		contrib/slapd-modules/smbk5pwd/smbk5pwd.o
+	rm -rf contrib/slapd-modules/autogroup/.libs \
+		contrib/slapd-modules/autogroup/autogroup.lo \
+		contrib/slapd-modules/autogroup/autogroup.la \
+		contrib/slapd-modules/autogroup/autogroup.o
+	dh_clean
+
+.PHONY: binary binary-arch binary-indep build build-arch build-indep clean
+.PHONY: install

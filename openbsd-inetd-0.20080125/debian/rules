@@ -1,0 +1,53 @@
+#!/usr/bin/make -f
+SHELL+= -e
+
+QUILT_STAMPFN := debian/.stamp-patched
+include /usr/share/quilt/quilt.make
+
+include /usr/share/hardening-includes/hardening.make
+CFLAGS += $(HARDENING_CFLAGS)
+LDFLAGS += $(HARDENING_LDFLAGS)
+
+D := $(CURDIR)/debian/openbsd-inetd
+
+clean: unpatch
+	dh_testdir
+	rm -f debian/.stamp-*
+	rm -f inetd *.o
+	dh_clean
+
+build: debian/.stamp-build
+debian/.stamp-build: $(QUILT_STAMPFN)
+	dh_testdir
+	$(MAKE) -f Makefile.debian
+	touch $@
+
+binary-arch: checkroot build
+	dh_testdir
+	dh_clean
+
+	dh_installdirs usr/sbin/ usr/share/man/man5
+	dh_installdocs
+	dh_installman inetd.8
+	dh_installchangelogs ChangeLog
+	dh_link usr/share/man/man8/inetd.8.gz \
+			usr/share/man/man5/inetd.conf.5.gz
+	install --mode=755 inetd $D/usr/sbin/
+	dh_installinit --update-rcd-params="defaults 20" #--name=inetd
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_shlibdeps
+	dh_installdeb
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+	
+binary:	binary-arch
+
+binary-indep:
+
+checkroot:
+	test root = "`whoami`"
+
+.PHONY: binary binary-arch binary-indep build clean checkroot

@@ -1,0 +1,40 @@
+2010-03-26  Ulrich Drepper  <drepper@redhat.com>
+
+	* sysdeps/posix/getaddrinfo.c (gaih_inet): Don't assume success always
+	means aborting the loop over the NSS methods.
+ 
+---
+ sysdeps/posix/getaddrinfo.c |   21 +++++++++++----------
+ 1 file changed, 11 insertions(+), 10 deletions(-)
+
+--- a/sysdeps/posix/getaddrinfo.c
++++ b/sysdeps/posix/getaddrinfo.c
+@@ -817,17 +817,18 @@
+ 				    canon = name;
+ 				}
+ 			    }
+-
+-			  break;
++			  status = NSS_STATUS_SUCCESS;
++			}
++		      else
++			{
++			  /* We can have different states for AF_INET and
++			     AF_INET6.  Try to find a useful one for both.  */
++			  if (inet6_status == NSS_STATUS_TRYAGAIN)
++			    status = NSS_STATUS_TRYAGAIN;
++			  else if (status == NSS_STATUS_UNAVAIL
++				   && inet6_status != NSS_STATUS_UNAVAIL)
++			    status = inet6_status;
+ 			}
+-
+-		      /* We can have different states for AF_INET and
+-			 AF_INET6.  Try to find a useful one for both.  */
+-		      if (inet6_status == NSS_STATUS_TRYAGAIN)
+-			status = NSS_STATUS_TRYAGAIN;
+-		      else if (status == NSS_STATUS_UNAVAIL
+-			       && inet6_status != NSS_STATUS_UNAVAIL)
+-			status = inet6_status;
+ 		    }
+ 		  else
+ 		    status = NSS_STATUS_UNAVAIL;

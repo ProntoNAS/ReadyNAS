@@ -1,0 +1,25 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 0021_no_mutex_changes_after_init.dpatch by  <fabbe@paniq.net>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Disallow mutex function changes once sasl_client_init and/or
+## DP: sasl_server_init is called. Hand-picked and applied change
+## DP: from upstream CVS revision 1.117.
+
+@DPATCH@
+diff -urNad trunk~/lib/common.c trunk/lib/common.c
+--- trunk~/lib/common.c	2006-06-04 12:26:18.000000000 +0300
++++ trunk/lib/common.c	2009-01-18 10:59:24.000000000 +0200
+@@ -152,6 +152,12 @@
+ void sasl_set_mutex(sasl_mutex_alloc_t *n, sasl_mutex_lock_t *l,
+ 		    sasl_mutex_unlock_t *u, sasl_mutex_free_t *d)
+ {
++	/* Disallow mutex function changes once sasl_client_init
++	   and/or sasl_server_init is called */
++	if (_sasl_server_cleanup_hook || _sasl_client_cleanup_hook) {
++		return;
++	}
++
+   _sasl_mutex_utils.alloc=n;
+   _sasl_mutex_utils.lock=l;
+   _sasl_mutex_utils.unlock=u;

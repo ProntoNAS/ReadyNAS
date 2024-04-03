@@ -1,0 +1,80 @@
+From 221d4561c3c94d9dc105658dafe4aaed279f7d55 Mon Sep 17 00:00:00 2001
+From: Guido Guenther <agx@sigxcpu.org>
+Date: Fri, 1 Aug 2008 03:16:05 -0400
+Subject: [PATCH] convert sysfs paths for block devices into device names
+
+adds some backwardscompatibility for programms/udev rules that use
+"-s/--devpath"
+---
+ extras/scsi_id/scsi_id.c |   22 +++++++++++++++++++---
+ 1 files changed, 19 insertions(+), 3 deletions(-)
+
+diff --git a/extras/scsi_id/scsi_id.c b/extras/scsi_id/scsi_id.c
+index 5eb95e8..1c03009 100644
+--- a/extras/scsi_id/scsi_id.c
++++ b/extras/scsi_id/scsi_id.c
+@@ -33,12 +33,13 @@
+ 
+ static const struct option options[] = {
+ 	{ "device", 1, NULL, 'd' },
++	{ "devpath", 1, NULL, 's' },
+ 	{ "config", 1, NULL, 'f' },
+ 	{ "page", 1, NULL, 'p' },
+ 	{ "blacklisted", 0, NULL, 'b' },
+ 	{ "whitelisted", 0, NULL, 'g' },
+ 	{ "replace-whitespace", 0, NULL, 'u' },
+-	{ "sg-version", 1, NULL, 's' },
++	{ "sg-version", 1, NULL, '*' },
+ 	{ "verbose", 0, NULL, 'v' },
+ 	{ "version", 0, NULL, 'V' },
+ 	{ "export", 0, NULL, 'x' },
+@@ -46,7 +47,7 @@ static const struct option options[] = {
+ 	{}
+ };
+ 
+-static const char short_options[] = "d:f:ghip:uvVx";
++static const char short_options[] = "d:f:ghip:uvVxs:";
+ static const char dev_short_options[] = "bgp:";
+ 
+ static int all_good;
+@@ -374,6 +375,16 @@ static int get_file_options(const char *vendor, const char *model,
+ 	return retval;
+ }
+ 
++static void convert_sysfs_path(const char* sysfs, char *devpath)
++{
++	if (!strncmp(optarg, "/block/", 7)) {
++		snprintf(devpath, MAX_PATH_LEN, "/dev/%s", &(optarg[7]));
++	} else {
++		strncpy(devpath, optarg, MAX_PATH_LEN);
++	}
++	devpath[MAX_PATH_LEN-1] = '\0';
++}
++
+ static int set_options(int argc, char **argv, const char *short_opts,
+ 		       char *maj_min_dev)
+ {
+@@ -406,6 +417,11 @@ static int set_options(int argc, char **argv, const char *short_opts,
+ 			maj_min_dev[MAX_PATH_LEN-1] = '\0';
+ 			break;
+ 
++		case 's':
++			dev_specified = 1;
++			convert_sysfs_path(optarg, maj_min_dev);
++			break;
++
+ 		case 'e':
+ 			use_stderr = 1;
+ 			break;
+@@ -447,7 +463,7 @@ static int set_options(int argc, char **argv, const char *short_opts,
+ 			}
+ 			break;
+ 
+-		case 's':
++		case '*':
+ 			sg_version = atoi(optarg);
+ 			if (sg_version < 3 || sg_version > 4) {
+ 				err("Unknown SG version '%s'\n", optarg);
+-- 
+1.5.6.3
+

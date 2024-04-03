@@ -1,0 +1,1837 @@
+# DP: updates from the 4.4 branch upto 20101114 (r166728).
+
+last_updated()
+{
+	cat > ${dir}LAST_UPDATED <<EOF
+Sun Nov 14 08:26:43 CET 2010
+Sun Nov 14 07:26:43 UTC 2010 (revision 166728)
+EOF
+}
+
+svn diff svn://gcc.gnu.org/svn/gcc/tags/gcc_4_4_5_release svn://gcc.gnu.org/svn/gcc/branches/gcc-4_4-branch \
+	| sed -r 's,^--- (\S+)\t(\S+)(.*)$,--- a/src/\1\t\2,;s,^\+\+\+ (\S+)\t(\S+)(.*)$,+++ b/src/\1\t\2,' \
+	| awk '/^Index:.*\.(class|texi)/ {skip=1; next} /^Index:/ { skip=0 } skip==0'
+
+Index: configure
+===================================================================
+--- a/src/configure	(.../tags/gcc_4_4_5_release)
++++ b/src/configure	(.../branches/gcc-4_4-branch)
+@@ -2078,7 +2078,7 @@
+     # Check for target supported by gold.
+     case "${target}" in
+       i?86-*-* | x86_64-*-* | sparc*-*-* | powerpc*-*-*)
+-        configdirs="`echo " ${configdirs} " | sed -e 's/ ld / gold /'`"
++        configdirs=`echo " ${configdirs} " | sed -e 's/ ld / gold /'`
+         ;;
+     esac
+   fi
+Index: gcc/cfgloopmanip.c
+===================================================================
+--- a/src/gcc/cfgloopmanip.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/cfgloopmanip.c	(.../branches/gcc-4_4-branch)
+@@ -1546,7 +1546,10 @@
+   /* Duplicate loop.  */
+   if (!cfg_hook_duplicate_loop_to_header_edge (loop, entry, 1,
+ 					       NULL, NULL, NULL, 0))
+-    return NULL;
++    {
++      entry->flags |= irred_flag;
++      return NULL;
++    }
+ 
+   /* After duplication entry edge now points to new loop head block.
+      Note down new head as second_head.  */
+Index: gcc/DATESTAMP
+===================================================================
+--- a/src/gcc/DATESTAMP	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/DATESTAMP	(.../branches/gcc-4_4-branch)
+@@ -1 +1 @@
+-20101001
++20101114
+Index: gcc/fold-const.c
+===================================================================
+--- a/src/gcc/fold-const.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/fold-const.c	(.../branches/gcc-4_4-branch)
+@@ -11658,8 +11658,14 @@
+ 	  if (integer_pow2p (sval) && tree_int_cst_sgn (sval) > 0)
+ 	    {
+ 	      tree sh_cnt = TREE_OPERAND (arg1, 1);
+-	      unsigned long pow2 = exact_log2 (TREE_INT_CST_LOW (sval));
++	      unsigned long pow2;
+ 
++	      if (TREE_INT_CST_LOW (sval))
++		pow2 = exact_log2 (TREE_INT_CST_LOW (sval));
++	      else
++		pow2 = exact_log2 (TREE_INT_CST_HIGH (sval))
++		       + HOST_BITS_PER_WIDE_INT;
++
+ 	      if (strict_overflow_p)
+ 		fold_overflow_warning (("assuming signed overflow does not "
+ 					"occur when simplifying A / (B << N)"),
+Index: gcc/ChangeLog
+===================================================================
+--- a/src/gcc/ChangeLog	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/ChangeLog	(.../branches/gcc-4_4-branch)
+@@ -1,3 +1,89 @@
++2010-11-12  Jakub Jelinek  <jakub@redhat.com>
++
++	Backport from mainline
++	2010-11-05  Jakub Jelinek  <jakub@redhat.com>
++
++	PR middle-end/43690
++	* gimplify.c (gimplify_asm_expr): If a "m" input is a
++	{pre,post}{in,de}crement, fail.
++
++	2010-11-03  Jakub Jelinek  <jakub@redhat.com>
++
++	PR tree-optimization/46107
++	* cfgloopmanip.c (loop_version): Set irred_flag back into entry->flags
++	if cfg_hook_duplicate_loop_to_header_edge failed.
++
++2010-11-10  Uros Bizjak  <ubizjak@gmail.com>
++
++	PR middle-end/46419
++	* config/i386/xmmintrin.h (_mm_cvtpi16_ps): Swap __hisi and __losi.
++	(_mm_cvtpu16_ps): Ditto.
++
++2010-11-04  Uros Bizjak  <ubizjak@gmail.com>
++
++	Revert:
++	2010-10-30  Uros Bizjak  <ubizjak@gmail.com>
++
++	PR middle-end/44569
++	* lower-suberg.c (simplify_subreg_concatn): For VOIDmode elements,
++	determine the mode of a subreg by GET_MODE_INNER of CONCATN RTX.
++
++2010-11-04  Alan Modra  <amodra@gmail.com>
++
++	* config/rs6000/rs6000.c (rs6000_pic_labelno): Make static.
++	(rs6000_emit_load_toc_table): Don't use rs6000_pic_labelno when
++	TARGET_SECURE_PLT.
++	* config/rs6000/sysv4.h (rs6000_pic_labelno): Don't declare.
++	* config/rs6000/rs6000.md (load_toc_v4_PIC_3b): Use "b" constraint
++	on input, "r" on output.
++
++2010-10-30  Uros Bizjak  <ubizjak@gmail.com>
++
++	PR middle-end/44569
++	* lower-suberg.c (simplify_subreg_concatn): For VOIDmode elements,
++	determine the mode of a subreg by GET_MODE_INNER of CONCATN RTX.
++
++2010-10-22  Uros Bizjak  <ubizjak@gmail.com>
++
++	PR target/45946
++	* config/i386/i386.md (*pushti2): New insn pattern.
++	(pushti2 splitter): New insn splitter.
++
++2010-10-20  Vladimir Makarov  <vmakarov@redhat.com>
++
++	PR fortran/42169
++	* ira-emit.c (store_can_be_removed_p): Return false instead of
++	gcc_unreachable.
++
++2010-10-18  Jakub Jelinek  <jakub@redhat.com>
++
++	PR middle-end/46019
++	* fold-const.c (fold_binary_loc): If integer_pow2p has
++	TREE_INT_CST_LOW zero, look at TREE_INT_CST_HIGH.
++
++2010-10-07  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
++
++	PR target/45820
++	* config/pa/pa.c (pa_secondary_reload): Handle symbolic operands
++	earlier.
++
++2010-10-01  Jakub Jelinek  <jakub@redhat.com>
++
++	Backport from mainline
++	2010-09-30  Jakub Jelinek  <jakub@redhat.com>
++
++	PR target/45843
++	* config/i386/i386.c (ix86_gimplify_va_arg): Use
++	INTVAL (XEXP (slot, 1)) as prev_size.
++
++	2010-06-21  Jakub Jelinek  <jakub@redhat.com>
++
++	PR target/44575
++	* config/i386/i386.c (ix86_gimplify_va_arg): When copying
++	va_arg from a set of register save slots into a temporary,
++	if the container is bigger than type size, do the copying
++	using smaller mode or using memcpy.
++
+ 2010-10-01  Release Manager
+ 
+ 	* GCC 4.4.5 released.
+@@ -111,9 +202,9 @@
+ 	2010-09-01  Ian Bolton  <ian.bolton@arm.com>
+ 
+ 	* Makefile.in (tree-switch-conversion.o): Update dependencies.
+-	
++
+ 	2010-08-19  Ian Bolton  <ian.bolton@arm.com>
+-	
++
+ 	PR target/45070
+ 	* config/arm/arm.c (arm_output_epilogue): Ensure that return
+ 	value of size 1-3 is handled correctly.
+@@ -124,7 +215,7 @@
+ 	type for the conditional has wide enough range.
+ 
+ 	2010-08-07  Marcus Shawcroft  <marcus.shawcroft@arm.com>
+-	
++
+ 	* config/arm/linux-atomic.c (SUBWORD_VAL_CAS): Instantiate with
+ 	'unsigned short' and 'unsigned char' instead of 'short' and 'char'.
+ 	(SUBWORD_BOOL_CAS): Likewise.
+@@ -133,9 +224,9 @@
+ 	(FETCH_AND_OP_WORD): Parenthesise INF_OP
+ 	(SUBWORD_SYNC_OP): Likewise.
+ 	(OP_AND_FETCH_WORD): Likewise.
+-	
++
+ 2010-09-02  Jakub Jelinek  <jakub@redhat.com>
+-	
++
+ 	Backport from mainline
+ 	2010-08-30  Jakub Jelinek  <jakub@redhat.com>
+ 
+Index: gcc/testsuite/gcc.c-torture/execute/pr46019.c
+===================================================================
+--- a/src/gcc/testsuite/gcc.c-torture/execute/pr46019.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.c-torture/execute/pr46019.c	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,14 @@
++/* PR middle-end/46019 */
++
++extern void abort (void);
++
++int
++main (void)
++{
++  unsigned long long l = 0x40000000000ULL;
++  int n;
++  for (n = 0; n < 8; n++)
++    if (l / (0x200000000ULL << n) != (0x200 >> n))
++      abort ();
++  return 0;
++}
+Index: gcc/testsuite/gcc.c-torture/execute/pr44575.c
+===================================================================
+--- a/src/gcc/testsuite/gcc.c-torture/execute/pr44575.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.c-torture/execute/pr44575.c	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,49 @@
++/* PR target/44575 */
++
++#include <stdarg.h>
++
++int fails = 0;
++struct S { float a[3]; };
++struct S a[5];
++
++void
++check (int z, ...)
++{
++  struct S arg, *p;
++  va_list ap;
++  int j = 0, k = 0;
++  int i;
++  va_start (ap, z);
++  for (i = 2; i < 4; ++i)
++    {
++      p = 0;
++      j++;
++      k += 2;
++      switch ((z << 4) | i)
++	{
++	case 0x12:
++	case 0x13:
++	  p = &a[2];
++	  arg = va_arg (ap, struct S);
++	  break;
++	default:
++	  ++fails;
++	  break;
++	}
++      if (p && p->a[2] != arg.a[2])
++	++fails;
++      if (fails)
++	break;
++    }
++  va_end (ap);
++}
++
++int
++main ()
++{
++  a[2].a[2] = -49026;
++  check (1, a[2], a[2]);
++  if (fails)
++    abort ();
++  return 0;
++}
+Index: gcc/testsuite/gcc.c-torture/compile/pr46107.c
+===================================================================
+--- a/src/gcc/testsuite/gcc.c-torture/compile/pr46107.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.c-torture/compile/pr46107.c	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,16 @@
++/* PR tree-optimization/46107 */
++
++int foo (void) __attribute__ ((noreturn));
++
++void
++bar (int x, int *y, int z)
++{
++  static void *j[] = { &&l1, &&l2 };
++l1:
++  if (*y)
++    goto *j[z];
++  foo ();
++l2:
++  *y ^= (x & 1) ? -1 : 0;
++  goto *j[x];
++}
+Index: gcc/testsuite/gcc.target/i386/i386.exp
+===================================================================
+--- a/src/gcc/testsuite/gcc.target/i386/i386.exp	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.target/i386/i386.exp	(.../branches/gcc-4_4-branch)
+@@ -161,13 +161,24 @@
+ 
+ # If the linker used understands -M <mapfile>, pass it to clear hardware
+ # capabilities set by the Sun assembler.
+-set FLAGS ""
+ set clearcap_ldflags "-Wl,-M,$srcdir/$subdir/clearcap.map"
+ 
+ if [check_no_compiler_messages mapfile executable {
+ 	int main (void) { return 0; }
+   } $clearcap_ldflags ] {
+-  set FLAGS $clearcap_ldflags
++
++  if { [info procs gcc_target_compile] != [list] \
++	&& [info procs saved_gcc_target_compile] == [list] } {
++    rename gcc_target_compile saved_gcc_target_compile
++
++    proc gcc_target_compile { source dest type options } {
++      global clearcap_ldflags
++      # Always pass -Wl,-M,<mapfile>, but don't let it show up in gcc.sum.
++      lappend options "additional_flags=$clearcap_ldflags"
++
++      return [saved_gcc_target_compile $source $dest $type $options]
++    }
++  }
+ }
+ 
+ # If a testcase doesn't have special options, use these.
+@@ -194,7 +205,7 @@
+ set tests [prune $tests $srcdir/$subdir/vect-args.c]
+ 
+ # Main loop.
+-dg-runtest $tests $FLAGS $DEFAULT_CFLAGS
++dg-runtest $tests "" $DEFAULT_CFLAGS
+ 
+ # All done.
+ dg-finish
+Index: gcc/testsuite/gcc.target/i386/pr45946.c
+===================================================================
+--- a/src/gcc/testsuite/gcc.target/i386/pr45946.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.target/i386/pr45946.c	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,14 @@
++/* { dg-do compile } */
++/* { dg-require-effective-target dfp } */
++/* { dg-options "-std=gnu99 -Os -fno-omit-frame-pointer" } */
++
++void
++__attribute__((noinline))
++bar (_Decimal128, _Decimal128, _Decimal128, _Decimal128, _Decimal128,
++     _Decimal128, _Decimal128, _Decimal128, _Decimal128);
++
++void
++foo (void)
++{
++  bar (0, 0, 0, 0, 0, 0, 0, 0, 0);
++}
+Index: gcc/testsuite/gcc.target/i386/pr46419.c
+===================================================================
+--- a/src/gcc/testsuite/gcc.target/i386/pr46419.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.target/i386/pr46419.c	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,39 @@
++/* { dg-do run } */
++/* { dg-options "-O2 -msse" } */
++/* { dg-require-effective-target sse } */
++
++#include "sse-check.h"
++
++#include <xmmintrin.h>
++
++void __attribute__((noinline))
++sse_test (void)
++{
++  char image[4];
++  __m128 image4;
++  float out[4] __attribute__ ((aligned (16)));
++  int i;
++
++  for (i = 0; i < 4; i++)
++    image[i] = i + 1;
++
++  image4 =
++    _mm_cvtpi8_ps (_mm_setr_pi8
++		   (image[0], image[1], image[2], image[3], 0, 0, 0, 0));
++  _mm_store_ps (out, image4);
++  _mm_empty ();
++
++  for (i = 0; i < 4; i++)
++    if (out[i] != (float) (i + 1))
++      abort ();
++
++  image4 =
++    _mm_cvtpu8_ps (_mm_setr_pi8
++		   (image[0], image[1], image[2], image[3], 0, 0, 0, 0));
++  _mm_store_ps (out, image4);
++  _mm_empty ();
++
++  for (i = 0; i < 4; i++)
++    if (out[i] != (float) (i + 1))
++      abort ();
++}
+Index: gcc/testsuite/gcc.dg/pragma-init-fini.c
+===================================================================
+--- a/src/gcc/testsuite/gcc.dg/pragma-init-fini.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.dg/pragma-init-fini.c	(.../branches/gcc-4_4-branch)
+@@ -1,6 +1,7 @@
+ /* Tests for #pragma init and #pragma fini.  */
+ 
+ /* { dg-do run { target *-*-solaris2.* } } */
++/* { dg-skip-if "no .pushsection/.popsection" { i?86-*-solaris2.8 && { ! gas } } } */
+ 
+ extern void abort ();
+ 
+Index: gcc/testsuite/gcc.dg/torture/pr41555.c
+===================================================================
+--- a/src/gcc/testsuite/gcc.dg/torture/pr41555.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.dg/torture/pr41555.c	(.../branches/gcc-4_4-branch)
+@@ -1,5 +1,6 @@
+ /* { dg-do run } */
+ /* { dg-options "-std=c99" } */
++/* { dg-require-effective-target stdint_types } */
+ 
+ #include <stdint.h>
+ #include <limits.h>
+Index: gcc/testsuite/gcc.dg/torture/pr45678-1.c
+===================================================================
+--- a/src/gcc/testsuite/gcc.dg/torture/pr45678-1.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.dg/torture/pr45678-1.c	(.../branches/gcc-4_4-branch)
+@@ -1,4 +1,5 @@
+ /* { dg-do run } */
++/* { dg-options "-fno-common" { target { { hppa*-*-hpux* } && { ! hppa*64*-*-* } } } } */
+ 
+ typedef float V __attribute__ ((vector_size (16)));
+ V g;
+Index: gcc/testsuite/gcc.dg/torture/pr45678-2.c
+===================================================================
+--- a/src/gcc/testsuite/gcc.dg/torture/pr45678-2.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.dg/torture/pr45678-2.c	(.../branches/gcc-4_4-branch)
+@@ -1,4 +1,5 @@
+ /* { dg-do run } */
++/* { dg-options "-fno-common" { target { { hppa*-*-hpux* } && { ! hppa*64*-*-* } } } } */
+ 
+ typedef float V __attribute__ ((vector_size (16)));
+ V g;
+Index: gcc/testsuite/gcc.dg/pragma-init-fini-2.c
+===================================================================
+--- a/src/gcc/testsuite/gcc.dg/pragma-init-fini-2.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.dg/pragma-init-fini-2.c	(.../branches/gcc-4_4-branch)
+@@ -2,6 +2,7 @@
+ 
+ /* { dg-do link { target *-*-solaris2.* } } */
+ /* { dg-options "-fpic" } */
++/* { dg-xfail-if "no .pushsection/.popsection" { i?86-*-solaris2.8 && { ! gas } } } */
+ 
+ #include <stdio.h>
+ 
+Index: gcc/testsuite/gcc.dg/debug/dwarf2/inline2.c
+===================================================================
+--- a/src/gcc/testsuite/gcc.dg/debug/dwarf2/inline2.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gcc.dg/debug/dwarf2/inline2.c	(.../branches/gcc-4_4-branch)
+@@ -21,27 +21,27 @@
+    - One for each subroutine inlined into main, that's 3.
+    - One for earch subroutine inline into the out of line instances
+      of third, second and first.  */
+-/* { dg-final { scan-assembler-times "\\(DIE \\(.*?\\) DW_TAG_inlined_subroutine" 6 } } */
++/* { dg-final { scan-assembler-times "\\(DIE \\(\[^\n\]*\\) DW_TAG_inlined_subroutine" 6 } } */
+ 
+ /* Likewise we should have 6 DW_TAG_lexical_block DIEs:
+    - One for each subroutine inlined into main, so that's 3.
+    - One for each subroutine inlined in the out of line instances
+      of third, second and first, that's 3.
+ */
+-/* { dg-final { scan-assembler-times "\\(DIE \\(.*?\\) DW_TAG_lexical_block" 6 } } */
++/* { dg-final { scan-assembler-times "\\(DIE \\(\[^\n\]*\\) DW_TAG_lexical_block" 6 } } */
+ 
+ 
+ /* There are 3 DW_AT_inline attributes: one per abstract inline instance.
+    The value of the attribute must be 0x3, meaning the function was
+    actually inlined.  */
+-/* { dg-final { scan-assembler-times "byte.*?0x3.*? DW_AT_inline" 3 } } */
++/* { dg-final { scan-assembler-times  "(?:byte|data1)\[^\n\]*0x3\[^\n\]* DW_AT_inline" 3 } } */
+ 
++volatile int *a;
+ 
+ inline void
+ third (int arg3)
+ {
+   int var3 = arg3;
+-  int* a = 0;
+   a[0] = var3;
+ }
+ 
+Index: gcc/testsuite/ChangeLog
+===================================================================
+--- a/src/gcc/testsuite/ChangeLog	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/ChangeLog	(.../branches/gcc-4_4-branch)
+@@ -1,3 +1,151 @@
++2010-11-13  Tobias Burnus  <burnus@net-b.de>
++
++	PR fortran/45742
++	* gfortran.dg/volatile12.f90: New.
++
++2010-11-12  Jakub Jelinek  <jakub@redhat.com>
++
++	Backport from mainline
++	2010-11-05  Jakub Jelinek  <jakub@redhat.com>
++
++	PR middle-end/43690
++	* c-c++-common/pr43690.c: New test.
++
++	2010-11-03  Jakub Jelinek  <jakub@redhat.com>
++
++	PR tree-optimization/46107
++	* gcc.c-torture/compile/pr46107.c: New test.
++
++2010-11-10  Uros Bizjak  <ubizjak@gmail.com>
++
++	PR target/46419
++	* gcc-target/i386/pr46419.c: New test.
++
++2010-11-08  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
++
++	Backport from mainline:
++	2010-11-05  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
++
++	* gcc.target/i386/i386.exp (FLAGS): Remove.
++	Wrap gcc_target_compile with $clearcap_ldflags added to options.
++
++2010-11-03  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
++
++	Backport from mainline:
++	PR libgfortran/46010
++	* gfortran.dg/namelist_66.f90: New test.
++
++2010-10-22  Uros Bizjak  <ubizjak@gmail.com>
++	    H.J. Lu  <hongjiu.lu@intel.com>
++
++	PR target/45946
++	* gcc.target/i386/pr45946.c: New test.
++
++2010-10-21  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
++
++	Backport from mainline:
++	2010-10-20  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
++
++	PR c++/46024
++	* g++.dg/warn/miss-format-1.C: Enclose dg-error target list in braces.
++
++	2010-08-04  Daniel Gutson  <dgutson@codesourcery.com>
++
++	* g++.dg/warn/miss-format-1.C: Update line number.
++
++	2010-05-03  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
++
++	* g++.dg/warn/miss-format-1.C (bar): xfail dg-warning on
++	alpha*-dec-osf*.
++
++2010-10-18  Jakub Jelinek  <jakub@redhat.com>
++
++	PR middle-end/46019
++	* gcc.c-torture/execute/pr46019.c: New test.
++
++2010-10-16  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
++
++	Backport from mainline
++	2010-09-06  Jakub Jelinek  <jakub@redhat.com>
++
++	PR testsuite/45543
++	* g++.dg/debug/dwarf2/typedef1.C: Expect just one
++	DW_TAG_enumeration_type DIE.
++
++	2010-09-04  Andreas Schwab  <schwab@linux-m68k.org>
++	* g++.dg/debug/dwarf2/typedef1.C: Replace ".*" by "\[^\n\]*".
++
++	2009-11-07  Jason Merrill  <jason@redhat.com>
++
++	PR c++/18451
++	PR c++/40738
++	* g++.dg/other/typedef1.C: Update expected errors.
++
++	2009-08-03  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
++
++	PR testsuite/40858
++	* g++.dg/debug/dwarf2/typedef1.C: Also match assembler string used with
++	.ascii.
++
++	2010-09-04  Andreas Schwab  <schwab@linux-m68k.org>
++	* g++.dg/debug/dwarf2/pubnames-1.C: Replace ".*" by "\[^\n\]*".
++
++	2010-07-07  Tom Tromey  <tromey@redhat.com>
++	* g++.dg/debug/dwarf2/pubnames-1.C: Make darwin-specific.
++
++	2009-09-08  Dodji Seketeli  <dodji@redhat.com>
++	* g++.dg/debug/dwarf2/pubnames-1.C: Use -fno-merge-debug-string
++	and adjust.  Also, adjust to take darwin specifics in account.
++
++2010-10-12  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
++
++	* gcc.dg/pragma-init-fini.c: Skip on i?86-*-solaris2.8 && !gas.
++	* gcc.dg/pragma-init-fini-2.c: XFAIL on i?86-*-solaris2.8 && !gas.
++
++2010-10-10  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
++
++	Backport from mainline
++	2010-09-04  Andreas Schwab  <schwab@linux-m68k.org>
++
++	* gcc.dg/debug/dwarf2/inline2.c: Replace ".*" by "\[^\n\]*".
++
++	2010-03-24  Jakub Jelinek  <jakub@redhat.com>
++
++	* gcc.dg/debug/dwarf2/inline2.c (third): Make a a global var
++	and add volatile keyword.
++
++	2009-11-23  Steve Ellcey  <sje@cup.hp.com>
++
++	* gcc.dg/debug/dwarf2/inline2.c: Modify scan.
++
++2010-10-10  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
++
++	* gcc.dg/torture/pr41555.c: Require stdint types.
++
++2010-10-06  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
++
++	Backport from mainline
++	PR libfortran/45710
++	* gfortran.dg/namelist_65.f90: New test.
++
++2010-10-04  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
++
++	* gcc.dg/torture/pr45678-1.c: Add -fno-common to options on 32-bit
++	hppa*-*-hpux*.
++	* gcc.dg/torture/pr45678-2.c: Likewise.
++
++2010-10-01  Jakub Jelinek  <jakub@redhat.com>
++
++	Backport from mainline
++	2010-09-30  Jakub Jelinek  <jakub@redhat.com>
++
++	* g++.dg/torture/pr45843.C: New test.
++
++	2010-06-21  Jakub Jelinek  <jakub@redhat.com>
++
++	PR target/44575
++	* gcc.c-torture/execute/pr44575.c: New test.
++
+ 2010-10-01  Release Manager
+ 
+ 	* GCC 4.4.5 released.
+@@ -84,7 +232,7 @@
+ 
+ 	PR middle-end/40386
+ 	* gcc.c-torture/execute/{pr40386.c,pr40386.x}: New testcase.
+-	
++
+ 2010-09-08  Jakub Jelinek  <jakub@redhat.com>
+ 
+ 	PR fortran/45595
+@@ -94,14 +242,14 @@
+ 
+ 	Backport from mainline
+ 	2010-08-19  Ian Bolton  <ian.bolton@arm.com>
+-	
++
+ 	PR target/45070
+ 	* gcc.c-torture/execute/pr45070.c: New.
+ 
+ 	2010-08-19  Ian Bolton  <ian.bolton@arm.com>
+ 
+ 	* g++.dg/pr44328.C: New test.
+-	
++
+ 	2010-08-07  Marcus Shawcroft <marcus.shawcroft@arm.com>
+ 
+ 	* lib/target-supports.exp: (check_effective_target_sync_int_long):
+Index: gcc/testsuite/g++.dg/debug/dwarf2/pubnames-1.C
+===================================================================
+--- a/src/gcc/testsuite/g++.dg/debug/dwarf2/pubnames-1.C	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/g++.dg/debug/dwarf2/pubnames-1.C	(.../branches/gcc-4_4-branch)
+@@ -1,14 +1,22 @@
+ // Contributed by Dodji Seketeli <dodji@redhat.com>
+ // Origin PR debug/39706
+-// { dg-options "-g -dA" }
+-// { dg-do compile }
+-// { dg-final { scan-assembler-times ".debug_pubnames" 1 } }
+-// { dg-final { scan-assembler-times "\"main\".*external name" 1 } }
+-// { dg-final { scan-assembler-times "\"ns::ns_x.*external name" 1 } }
+-// { dg-final { scan-assembler-times "\"y::y_x.*external name" 1 } }
++// { dg-do compile { target *-*-darwin* } }
++// { dg-options "-g -dA -fno-merge-debug-strings" }
++//
++// There should be one debug_pubnames section generated.
++// On Darwin though, there is also a label pointing at the begining of the
++// debug_pubnames section. The assembly code of that label adds an occurence
++// of section declaration assembly. So on Darwin, we need to check for two
++// occurences of the debug_pubnames section declaration.
++// { dg-final { scan-assembler-times "\.section\[\t \]\[^\n\]*debug_pubnames" 1 { target { ! *-*-darwin* } } } }
++// { dg-final { scan-assembler-times "\.section\[\t \]\[^\n\]*debug_pubnames" 2 { target { *-*-darwin* } } } }
++//
++// Then check of the presence of the names we are interested in.
++// { dg-final { scan-assembler-times "\"main.0\"\[^\n\]*external name" 1 } }
++// { dg-final { scan-assembler-times "\"ns::ns_x\[^\n\]*external name" 1 } }
++// { dg-final { scan-assembler-times "\"y::y_x\[^\n\]*external name" 1 } }
+ 
+ namespace ns { int ns_x; }
+ class y { public: static int y_x; };
+ int y::y_x;
+ int main() { return ns::ns_x; }
+-
+Index: gcc/testsuite/g++.dg/debug/dwarf2/typedef1.C
+===================================================================
+--- a/src/gcc/testsuite/g++.dg/debug/dwarf2/typedef1.C	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/g++.dg/debug/dwarf2/typedef1.C	(.../branches/gcc-4_4-branch)
+@@ -3,12 +3,12 @@
+ // { dg-options "-g -dA" }
+ // { dg-do compile }
+ // { dg-final { scan-assembler-times "DW_TAG_structure_type" 2 } }
+-// { dg-final { scan-assembler-times "DW_AT_name: \"foo<1u>\"" 1 } }
++// { dg-final { scan-assembler-times "DW_AT_name: \"foo<1u>\"|\"foo<1u>..\"\[^\n\]*DW_AT_name" 1 } }
+ // { dg-final { scan-assembler-times "DW_TAG_enumeration_type" 2 } }
+-// { dg-final { scan-assembler-times "DW_AT_name: \"typedef foo<1u>::type type\"" 1 } }
+-// { dg-final { scan-assembler-times "DIE (.*) DW_TAG_enumeration_type" 2 } }
+-// { dg-final { scan-assembler-times "\"e0..\".*DW_AT_name" 1 } }
+-// { dg-final { scan-assembler-times "\"e1..\".*DW_AT_name" 1 } }
++// { dg-final { scan-assembler-times "DW_AT_name: \"typedef foo<1u>::type type\"|\"typedef foo<1u>::type type..\"\[^\n\]*DW_AT_name" 1 } }
++// { dg-final { scan-assembler-times "DIE \\(\[^\n\]*\\) DW_TAG_enumeration_type" 1 } }
++// { dg-final { scan-assembler-times "\"e0..\"\[^\n\]*DW_AT_name" 1 } }
++// { dg-final { scan-assembler-times "\"e1..\"\[^\n\]*DW_AT_name" 1 } }
+ 
+ template <unsigned int n>
+ struct foo
+Index: gcc/testsuite/g++.dg/warn/miss-format-1.C
+===================================================================
+--- a/src/gcc/testsuite/g++.dg/warn/miss-format-1.C	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/g++.dg/warn/miss-format-1.C	(.../branches/gcc-4_4-branch)
+@@ -4,7 +4,7 @@
+ /* { dg-options "-Wmissing-format-attribute" } */
+ /* { dg-options "-Wmissing-format-attribute -Wno-abi" { target arm_eabi } } */
+ /* VxWorks does not provide vscanf, either in kernel or RTP mode.  */
+-/* { dg-error "not declared" "" { target *-*-solaris2.[7-8] *-*-vxworks* } 25 } */
++/* { dg-error "not declared" "" { target { *-*-solaris2.[7-8] *-*-vxworks* alpha*-dec-osf* } } 26 } */
+ 
+ #include <stdio.h>
+ #include <stdarg.h>
+@@ -23,7 +23,7 @@
+ {
+   va_list ap;
+   va_start (ap, fmt);
+-  vscanf (fmt, ap); /* { dg-warning "candidate" "scanf attribute warning" { xfail *-*-solaris2.[7-8] *-*-vxworks* } } */
++  vscanf (fmt, ap); /* { dg-warning "candidate" "scanf attribute warning" { xfail *-*-solaris2.[7-8] *-*-vxworks* alpha*-dec-osf* } } */
+   va_end (ap);
+ }
+ 
+Index: gcc/testsuite/g++.dg/torture/pr45843.C
+===================================================================
+--- a/src/gcc/testsuite/g++.dg/torture/pr45843.C	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/g++.dg/torture/pr45843.C	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,28 @@
++// PR target/45843
++// { dg-do run }
++
++#include <stdarg.h>
++
++extern "C" void abort ();
++struct S { struct T { } a[14]; char b; };
++struct S arg, s;
++
++void
++foo (int z, ...)
++{
++  char c;
++  va_list ap;
++  va_start (ap, z);
++  c = 'a';
++  arg = va_arg (ap, struct S);
++  if (c != 'a')
++    abort ();
++  va_end (ap);
++}
++
++int
++main ()
++{
++  foo (1, s);
++  return 0;
++}
+Index: gcc/testsuite/gfortran.dg/namelist_66.f90
+===================================================================
+--- a/src/gcc/testsuite/gfortran.dg/namelist_66.f90	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gfortran.dg/namelist_66.f90	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,40 @@
++! { dg-do run }
++! PR46010 Failure to read these two examples of namelists
++type ptracer
++   character(len = 2)  :: sname
++   logical              :: lini
++end type ptracer
++type(ptracer) , dimension(3) :: tracer
++namelist/naml1/  tracer
++
++type qptracer
++   character(len = 20)  :: sname  = ""!: short name
++   character(len = 45 ) :: lname  = ""!: long name
++   character(len = 20 ) :: sunit  = "" !: unit
++   logical              :: lini   !: read in a file or not
++   logical              :: lsav   !: ouput the tracer or not 
++end type qptracer
++type(qptracer) , dimension(3) :: qtracer
++namelist/naml2/  qtracer
++
++open (99, file='nml.dat', status="replace")
++write(99,*) "&naml1"
++write(99,*) "   tracer(1)   = 'aa', .true."
++write(99,*) "   tracer(2)   = 'bb', .true."
++write(99,*) "   tracer(3)   = 'cc', .true."
++write(99,*) "/"
++rewind(99)
++read (99, nml=naml1)
++write (*, nml=naml1)
++rewind(99)
++write(99,*) "&naml2     !   just some stuff"
++write(99,*) "   qtracer(1)   = 'dic     ' , 'dissolved inorganic concentration      ',  'mol-c/l' ,  .true.     ,  .true.,"
++write(99,*) "   qtracer(2)   = 'alkalini' , 'total alkalinity concentration         ',  'eq/l '   ,  .true.     ,  .true.,"
++write(99,*) "/"
++rewind(99)
++read (99, nml=naml2)
++write (*, nml=naml2)
++rewind(99)
++
++close (99, status="delete")
++end
+Index: gcc/testsuite/gfortran.dg/volatile12.f90
+===================================================================
+--- a/src/gcc/testsuite/gfortran.dg/volatile12.f90	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gfortran.dg/volatile12.f90	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,16 @@
++! { dg-do compile }
++! { dg-options "-fdump-tree-optimized -O3" }
++!
++! PR fortran/45742
++!
++
++subroutine sub(arg)
++  integer, volatile :: arg
++  if (arg /= arg) call I_dont_exist()
++end
++
++! { dg-final { scan-tree-dump "integer.kind=.. . volatile arg" "optimized" } }
++! { dg-final { scan-tree-dump-times " =.v. arg;" 2 "optimized" } }
++! { dg-final { scan-tree-dump "i_dont_exist" "optimized" } }
++! { dg-final { cleanup-tree-dump "optimized" } }
++
+Index: gcc/testsuite/gfortran.dg/namelist_65.f90
+===================================================================
+--- a/src/gcc/testsuite/gfortran.dg/namelist_65.f90	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/gfortran.dg/namelist_65.f90	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,22 @@
++! { dg-do run }
++! { dg-options "-std=gnu" }
++! PR45710 Adjust format/padding for WRITE of NAMELIST group to internal file
++program oneline
++real :: a=1,b=2,c=3,d=4
++namelist /nl1/ a,b,c
++parameter(ilines=5)
++character(len=80) :: out(ilines)
++
++! fill array out with @
++do i=1,len(out)
++   out(:)(i:i)='@'
++enddo
++
++write(out,nl1)
++if (out(1).ne."&NL1") call abort
++if (out(2).ne." A=  1.0000000    ,") call abort
++if (out(3).ne." B=  2.0000000    ,") call abort
++if (out(4).ne." C=  3.0000000    ,") call abort
++if (out(5).ne." /") call abort
++
++end program oneline
+Index: gcc/testsuite/c-c++-common/pr43690.c
+===================================================================
+--- a/src/gcc/testsuite/c-c++-common/pr43690.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/testsuite/c-c++-common/pr43690.c	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,13 @@
++/* PR middle-end/43690 */
++/* { dg-do compile } */
++/* { dg-options "-O2" } */
++
++void
++foo (char *x)
++{
++  asm ("" : : "m" (x++));	/* { dg-error "is not directly addressable" } */
++  asm ("" : : "m" (++x));	/* { dg-error "is not directly addressable" } */
++  asm ("" : : "m" (x--));	/* { dg-error "is not directly addressable" } */
++  asm ("" : : "m" (--x));	/* { dg-error "is not directly addressable" } */
++  asm ("" : : "m" (x + 1));	/* { dg-error "is not directly addressable" } */
++}
+Index: gcc/fortran/trans-common.c
+===================================================================
+--- a/src/gcc/fortran/trans-common.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/fortran/trans-common.c	(.../branches/gcc-4_4-branch)
+@@ -323,6 +323,7 @@
+     {
+       tree new_type;
+       TREE_THIS_VOLATILE (field) = 1;
++      TREE_SIDE_EFFECTS (field) = 1;
+       new_type = build_qualified_type (TREE_TYPE (field), TYPE_QUAL_VOLATILE);
+       TREE_TYPE (field) = new_type;
+     }
+Index: gcc/fortran/ChangeLog
+===================================================================
+--- a/src/gcc/fortran/ChangeLog	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/fortran/ChangeLog	(.../branches/gcc-4_4-branch)
+@@ -1,3 +1,15 @@
++2010-11-13  Tobias Burnus  <burnus@net-b.de>
++
++	PR fortran/45742
++	* trans-common.c (build_field): Add TREE_SIDE_EFFECTS for volatile.
++	* trans-decl.c (gfc_finish_var_decl): Ditto.
++	(create_function_arglist): Handle volatile dummy arguments.
++
++2010-10-25  Steven G. Kargl  <kargl@gcc.gnu.org>
++
++	PR fortran/46140
++	* fortran/scanner.c (include_line): Check return value of load_file.
++
+ 2010-10-01  Release Manager
+ 
+ 	* GCC 4.4.5 released.
+Index: gcc/fortran/scanner.c
+===================================================================
+--- a/src/gcc/fortran/scanner.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/fortran/scanner.c	(.../branches/gcc-4_4-branch)
+@@ -1770,7 +1770,9 @@
+ 		   read by anything else.  */
+ 
+   filename = gfc_widechar_to_char (begin, -1);
+-  load_file (filename, NULL, false);
++  if (load_file (filename, NULL, false) == FAILURE)
++    exit (1);
++
+   gfc_free (filename);
+   return true;
+ }
+Index: gcc/fortran/trans-decl.c
+===================================================================
+--- a/src/gcc/fortran/trans-decl.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/fortran/trans-decl.c	(.../branches/gcc-4_4-branch)
+@@ -539,6 +539,7 @@
+   if (sym->attr.volatile_)
+     {
+       TREE_THIS_VOLATILE (decl) = 1;
++      TREE_SIDE_EFFECTS (decl) = 1;
+       new_type = build_qualified_type (TREE_TYPE (decl), TYPE_QUAL_VOLATILE);
+       TREE_TYPE (decl) = new_type;
+     } 
+@@ -1655,10 +1656,19 @@
+ 
+       if (f->sym->attr.proc_pointer)
+         type = build_pointer_type (type);
++ 
++      if (f->sym->attr.volatile_)
++	type = build_qualified_type (type, TYPE_QUAL_VOLATILE);
+ 
+       /* Build the argument declaration.  */
+       parm = build_decl (PARM_DECL, gfc_sym_identifier (f->sym), type);
+ 
++      if (f->sym->attr.volatile_)
++	{
++	  TREE_THIS_VOLATILE (parm) = 1;
++	  TREE_SIDE_EFFECTS (parm) = 1;
++	}
++
+       /* Fill in arg stuff.  */
+       DECL_CONTEXT (parm) = fndecl;
+       DECL_ARG_TYPE (parm) = TREE_VALUE (typelist);
+Index: gcc/ira-emit.c
+===================================================================
+--- a/src/gcc/ira-emit.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/ira-emit.c	(.../branches/gcc-4_4-branch)
+@@ -368,7 +368,8 @@
+ 	   prohibit removal of the store in such complicated case.  */
+ 	return false;
+     }
+-  gcc_unreachable ();
++  /* It is actually a loop entry -- do not remove the store.  */
++  return false;
+ }
+ 
+ /* Generate and attach moves to the edge E.  This looks at the final
+Index: gcc/gimplify.c
+===================================================================
+--- a/src/gcc/gimplify.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/gimplify.c	(.../branches/gcc-4_4-branch)
+@@ -4842,6 +4842,13 @@
+       /* If the operand is a memory input, it should be an lvalue.  */
+       if (!allows_reg && allows_mem)
+ 	{
++	  tree inputv = TREE_VALUE (link);
++	  STRIP_NOPS (inputv);
++	  if (TREE_CODE (inputv) == PREDECREMENT_EXPR
++	      || TREE_CODE (inputv) == PREINCREMENT_EXPR
++	      || TREE_CODE (inputv) == POSTDECREMENT_EXPR
++	      || TREE_CODE (inputv) == POSTINCREMENT_EXPR)
++	    TREE_VALUE (link) = error_mark_node;
+ 	  tret = gimplify_expr (&TREE_VALUE (link), pre_p, post_p,
+ 				is_gimple_lvalue, fb_lvalue | fb_mayfail);
+ 	  mark_addressable (TREE_VALUE (link));
+Index: gcc/config/i386/i386.md
+===================================================================
+--- a/src/gcc/config/i386/i386.md	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/config/i386/i386.md	(.../branches/gcc-4_4-branch)
+@@ -2561,6 +2561,12 @@
+   DONE;
+ })
+ 
++(define_insn "*pushti"
++  [(set (match_operand:TI 0 "push_operand" "=<")
++	(match_operand:TI 1 "general_no_elim_operand" "riF*m"))]
++  "TARGET_64BIT"
++  "#")
++
+ (define_insn "*movti_internal"
+   [(set (match_operand:TI 0 "nonimmediate_operand" "=x,x,m")
+ 	(match_operand:TI 1 "vector_move_operand" "C,xm,x"))]
+@@ -2668,6 +2674,14 @@
+ 	       (const_string "DI")))])
+ 
+ (define_split
++  [(set (match_operand:TI 0 "push_operand" "")
++        (match_operand:TI 1 "general_operand" ""))]
++  "TARGET_64BIT && reload_completed
++   && !SSE_REG_P (operands[1])"
++  [(const_int 0)]
++  "ix86_split_long_move (operands); DONE;")
++
++(define_split
+   [(set (match_operand:TI 0 "nonimmediate_operand" "")
+         (match_operand:TI 1 "general_operand" ""))]
+   "reload_completed && !SSE_REG_P (operands[0])
+Index: gcc/config/i386/xmmintrin.h
+===================================================================
+--- a/src/gcc/config/i386/xmmintrin.h	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/config/i386/xmmintrin.h	(.../branches/gcc-4_4-branch)
+@@ -626,13 +626,13 @@
+   __sign = __builtin_ia32_pcmpgtw ((__v4hi)0LL, (__v4hi)__A);
+ 
+   /* Convert the four words to doublewords.  */
++  __losi = (__v2si) __builtin_ia32_punpcklwd ((__v4hi)__A, __sign);
+   __hisi = (__v2si) __builtin_ia32_punpckhwd ((__v4hi)__A, __sign);
+-  __losi = (__v2si) __builtin_ia32_punpcklwd ((__v4hi)__A, __sign);
+ 
+   /* Convert the doublewords to floating point two at a time.  */
+   __zero = (__v4sf) _mm_setzero_ps ();
+-  __ra = __builtin_ia32_cvtpi2ps (__zero, __hisi);
+-  __rb = __builtin_ia32_cvtpi2ps (__ra, __losi);
++  __ra = __builtin_ia32_cvtpi2ps (__zero, __losi);
++  __rb = __builtin_ia32_cvtpi2ps (__ra, __hisi);
+ 
+   return (__m128) __builtin_ia32_movlhps (__ra, __rb);
+ }
+@@ -645,13 +645,13 @@
+   __v4sf __zero, __ra, __rb;
+ 
+   /* Convert the four words to doublewords.  */
++  __losi = (__v2si) __builtin_ia32_punpcklwd ((__v4hi)__A, (__v4hi)0LL);
+   __hisi = (__v2si) __builtin_ia32_punpckhwd ((__v4hi)__A, (__v4hi)0LL);
+-  __losi = (__v2si) __builtin_ia32_punpcklwd ((__v4hi)__A, (__v4hi)0LL);
+ 
+   /* Convert the doublewords to floating point two at a time.  */
+   __zero = (__v4sf) _mm_setzero_ps ();
+-  __ra = __builtin_ia32_cvtpi2ps (__zero, __hisi);
+-  __rb = __builtin_ia32_cvtpi2ps (__ra, __losi);
++  __ra = __builtin_ia32_cvtpi2ps (__zero, __losi);
++  __rb = __builtin_ia32_cvtpi2ps (__ra, __hisi);
+ 
+   return (__m128) __builtin_ia32_movlhps (__ra, __rb);
+ }
+Index: gcc/config/i386/i386.c
+===================================================================
+--- a/src/gcc/config/i386/i386.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/config/i386/i386.c	(.../branches/gcc-4_4-branch)
+@@ -6956,7 +6956,7 @@
+ 	}
+       if (need_temp)
+ 	{
+-	  int i;
++	  int i, prev_size = 0;
+ 	  tree temp = create_tmp_var (type, "va_arg_tmp");
+ 
+ 	  /* addr = &temp; */
+@@ -6968,14 +6968,32 @@
+ 	      rtx slot = XVECEXP (container, 0, i);
+ 	      rtx reg = XEXP (slot, 0);
+ 	      enum machine_mode mode = GET_MODE (reg);
+-	      tree piece_type = lang_hooks.types.type_for_mode (mode, 1);
+-	      tree addr_type = build_pointer_type (piece_type);
+-	      tree daddr_type = build_pointer_type_for_mode (piece_type,
+-							     ptr_mode, true);
++	      tree piece_type;
++	      tree addr_type;
++	      tree daddr_type;
+ 	      tree src_addr, src;
+ 	      int src_offset;
+ 	      tree dest_addr, dest;
++	      int cur_size = GET_MODE_SIZE (mode);
+ 
++	      gcc_assert (prev_size <= INTVAL (XEXP (slot, 1)));
++	      prev_size = INTVAL (XEXP (slot, 1));
++	      if (prev_size + cur_size > size)
++		{
++		  cur_size = size - prev_size;
++		  mode = mode_for_size (cur_size * BITS_PER_UNIT, MODE_INT, 1);
++		  if (mode == BLKmode)
++		    mode = QImode;
++		}
++	      piece_type = lang_hooks.types.type_for_mode (mode, 1);
++	      if (mode == GET_MODE (reg))
++		addr_type = build_pointer_type (piece_type);
++	      else
++		addr_type = build_pointer_type_for_mode (piece_type, ptr_mode,
++							 true);
++	      daddr_type = build_pointer_type_for_mode (piece_type, ptr_mode,
++							true);
++
+ 	      if (SSE_REGNO_P (REGNO (reg)))
+ 		{
+ 		  src_addr = sse_addr;
+@@ -6989,14 +7007,26 @@
+ 	      src_addr = fold_convert (addr_type, src_addr);
+ 	      src_addr = fold_build2 (POINTER_PLUS_EXPR, addr_type, src_addr,
+ 				      size_int (src_offset));
+-	      src = build_va_arg_indirect_ref (src_addr);
+ 
+ 	      dest_addr = fold_convert (daddr_type, addr);
+ 	      dest_addr = fold_build2 (POINTER_PLUS_EXPR, daddr_type, dest_addr,
+-				       size_int (INTVAL (XEXP (slot, 1))));
+-	      dest = build_va_arg_indirect_ref (dest_addr);
++				       size_int (prev_size));
++	      if (cur_size == GET_MODE_SIZE (mode))
++		{
++		  src = build_va_arg_indirect_ref (src_addr);
++		  dest = build_va_arg_indirect_ref (dest_addr);
+ 
+-	      gimplify_assign (dest, src, pre_p);
++		  gimplify_assign (dest, src, pre_p);
++		}
++	      else
++		{
++		  tree copy
++		    = build_call_expr (implicit_built_in_decls[BUILT_IN_MEMCPY],
++				       3, dest_addr, src_addr,
++				       size_int (cur_size));
++		  gimplify_and_add (copy, pre_p);
++		}
++	      prev_size += cur_size;
+ 	    }
+ 	}
+ 
+Index: gcc/config/rs6000/rs6000.c
+===================================================================
+--- a/src/gcc/config/rs6000/rs6000.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/config/rs6000/rs6000.c	(.../branches/gcc-4_4-branch)
+@@ -199,7 +199,7 @@
+ 
+ /* Label number of label created for -mrelocatable, to call to so we can
+    get the address of the GOT section */
+-int rs6000_pic_labelno;
++static int rs6000_pic_labelno;
+ 
+ #ifdef USING_ELFOS_H
+ /* Which abi to adhere to */
+@@ -15330,7 +15330,8 @@
+       char buf[30];
+       rtx lab, tmp1, tmp2, got;
+ 
+-      ASM_GENERATE_INTERNAL_LABEL (buf, "LCF", rs6000_pic_labelno);
++      lab = gen_label_rtx ();
++      ASM_GENERATE_INTERNAL_LABEL (buf, "L", CODE_LABEL_NUMBER (lab));
+       lab = gen_rtx_SYMBOL_REF (Pmode, ggc_strdup (buf));
+       if (flag_pic == 2)
+ 	got = gen_rtx_SYMBOL_REF (Pmode, toc_label_name);
+@@ -15343,8 +15344,7 @@
+ 	  tmp2 = gen_reg_rtx (Pmode);
+ 	}
+       emit_insn (gen_load_toc_v4_PIC_1 (lab));
+-      emit_move_insn (tmp1,
+-			     gen_rtx_REG (Pmode, LR_REGNO));
++      emit_move_insn (tmp1, gen_rtx_REG (Pmode, LR_REGNO));
+       emit_insn (gen_load_toc_v4_PIC_3b (tmp2, tmp1, got, lab));
+       emit_insn (gen_load_toc_v4_PIC_3c (dest, tmp2, got, lab));
+     }
+@@ -15371,8 +15371,7 @@
+ 	  symL = gen_rtx_SYMBOL_REF (Pmode, ggc_strdup (buf));
+ 
+ 	  emit_insn (gen_load_toc_v4_PIC_1 (symF));
+-	  emit_move_insn (dest,
+-			  gen_rtx_REG (Pmode, LR_REGNO));
++	  emit_move_insn (dest, gen_rtx_REG (Pmode, LR_REGNO));
+ 	  emit_insn (gen_load_toc_v4_PIC_2 (temp0, dest, symL, symF));
+ 	}
+       else
+Index: gcc/config/rs6000/rs6000.md
+===================================================================
+--- a/src/gcc/config/rs6000/rs6000.md	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/config/rs6000/rs6000.md	(.../branches/gcc-4_4-branch)
+@@ -10737,8 +10737,8 @@
+   [(set_attr "type" "load")])
+ 
+ (define_insn "load_toc_v4_PIC_3b"
+-  [(set (match_operand:SI 0 "gpc_reg_operand" "=b")
+-	(plus:SI (match_operand:SI 1 "gpc_reg_operand" "r")
++  [(set (match_operand:SI 0 "gpc_reg_operand" "=r")
++	(plus:SI (match_operand:SI 1 "gpc_reg_operand" "b")
+ 		 (high:SI
+ 		   (minus:SI (match_operand:SI 2 "symbol_ref_operand" "s")
+ 			     (match_operand:SI 3 "symbol_ref_operand" "s")))))]
+Index: gcc/config/rs6000/sysv4.h
+===================================================================
+--- a/src/gcc/config/rs6000/sysv4.h	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/config/rs6000/sysv4.h	(.../branches/gcc-4_4-branch)
+@@ -416,8 +416,6 @@
+    Some svr4 assemblers need to also have something extra said about the
+    function's return value.  We allow for that here.  */
+ 
+-extern int rs6000_pic_labelno;
+-
+ /* Override elfos.h definition.  */
+ #undef	ASM_DECLARE_FUNCTION_NAME
+ #define ASM_DECLARE_FUNCTION_NAME(FILE, NAME, DECL)			\
+Index: gcc/config/pa/pa.c
+===================================================================
+--- a/src/gcc/config/pa/pa.c	(.../tags/gcc_4_4_5_release)
++++ b/src/gcc/config/pa/pa.c	(.../branches/gcc-4_4-branch)
+@@ -5699,7 +5699,7 @@
+ pa_secondary_reload (bool in_p, rtx x, enum reg_class rclass,
+ 		     enum machine_mode mode, secondary_reload_info *sri)
+ {
+-  int is_symbolic, regno;
++  int regno;
+ 
+   /* Handle the easy stuff first.  */
+   if (rclass == R1_REGS)
+@@ -5732,6 +5732,23 @@
+       return NO_REGS;
+     }
+ 
++  /* Secondary reloads of symbolic operands require %r1 as a scratch
++     register when we're generating PIC code and when the operand isn't
++     readonly.  */
++  if (symbolic_expression_p (x))
++    {
++      if (GET_CODE (x) == HIGH)
++	x = XEXP (x, 0);
++
++      if (flag_pic || !read_only_operand (x, VOIDmode))
++	{
++	  gcc_assert (mode == SImode || mode == DImode);
++	  sri->icode = (mode == SImode ? CODE_FOR_reload_insi_r1
++			: CODE_FOR_reload_indi_r1);
++	  return NO_REGS;
++	}
++    }
++
+   /* Profiling showed the PA port spends about 1.3% of its compilation
+      time in true_regnum from calls inside pa_secondary_reload_class.  */
+   if (regno >= FIRST_PSEUDO_REGISTER || GET_CODE (x) == SUBREG)
+@@ -5790,49 +5807,8 @@
+   if (regno >= 0 && regno < FIRST_PSEUDO_REGISTER
+       && (REGNO_REG_CLASS (regno) == SHIFT_REGS
+       && FP_REG_CLASS_P (rclass)))
+-    {
+-      sri->icode = in_p ? reload_in_optab[mode] : reload_out_optab[mode];
+-      return NO_REGS;
+-    }
++    sri->icode = in_p ? reload_in_optab[mode] : reload_out_optab[mode];
+ 
+-  /* Secondary reloads of symbolic operands require %r1 as a scratch
+-     register when we're generating PIC code and when the operand isn't
+-     readonly.  */
+-  if (GET_CODE (x) == HIGH)
+-    x = XEXP (x, 0);
+-
+-  /* Profiling has showed GCC spends about 2.6% of its compilation
+-     time in symbolic_operand from calls inside pa_secondary_reload_class.
+-     So, we use an inline copy to avoid useless work.  */
+-  switch (GET_CODE (x))
+-    {
+-      rtx op;
+-
+-      case SYMBOL_REF:
+-        is_symbolic = !SYMBOL_REF_TLS_MODEL (x);
+-        break;
+-      case LABEL_REF:
+-        is_symbolic = 1;
+-        break;
+-      case CONST:
+-	op = XEXP (x, 0);
+-	is_symbolic = (((GET_CODE (XEXP (op, 0)) == SYMBOL_REF
+-			 && !SYMBOL_REF_TLS_MODEL (XEXP (op, 0)))
+-			|| GET_CODE (XEXP (op, 0)) == LABEL_REF)
+-		       && GET_CODE (XEXP (op, 1)) == CONST_INT);
+-        break;
+-      default:
+-        is_symbolic = 0;
+-        break;
+-    }
+-
+-  if (is_symbolic && (flag_pic || !read_only_operand (x, VOIDmode)))
+-    {
+-      gcc_assert (mode == SImode || mode == DImode);
+-      sri->icode = (mode == SImode ? CODE_FOR_reload_insi_r1
+-		    : CODE_FOR_reload_indi_r1);
+-    }
+-
+   return NO_REGS;
+ }
+ 
+Index: configure.ac
+===================================================================
+--- a/src/configure.ac	(.../tags/gcc_4_4_5_release)
++++ b/src/configure.ac	(.../branches/gcc-4_4-branch)
+@@ -319,7 +319,7 @@
+     # Check for target supported by gold.
+     case "${target}" in
+       i?86-*-* | x86_64-*-* | sparc*-*-* | powerpc*-*-*)
+-        configdirs="`echo " ${configdirs} " | sed -e 's/ ld / gold /'`"
++        configdirs=`echo " ${configdirs} " | sed -e 's/ ld / gold /'`
+         ;;
+     esac
+   fi
+Index: intl/configure
+===================================================================
+--- a/src/intl/configure	(.../tags/gcc_4_4_5_release)
++++ b/src/intl/configure	(.../branches/gcc-4_4-branch)
+@@ -8560,7 +8560,7 @@
+       case "$ac_file" in */Makefile.in)
+         # Adjust a relative srcdir.
+         ac_dir=`echo "$ac_file"|sed 's%/[^/][^/]*$%%'`
+-        ac_dir_suffix="/`echo "$ac_dir"|sed 's%^\./%%'`"
++        ac_dir_suffix=/`echo "$ac_dir"|sed 's%^\./%%'`
+         ac_dots=`echo "$ac_dir_suffix"|sed 's%/[^/]*%../%g'`
+         # In autoconf-2.13 it is called $ac_given_srcdir.
+         # In autoconf-2.50 it is called $srcdir.
+Index: intl/ChangeLog
+===================================================================
+--- a/src/intl/ChangeLog	(.../tags/gcc_4_4_5_release)
++++ b/src/intl/ChangeLog	(.../branches/gcc-4_4-branch)
+@@ -1,3 +1,8 @@
++2010-10-02  Ralf Wildenhues  <Ralf.Wildenhues@gmx.de>
++
++	PR bootstrap/44621
++	* configure: Regenerate.
++
+ 2010-10-01  Release Manager
+ 
+ 	* GCC 4.4.5 released.
+Index: libgfortran/intrinsics/c99_functions.c
+===================================================================
+--- a/src/libgfortran/intrinsics/c99_functions.c	(.../tags/gcc_4_4_5_release)
++++ b/src/libgfortran/intrinsics/c99_functions.c	(.../branches/gcc-4_4-branch)
+@@ -566,16 +566,16 @@
+ 
+    if (x >= 0.0) 
+     {
+-      t = ceil(x);
+-      if (t - x > 0.5)
+-	t -= 1.0;
++      t = floor(x);
++      if (t - x <= -0.5)
++	t += 1.0;
+       return (t);
+     } 
+    else 
+     {
+-      t = ceil(-x);
+-      if (t + x > 0.5)
+-	t -= 1.0;
++      t = floor(-x);
++      if (t + x <= -0.5)
++	t += 1.0;
+       return (-t);
+     }
+ }
+@@ -595,16 +595,16 @@
+ 
+    if (x >= 0.0) 
+     {
+-      t = ceilf(x);
+-      if (t - x > 0.5)
+-	t -= 1.0;
++      t = floorf(x);
++      if (t - x <= -0.5)
++	t += 1.0;
+       return (t);
+     } 
+    else 
+     {
+-      t = ceilf(-x);
+-      if (t + x > 0.5)
+-	t -= 1.0;
++      t = floorf(-x);
++      if (t + x <= -0.5)
++	t += 1.0;
+       return (-t);
+     }
+ }
+Index: libgfortran/ChangeLog
+===================================================================
+--- a/src/libgfortran/ChangeLog	(.../tags/gcc_4_4_5_release)
++++ b/src/libgfortran/ChangeLog	(.../branches/gcc-4_4-branch)
+@@ -1,3 +1,34 @@
++2010-11-10  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
++
++	PR libgfortran/46373
++	Backport from mainline:
++	* io/transfer.c (data_transfer_init): Do not call flush_if_preconnected
++	if this is an internal unit.
++
++2010-11-03  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
++
++	PR libgfortran/46010
++	Backport from mainline:
++	* io/list_read.c (nml_parse_qualifier): Add additional conditions for
++	setting the end index for loop specification. Fix some whitespace.
++
++2010-10-16  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
++
++	Backport from mainline:
++	2009-03-29  John David Anglin  <dave.anglin@nrc-cnrc.gc.ca>
++
++	PR fortran/33595
++	* intrinsics/c99_functions.c (round): Use floor instead of ceil.
++	Revise checks to round up.
++	(roundf): Likewise.
++
++2010-10-06  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
++
++	Backport from mainline:
++	PR libfortran/45710
++	* io/write.c (namelist_write_newline): Pad character array internal
++	unit records with spaces.
++
+ 2010-10-01  Release Manager
+ 
+ 	* GCC 4.4.5 released.
+Index: libgfortran/io/list_read.c
+===================================================================
+--- a/src/libgfortran/io/list_read.c	(.../tags/gcc_4_4_5_release)
++++ b/src/libgfortran/io/list_read.c	(.../branches/gcc-4_4-branch)
+@@ -2077,8 +2077,10 @@
+ 
+ 		  /*  If -std=f95/2003 or an array section is specified,
+ 		      do not allow excess data to be processed.  */
+-                  if (is_array_section == 1
+-		      || compile_options.allow_std < GFC_STD_GNU)
++		  if (is_array_section == 1
++		      || !(compile_options.allow_std & GFC_STD_GNU)
++		      || !dtp->u.p.ionml->touched
++		      || dtp->u.p.ionml->type == GFC_DTYPE_DERIVED)
+ 		    ls[dim].end = ls[dim].start;
+ 		  else
+ 		    dtp->u.p.expanded_read = 1;
+@@ -2093,12 +2095,12 @@
+ 	}
+ 
+       if (is_array_section == 1 && dtp->u.p.expanded_read == 1)
+-     	{
++	{
+ 	  int i;
+ 	  dtp->u.p.expanded_read = 0;
+ 	  for (i = 0; i < dim; i++)
+ 	    ls[i].end = ls[i].start;
+-      	}
++	}
+ 
+       /* Check the values of the triplet indices.  */
+       if ((ls[dim].start > (ssize_t)ad[dim].ubound)
+Index: libgfortran/io/transfer.c
+===================================================================
+--- a/src/libgfortran/io/transfer.c	(.../tags/gcc_4_4_5_release)
++++ b/src/libgfortran/io/transfer.c	(.../branches/gcc-4_4-branch)
+@@ -2450,7 +2450,8 @@
+     }
+ 
+   /* Bugware for badly written mixed C-Fortran I/O.  */
+-  flush_if_preconnected(dtp->u.p.current_unit->s);
++  if (!is_internal_unit (dtp))
++    flush_if_preconnected(dtp->u.p.current_unit->s);
+ 
+   dtp->u.p.current_unit->mode = dtp->u.p.mode;
+ 
+Index: libgfortran/io/write.c
+===================================================================
+--- a/src/libgfortran/io/write.c	(.../tags/gcc_4_4_5_release)
++++ b/src/libgfortran/io/write.c	(.../branches/gcc-4_4-branch)
+@@ -1194,10 +1194,15 @@
+   if (is_array_io (dtp))
+     {
+       gfc_offset record;
+-      int finished, length;
++      int finished;
++      char *p;
++      int length = dtp->u.p.current_unit->bytes_left;
+ 
+-      length = (int) dtp->u.p.current_unit->bytes_left;
+-	      
++      p = write_block (dtp, length);
++      if (p == NULL)
++	return;
++      memset (p, ' ', length);
++
+       /* Now that the current record has been padded out,
+ 	 determine where the next record in the array is. */
+       record = next_array_record (dtp, dtp->u.p.current_unit->ls,
+Index: ChangeLog
+===================================================================
+--- a/src/ChangeLog	(.../tags/gcc_4_4_5_release)
++++ b/src/ChangeLog	(.../branches/gcc-4_4-branch)
+@@ -1,3 +1,9 @@
++2010-10-02  Ralf Wildenhues  <Ralf.Wildenhues@gmx.de>
++
++	PR bootstrap/44621
++	* configure.ac: Fix unportable shell quoting.
++	* configure: Regenerate.
++
+ 2010-10-01  Release Manager
+ 
+ 	* GCC 4.4.5 released.
+Index: libffi/ChangeLog
+===================================================================
+--- a/src/libffi/ChangeLog	(.../tags/gcc_4_4_5_release)
++++ b/src/libffi/ChangeLog	(.../branches/gcc-4_4-branch)
+@@ -1,3 +1,12 @@
++2010-10-01  Jakub Jelinek  <jakub@redhat.com>
++
++	* testsuite/libffi.call/many2.c: Don't use uint8_t.
++
++	PR libffi/45677
++	* src/x86/ffi64.c (ffi_prep_cif_machdep): Ensure cif->bytes is
++	a multiple of 8.
++	* testsuite/libffi.call/many2.c: New test.
++
+ 2010-10-01  Release Manager
+ 
+ 	* GCC 4.4.5 released.
+Index: libffi/src/x86/ffi64.c
+===================================================================
+--- a/src/libffi/src/x86/ffi64.c	(.../tags/gcc_4_4_5_release)
++++ b/src/libffi/src/x86/ffi64.c	(.../branches/gcc-4_4-branch)
+@@ -321,7 +321,7 @@
+ 	  if (align < 8)
+ 	    align = 8;
+ 
+-	  bytes = ALIGN(bytes, align);
++	  bytes = ALIGN (bytes, align);
+ 	  bytes += cif->arg_types[i]->size;
+ 	}
+       else
+@@ -333,7 +333,7 @@
+   if (ssecount)
+     flags |= 1 << 11;
+   cif->flags = flags;
+-  cif->bytes = bytes;
++  cif->bytes = ALIGN (bytes, 8);
+ 
+   return FFI_OK;
+ }
+Index: libffi/testsuite/libffi.call/many2.c
+===================================================================
+--- a/src/libffi/testsuite/libffi.call/many2.c	(.../tags/gcc_4_4_5_release)
++++ b/src/libffi/testsuite/libffi.call/many2.c	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,52 @@
++/* Area:        ffi_call
++   Purpose:     Check unsigned char arguments.
++   Limitations: none.
++   PR:          PR45677.
++   Originator:  Dan Witte <dwitte@gmail.com> 20100916  */
++
++/* { dg-do run } */
++
++#include "ffitest.h"
++
++#define NARGS 7
++
++typedef unsigned char u8;
++
++__attribute__((noinline)) u8
++foo (u8 a, u8 b, u8 c, u8 d, u8 e, u8 f, u8 g)
++{
++  return a + b + c + d + e + f + g;
++}
++
++u8
++bar (u8 a, u8 b, u8 c, u8 d, u8 e, u8 f, u8 g)
++{
++  return foo (a, b, c, d, e, f, g);
++}
++
++int
++main (void)
++{
++  ffi_type *ffitypes[NARGS];
++  int i;
++  ffi_cif cif;
++  ffi_arg result = 0;
++  u8 args[NARGS];
++  void *argptrs[NARGS];
++
++  for (i = 0; i < NARGS; ++i)
++    ffitypes[i] = &ffi_type_uchar;
++
++  CHECK (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, NARGS,
++		       &ffi_type_uint8, ffitypes) == FFI_OK);
++
++  for (i = 0; i < NARGS; ++i)
++    {
++      args[i] = i;
++      argptrs[i] = &args[i];
++    }
++  ffi_call (&cif, FFI_FN (bar), &result, argptrs);
++
++  CHECK (result == 21);
++  return 0;
++}
+Index: config/ChangeLog
+===================================================================
+--- a/src/config/ChangeLog	(.../tags/gcc_4_4_5_release)
++++ b/src/config/ChangeLog	(.../branches/gcc-4_4-branch)
+@@ -1,3 +1,7 @@
++2010-10-02  Ralf Wildenhues  <Ralf.Wildenhues@gmx.de>
++
++	* po.m4 (AM_PO_SUBDIRS): Fix unportable shell quoting.
++
+ 2010-10-01  Release Manager
+ 
+ 	* GCC 4.4.5 released.
+Index: config/po.m4
+===================================================================
+--- a/src/config/po.m4	(.../tags/gcc_4_4_5_release)
++++ b/src/config/po.m4	(.../branches/gcc-4_4-branch)
+@@ -96,7 +96,7 @@
+       case "$ac_file" in */Makefile.in)
+         # Adjust a relative srcdir.
+         ac_dir=`echo "$ac_file"|sed 's%/[^/][^/]*$%%'`
+-        ac_dir_suffix="/`echo "$ac_dir"|sed 's%^\./%%'`"
++        ac_dir_suffix=/`echo "$ac_dir"|sed 's%^\./%%'`
+         ac_dots=`echo "$ac_dir_suffix"|sed 's%/[^/]*%../%g'`
+         # In autoconf-2.13 it is called $ac_given_srcdir.
+         # In autoconf-2.50 it is called $srcdir.
+Index: fixincludes/ChangeLog
+===================================================================
+--- a/src/fixincludes/ChangeLog	(.../tags/gcc_4_4_5_release)
++++ b/src/fixincludes/ChangeLog	(.../branches/gcc-4_4-branch)
+@@ -1,3 +1,13 @@
++2010-10-21  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
++
++	Backport from mainline:
++	2010-10-20  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
++
++	PR c++/46024
++	* inclhack.def (solaris_sys_va_list): New fix.
++	* fixincl.x: Regenerate.
++	* tests/base/sys/va_list.h: New test.
++
+ 2010-10-01  Release Manager
+ 
+ 	* GCC 4.4.5 released.
+Index: fixincludes/tests/base/sys/va_list.h
+===================================================================
+--- a/src/fixincludes/tests/base/sys/va_list.h	(.../tags/gcc_4_4_5_release)
++++ b/src/fixincludes/tests/base/sys/va_list.h	(.../branches/gcc-4_4-branch)
+@@ -0,0 +1,22 @@
++/*  DO NOT EDIT THIS FILE.
++
++    It has been auto-edited by fixincludes from:
++
++	"fixinc/tests/inc/sys/va_list.h"
++
++    This had to be done to correct non-standard usages in the
++    original, manufacturer supplied header file.  */
++
++
++
++#if defined( SOLARIS_SYS_VA_LIST_CHECK )
++#ifdef __GNUC__
++typedef __builtin_va_list __va_list;
++#else
++#if defined(__STDC__) && !defined(__ia64)
++typedef void *__va_list;
++#else
++typedef char *__va_list;
++#endif
++#endif
++#endif  /* SOLARIS_SYS_VA_LIST_CHECK */
+Index: fixincludes/fixincl.x
+===================================================================
+--- a/src/fixincludes/fixincl.x	(.../tags/gcc_4_4_5_release)
++++ b/src/fixincludes/fixincl.x	(.../branches/gcc-4_4-branch)
+@@ -2,11 +2,11 @@
+  * 
+  * DO NOT EDIT THIS FILE   (fixincl.x)
+  * 
+- * It has been AutoGen-ed  Wednesday July 14, 2010 at 11:12:51 AM MEST
++ * It has been AutoGen-ed  Wednesday October 20, 2010 at 07:49:38 PM MEST
+  * From the definitions    inclhack.def
+  * and the template file   fixincl
+  */
+-/* DO NOT SVN-MERGE THIS FILE, EITHER Wed Jul 14 11:12:52 MEST 2010
++/* DO NOT SVN-MERGE THIS FILE, EITHER Wed Oct 20 19:49:38 MEST 2010
+  *
+  * You must regenerate it.  Use the ./genfixes script.
+  *
+@@ -15,7 +15,7 @@
+  * certain ANSI-incompatible system header files which are fixed to work
+  * correctly with ANSI C and placed in a directory that GNU C will search.
+  *
+- * This file contains 183 fixup descriptions.
++ * This file contains 184 fixup descriptions.
+  *
+  * See README for more information.
+  *
+@@ -5927,6 +5927,51 @@
+ 
+ /* * * * * * * * * * * * * * * * * * * * * * * * * *
+  *
++ *  Description of Solaris_Sys_Va_List fix
++ */
++tSCC zSolaris_Sys_Va_ListName[] =
++     "solaris_sys_va_list";
++
++/*
++ *  File name selection pattern
++ */
++tSCC zSolaris_Sys_Va_ListList[] =
++  "sys/va_list.h\0";
++/*
++ *  Machine/OS name selection pattern
++ */
++tSCC* apzSolaris_Sys_Va_ListMachs[] = {
++        "*-*-solaris2.[89]",
++        (const char*)NULL };
++
++/*
++ *  content selection pattern - do fix if pattern found
++ */
++tSCC zSolaris_Sys_Va_ListSelect0[] =
++       "#if.*__STDC__.*\n\
++typedef void \\*__va_list;\n\
++#else\n\
++typedef char \\*__va_list;\n\
++#endif";
++
++#define    SOLARIS_SYS_VA_LIST_TEST_CT  1
++static tTestDesc aSolaris_Sys_Va_ListTests[] = {
++  { TT_EGREP,    zSolaris_Sys_Va_ListSelect0, (regex_t*)NULL }, };
++
++/*
++ *  Fix Command Arguments for Solaris_Sys_Va_List
++ */
++static const char* apzSolaris_Sys_Va_ListPatch[] = {
++    "format",
++    "#ifdef __GNUC__\n\
++typedef __builtin_va_list __va_list;\n\
++#else\n\
++%0\n\
++#endif",
++    (char*)NULL };
++
++/* * * * * * * * * * * * * * * * * * * * * * * * * *
++ *
+  *  Description of Statsswtch fix
+  */
+ tSCC zStatsswtchName[] =
+@@ -7424,9 +7469,9 @@
+  *
+  *  List of all fixes
+  */
+-#define REGEX_COUNT          229
++#define REGEX_COUNT          230
+ #define MACH_LIST_SIZE_LIMIT 181
+-#define FIX_COUNT            183
++#define FIX_COUNT            184
+ 
+ /*
+  *  Enumerate the fixes
+@@ -7578,6 +7623,7 @@
+     SOLARIS_ONCE_INIT_1_FIXIDX,
+     SOLARIS_ONCE_INIT_2_FIXIDX,
+     SOLARIS_STDIO_TAG_FIXIDX,
++    SOLARIS_SYS_VA_LIST_FIXIDX,
+     STATSSWTCH_FIXIDX,
+     STDIO_STDARG_H_FIXIDX,
+     STDIO_VA_LIST_FIXIDX,
+@@ -8348,6 +8394,11 @@
+      SOLARIS_STDIO_TAG_TEST_CT, FD_MACH_ONLY,
+      aSolaris_Stdio_TagTests,   apzSolaris_Stdio_TagPatch, 0 },
+ 
++  {  zSolaris_Sys_Va_ListName,    zSolaris_Sys_Va_ListList,
++     apzSolaris_Sys_Va_ListMachs,
++     SOLARIS_SYS_VA_LIST_TEST_CT, FD_MACH_ONLY | FD_SUBROUTINE,
++     aSolaris_Sys_Va_ListTests,   apzSolaris_Sys_Va_ListPatch, 0 },
++
+   {  zStatsswtchName,    zStatsswtchList,
+      apzStatsswtchMachs,
+      STATSSWTCH_TEST_CT, FD_MACH_ONLY | FD_SUBROUTINE,
+Index: fixincludes/inclhack.def
+===================================================================
+--- a/src/fixincludes/inclhack.def	(.../tags/gcc_4_4_5_release)
++++ b/src/fixincludes/inclhack.def	(.../branches/gcc-4_4-branch)
+@@ -3143,6 +3143,34 @@
+ 
+ 
+ /*
++ * On Solaris 8 and 9, __va_list needs to become a typedef for
++ * __builtin_va_list to make -Wmissing-format-attribute work.
++ */
++fix = {
++    hackname = solaris_sys_va_list;
++    files    = sys/va_list.h;
++    mach     = '*-*-solaris2.[89]';
++    select   = "#if.*__STDC__.*\n"
++	       "typedef void \\*__va_list;\n"
++	       "#else\n"
++	       "typedef char \\*__va_list;\n"
++	       "#endif";
++
++    c_fix    = format;
++    c_fix_arg = "#ifdef __GNUC__\n"
++		"typedef __builtin_va_list __va_list;\n"
++		"#else\n"
++		"%0\n"
++		"#endif";
++    test_text = "#if defined(__STDC__) && !defined(__ia64)\n"
++    		"typedef void *__va_list;\n"
++	        "#else\n"
++	        "typedef char *__va_list;\n"
++	        "#endif";
++};
++
++
++/*
+  *  a missing semi-colon at the end of the statsswtch structure definition.
+  */
+ fix = {

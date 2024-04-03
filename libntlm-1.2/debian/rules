@@ -1,0 +1,85 @@
+#!/usr/bin/make -f
+
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+
+CFLAGS = -Wall -g
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2
+endif
+
+version=2.0.5
+major=2
+
+config.status: configure
+	cp -f ntlm.h ntlm.h.bkp
+	cp -f libntlm.spec libntlm.spec.bkp
+	dh_testdir
+	# Add here commands to configure the package.
+	CFLAGS="$(CFLAGS) -Wl,-z,defs" ./configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info
+
+
+build: build-stamp
+build-stamp:  config.status
+	dh_testdir
+
+	# Add here commands to compile the package.
+	$(MAKE)
+
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp 
+
+	# Add here commands to clean up after the build process.
+	if test -f Makefile; then $(MAKE) distclean; fi
+
+ifneq "$(wildcard ntlm.h.bkp)" ""
+	mv -f ntlm.h.bkp ntlm.h
+endif
+ifneq "$(wildcard libntlm.spec.bkp)" ""
+	mv -f libntlm.spec.bkp libntlm.spec
+endif
+
+	dh_clean 
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k 
+	dh_installdirs
+
+	# Add here commands to install the package into debian/tmp
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp
+
+
+# Build architecture-independent files here.
+binary-indep: build install
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs ChangeLog
+	dh_installdocs
+	dh_install --sourcedir=debian/tmp
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install 

@@ -1,0 +1,85 @@
+Index: contrib/mod_dynmasq.c
+===================================================================
+RCS file: /cvs/proftpd/contrib/mod_dynmasq.c,v
+retrieving revision 1.1
+retrieving revision 1.2
+diff -u -r1.1 -r1.2
+--- a/contrib/mod_dynmasq.c	30 Mar 2009 22:02:21 -0000	1.1
++++ b/contrib/mod_dynmasq.c	30 Mar 2009 22:11:22 -0000	1.2
+@@ -30,6 +30,12 @@
+  */
+ 
+ #include "conf.h"
++#if 1 //JM: Set the initial timer to 15 seconds, and stay that way we get our first successful lookup.
++#include <netinet/in.h>
++#include <arpa/nameser.h>
++#include <resolv.h>
++#define INITIAL_TIMER 15
++#endif
+ 
+ #define MOD_DYNMASQ_VERSION		"mod_dynmasq/0.3"
+ 
+@@ -69,6 +75,8 @@ static int dynmasq_update_cb(CALLBACK_FR
+    * updates to be discovered this way.
+    */
+   pr_netaddr_clear_cache();
++  /* JM: Re-init DNS config to catch any changes */
++  res_init();
+ 
+   pr_log_debug(DEBUG2, MOD_DYNMASQ_VERSION
+     ": resolving all MasqueradeAddress directives (could take a little while)");
+@@ -100,6 +108,10 @@ static int dynmasq_update_cb(CALLBACK_FR
+            */
+           c->argv[0] = na;
+ 
++          /* JM: Reset the timer to the requested interval */
++          pr_timer_remove(dynmasq_timer_id, &dynmasq_module);
++          dynmasq_timer_id = pr_timer_add(dynmasq_timer_interval, -1,
++            &dynmasq_module, dynmasq_update_cb, "dynmasq address update");
+         } else
+           pr_log_debug(DEBUG2, MOD_DYNMASQ_VERSION
+             ": MasqueradeAddress '%s' has not changed addresses",
+@@ -131,7 +143,12 @@ static void dynmasq_mod_unload_ev(const 
+ 
+ static void dynmasq_postparse_ev(const void *event_data, void *user_data) {
+   if (dynmasq_timer_interval != -1) {
++#if 1 // NETGEAR
++    /* JM: Reset the timer to the initial interval */
++    dynmasq_timer_id = pr_timer_add(INITIAL_TIMER, -1,
++#else
+     dynmasq_timer_id = pr_timer_add(dynmasq_timer_interval, -1,
++#endif
+       &dynmasq_module, dynmasq_update_cb, "dynmasq address update");
+   }
+ }
+--- a/modules/mod_core.c.orig	2009-10-13 15:30:50.000000000 +0000
++++ b/modules/mod_core.c	2009-12-10 00:27:34.000000000 +0000
+@@ -22,6 +22,9 @@
+  * and other respective copyright holders give permission to link this program
+  * with OpenSSL, and distribute the resulting executable, without including
+  * the source code for OpenSSL in the source distribution.
++ *
++ * 2009/03/30: For ReadyNAS, since we're using moddynmasq, lookups shouldn't
++ *             need to succeed immediately, since they get done later.
+  */
+ 
+ /* Core FTPD module
+@@ -740,6 +743,7 @@
+ MODRET set_masqueradeaddress(cmd_rec *cmd) {
+   config_rec *c = NULL;
+   pr_netaddr_t *masq_addr = NULL;
++  char hn[256] = {'\0'};
+ 
+   CHECK_ARGS(cmd, 1);
+   CHECK_CONF(cmd, CONF_ROOT|CONF_VIRTUAL);
+@@ -748,6 +752,10 @@
+    * given name might map to multiple addresses.
+    */
+   masq_addr = pr_netaddr_get_addr(cmd->server->pool, cmd->argv[1], NULL);
++  if (masq_addr == NULL) {
++    gethostname(hn, sizeof(hn)-1);
++    masq_addr = pr_netaddr_get_addr(cmd->server->pool, hn, NULL);
++  }
+   if (masq_addr == NULL)
+     return PR_ERROR_MSG(cmd, NULL, pstrcat(cmd->tmp_pool, cmd->argv[0],
+       ": unable to resolve \"", cmd->argv[1], "\"", NULL));

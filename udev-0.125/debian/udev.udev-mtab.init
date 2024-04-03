@@ -1,0 +1,46 @@
+#!/bin/sh -e
+### BEGIN INIT INFO
+# Provides:          udev-mtab
+# Required-Start:    udev checkroot
+# Required-Stop:     
+# Default-Start:     S
+# Default-Stop:
+# Short-Description: Add to mtab the entry for /dev.
+### END INIT INFO
+
+PATH="/sbin:/bin"
+
+case "$1" in
+  start) ;;
+  stop|restart|force-reload) exit 0 ;;
+  *) echo "Usage: $0 {start|stop|restart|force-reload}" >&2; exit 1 ;;
+esac
+
+# copy the rules generated before / was mounted read-write
+for file in /dev/.udev/tmp-rules--*; do
+  dest=${file##*tmp-rules--}
+  [ "$dest" = '*' ] && break
+  cat $file >> /etc/udev/rules.d/$dest
+  rm -f $file
+done
+
+
+# if it's not, it's probably a symlink to /proc/mounts
+[ -w /etc/mtab ] || exit 0
+
+# defaults
+tmpfs_size="10M"
+udev_root="/dev/"
+
+. /etc/udev/udev.conf
+
+# strip the trailing slash
+udev_root=${udev_root%/}
+
+if mountpoint -q $udev_root; then
+  grep -E --quiet --no-messages "^[^ ]+ +$udev_root +" /etc/mtab || \
+    mount -f -o size=$tmpfs_size,mode=0755 -t tmpfs tmpfs $udev_root
+fi
+
+exit 0
+

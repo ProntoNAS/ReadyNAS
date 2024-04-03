@@ -1,0 +1,33 @@
+#!/bin/sh -e
+
+# Source debconf library.
+. /usr/share/debconf/confmodule
+db_version 2.0
+
+# This conf script is capable of backing up
+db_capb backup
+
+STATE=1
+while [ "$STATE" != 0 -a "$STATE" != 3 ]; do
+	case "$STATE" in
+	1)
+		# Do you like debian?
+		db_input medium foo/like_debian || true
+	;;
+	
+	2)
+		# Check to see if they like debian.
+		db_get foo/like_debian
+		if [ "$RET" = "false" ]; then
+			# Poor misguided one..
+			db_input high foo/why_debian_is_great || true
+		fi
+	;;
+	esac
+
+	if db_go; then
+		STATE=$(($STATE + 1))
+	else
+		STATE=$(($STATE - 1))
+	fi
+done

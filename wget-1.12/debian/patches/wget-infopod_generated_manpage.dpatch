@@ -1,0 +1,42 @@
+#!/bin/sh -e
+## wget-infopod_generated_manpage.dpatch by Noèl Köthe <noel debian.org>
+##
+## DP: using info2pod to generate the pod file to have a complete manpage
+
+if [ $# -lt 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+
+[ -f debian/patches/00patch-opts ] && . debian/patches/00patch-opts
+patch_opts="${patch_opts:--f --no-backup-if-mismatch} ${2:+-d $2}"
+
+case "$1" in
+       -patch) patch $patch_opts -p1 < $0;;
+       -unpatch) patch $patch_opts -p1 -R < $0;;
+        *)
+                echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+                exit 1;;
+esac
+
+exit 0
+
+@DPATCH@
+diff --git a/doc/Makefile.in b/doc/Makefile.in
+index e89a525..c13a4f9 100644
+--- a/doc/Makefile.in
++++ b/doc/Makefile.in
+@@ -1032,8 +1032,10 @@
+ $(SAMPLERCTEXI): $(srcdir)/sample.wgetrc
+ 	sed s/@/@@/g $? > $@
+ 
+-wget.pod: $(srcdir)/wget.texi version.texi
+-	$(TEXI2POD) $(srcdir)/wget.texi $@
++#wget.pod: $(srcdir)/wget.texi version.texi
++#	$(TEXI2POD) $(srcdir)/wget.texi $@
++wget.pod: wget.info
++	info2pod wget.info > $@
+ 
+ $(MAN): wget.pod
+ 	$(POD2MAN) --center="GNU Wget" --release="GNU Wget @VERSION@" $? > $@
+

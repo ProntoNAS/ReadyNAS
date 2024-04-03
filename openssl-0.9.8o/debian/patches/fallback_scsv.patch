@@ -1,0 +1,471 @@
+Index: openssl-0.9.8o/apps/s_client.c
+===================================================================
+--- openssl-0.9.8o.orig/apps/s_client.c	2009-12-16 20:34:19.000000000 +0000
++++ openssl-0.9.8o/apps/s_client.c	2014-11-01 14:28:39.627854119 +0000
+@@ -226,6 +226,7 @@
+ 	BIO_printf(bio_err," -ssl3         - just use SSLv3\n");
+ 	BIO_printf(bio_err," -tls1         - just use TLSv1\n");
+ 	BIO_printf(bio_err," -dtls1        - just use DTLSv1\n");    
++	BIO_printf(bio_err," -fallback_scsv - send TLS_FALLBACK_SCSV\n");
+ 	BIO_printf(bio_err," -mtu          - set the link layer MTU\n");
+ 	BIO_printf(bio_err," -no_tls1/-no_ssl3/-no_ssl2 - turn off that protocol\n");
+ 	BIO_printf(bio_err," -bugs         - Switch on all SSL implementation bug workarounds\n");
+@@ -339,6 +340,7 @@
+ 	char *sess_out = NULL;
+ 	struct sockaddr peer;
+ 	int peerlen = sizeof(peer);
++	int fallback_scsv = 0;
+ 	int enable_timeouts = 0 ;
+ 	long socket_mtu = 0;
+ #ifndef OPENSSL_NO_JPAKE
+@@ -494,6 +496,10 @@
+ 			socket_mtu = atol(*(++argv));
+ 			}
+ #endif
++		else if (strcmp(*argv,"-fallback_scsv") == 0)
++			{
++			fallback_scsv = 1;
++			}
+ 		else if (strcmp(*argv,"-bugs") == 0)
+ 			bugs=1;
+ 		else if	(strcmp(*argv,"-keyform") == 0)
+@@ -784,6 +790,10 @@
+ 		SSL_set_session(con, sess);
+ 		SSL_SESSION_free(sess);
+ 		}
++
++	if (fallback_scsv)
++		SSL_set_mode(con, SSL_MODE_SEND_FALLBACK_SCSV);
++
+ #ifndef OPENSSL_NO_TLSEXT
+ 	if (servername != NULL)
+ 		{
+Index: openssl-0.9.8o/crypto/err/openssl.ec
+===================================================================
+--- openssl-0.9.8o.orig/crypto/err/openssl.ec	2008-10-26 18:42:01.000000000 +0000
++++ openssl-0.9.8o/crypto/err/openssl.ec	2014-11-01 14:28:39.627854119 +0000
+@@ -69,6 +69,7 @@
+ R SSL_R_TLSV1_ALERT_PROTOCOL_VERSION		1070
+ R SSL_R_TLSV1_ALERT_INSUFFICIENT_SECURITY	1071
+ R SSL_R_TLSV1_ALERT_INTERNAL_ERROR		1080
++R SSL_R_TLSV1_ALERT_INAPPROPRIATE_FALLBACK	1086
+ R SSL_R_TLSV1_ALERT_USER_CANCELLED		1090
+ R SSL_R_TLSV1_ALERT_NO_RENEGOTIATION		1100
+ 
+Index: openssl-0.9.8o/doc/apps/s_client.pod
+===================================================================
+--- openssl-0.9.8o.orig/doc/apps/s_client.pod	2007-08-23 12:16:03.000000000 +0000
++++ openssl-0.9.8o/doc/apps/s_client.pod	2014-11-01 14:28:39.627854119 +0000
+@@ -34,6 +34,7 @@
+ [B<-no_ssl2>]
+ [B<-no_ssl3>]
+ [B<-no_tls1>]
++[B<-fallback_scsv>]
+ [B<-bugs>]
+ [B<-cipher cipherlist>]
+ [B<-starttls protocol>]
+@@ -167,10 +168,13 @@
+ the initial handshake uses a method which should be compatible with all
+ servers and permit them to use SSL v3, SSL v2 or TLS as appropriate.
+ 
+-Unfortunately there are a lot of ancient and broken servers in use which
++Unfortunately there are still ancient and broken servers in use which
+ cannot handle this technique and will fail to connect. Some servers only
+-work if TLS is turned off with the B<-no_tls> option others will only
+-support SSL v2 and may need the B<-ssl2> option.
++work if TLS is turned off.
++
++=item B<-fallback_scsv>
++
++Send TLS_FALLBACK_SCSV in the ClientHello.
+ 
+ =item B<-bugs>
+ 
+Index: openssl-0.9.8o/doc/ssl/SSL_CTX_set_mode.pod
+===================================================================
+--- openssl-0.9.8o.orig/doc/ssl/SSL_CTX_set_mode.pod	2001-07-11 15:10:28.000000000 +0000
++++ openssl-0.9.8o/doc/ssl/SSL_CTX_set_mode.pod	2014-11-01 14:28:39.627854119 +0000
+@@ -61,6 +61,12 @@
+ flag SSL_MODE_AUTO_RETRY will cause read/write operations to only
+ return after the handshake and successful completion.
+ 
++=item SSL_MODE_FALLBACK_SCSV
++
++Send TLS_FALLBACK_SCSV in the ClientHello.
++To be set by applications that reconnect with a downgraded protocol
++version; see draft-ietf-tls-downgrade-scsv-00 for details.
++
+ =back
+ 
+ =head1 RETURN VALUES
+Index: openssl-0.9.8o/ssl/d1_lib.c
+===================================================================
+--- openssl-0.9.8o.orig/ssl/d1_lib.c	2010-04-06 12:29:08.000000000 +0000
++++ openssl-0.9.8o/ssl/d1_lib.c	2014-11-01 14:28:39.631854035 +0000
+@@ -229,6 +229,16 @@
+ 	case DTLS_CTRL_LISTEN:
+ 		ret = dtls1_listen(s, parg);
+ 		break;
++	case SSL_CTRL_CHECK_PROTO_VERSION:
++		/* For library-internal use; checks that the current protocol
++		 * is the highest enabled version (according to s->ctx->method,
++		 * as version negotiation may have changed s->method). */
++#if DTLS_MAX_VERSION != DTLS1_VERSION
++#  error Code needs update for DTLS_method() support beyond DTLS1_VERSION.
++#endif
++		/* Just one protocol version is supported so far;
++		 * fail closed if the version is not as expected. */
++		return s->version == DTLS_MAX_VERSION;
+ 
+ 	default:
+ 		ret = ssl3_ctrl(s, cmd, larg, parg);
+Index: openssl-0.9.8o/ssl/dtls1.h
+===================================================================
+--- openssl-0.9.8o.orig/ssl/dtls1.h	2010-04-14 00:17:12.000000000 +0000
++++ openssl-0.9.8o/ssl/dtls1.h	2014-11-01 14:28:39.631854035 +0000
+@@ -80,6 +80,8 @@
+ #endif
+ 
+ #define DTLS1_VERSION			0xFEFF
++#define DTLS_MAX_VERSION		DTLS1_VERSION
++
+ #define DTLS1_BAD_VER			0x0100
+ 
+ #if 0
+@@ -262,4 +264,3 @@
+ }
+ #endif
+ #endif
+-
+Index: openssl-0.9.8o/ssl/s23_srvr.c
+===================================================================
+--- openssl-0.9.8o.orig/ssl/s23_srvr.c	2014-11-01 14:28:29.000000000 +0000
++++ openssl-0.9.8o/ssl/s23_srvr.c	2014-11-01 14:28:39.631854035 +0000
+@@ -398,6 +398,9 @@
+ 		}
+ #endif
+ 
++	/* ensure that TLS_MAX_VERSION is up-to-date */
++	OPENSSL_assert(s->version <= TLS_MAX_VERSION);
++
+ 	if (s->state == SSL23_ST_SR_CLNT_HELLO_B)
+ 		{
+ 		/* we have SSLv3/TLSv1 in an SSLv2 header
+Index: openssl-0.9.8o/ssl/s2_lib.c
+===================================================================
+--- openssl-0.9.8o.orig/ssl/s2_lib.c	2007-01-21 16:07:25.000000000 +0000
++++ openssl-0.9.8o/ssl/s2_lib.c	2014-11-01 14:28:39.631854035 +0000
+@@ -314,6 +314,8 @@
+ 	case SSL_CTRL_GET_SESSION_REUSED:
+ 		ret=s->hit;
+ 		break;
++	case SSL_CTRL_CHECK_PROTO_VERSION:
++		return ssl3_ctrl(s, SSL_CTRL_CHECK_PROTO_VERSION, larg, parg);
+ 	default:
+ 		break;
+ 		}
+@@ -362,7 +364,7 @@
+ 	if (p != NULL)
+ 		{
+ 		l=c->id;
+-		if ((l & 0xff000000) != 0x02000000) return(0);
++		if ((l & 0xff000000) != 0x02000000 && l != SSL3_CK_FALLBACK_SCSV) return(0);
+ 		p[0]=((unsigned char)(l>>16L))&0xFF;
+ 		p[1]=((unsigned char)(l>> 8L))&0xFF;
+ 		p[2]=((unsigned char)(l     ))&0xFF;
+Index: openssl-0.9.8o/ssl/s3_enc.c
+===================================================================
+--- openssl-0.9.8o.orig/ssl/s3_enc.c	2014-11-01 14:26:39.000000000 +0000
++++ openssl-0.9.8o/ssl/s3_enc.c	2014-11-01 14:38:37.139329427 +0000
+@@ -759,6 +759,7 @@
+ 	case SSL_AD_INTERNAL_ERROR:	return(SSL3_AD_HANDSHAKE_FAILURE);
+ 	case SSL_AD_USER_CANCELLED:	return(SSL3_AD_HANDSHAKE_FAILURE);
+ 	case SSL_AD_NO_RENEGOTIATION:	return(-1); /* Don't send it :-) */
++	case SSL_AD_INAPPROPRIATE_FALLBACK:return(TLS1_AD_INAPPROPRIATE_FALLBACK);
+ 	default:			return(-1);
+ 		}
+ 	}
+Index: openssl-0.9.8o/ssl/s3_lib.c
+===================================================================
+--- openssl-0.9.8o.orig/ssl/s3_lib.c	2014-11-01 14:26:39.000000000 +0000
++++ openssl-0.9.8o/ssl/s3_lib.c	2014-11-01 14:28:39.631854035 +0000
+@@ -1981,6 +1981,29 @@
+ 		break;
+ 
+ #endif /* !OPENSSL_NO_TLSEXT */
++
++	case SSL_CTRL_CHECK_PROTO_VERSION:
++		/* For library-internal use; checks that the current protocol
++		 * is the highest enabled version (according to s->ctx->method,
++		 * as version negotiation may have changed s->method). */
++		if (s->version == s->ctx->method->version)
++			return 1;
++		/* Apparently we're using a version-flexible SSL_METHOD
++		 * (not at its highest protocol version). */
++		if (s->ctx->method->version == SSLv23_method()->version)
++			{
++#if TLS_MAX_VERSION != TLS1_VERSION
++#  error Code needs update for SSLv23_method() support beyond TLS1_VERSION.
++#endif
++			if (!(s->options & SSL_OP_NO_TLSv1))
++				return s->version == TLS1_VERSION;
++			if (!(s->options & SSL_OP_NO_SSLv3))
++				return s->version == SSL3_VERSION;
++			if (!(s->options & SSL_OP_NO_SSLv2))
++				return s->version == SSL2_VERSION;
++			}
++		return 0; /* Unexpected state; fail closed. */
++
+ 	default:
+ 		break;
+ 		}
+@@ -2269,6 +2292,7 @@
+ 		break;
+ 
+ #endif
++
+ 	default:
+ 		return(0);
+ 		}
+Index: openssl-0.9.8o/ssl/ssl.h
+===================================================================
+--- openssl-0.9.8o.orig/ssl/ssl.h	2014-11-01 14:26:39.000000000 +0000
++++ openssl-0.9.8o/ssl/ssl.h	2014-11-01 14:39:17.878475118 +0000
+@@ -560,6 +560,10 @@
+ #define SSL_MODE_AUTO_RETRY 0x00000004L
+ /* Don't attempt to automatically build certificate chain */
+ #define SSL_MODE_NO_AUTO_CHAIN 0x00000008L
++/* Send TLS_FALLBACK_SCSV in the ClientHello.
++ * To be set by applications that reconnect with a downgraded protocol
++ * version; see draft-ietf-tls-downgrade-scsv-00 for details. */
++#define SSL_MODE_SEND_FALLBACK_SCSV 0x00000080L
+ 
+ 
+ /* Note: SSL[_CTX]_set_{options,mode} use |= op on the previous value,
+@@ -1204,6 +1208,7 @@
+ #define SSL_AD_CERTIFICATE_UNOBTAINABLE TLS1_AD_CERTIFICATE_UNOBTAINABLE
+ #define SSL_AD_UNRECOGNIZED_NAME	TLS1_AD_UNRECOGNIZED_NAME
+ #define SSL_AD_BAD_CERTIFICATE_STATUS_RESPONSE TLS1_AD_BAD_CERTIFICATE_STATUS_RESPONSE
++#define SSL_AD_INAPPROPRIATE_FALLBACK  TLS1_AD_INAPPROPRIATE_FALLBACK /* fatal */
+ 
+ #define SSL_ERROR_NONE			0
+ #define SSL_ERROR_SSL			1
+@@ -1293,6 +1298,8 @@
+ #define SSL_CTRL_CLEAR_OPTIONS			77
+ #define SSL_CTRL_CLEAR_MODE			78
+ 
++#define SSL_CTRL_CHECK_PROTO_VERSION		119
++
+ #define DTLSv1_get_timeout(ssl, arg) \
+ 	SSL_ctrl(ssl,DTLS_CTRL_GET_TIMEOUT,0, (void *)arg)
+ #define DTLSv1_handle_timeout(ssl) \
+@@ -1938,6 +1945,7 @@
+ #define SSL_R_HTTPS_PROXY_REQUEST			 155
+ #define SSL_R_HTTP_REQUEST				 156
+ #define SSL_R_ILLEGAL_PADDING				 283
++#define SSL_R_INAPPROPRIATE_FALLBACK			 373
+ #define SSL_R_INVALID_CHALLENGE_LENGTH			 158
+ #define SSL_R_INVALID_COMMAND				 280
+ #define SSL_R_INVALID_PURPOSE				 278
+@@ -2065,6 +2073,7 @@
+ #define SSL_R_TLSV1_ALERT_DECRYPTION_FAILED		 1021
+ #define SSL_R_TLSV1_ALERT_DECRYPT_ERROR			 1051
+ #define SSL_R_TLSV1_ALERT_EXPORT_RESTRICTION		 1060
++#define SSL_R_TLSV1_ALERT_INAPPROPRIATE_FALLBACK	 1086
+ #define SSL_R_TLSV1_ALERT_INSUFFICIENT_SECURITY		 1071
+ #define SSL_R_TLSV1_ALERT_INTERNAL_ERROR		 1080
+ #define SSL_R_TLSV1_ALERT_NO_RENEGOTIATION		 1100
+Index: openssl-0.9.8o/ssl/ssl3.h
+===================================================================
+--- openssl-0.9.8o.orig/ssl/ssl3.h	2014-11-01 14:26:39.000000000 +0000
++++ openssl-0.9.8o/ssl/ssl3.h	2014-11-01 14:28:39.699852606 +0000
+@@ -129,9 +129,14 @@
+ extern "C" {
+ #endif
+ 
+-/* Signalling cipher suite value: from draft-ietf-tls-renegotiation-03.txt */
++/* Signalling cipher suite value from RFC 5746
++ * (TLS_EMPTY_RENEGOTIATION_INFO_SCSV) */
+ #define SSL3_CK_SCSV				0x030000FF
+ 
++/* Signalling cipher suite value from draft-ietf-tls-downgrade-scsv-00
++ * (TLS_FALLBACK_SCSV) */
++#define SSL3_CK_FALLBACK_SCSV			0x03005600
++
+ #define SSL3_CK_RSA_NULL_MD5			0x03000001
+ #define SSL3_CK_RSA_NULL_SHA			0x03000002
+ #define SSL3_CK_RSA_RC4_40_MD5 			0x03000003
+Index: openssl-0.9.8o/ssl/ssl_err.c
+===================================================================
+--- openssl-0.9.8o.orig/ssl/ssl_err.c	2014-11-01 14:26:39.000000000 +0000
++++ openssl-0.9.8o/ssl/ssl_err.c	2014-11-01 14:28:39.699852606 +0000
+@@ -339,6 +339,7 @@
+ {ERR_REASON(SSL_R_HTTPS_PROXY_REQUEST)   ,"https proxy request"},
+ {ERR_REASON(SSL_R_HTTP_REQUEST)          ,"http request"},
+ {ERR_REASON(SSL_R_ILLEGAL_PADDING)       ,"illegal padding"},
++{ERR_REASON(SSL_R_INAPPROPRIATE_FALLBACK),"inappropriate fallback"},
+ {ERR_REASON(SSL_R_INVALID_CHALLENGE_LENGTH),"invalid challenge length"},
+ {ERR_REASON(SSL_R_INVALID_COMMAND)       ,"invalid command"},
+ {ERR_REASON(SSL_R_INVALID_PURPOSE)       ,"invalid purpose"},
+@@ -466,6 +467,7 @@
+ {ERR_REASON(SSL_R_TLSV1_ALERT_DECRYPTION_FAILED),"tlsv1 alert decryption failed"},
+ {ERR_REASON(SSL_R_TLSV1_ALERT_DECRYPT_ERROR),"tlsv1 alert decrypt error"},
+ {ERR_REASON(SSL_R_TLSV1_ALERT_EXPORT_RESTRICTION),"tlsv1 alert export restriction"},
++{ERR_REASON(SSL_R_TLSV1_ALERT_INAPPROPRIATE_FALLBACK),"tlsv1 alert inappropriate fallback"},
+ {ERR_REASON(SSL_R_TLSV1_ALERT_INSUFFICIENT_SECURITY),"tlsv1 alert insufficient security"},
+ {ERR_REASON(SSL_R_TLSV1_ALERT_INTERNAL_ERROR),"tlsv1 alert internal error"},
+ {ERR_REASON(SSL_R_TLSV1_ALERT_NO_RENEGOTIATION),"tlsv1 alert no renegotiation"},
+Index: openssl-0.9.8o/ssl/ssl_lib.c
+===================================================================
+--- openssl-0.9.8o.orig/ssl/ssl_lib.c	2010-02-17 19:43:08.000000000 +0000
++++ openssl-0.9.8o/ssl/ssl_lib.c	2014-11-01 14:28:39.703852521 +0000
+@@ -1287,6 +1287,8 @@
+ 
+ 	if (sk == NULL) return(0);
+ 	q=p;
++	if (put_cb == NULL)
++		put_cb = s->method->put_cipher_by_char;
+ 
+ 	for (i=0; i<sk_SSL_CIPHER_num(sk); i++)
+ 		{
+@@ -1296,24 +1298,36 @@
+                     continue;
+ #endif /* OPENSSL_NO_KRB5 */                    
+ 
+-		j = put_cb ? put_cb(c,p) : ssl_put_cipher_by_char(s,c,p);
++		j = put_cb(c,p);
+ 		p+=j;
+ 		}
+-	/* If p == q, no ciphers and caller indicates an error. Otherwise
+-	 * add SCSV if not renegotiating.
+-	 */
+-	if (p != q && !s->new_session)
++	/* If p == q, no ciphers; caller indicates an error.
++	 * Otherwise, add applicable SCSVs. */
++	if (p != q)
+ 		{
+-		static SSL_CIPHER scsv =
++		if (!s->new_session)
+ 			{
+-			0, NULL, SSL3_CK_SCSV, 0, 0, 0, 0, 0, 0, 0,
+-			};
+-		j = put_cb ? put_cb(&scsv,p) : ssl_put_cipher_by_char(s,&scsv,p);
+-		p+=j;
++			static SSL_CIPHER scsv =
++				{
++				0, NULL, SSL3_CK_SCSV, 0, 0, 0, 0, 0, 0, 0,
++				};
++			j = put_cb(&scsv,p);
++			p+=j;
+ #ifdef OPENSSL_RI_DEBUG
+-		fprintf(stderr, "SCSV sent by client\n");
++			fprintf(stderr, "TLS_EMPTY_RENEGOTIATION_INFO_SCSV sent by client\n");
+ #endif
+-		}
++			}
++
++		if (s->mode & SSL_MODE_SEND_FALLBACK_SCSV)
++			{
++			static SSL_CIPHER scsv =
++				{
++				0, NULL, SSL3_CK_FALLBACK_SCSV, 0, 0, 0, 0, 0, 0, 0,
++				};
++			j = put_cb(&scsv,p);
++			p+=j;
++			}
++ 		}
+ 
+ 	return(p-q);
+ 	}
+@@ -1324,11 +1338,12 @@
+ 	SSL_CIPHER *c;
+ 	STACK_OF(SSL_CIPHER) *sk;
+ 	int i,n;
++
+ 	if (s->s3)
+ 		s->s3->send_connection_binding = 0;
+ 
+ 	n=ssl_put_cipher_by_char(s,NULL,NULL);
+-	if ((num%n) != 0)
++	if (n == 0 || (num%n) != 0)
+ 		{
+ 		SSLerr(SSL_F_SSL_BYTES_TO_CIPHER_LIST,SSL_R_ERROR_IN_RECEIVED_CIPHER_LIST);
+ 		return(NULL);
+@@ -1343,7 +1358,7 @@
+ 
+ 	for (i=0; i<num; i+=n)
+ 		{
+-		/* Check for SCSV */
++		/* Check for TLS_EMPTY_RENEGOTIATION_INFO_SCSV */
+ 		if (s->s3 && (n != 3 || !p[0]) &&
+ 			(p[n-2] == ((SSL3_CK_SCSV >> 8) & 0xff)) &&
+ 			(p[n-1] == (SSL3_CK_SCSV & 0xff)))
+@@ -1363,6 +1378,24 @@
+ 			continue;
+ 			}
+ 
++		/* Check for TLS_FALLBACK_SCSV */
++		if ((n != 3 || !p[0]) &&
++			(p[n-2] == ((SSL3_CK_FALLBACK_SCSV >> 8) & 0xff)) &&
++			(p[n-1] == (SSL3_CK_FALLBACK_SCSV & 0xff)))
++			{
++			/* The SCSV indicates that the client previously tried a higher version.
++			 * Fail if the current version is an unexpected downgrade. */
++			if (!SSL_ctrl(s, SSL_CTRL_CHECK_PROTO_VERSION, 0, NULL))
++				{
++				SSLerr(SSL_F_SSL_BYTES_TO_CIPHER_LIST,SSL_R_INAPPROPRIATE_FALLBACK);
++				if (s->s3)
++					ssl3_send_alert(s,SSL3_AL_FATAL,SSL_AD_INAPPROPRIATE_FALLBACK);
++				goto err;
++				}
++			p += n;
++			continue;
++			}
++
+ 		c=ssl_get_cipher_by_char(s,p);
+ 		p+=n;
+ 		if (c != NULL)
+Index: openssl-0.9.8o/ssl/t1_enc.c
+===================================================================
+--- openssl-0.9.8o.orig/ssl/t1_enc.c	2014-11-01 14:26:39.000000000 +0000
++++ openssl-0.9.8o/ssl/t1_enc.c	2014-11-01 14:30:04.010080084 +0000
+@@ -855,6 +855,7 @@
+ 	case SSL_AD_INTERNAL_ERROR:	return(TLS1_AD_INTERNAL_ERROR);
+ 	case SSL_AD_USER_CANCELLED:	return(TLS1_AD_USER_CANCELLED);
+ 	case SSL_AD_NO_RENEGOTIATION:	return(TLS1_AD_NO_RENEGOTIATION);
++	case SSL_AD_INAPPROPRIATE_FALLBACK:return(TLS1_AD_INAPPROPRIATE_FALLBACK);
+ #ifdef DTLS1_AD_MISSING_HANDSHAKE_MESSAGE
+ 	case DTLS1_AD_MISSING_HANDSHAKE_MESSAGE: return 
+ 					  (DTLS1_AD_MISSING_HANDSHAKE_MESSAGE);
+@@ -862,4 +863,3 @@
+ 	default:			return(-1);
+ 		}
+ 	}
+-
+Index: openssl-0.9.8o/ssl/tls1.h
+===================================================================
+--- openssl-0.9.8o.orig/ssl/tls1.h	2009-11-08 14:51:54.000000000 +0000
++++ openssl-0.9.8o/ssl/tls1.h	2014-11-01 14:33:54.853244249 +0000
+@@ -83,6 +83,7 @@
+ #define TLS1_VERSION			0x0301
+ #define TLS1_VERSION_MAJOR		0x03
+ #define TLS1_VERSION_MINOR		0x01
++#define TLS_MAX_VERSION			TLS1_VERSION
+ 
+ #define TLS1_AD_DECRYPTION_FAILED	21
+ #define TLS1_AD_RECORD_OVERFLOW		22
+@@ -94,6 +95,7 @@
+ #define TLS1_AD_PROTOCOL_VERSION	70	/* fatal */
+ #define TLS1_AD_INSUFFICIENT_SECURITY	71	/* fatal */
+ #define TLS1_AD_INTERNAL_ERROR		80	/* fatal */
++#define TLS1_AD_INAPPROPRIATE_FALLBACK	86	/* fatal */
+ #define TLS1_AD_USER_CANCELLED		90
+ #define TLS1_AD_NO_RENEGOTIATION	100
+ /* codes 110-114 are from RFC3546 */
+@@ -405,6 +407,3 @@
+ }
+ #endif
+ #endif
+-
+-
+-

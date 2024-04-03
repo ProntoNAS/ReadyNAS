@@ -1,0 +1,139 @@
+#!/usr/bin/make -f
+# 
+# Rules file for cron
+#
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+ifneq ($(DEB_HOST_GNU_TYPE),$(DEB_BUILD_GNU_TYPE))
+CROSS=CC=$(DEB_HOST_GNU_TYPE)-gcc
+else
+CROSS=
+endif
+
+DEB_OPTIM= -O2 -g -Wall -Wno-comment
+DEB_INSTALL = install
+DEB_DEBUG_DEFS = -DDEBUGGING=0
+
+ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+  DEB_OPTIM = -g -Wall -Wno-comment
+  DEB_DEBUG_DEFS= -DDEBUGGING=1
+endif
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+  DEB_INSTALL += -s
+endif
+
+# Set system type (Linux, HURD, etc.)
+DEB_HOST_ARCH_OS = $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+ifeq ($(DEB_HOST_ARCH_OS), linux)
+  PAM_DEFS = -DUSE_PAM
+  PAM_LIBS = -lpam
+  SELINUX = yes
+else
+  PAM_DEFS = 
+  PAM_LIBS =
+endif
+
+export PAM_DEFS
+export PAM_LIBS
+
+# SELinux
+ifeq (yes,$(SELINUX))
+  SELINUX_DEFS = -DWITH_SELINUX
+  SELINUX_LIBS = -lselinux
+endif
+
+export SELINUX_DEFS SELINUX_LIBS
+
+# Audit
+ifeq (yes,$(AUDIT))
+AUDIT_LIBS = -laudit
+else
+AUDIT_LIBS = 
+endif
+export AUDIT_LIBS
+
+ifeq ($(DEB_HOST_ARCH_OS), linux)
+build: build-cron build-cron-se
+else
+build: build-cron
+endif
+
+build-cron: b-cron/build-stamp
+b-cron/build-stamp:
+	dh_testdir
+	rm -rf b-cron
+	mkdir b-cron
+	# Add here commands to compile the package.
+	$(MAKE) $(CROSS) -C b-cron -f ../Makefile OPTIM="$(DEB_OPTIM)" DEBUG_DEFS="$(DEB_DEBUG_DEFS)" VPATH=.. INCLUDE=-I.. 
+	touch $@
+
+build-cron-se: b-cron-se/build-stamp
+b-cron-se/build-stamp:
+	dh_testdir
+	rm -rf b-cron-se
+	mkdir b-cron-se
+	cp debian/cron-se.overrides b-cron-se/cron-se
+	cd b-cron-se
+	# Add here commands to compile the package.
+	SELINUX_DEFS="-DWITH_SELINUX" SELINUX_LIBS=-lselinux $(MAKE) $(CROSS) -C b-cron-se -f ../Makefile OPTIM="$(DEB_OPTIM)" DEBUG_DEFS="$(DEB_DEBUG_DEFS)" VPATH=.. INCLUDE=-I..
+	touch $@
+
+clean:
+	dh_testdir
+	dh_testroot
+	$(MAKE) clean
+	rm -rf b-cron b-cron-se
+	rm -f debian/conffiles
+	dh_clean
+
+# Build architecture-independent files here.
+binary-indep: build
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build
+#	dh_testversion
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+	dh_install
+
+	dh_installdocs FEATURES THANKS README debian/README.anacron
+	dh_installexamples debian/examples/*
+#	dh_installmenu
+	dh_installpam
+	dh_installinit --noscripts
+	# Can't use dh_installcron because we don't have "normal" naming
+	# convention
+	install -m 644 debian/crontab.main debian/cron/etc/crontab
+	install -m 644 debian/placeholder debian/cron/etc/cron.d/.placeholder
+	install -m 644 debian/placeholder debian/cron/etc/cron.hourly/.placeholder
+	install -m 644 debian/placeholder debian/cron/etc/cron.daily/.placeholder
+	install -m 644 debian/placeholder debian/cron/etc/cron.weekly/.placeholder
+	install -m 644 debian/placeholder debian/cron/etc/cron.monthly/.placeholder
+	install -m 755 debian/standard.daily \
+                       debian/cron/etc/cron.daily/standard
+	install -m 644 debian/cron.default debian/cron/etc/default/cron
+	dh_installman crontab.1 crontab.5 cron.8
+#	dh_undocumented
+	dh_bugfiles
+	dh_installchangelogs CHANGES
+	dh_installdebconf
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+#	dh_makeshlibs
+	dh_md5sums
+	dh_builddeb
+
+source diff:                                                                  
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary

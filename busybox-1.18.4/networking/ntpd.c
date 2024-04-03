@@ -90,9 +90,9 @@
 
 #define FREQ_TOLERANCE  0.000015 /* frequency tolerance (15 PPM) */
 #define BURSTPOLL       0       /* initial poll */
-#define MINPOLL         9       /* minimum poll interval. std ntpd uses 6 (6: 64 sec) */
-#define BIGPOLL         11      /* drop to lower poll at any trouble (10: 17 min) */
-#define MAXPOLL         15      /* maximum poll interval (12: 1.1h, 17: 36.4h). std ntpd uses 17 */
+#define MINPOLL         5       /* minimum poll interval. std ntpd uses 6 (6: 64 sec) */
+#define BIGPOLL         10      /* drop to lower poll at any trouble (10: 17 min) */
+#define MAXPOLL         12      /* maximum poll interval (12: 1.1h, 17: 36.4h). std ntpd uses 17 */
 /* Actively lower poll when we see such big offsets.
  * With STEP_THRESHOLD = 0.125, it means we try to sync more aggressively
  * if offset increases over 0.03 sec */
@@ -628,11 +628,7 @@ add_peers(char *s)
 	peer_t *p;
 
 	p = xzalloc(sizeof(*p));
-	p->p_lsa = host2sockaddr(s, 123);
-	if (!p->p_lsa) {
-		free(p);
-		return;
-	}
+	p->p_lsa = xhost2sockaddr(s, 123);
 	p->p_dotted = xmalloc_sockaddr2dotted_noport(&p->p_lsa->u.sa);
 	p->p_fd = -1;
 	p->p_xmt_msg.m_status = MODE_CLIENT | (NTP_VERSION << 3);
@@ -1910,11 +1906,6 @@ static NOINLINE void ntp_init(char **argv)
 		bb_show_usage();
 //	if (opts & OPT_x) /* disable stepping, only slew is allowed */
 //		G.time_was_stepped = 1;
-	argv += optind;
-	while (*argv) {
-		llist_add_to(&peers, *argv);
-		argv++;
-	}
 	if (peers) {
 		while (peers)
 			add_peers(llist_pop(&peers));
@@ -1922,8 +1913,6 @@ static NOINLINE void ntp_init(char **argv)
 		/* -l but no peers: "stratum 1 server" mode */
 		G.stratum = 1;
 	}
-	if (!G.ntp_peers)
-		xfunc_die();
 	if (!(opts & OPT_n)) {
 		bb_daemonize_or_rexec(DAEMON_DEVNULL_STDIO, argv);
 		logmode = LOGMODE_NONE;

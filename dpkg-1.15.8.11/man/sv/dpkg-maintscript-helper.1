@@ -1,0 +1,146 @@
+.\"*******************************************************************
+.\"
+.\" This file was generated with po4a. Translate the source file.
+.\"
+.\"*******************************************************************
+.TH dpkg\-maintscript\-helper 1 2010\-04\-16 Debianprojektet Dpkg\-sviten
+.SH NAMN
+dpkg\-maintscript\-helper \- går runt kända dpkg\-begränsningar i paketskript
+.
+.SH SYNOPS
+\fBdpkg\-maintscript\-helper\fP \fIkommando\fP [\fIflaggor\fP...] \-\-
+\fImaint\-script\-flaggor\fP
+.
+.SH "KOMMANDON OCH PARAMETRAR"
+.P
+\fBrm_conffile\fP \fIkonffil\fP [\fIsenasteversion\fP [\fIpaket\fP]]
+.P
+\fBmv_conffile\fP \fIgammalkonffil\fP \fInykonffil\fP [\fIsenasteverison\fP [\fIpaket\fP]]
+.
+.SH BESKRIVNING
+.P
+Programmet skrevs för att köras i paketskript för att utföra en del åtgärder
+som dpkg (ännu) inte själv kan hantera, antingen på grund av designval eller
+på grund av nuvarande begränsningar.
+.P
+Många av dessa åtgärder kräver samordnade åtgärder från flera paketskript
+(\fBpreint\fP, \fBpostinst\fP, \fBprerm\fP, \fBpostrm\fP). För att undvika misstag
+räcker det att lägga in ett och samma anrop i alla skript, varpå programmet
+anpassar sitt beteende beroende på miljövariabeln DPKG_MAINTSCRIPT_NAME och
+på paketskriptets parametrar, vilka du måste vidaresända efter dubbla
+bindestreck.
+.
+.SH "KONFFIL\-RELATERADE ÅTGÄRDER"
+.P
+När ett paket uppgraders kommer dpkg inte att automatiskt ta bort en konffil
+(en konfigurationsfil för vilken dpkg skall behålla användarens ändringar)
+om den inte finns i den nya versionen. Det finns två grundläggande skäl till
+detta; den första är att konffilen kan ha tappats av misstag och nästa
+version kan komma att återställa den, varpå användaren inte vill tappa sina
+ändringar. Den andra är att för att göra det möjligt för paket att gå över
+från en dpkg\-hanterad konffil till en fil som hanteras av paketets skript,
+vanligtvis genom ett verktyg som debconf eller ucf.
+.P
+Det innebär att, om paketet menar att byta namn eller ta bort en
+konfigurationsfil, så måste det göra så explicit, och då kan
+\fBdpkg\-maintscript\-helper\fP användas för att implementera en elegant
+borttagning och flyttning av konffiler i paketscripten.
+.
+.SS "TA BORT EN KONFFIL"
+.P
+Om en konffil helt tas bort bör den tas bort från disk, såvida inte
+användaren har modifierat den. Om det finns lokala ändringar bör de
+bibehållas. Om paketuppgraderingen avbryts bör inte konffilen som just blev
+föråldras försvinna.
+.P
+Allt detta implementeras genom att lägga in följande skalkod i paketskripten
+\fBpreinst\fP, \fBpostinst\fP och \fBpostrm\fP:
+.P
+    dpkg\-maintscript\-helper rm_conffile \e
+        \fIkonffil\fP \fIsenasteversion\fP \fIpaket\fP \-\- "$@"
+.P
+\fIkonffil\fP är filnamnet på den konffil som skall tas bort. \fIsenasteversion\fP
+är den senaste versionen av paketet som innehöll konffilen (eller den
+senaste versionen av paketet som inte tog hand om att ta bort den överblivna
+konffilen om detta inte omedelbart implementerades). Om \fIsenasteversion\fP är
+tomt eller inte angivits försöks operationen varje gång paketet
+uppgraderas. \fIpaket\fP är paketnamnet, det är frivilligt eftersom det faller
+tillbaka på $DPKG_MAINSTCRIPT_PACKAGE (variabeln sätts av dpkg till namnet
+på det paket som behandlas). Alla paramerar till paketskriptet måste
+vidaresändas till programmet efter "\-\-".
+.P
+Aktuell implementation: i \fBpreinst\fP kontrolleras om konffilen ändrades och
+i så fall byts namnet på den till antingen \fIkonffil\fP\fB.dpkg\-remove\fP (om
+inte modifierad) eller till \fIkonffil\fP\fB.dpkg\-backup\fP (om modifierad). I
+\fBpostinst\fP byts namnet på den sistnämnda filen till \fIkonffil\fP\fB.dpkg\-bak\fP
+och behålls som referens om den innehåller ändringar av användaren, medan
+den tidigare kommer att tas bort. Om paketuppgraderingen avbryts kommer
+\fBpostrm\fP att ominstallera den ursprungliga konffilen. Vid borttagning
+kommer \fBpostrm\fP även att ta bort \fB.dpkg\-bak\fP\-filen som behållits fram till
+dess.
+.
+.SS "BYTA NAMN PÅ EN KONFFIL"
+.P
+Om en konffil flyttas från en plats till en annan måste du se till att du
+flyttar med eventuella ändringar gjorda av användaren. Detta kan först verka
+vara en enkel ändring av \fBpreinst\fP\-skriptet, men det kommer leda till att
+användaren ombeds att godkänna ändringar i konffilen för dpkg, även om denne
+inte är ansvarig för dem.
+.P
+En elegant namnändring kan implementeras genom att lägga in följande skalkod
+i paketskripten \fBpreinst\fP, \fBpostinst\fP och \fBpostrm\fP:
+.P
+    dpkg\-maintscript\-helper mv_conffile \e
+        \fIgammalkonffil\fP \fInykonffil\fP \fIsenasteversion\fP \fIpaket\fP \-\- "$@"
+.P
+\fIgammalkonffil\fP och \fInykonffil\fP är det gamla och nya namnet på konffilen
+vars namn skall bytas. \fIsenasteversion\fP är den senaste versionen av paketet
+som innehöll konffilen med dess gamla namn. Om \fIsenasteversion\fP är tom
+eller inte har angivits kommer operationen att försökas varje gång paketet
+uppgraderas (observera: det är säkrare att ange versionen och därmed endast
+utföra operationen en gång). \fIpaket\fP är paketnamnet, det är frivilligt
+eftersom det faller tillbaka på $DPKG_MAINSTCRIPT_PACKAGE (variabeln sätts
+av dpkg till namnet på det paket som behandlas). Alla paramerar till
+paketskriptet måste vidaresändas till programmet efter "\-\-".
+.P
+Aktuell implementation: I \fBpreinst\fP kontrolleras om konffilen har ändrats,
+om ja lämnas den kvar på plats, annars byts namnet på den till
+\fIgammalkonffil\fP\fB.dpkg\-remove\fP. Vid konfigurering tar \fBpostinst\fP bort
+\fIgammalkonffil\fP\fB.dpkg\-remove\fP och byter namn på \fIgammalkonffil\fP till
+\fInykonffil\fP om \fIgammalkonffil\fP fortfarande finns. Vid avbruten
+uppgradering eller installation byter \fBpostrm\fP tillbaka namnet från
+\fIgammalkonffil\fP\fB.dpkg\-remove\fP till \fIgammalkonffil\fP om så behövs.
+.
+.SH "INTEGRERA I PAKET"
+.P
+Givet att \fBdpkg\-maintscript\-helper\fP används i \fBpreinst\fP så innebär detta
+villkorslöst att ett förhandsberoende ("pre\-dependency") krävs för att
+försäkra att den nödvändiga versionen av dpkg redan har konfigurerats. Den
+version som krävs beror på vilket kommando som används, för \fBrm_conffile\fP
+och \fBmv_conffile\fP är det 1.15.7.2:
+.P
+    Pre\-Depends: dpkg (>= 1.15.7.2)
+.P
+Men i många fall är operationen som utförs av programmet inte kritiskt för
+paketet, och istället för att använda ett förhandsberoende kan vi anropa
+programmet endast om vi vet att det nödvändiga kommandot stöds av den nu
+installerade dpkg:
+.P
+    if dpkg\-maintscript\-helper supports <kommando>; then
+        dpkg\-maintscript\-helper <kommando> ...
+    fi
+.
+.SH FÖRFATTARE
+Upphovsrättsskyddat © 2010 Raphaël Hertzog
+.br
+Upphovsrättsskyddat © 2008 Joey Hess
+.br
+Upphovsrättsskyddat © 2007 Guillem Jover
+.br
+Upphovsrättsskyddat © 2005 Scott James Remnant
+.sp
+Detta är fri programvara; se GNU General Public License version 2 eller
+senare för kopieringsvillkor. Det finns INGEN GARANTI.
+
+.SH "ÖVERSÄTTNING"
+Peter Krefting och Daniel Nylander.

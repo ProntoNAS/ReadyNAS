@@ -184,10 +184,8 @@ int base64_main(int argc UNUSED_PARAM, char **argv)
 			/* Encode the buffer we just read in */
 			bb_uuencode(dst_buf, src_buf, size, bb_uuenc_tbl_base64);
 			xwrite(STDOUT_FILENO, dst_buf, 4 * ((size + 2) / 3));
-/* NETGEAR: Don't do word wrapping
 			bb_putchar('\n');
 			fflush(stdout);
-*/
 		}
 	}
 

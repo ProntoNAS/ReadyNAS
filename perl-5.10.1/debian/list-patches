@@ -1,0 +1,46 @@
+#!/usr/bin/perl
+
+# get patch information from debian/patches
+# prefers http://dep.debian.net/deps/dep3/ headers over other heuristics
+
+# Copyright 2010 Niko Tyni <ntyni@debian.org>
+#
+# This program is free software;
+# you may redistribute it and/or modify it under the same terms as Perl
+# itself.
+
+my $prefix = shift || "DEBIAN:";
+
+chdir "debian/patches" || die("cannot chdir to debian/patches: $!");
+
+while (<>) { # input is debian/patches/series
+    my %h;
+    my ($patch, @rest) = split;
+    my $name = "$prefix$patch";
+    $name =~ s/\.diff$//;
+    open(F, "<", $patch) or warn("cannot open $patch: $!"), next;
+    while (<F>) {
+        last if !/\S/;
+        /^(.+?): *(.+)$/ and $h{$1} = $2;
+        /(Closes: *|Bug)#?(\d+)/i and $h{DEBBUG} ||= "http://bugs.debian.org/$2";
+        /(\[rt\.cpan\.org #\d+\])/ and $h{CPAN} ||= $1;
+        /(\[perl #\d+\])/ and $h{perlbug} ||= $1;
+    }
+
+    $h{"Bug-Debian"} =~ /(\d+)/ and $h{DEBBUG} = "http://bugs.debian.org/$1";
+    $h{Bug} =~ /rt\.cpan\.org.*id=(\d+)/ and $h{CPAN} = "[rt.cpan.org #$1]";
+    $h{Bug} =~ /rt\.perl\.org.*id=(\d+)/ and $h{perlbug} = "[perl #$1]";
+    $h{Origin} =~ m|http://perl5\.git\.perl\.org/perl\.git/commit/([0-9a-f]{7})|i
+        and $h{Commit} = "[" . (lc $1) . "]";
+    my $desc = $h{Description} || $h{Subject} || "(no description provided)";
+    $desc =~ s/\\/\\\\/g; # escape backslashes
+    print join(" ", grep { length }
+        "$name -",
+        $h{DEBBUG},
+        $h{CPAN},
+        $h{perlbug},
+        $h{Commit},
+        $desc,
+    ), "\n";
+    close F;
+}

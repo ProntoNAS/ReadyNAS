@@ -1,0 +1,42 @@
+# DP: ARM: Fix Thumb-1 reload ICE with nested functions.
+
+http://gcc.gnu.org/ml/gcc-patches/2010-10/msg01142.html
+
+2010-10-13  Julian Brown  <julian@codesourcery.com>
+
+gcc/
+    * config/arm/arm.h (REG_CLASS_CONTENTS): Remove soft frame pointer
+    from CORE_REGS and GENERAL_REGS classes.
+    * config/arm/arm.md (*thumb1_movsi_insn): Ignore all parts of final
+    constraint for register preferencing.
+
+Index: gcc/config/arm/arm.h
+===================================================================
+--- a/src/gcc/config/arm/arm.h	(revision 165177)
++++ b/src/gcc/config/arm/arm.h	(working copy)
+@@ -1245,8 +1245,8 @@ enum reg_class
+   { 0x0000DF00, 0x00000000, 0x00000000, 0x00000000 }, /* HI_REGS */	\
+   { 0x01000000, 0x00000000, 0x00000000, 0x00000000 }, /* CC_REG */	\
+   { 0x00000000, 0x00000000, 0x00000000, 0x80000000 }, /* VFPCC_REG */	\
+-  { 0x0200DFFF, 0x00000000, 0x00000000, 0x00000000 }, /* GENERAL_REGS */ \
+-  { 0x0200FFFF, 0x00000000, 0x00000000, 0x00000000 }, /* CORE_REGS */	\
++  { 0x0000DFFF, 0x00000000, 0x00000000, 0x00000000 }, /* GENERAL_REGS */ \
++  { 0x0000FFFF, 0x00000000, 0x00000000, 0x00000000 }, /* CORE_REGS */	\
+   { 0xFAFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF }  /* ALL_REGS */	\
+ }
+ 
+Index: gcc/config/arm/arm.md
+===================================================================
+--- a/src/gcc/config/arm/arm.md	(revision 165177)
++++ b/src/gcc/config/arm/arm.md	(working copy)
+@@ -5163,8 +5163,8 @@
+ )
+ 
+ (define_insn "*thumb1_movsi_insn"
+-  [(set (match_operand:SI 0 "nonimmediate_operand" "=l,l,l,l,l,>,l, m,*lhk")
+-	(match_operand:SI 1 "general_operand"      "l, I,J,K,>,l,mi,l,*lhk"))]
++  [(set (match_operand:SI 0 "nonimmediate_operand" "=l,l,l,l,l,>,l, m,*l*h*k")
++	(match_operand:SI 1 "general_operand"      "l, I,J,K,>,l,mi,l,*l*h*k"))]
+   "TARGET_THUMB1
+    && (   register_operand (operands[0], SImode) 
+        || register_operand (operands[1], SImode))"

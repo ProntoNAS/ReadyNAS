@@ -1,0 +1,93 @@
+--- drivers/scsi/sd.c.orig	Sat Oct 23 13:43:46 1999
++++ drivers/scsi/sd.c	Fri Dec 24 00:44:13 1999
+@@ -274,6 +274,74 @@
+ }
+ 
+ /*
++ * handle spinup of idle disks
++ */
++
++#define DEBUG_IDLE 0
++
++static void sd_start_idle_done(Scsi_Cmnd * SCpnt)
++{
++	int result = SCpnt->result;
++	
++#ifdef DEBUG
++	printk("sd%c: sd_start_done(%d, %d)\n",
++		'a' + MINOR(SCpnt->request.rq_dev),
++		SCpnt->host->host_no, result);
++#endif
++	
++	if (result) {
++		Scsi_Device *sd = 
++			rscsi_disks[DEVICE_NR(SCpnt->request.rq_dev)].device;
++		printk("SCSI disk error: host %d channel %d id %d lun %d "
++		       "return code = %x\n",
++			sd->host->host_no, sd->channel, sd->id, sd->lun, 
++			result);
++		if (driver_byte(result) & DRIVER_SENSE)
++			print_sense("sd", SCpnt);
++
++		SCpnt = end_scsi_request(SCpnt, 0, SCpnt->request.current_nr_sectors);
++		requeue_sd_request(SCpnt);
++
++		return;
++	}
++
++#if DEBUG_IDLE >= 1
++	printk("sd: drive has been started\n");
++#endif
++
++	requeue_sd_request(SCpnt);
++}
++
++static void sd_start_idle(Scsi_Cmnd * SCpnt)
++{
++	unsigned char cmd[10];
++	int dev, old_use_sg = SCpnt->use_sg, oldbufflen = SCpnt->bufflen;
++
++	dev = DEVICE_NR(SCpnt->request.rq_dev);
++
++#if DEBUG_IDLE >= 2
++	printk("sd%c: sd_start entered\n", 'a' + dev);
++#endif
++
++	cmd[0] = START_STOP;
++	cmd[1] = (rscsi_disks[dev].device->lun << 5) & 0xe0;
++	memset((void*) &cmd[2], 0, 8);
++	cmd[4] = 1;
++	SCpnt->use_sg  = 0;
++	SCpnt->bufflen = 0;
++	SCpnt->cmd_len = 0;
++	SCpnt->sense_buffer[0] = 0;
++	SCpnt->sense_buffer[2] = 0;
++
++	scsi_do_cmd(SCpnt, cmd, NULL, 0, sd_start_idle_done, 
++			SD_TIMEOUT, MAX_RETRIES);
++
++	SCpnt->use_sg  = old_use_sg;
++	SCpnt->bufflen = oldbufflen;
++}
++
++
++/*
+  * rw_intr is the interrupt routine for the device driver.
+  * It will be notified on the end of a SCSI read / write, and
+  * will take one of several actions based on success or failure.
+@@ -476,7 +544,14 @@
+                 }
+ 	    }
+ 	}
+-
++	if (sense_error(SCpnt->sense_buffer[2]) == NOT_READY) {
++#if DEBUG_IDLE >= 2
++		printk("sd%c: drive is idle\n",
++				'a' + DEVICE_NR(SCpnt->request.rq_dev));
++#endif
++		sd_start_idle(SCpnt);
++		return;
++	}
+ 
+ 	/* If we had an ILLEGAL REQUEST returned, then we may have
+ 	 * performed an unsupported command.  The only thing this should be

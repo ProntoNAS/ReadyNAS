@@ -1,0 +1,24 @@
+Close #388608.
+
+In the extremely unlikely event that a log file to be rotated is going 
+to be created group readable or writable, and the current group of the 
+to-be-truncated logfile or the current user's group (for creation of the 
+new logfile) is not the intended one, guard against the logfile being 
+briefly readable or writable by the current user's group, or the group 
+the logfile already had (and probably will have after the operation).
+
+Thanks to Florian Zumbiehl <florz@gmx.de> for being zealously persistent.
+
+Index: logrotate-3.7.8/logrotate.c
+===================================================================
+--- logrotate-3.7.8.orig/logrotate.c	2009-08-06 16:47:25.878020710 +0100
++++ logrotate-3.7.8/logrotate.c	2009-08-14 23:19:48.724198822 +0100
+@@ -229,7 +229,7 @@
+ {
+     int fd;
+ 
+-    fd = open(fileName, flags, sb->st_mode);
++    fd = open(fileName, flags, (S_IRUSR | S_IWUSR) & sb->st_mode);
+     if (fd < 0) {
+ 	message(MESS_ERROR, "error creating output file %s: %s\n",
+ 		fileName, strerror(errno));

@@ -1,0 +1,29 @@
+#! /usr/bin/make -f
+# Build the libtasn1 packages for Debian.
+
+CFLAGS += -D_REENTRANT
+
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/autotools.mk
+
+DEB_CONFIGURE_EXTRA_FLAGS = --enable-ld-version-script --with-packager=Debian --with-packager-bug-reports=http://bugs.debian.org.org/ --with-packager-version="$(DEB_VERSION)"
+
+ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+DEB_MAKE_CHECK_TARGET = check
+endif
+
+DEB_DH_STRIP_ARGS = --dbg-package libtasn1-3-dbg
+DEB_DH_INSTALL_SOURCEDIR = debian/tmp
+DEB_DH_MAKESHLIBS_ARGS_ALL := -V 'libtasn1-3 (>=1.6-0)'
+DEB_COMPRESS_EXCLUDE := libtasn1.pdf
+
+build/libtasn1-3-dev::
+	cd $(DEB_SRCDIR)/doc && $(MAKE) libtasn1.pdf
+
+build/libtasn1-3::
+	cd $(DEB_SRCDIR)/src && $(MAKE) asn1Parser asn1Coding asn1Decoding
+	install -m 755 -d "$(CURDIR)/debian/tmp/usr/bin/"
+	cd $(DEB_SRCDIR)/src && \
+	for e in asn1Parser asn1Coding asn1Decoding ; do \
+	  /bin/sh ../libtool --mode=install /usr/bin/install -c $$e "$(CURDIR)/debian/tmp/usr/bin/" ; \
+	done

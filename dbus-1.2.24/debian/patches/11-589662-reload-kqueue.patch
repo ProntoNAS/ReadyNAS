@@ -1,0 +1,28 @@
+Origin: upstream, http://cgit.freedesktop.org/dbus/dbus/commit/?id=82a77d6acb0b
+Bug-Debian: http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=589662
+From: Will Thompson <will.thompson@collabora.co.uk>
+Date: Thu, 20 May 2010 15:08:33 +0000
+Subject: kqueue set_watched_dirs: fix termination condition
+
+num_fds is the number of elements of dirs currently in use. This bug
+meant that encountering a previously un-watched directory would cause j
+to increment forever, and so dirs[j] would eventually segfault.
+
+(I've checked the corresponding code for inotify, and it's correct. I
+wonder if some of the duplication could be eliminated.)
+
+Thanks to Pablo Martí Gamboa <pmarti@warp.es> for reporting this issue!
+---
+diff --git a/bus/dir-watch-kqueue.c b/bus/dir-watch-kqueue.c
+index 4a01b74..4e436eb 100644
+--- a/bus/dir-watch-kqueue.c
++++ b/bus/dir-watch-kqueue.c
+@@ -169,7 +169,7 @@ bus_set_watched_dirs (BusContext *context, DBusList **directories)
+    */
+   for (i = 0; new_dirs[i]; i++)
+     {
+-      for (j = 0; i < num_fds; j++)
++      for (j = 0; j < num_fds; j++)
+         {
+           if (dirs[j] && strcmp (new_dirs[i], dirs[j]) == 0)
+             {

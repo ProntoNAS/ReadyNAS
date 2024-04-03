@@ -1,0 +1,42 @@
+Author: Adam Buchbinder <adam.buchbinder@gmail.com>
+Description:
+ Adding detection of PSF2 fonts (Closes: #492035).
+ .
+ Linux console fonts come in two formats; PSF1 is already detected, but
+ PSF2, used for fonts which aren't 8-by-x shaped, was not. Add detection
+ of these fonts, and make the output look similar to the PSF1 output,
+ though with a different version number.
+ .
+ For more information, see:
+ http://www.win.tue.nl/~aeb/linux/kbd/font-formats-1.html
+
+diff -Naurp file.orig/magic/Magdir/linux file/magic/Magdir/linux
+--- file.orig/magic/Magdir/linux	2010-07-13 18:21:11.561672573 +0200
++++ file/magic/Magdir/linux	2010-07-13 18:23:37.790780191 +0200
+@@ -46,12 +46,21 @@
+ 2	string		LILO		Linux/i386 LILO boot/chain loader
+ #
+ # PSF fonts, from H. Peter Anvin <hpa@yggdrasil.com>
+-0	leshort		0x0436		Linux/i386 PC Screen Font data,
+->2	byte		0		256 characters, no directory,
+->2	byte		1		512 characters, no directory,
+->2	byte		2		256 characters, Unicode directory,
+->2	byte		3		512 characters, Unicode directory,
++# Updated by Adam Buchbinder <adam.buchbinder@gmail.com>
++# See: http://www.win.tue.nl/~aeb/linux/kbd/font-formats-1.html
++0	leshort		0x0436		Linux/i386 PC Screen Font v1 data,
++>2	byte&0x01	0		256 characters,
++>2	byte&0x01	!0		512 characters,
++>2	byte&0x02	0		no directory,
++>2	byte&0x02	!0		Unicode directory,
+ >3	byte		>0		8x%d
++0	string		\x72\xb5\x4a\x86\x00\x00 Linux/i386 PC Screen Font v2 data,
++>16	lelong		x		%d characters,
++>12	lelong&0x01	0		no directory,
++>12	lelong&0x01	!0		Unicode directory,
++>24	lelong		x		%d
++>28	lelong		x		\bx%d
++
+ # Linux swap file, from Daniel Quinlan <quinlan@yggdrasil.com>
+ 4086	string		SWAP-SPACE	Linux/i386 swap file
+ # From: Jeff Bailey <jbailey@ubuntu.com>

@@ -1,0 +1,19 @@
+diff --git a/sysdeps/x86_64/cacheinfo.c b/sysdeps/x86_64/cacheinfo.c
+index 5422037..1debf12 100644
+--- a/sysdeps/x86_64/cacheinfo.c
++++ b/sysdeps/x86_64/cacheinfo.c
+@@ -254,7 +254,13 @@ intel_check_word (int name, unsigned int value, bool *has_level_2,
+ static long int __attribute__ ((noinline))
+ handle_intel (int name, unsigned int maxidx)
+ {
+-  assert (maxidx >= 2);
++  if (maxidx < 2)
++    {
++      /* This should never happen as all Intel i686 CPU support a CPUID
++	 level of 2 minimum.  However valgrind sometimes load the i686
++	 library with a P55C CPUID.  Return 0 in that case. */
++      return 0;
++    }
+ 
+   /* OK, we can use the CPUID instruction to get all info about the
+      caches.  */

@@ -1,0 +1,60 @@
+From e16d25b379e58b15a6eea9b2a06541b5a1b52d55 Mon Sep 17 00:00:00 2001
+From: Gerrit Pape <pape@smarden.org>
+Date: Wed, 26 May 2010 11:02:55 +0000
+Subject: [PATCH] [BUILTIN] Add another missing LC_COLLATE to mkbuiltins
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+On Sat, Aug 15, 2009 at 06:07:16PM +0000, Matthew Burgess wrote:
+>
+> My system has Coreutils-7.4 compiled with the i18n patch from
+> http://cvs.fedoraproject.org/viewvc/devel/coreutils/coreutils-i18n.patch.
+>
+> Using this to compile dash, when in an en_GB.UTF-8 locale, I get the following error:
+>
+> if gcc -DHAVE_CONFIG_H -I. -I. -I..  -include ../config.h -DBSD=1 -DSHELL -DIFS_BROKEN  -Wall -g -O2 -MT eval.o -MD -MP -MF ".deps/eval.Tpo" -c -o eval.o eval.c; \
+>         then mv -f ".deps/eval.Tpo" ".deps/eval.Po"; else rm -f ".deps/eval.Tpo"; exit 1; fi
+> eval.c: In function ‘evalcommand’:
+> eval.c:810: error: ‘EXECCMD’ undeclared (first use in this function)
+> eval.c:810: error: (Each undeclared identifier is reported only once
+> eval.c:810: error: for each function it appears in.)
+> eval.c:812: error: ‘COMMANDCMD’ undeclared (first use in this function)
+> make[3]: *** [eval.o] Error 1
+>
+> This is because the src/mkbuiltins script ends up generating an incomplete
+> src/builtins.h file.  This, in turn, is caused by 'sort -u -k 3,3' not
+> working correctly.
+>
+> The attached patch fixes/works around things by setting LC_CTYPE=C, thus
+> overriding the build environment (in a similar manner to the earlier call to
+> 'sort' in that same script).
+
+I've changed it to use LC_COLLATE.
+
+Signed-off-by: Herbert Xu <herbert@gondor.apana.org.au>
+(cherry picked from commit 6e8e09255888c506c8f434b5905f13683f8dcf51)
+
+Conflicts:
+
+	ChangeLog
+---
+ src/mkbuiltins |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/src/mkbuiltins b/src/mkbuiltins
+index 977edb4..064cb76 100644
+--- a/src/mkbuiltins
++++ b/src/mkbuiltins
+@@ -84,7 +84,7 @@ cat <<\!
+  */
+ 
+ !
+-sed 's/	-[a-z]*//' $temp2 | nl -v 0 | sort -u -k 3,3 |
++sed 's/	-[a-z]*//' $temp2 | nl -v 0 | LC_COLLATE=C sort -u -k 3,3 |
+ tr abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ |
+ 	awk '{	printf "#define %s (builtincmd + %d)\n", $3, $1}'
+ printf '\n#define NUMBUILTINS %d\n' $(wc -l < $temp2)
+-- 
+1.6.0.3
+

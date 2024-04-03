@@ -1,0 +1,51 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+
+build: build-stamp
+
+build-stamp: 
+	dh_testdir
+	$(MAKE) -C src
+	touch $@
+
+clean: 
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp configure-stamp
+	$(MAKE) -C src clean
+	dh_clean 
+
+install: build
+	dh_testdir
+	dh_testroot
+	#dh_prep  
+	dh_installdirs
+	$(MAKE) -C src DESTDIR=$(CURDIR)/debian/ipwatchd install
+	# Remove upstream manpage that causes lintian error manpage-not-compressed-with-max-compression
+	rm $(CURDIR)/debian/ipwatchd/usr/share/man/man8/ipwatchd.8.gz
+
+binary-indep: install
+
+binary-arch: install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs 
+	dh_installdocs
+	dh_installman debian/ipwatchd.8 debian/ipwatchd.conf.5 debian/ipwatchd-script.1
+	dh_installinit --onlyscripts
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure

@@ -1,0 +1,49 @@
+--- a/inetd.c
++++ b/inetd.c
+@@ -178,6 +178,7 @@ int lflag = 0;
+ #endif
+ 
+ int	 debug = 0;
++int	 global_queuelen = 128;
+ int	 nsock, maxsock;
+ fd_set	*allsockp;
+ int	 allsockn;
+@@ -350,7 +351,7 @@ main(int argc, char *argv[], char *envp[
+ 
+ 	initsetproctitle(argc, argv, envp);
+ 
+-	while ((ch = getopt(argc, argv, "dEilR:")) != -1)
++	while ((ch = getopt(argc, argv, "dEilq:R:")) != -1)
+ 		switch (ch) {
+ 		case 'd':
+ 			debug = 1;
+@@ -370,6 +371,11 @@ main(int argc, char *argv[], char *envp[
+ 			    progname);
+ 			exit(1);
+ #endif
++		case 'q':
++			global_queuelen = atoi(optarg);
++			if (global_queuelen < 10)
++				global_queuelen = 10;
++			break;
+ 		case 'R': {	/* invocation rate */
+ 			char *p;
+ 			int val;
+@@ -387,7 +393,7 @@ main(int argc, char *argv[], char *envp[
+ 		case '?':
+ 		default:
+ 			fprintf(stderr,
+-			    "usage: %s [-dEil] [-R rate] [configuration file]\n",
++			    "usage: %s [-dEil] [-q len] [-R rate] [configuration file]\n",
+ 			    progname);
+ 			exit(1);
+ 		}
+@@ -1072,7 +1078,7 @@ setsockopt(fd, SOL_SOCKET, opt, &on, siz
+ 		return;
+ 	}
+ 	if (sep->se_socktype == SOCK_STREAM)
+-		listen(sep->se_fd, 10);
++		listen(sep->se_fd, global_queuelen);
+ 
+ 	fd_grow(&allsockp, &allsockn, sep->se_fd);
+ 	FD_SET(sep->se_fd, allsockp);

@@ -1,0 +1,73 @@
+commit 0e6546c11f2ec1ed2c5af3f2cdb2a6b507952782
+Author: Martin Pitt <martin.pitt@ubuntu.com>
+Date:   Mon Nov 22 10:49:12 2010 +0100
+
+    Add ACL for media player USB devices
+    
+    Originally we added an ACL for some particular mobile phone product IDs to
+    enable users to run e. g. the Android SDK as non-root. This was removed in
+    232f180 as we don't want to maintain product/vendor ID lists in udev.
+    
+    However, we already know from media-player-info that devices like this are
+    media players. There is little reason to deny user access to those, so add back
+    a generic rule which adds an ACL to media player raw USB devices.
+    
+    https://launchpad.net/bugs/316215
+
+diff --git a/extras/udev-acl/70-acl.rules b/extras/udev-acl/70-acl.rules
+index 66375de..e3ff31c 100644
+--- a/extras/udev-acl/70-acl.rules
++++ b/extras/udev-acl/70-acl.rules
+@@ -59,6 +59,9 @@ ENV{COLOR_MEASUREMENT_DEVICE}=="*?", TAG+="udev-acl"
+ # DDC/CI device, usually high-end monitors such as the DreamColor
+ ENV{DDC_DEVICE}=="*?", TAG+="udev-acl"
+ 
++# media player raw devices (for user-mode drivers, Android SDK, etc.)
++SUBSYSTEM=="usb", ENV{ID_MEDIA_PLAYER}=="?*", TAG+="udev-acl"
++
+ # apply ACL for all locally logged in users
+ LABEL="acl_apply", TAG=="udev-acl", TEST=="/var/run/ConsoleKit/database", \
+   RUN+="udev-acl --action=$env{ACTION} --device=$env{DEVNAME}"
+commit d69207c3f20f0af2a5e510515ae5473f4fe54476
+Author: Harald Hoyer <harald@redhat.com>
+Date:   Fri Nov 12 15:44:34 2010 +0100
+
+    70-acl.rules: add ACLs for ID_PDA devices
+
+diff --git a/extras/udev-acl/70-acl.rules b/extras/udev-acl/70-acl.rules
+index c7134bc..66375de 100644
+--- a/extras/udev-acl/70-acl.rules
++++ b/extras/udev-acl/70-acl.rules
+@@ -47,6 +47,9 @@ SUBSYSTEM=="misc", KERNEL=="kvm", TAG+="udev-acl"
+ # smart-card readers
+ ENV{ID_SMARTCARD_READER}=="*?", TAG+="udev-acl"
+ 
++# PDA devices
++ENV{ID_PDA}=="*?", TAG+="udev-acl"
++
+ # joysticks
+ SUBSYSTEM=="input", ENV{ID_INPUT_JOYSTICK}=="?*", TAG+="udev-acl"
+ 
+commit 53c5ceff0880279014b7c417d73322f6a266c551
+Author: David Henningsson <david.henningsson@canonical.com>
+Date:   Fri Nov 26 15:31:42 2010 +0100
+
+    Add ACLs for FFADO supported sound cards
+    
+    https://launchpad.net/bugs/681755
+    
+    Signed-off-by: Martin Pitt <martin.pitt@ubuntu.com>
+
+diff --git a/extras/udev-acl/70-acl.rules b/extras/udev-acl/70-acl.rules
+index e3ff31c..785b00f 100644
+--- a/extras/udev-acl/70-acl.rules
++++ b/extras/udev-acl/70-acl.rules
+@@ -26,6 +26,8 @@ SUBSYSTEM=="block", ENV{ID_CDROM}=="1", TAG+="udev-acl"
+ SUBSYSTEM=="sound", TAG+="udev-acl"
+ # sound jack-sense
+ SUBSYSTEM=="input", SUBSYSTEMS=="sound", TAG+="udev-acl"
++# ffado is an userspace driver for firewire sound cards
++SUBSYSTEM=="firewire", ENV{ID_FFADO}=="1", TAG+="udev-acl"
+ 
+ # webcams, frame grabber, TV cards
+ SUBSYSTEM=="video4linux", TAG+="udev-acl"

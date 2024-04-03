@@ -1,0 +1,35 @@
+From d8e544ba57806daa88035fa75ea8e6acd7c9dc6a Mon Sep 17 00:00:00 2001
+From: Niko Tyni <ntyni@debian.org>
+Date: Tue, 20 Apr 2010 10:10:09 +0300
+Subject: [PATCH] Fix two uninitialized value warnings triggered with Perl 5.12.0
+Forwarded: http://mail-archives.apache.org/mod_mbox/perl-modperl/201004.mbox/thread
+
+Perl 5.12.0 has new uninitialized value warnings for the various
+lc* and uc* functions. These break the test suite:
+
+ Failed test 14 in t/modules/apache_status.t at line 47
+ Failed test 15 in t/modules/apache_status.t at line 47 fail #2
+
+so short-circuit the variables to the empty string.
+---
+ lib/Apache2/Status.pm |    4 ++--
+ 1 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/lib/Apache2/Status.pm b/lib/Apache2/Status.pm
+index 288531a..8bbebdb 100644
+--- a/lib/Apache2/Status.pm
++++ b/lib/Apache2/Status.pm
+@@ -95,8 +95,8 @@ sub install_hint {
+ 
+ sub status_config {
+     my ($r, $key) = @_;
+-    return (lc($r->dir_config($key)) eq "on") ||
+-        (lc($r->dir_config('StatusOptionsAll')) eq "on");
++    return (lc($r->dir_config($key) || "") eq "on") ||
++        (lc($r->dir_config('StatusOptionsAll') || "") eq "on");
+ }
+ 
+ sub menu_item {
+-- 
+1.7.0.4
+

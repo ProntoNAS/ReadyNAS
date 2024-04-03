@@ -1,0 +1,86 @@
+Index: board/mv_feroceon/mv_hal/usibootup/usibootup.c
+===================================================================
+RCS file: /cvsroot/u-boot-1.1.4-Netgear/board/mv_feroceon/mv_hal/usibootup/usibootup.c,v
+retrieving revision 1.6
+retrieving revision 1.7
+diff -p -u -r1.6 -r1.7
+--- board/mv_feroceon/mv_hal/usibootup/usibootup.c	7 Jun 2011 10:15:00 -0000	1.6
++++ board/mv_feroceon/mv_hal/usibootup/usibootup.c	21 Jun 2011 09:06:35 -0000	1.7
+@@ -67,7 +67,7 @@ void boot_to_usb_drive(MV_VOID)
+ {
+ 	int delaytime=0;
+ 
+-	if (is_btn_pressed(USB)) {
++	if (MV_REG_READ(GPP_DATA_IN_REG(1))& BIT13) {
+ 		/*sys led light on*/
+ #ifdef USI_BOARD_NVPLUS_V4
+ 		MV_REG_WRITE(GPP_DATA_OUT_REG(0),MV_REG_READ(GPP_DATA_OUT_REG(0)) & ~BIT22);
+@@ -96,7 +96,7 @@ void boot_to_usb_drive(MV_VOID)
+ 	if( delaytime >= 50 )
+ 	{
+ 		recovery_status = 1;
+-		setenv("bootcmd","usb start;fatload usb 0:1 0x1200000 /uImage-recovery;fatload usb 0:1 0x2000000 /initrd-recovery.gz;mw f1010108 0;bootm 1200000 2000000");
++		setenv("bootcmd","usb start;fatload usb 0:1 0x1200000 /uImage-recovery;fatload usb 0:1 0x2000000 /initrd-recovery.gz;bootm 1200000 2000000");
+ #ifdef USI_BOARD_NVPLUS_V4
+ 		MV_REG_WRITE(GPP_BLINK_EN_REG(0),MV_REG_READ(GPP_BLINK_EN_REG(0)) | BIT22);
+ #else
+@@ -378,14 +378,10 @@ MV_U32 usiBootup_to_kernel(MV_VOID)
+ 		    //save_user_selection(bootmenu_item_cnt);
+ 		    menu_show(bootmenu_item_cnt);
+ 		    break;
+-		} else
+-		    udelay(10000);
++		}
+ 	    }
+ 
+ 	    while (1) {
+-#ifndef USI_BOARD_NVPLUS_V4
+-	        udelay(100);
+-#endif
+ 		if (is_btn_pressed(USB)) {
+ 		    bootmenu_item_cnt = (bootmenu_item_cnt + 1) % bootmenu_item_len;
+ 		    //save_user_selection(bootmenu_item_cnt);
+@@ -441,7 +437,6 @@ MV_U32 is_btn_pressed(enum BTN_ID btn_id
+ 
+     MV_U32 ret = 0;
+     MV_U32 i = 0;
+-    MV_U32 holdon_cnt = 0;
+     MV_U32 btn2gpp_bitmap = 0;
+     MV_U32 gpp_group = 0;
+     
+@@ -454,21 +449,24 @@ MV_U32 is_btn_pressed(enum BTN_ID btn_id
+ 	    gpp_group = 0;
+ 	    btn2gpp_bitmap = BIT13;//MPP13
+ 	    break;
+-	default:
++	case POWER:
++	    gpp_group = 1;
++	    btn2gpp_bitmap = BIT15;//MPP47
+ 	    break;
++	default:
++	    return 0;
+     }
+     /* GPP attributes must have been set before */
+     if (MV_REG_READ(GPP_DATA_IN_REG(gpp_group)) & btn2gpp_bitmap) {
+-        for(i = 0; i < 2; i++) {
+-#ifndef USI_BOARD_NVPLUS_V4
+-	    udelay(60000);
+-#endif
+-	    if (MV_REG_READ(GPP_DATA_IN_REG(gpp_group)) & btn2gpp_bitmap)
+-	        holdon_cnt++;
+-	    else
+-	        break;
+-	}
+-	if (holdon_cnt == 2) {
++	/* eliminate jitter */
++	udelay(10000);//10 ms
++	if (MV_REG_READ(GPP_DATA_IN_REG(gpp_group)) & btn2gpp_bitmap) {
++	    if (btn_id == USB || btn_id == RESET)
++	    {
++		/* If the usb or reset button was pressed, wait until button up then respond*/
++	        while(MV_REG_READ(GPP_DATA_IN_REG(gpp_group)) & btn2gpp_bitmap)
++	        ;
++	    }
+ 	    ret = 1;
+ 	}
+     }

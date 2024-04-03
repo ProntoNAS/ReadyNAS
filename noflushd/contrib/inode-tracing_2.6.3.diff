@@ -1,0 +1,225 @@
+diff -Naur linux-2.6.3/drivers/block/ll_rw_blk.c linux-2.6.3.trace/drivers/block/ll_rw_blk.c
+--- linux-2.6.3/drivers/block/ll_rw_blk.c	2004-02-18 04:57:16.000000000 +0100
++++ linux-2.6.3.trace/drivers/block/ll_rw_blk.c	2004-02-26 16:42:39.000000000 +0100
+@@ -27,6 +27,8 @@
+ #include <linux/completion.h>
+ #include <linux/slab.h>
+ #include <linux/swap.h>
++#include <linux/writeback.h>
++#include <linux/buffer_head.h>
+ 
+ static void blk_unplug_work(void *data);
+ static void blk_unplug_timeout(unsigned long data);
+@@ -2305,6 +2307,18 @@
+ 		mod_page_state(pgpgout, count);
+ 	else
+ 		mod_page_state(pgpgin, count);
++		
++
++       if (block_dump == 1) {
++               char b[BDEVNAME_SIZE];
++               printk("%s(%d): %s block %Lu on %s inode %lu\n",
++                       current->comm, current->pid,
++                       (rw & WRITE) ? "WRITE" : "READ",
++                       (unsigned long long)bio->bi_sector, bdevname(bio->bi_bdev,b),
++                       bio->traced_inode);
++       }
++
++		
+ 	generic_make_request(bio);
+ 	return 1;
+ }
+diff -Naur linux-2.6.3/fs/buffer.c linux-2.6.3.trace/fs/buffer.c
+--- linux-2.6.3/fs/buffer.c	2004-02-18 04:58:16.000000000 +0100
++++ linux-2.6.3.trace/fs/buffer.c	2004-02-26 17:57:08.000000000 +0100
+@@ -419,6 +419,11 @@
+ 		goto out_unlock;
+ 	head = page_buffers(page);
+ 	bh = head;
++
++	bh->traced_inode = 0;
++	if (bdev->traced_inode)
++		bh->traced_inode = bdev->traced_inode;
++
+ 	do {
+ 		if (bh->b_blocknr == block) {
+ 			ret = bh;
+@@ -1444,7 +1449,12 @@
+ 	if (bh == NULL) {
+ 		bh = __find_get_block_slow(bdev, block, size);
+ 		if (bh)
++		{
++			bh->traced_inode = 0;
++			if (bdev->traced_inode)
++				bh->traced_inode = bdev->traced_inode;
+ 			bh_lru_install(bh);
++		}
+ 	}
+ 	if (bh)
+ 		touch_buffer(bh);
+@@ -1501,6 +1511,11 @@
+ 
+ 	if (!buffer_uptodate(bh))
+ 		bh = __bread_slow(bh);
++		
++	bh->traced_inode = 0;
++	if (bdev->traced_inode)
++		bh->traced_inode = bdev->traced_inode;
++		
+ 	return bh;
+ }
+ EXPORT_SYMBOL(__bread);
+@@ -2690,6 +2705,10 @@
+ 	bio->bi_end_io = end_bio_bh_io_sync;
+ 	bio->bi_private = bh;
+ 
++	bio->traced_inode = 0;
++	if (bh != NULL && bh->traced_inode)
++		bio->traced_inode = bh->traced_inode;
++	
+ 	return submit_bio(rw, bio);
+ }
+ 
+diff -Naur linux-2.6.3/fs/ext2/inode.c linux-2.6.3.trace/fs/ext2/inode.c
+--- linux-2.6.3/fs/ext2/inode.c	2004-02-18 04:57:15.000000000 +0100
++++ linux-2.6.3.trace/fs/ext2/inode.c	2004-02-26 16:26:58.000000000 +0100
+@@ -273,6 +273,9 @@
+ 	if (!p->key)
+ 		goto no_block;
+ 	while (--depth) {
++		sb->traced_inode = 0;
++		if (inode->i_ino)
++			sb->traced_inode = inode->i_ino;
+ 		bh = sb_bread(sb, le32_to_cpu(p->key));
+ 		if (!bh)
+ 			goto failure;
+@@ -853,6 +856,10 @@
+ 			if (!nr)
+ 				continue;
+ 			*p = 0;
++			inode->i_sb->traced_inode = 0;
++			if (inode->i_ino)
++				inode->i_sb->traced_inode = inode->i_ino;
++				
+ 			bh = sb_bread(inode->i_sb, nr);
+ 			/*
+ 			 * A read failure? Report error and clear slot
+@@ -997,6 +1004,11 @@
+ 	offset = ((ino - 1) % EXT2_INODES_PER_GROUP(sb)) * EXT2_INODE_SIZE(sb);
+ 	block = le32_to_cpu(gdp->bg_inode_table) +
+ 		(offset >> EXT2_BLOCK_SIZE_BITS(sb));
++		
++	sb->traced_inode = 0;
++	if (ino)
++		sb->traced_inode = ino;
++		
+ 	if (!(bh = sb_bread(sb, block)))
+ 		goto Eio;
+ 
+diff -Naur linux-2.6.3/include/linux/bio.h linux-2.6.3.trace/include/linux/bio.h
+--- linux-2.6.3/include/linux/bio.h	2004-02-18 04:59:06.000000000 +0100
++++ linux-2.6.3.trace/include/linux/bio.h	2004-02-26 15:32:35.000000000 +0100
+@@ -91,6 +91,7 @@
+ 	void			*bi_private;
+ 
+ 	bio_destructor_t	*bi_destructor;	/* destructor */
++	unsigned long		traced_inode;
+ };
+ 
+ /*
+diff -Naur linux-2.6.3/include/linux/buffer_head.h linux-2.6.3.trace/include/linux/buffer_head.h
+--- linux-2.6.3/include/linux/buffer_head.h	2004-02-18 04:57:12.000000000 +0100
++++ linux-2.6.3.trace/include/linux/buffer_head.h	2004-02-26 16:32:29.000000000 +0100
+@@ -59,6 +59,7 @@
+ 	bh_end_io_t *b_end_io;		/* I/O completion */
+  	void *b_private;		/* reserved for b_end_io */
+ 	struct list_head b_assoc_buffers; /* associated with another mapping */
++	unsigned long		traced_inode;
+ };
+ 
+ /*
+@@ -242,6 +243,10 @@
+ static inline struct buffer_head *
+ sb_bread(struct super_block *sb, sector_t block)
+ {
++	sb->s_bdev->traced_inode = 0;
++	if (sb->traced_inode)
++		sb->s_bdev->traced_inode = sb->traced_inode;
++		
+ 	return __bread(sb->s_bdev, block, sb->s_blocksize);
+ }
+ 
+diff -Naur linux-2.6.3/include/linux/fs.h linux-2.6.3.trace/include/linux/fs.h
+--- linux-2.6.3/include/linux/fs.h	2004-02-18 04:57:20.000000000 +0100
++++ linux-2.6.3.trace/include/linux/fs.h	2004-02-26 16:31:00.000000000 +0100
+@@ -360,6 +360,7 @@
+ 	 * care to not mess up bd_private for that case.
+ 	 */
+ 	unsigned long		bd_private;
++	unsigned long		traced_inode;
+ };
+ 
+ /*
+@@ -719,6 +720,7 @@
+ 	 * even looking at it. You had been warned.
+ 	 */
+ 	struct semaphore s_vfs_rename_sem;	/* Kludge */
++	unsigned long		traced_inode;
+ };
+ 
+ /*
+diff -Naur linux-2.6.3/include/linux/sysctl.h linux-2.6.3.trace/include/linux/sysctl.h
+--- linux-2.6.3/include/linux/sysctl.h	2004-02-18 04:58:10.000000000 +0100
++++ linux-2.6.3.trace/include/linux/sysctl.h	2004-02-26 13:51:07.000000000 +0100
+@@ -156,6 +156,7 @@
+ 	VM_SWAPPINESS=19,	/* Tendency to steal mapped memory */
+ 	VM_LOWER_ZONE_PROTECTION=20,/* Amount of protection of lower zones */
+ 	VM_MIN_FREE_KBYTES=21,	/* Minimum free kilobytes to maintain */
++	VM_BLOCK_DUMP=22,
+ };
+ 
+ 
+diff -Naur linux-2.6.3/include/linux/writeback.h linux-2.6.3.trace/include/linux/writeback.h
+--- linux-2.6.3/include/linux/writeback.h	2004-02-18 04:57:16.000000000 +0100
++++ linux-2.6.3.trace/include/linux/writeback.h	2004-02-26 13:52:02.000000000 +0100
+@@ -77,7 +77,7 @@
+ extern int vm_dirty_ratio;
+ extern int dirty_writeback_centisecs;
+ extern int dirty_expire_centisecs;
+-
++extern int block_dump;
+ struct ctl_table;
+ struct file;
+ int dirty_writeback_centisecs_handler(struct ctl_table *, int, struct file *,
+diff -Naur linux-2.6.3/kernel/sysctl.c linux-2.6.3.trace/kernel/sysctl.c
+--- linux-2.6.3/kernel/sysctl.c	2004-02-18 04:57:16.000000000 +0100
++++ linux-2.6.3.trace/kernel/sysctl.c	2004-02-26 13:50:44.000000000 +0100
+@@ -801,6 +801,16 @@
+ 		.proc_handler	= &proc_dointvec,
+ 	},
+ 	{
++	               .ctl_name       = VM_BLOCK_DUMP,
++	               .procname       = "block_dump",
++	               .data           = &block_dump,
++	               .maxlen         = sizeof(block_dump),
++	               .mode           = 0644,
++	               .proc_handler   = &proc_dointvec,
++	               .strategy       = &sysctl_intvec,
++	               .extra1         = &zero,
++	},
++	{
+ 		.ctl_name	= FS_LEASE_TIME,
+ 		.procname	= "lease-break-time",
+ 		.data		= &lease_break_time,
+diff -Naur linux-2.6.3/mm/page-writeback.c linux-2.6.3.trace/mm/page-writeback.c
+--- linux-2.6.3/mm/page-writeback.c	2004-02-18 04:58:42.000000000 +0100
++++ linux-2.6.3.trace/mm/page-writeback.c	2004-02-26 13:52:36.000000000 +0100
+@@ -29,6 +29,8 @@
+ #include <linux/sysctl.h>
+ #include <linux/cpu.h>
+ 
++int block_dump;
++
+ /*
+  * The maximum number of pages to writeout in a single bdflush/kupdate
+  * operation.  We do this so we don't hold I_LOCK against an inode for

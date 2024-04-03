@@ -1,0 +1,34 @@
+#!/usr/bin/make -f
+
+_shlibdeps := -a -Xlib/xtables
+_configure := --with-xtlibdir=/lib/xtables \
+	--enable-libipq --enable-devel --libdir=/lib
+
+%:
+	dh $@
+
+binary: binary-arch binary-indep
+binary-arch binary-indep: install
+binary-arch:
+	dh $@ --before dh_shlibdeps
+	dpkg-gensymbols -piptables
+	dh_shlibdeps $(_shlibdeps)
+	dh $@ --remaining
+
+ifneq ($(USE_BUILD_DIR),TRUE)
+include debian/builddir.mk
+else
+build: debian/stamp-build
+debian/stamp-build:
+	dh build --before dh_auto_configure
+	autoreconf -fi
+	dh_auto_configure -- $(_configure)
+	dh build --remaining
+	touch $@
+install: build debian/stamp-install
+debian/stamp-install:
+	install -v -D iptables-apply debian/tmp/usr/sbin/iptables-apply
+#	dh_makeshlibs
+	dh install
+	touch $@
+endif

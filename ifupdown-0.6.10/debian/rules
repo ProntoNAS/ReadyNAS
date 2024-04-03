@@ -1,0 +1,151 @@
+#!/usr/bin/make -f
+
+######################################################################
+# BUILD NOTES
+#
+# ifupdown's written in litprog using noweb. noweb is written in icon.
+# icon isn't as portable as one might hope (it needs to have bits recoded
+# for each arch and OS it's ported to. ugh).
+#
+# So. The "upstream" source is made to not include any of the generated
+# files. That's neat and tidy. If you want to modify anything, you edit
+# the .nw file.
+#
+# Once you've done all the Debian changes, you run debian/rules binary,
+# and get all the .c files and such updated. Once you're done, you
+# run debian/rules clean, which leaves the generated .c files around
+# for porters. You then generate a .diff.gz, and all should be well.
+#
+# Useful targets of the toplevel makefile:
+# clobber:
+#   * gets rid of all the generated files except Makefile,
+#     make{c,nw}dep.sh, which are needed to bootstrap
+#
+# distclean:
+#   * removes ALL generated files.  Use with care.
+#
+# docs: 
+#   * builds the documentation. Note that this is not done per
+#     default (only executables are built). If this is added to
+#     the default build process (which will not be done in the near
+#     future since dia requires an X display even if using the -e option) 
+#     the 'tetex-base' and 'dia' packages would need to be added to the
+#     Build-Dep
+#
+######################################################################
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# For working out whether we're cross-building
+DEB_BUILD_GNU_TYPE	:= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE	:= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+
+# user/group of to-be-installed files
+ROOT_USER  := 0
+ROOT_GROUP := 0
+
+PACKAGE=ifupdown
+
+configure:
+	dh_testdir
+
+build: build-stamp
+build-stamp: # configure
+	dh_testdir
+
+	if [ -x /usr/bin/noweb ]; then \
+	  $(MAKE) clobber; \
+	else \
+	  chmod a+rx defn2c.pl defn2man.pl makecdep.sh makenwdep.sh; \
+	fi
+	$(MAKE)
+	touch build-stamp
+
+test: build
+	dh_testdir
+
+ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+	chmod a+rx debian/testbuild
+	@echo running debian/testbuild
+	@if ! debian/testbuild; then \
+	     echo '=================================================='; \
+	     echo 'AUTOMATIC TESTS FAILED -- Something built wrong or'; \
+	     echo 'there is a bug in the code!!! Either way something'; \
+	     echo 'is completely screwed up!!! File a bug!'; \
+	     echo ''; \
+	     echo 'Aborting build.'; \
+	     echo '=================================================='; \
+	     exit 1; \
+	fi
+endif
+
+clean:
+	dh_testdir
+	dh_testroot
+
+	# Add here commands to clean up after the build process
+	rm -rf tests/
+	rm -f build-stamp install-stamp
+	[ ! -f Makefile ] || $(MAKE) clean
+
+	dh_clean
+
+install-stamp: install
+install: build test
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs etc/network/if-pre-up.d etc/network/if-up.d etc/network/if-down.d etc/network/if-post-down.d
+
+	# Add here commands to install the package into debian/tmp.
+	$(MAKE) install BASEDIR=`pwd`/debian/$(PACKAGE)
+
+	install -o $(ROOT_USER) -g $(ROOT_GROUP) -m 755 debian/upgrade-from-0.5.x.pl \
+		debian/$(PACKAGE)/usr/share/ifupdown/
+	touch install-stamp
+
+# Build architecture-independent files here.
+binary-indep: build-stamp install-stamp
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build install
+#	dh_testversion
+	dh_testdir
+	dh_testroot
+#	dh_installdebconf	
+	dh_installdocs
+	dh_installexamples contrib/*
+	mv debian/$(PACKAGE)/usr/share/doc/ifupdown/examples debian/$(PACKAGE)/usr/share/doc/ifupdown/contrib
+	dh_installexamples examples/*
+	dh_installmenu
+#	dh_installemacsen
+#	dh_installpam
+	dh_installinit --name=ifupdown-clean --no-start -- start 18 S .
+	dh_installinit --name=ifupdown --no-start -- start 39 S .  start 36 0 6 .
+	dh_installcron
+#	dh_installmanpages
+#	   ^-- can't do our symlink trick
+	install -o $(ROOT_USER) -g $(ROOT_GROUP) -m 644 interfaces.5 debian/$(PACKAGE)/usr/share/man/man5/interfaces.5
+	install -o $(ROOT_USER) -g $(ROOT_GROUP) -m 644 ifup.8 debian/$(PACKAGE)/usr/share/man/man8/ifup.8
+	ln -s ifup.8 debian/$(PACKAGE)/usr/share/man/man8/ifdown.8
+	dh_installinfo
+#	dh_undocumented
+	dh_installchangelogs ChangeLog
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	# You may want to make some executables suid here.
+#	dh_suidregister
+#	dh_makeshlibs
+	dh_installdeb
+#	dh_perl
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure test

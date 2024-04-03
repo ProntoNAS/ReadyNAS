@@ -1,0 +1,165 @@
+.TH ifup 8 "22 May 2004" IFUPDOWN ""
+.SH NAME
+ifup \- bring a network interface up
+.PP
+ifdown \- take a network interface down
+.SH SYNOPSIS
+.B ifup 
+[\fB\-nv\fR]
+[\fB\-\-no\-act\fR]
+[\fB\-\-verbose\fR]
+[\fB\-i\fR \fIFILE\fR|\fB\-\-interfaces=\fR\fIFILE\fR]
+[\fB\-\-allow\fR \fICLASS\fR]
+\fB\-a\fR|\fIIFACE\fR...
+.br
+.B ifup 
+\fB\-h\fR|\fB\-\-help\fR
+.br
+.B ifup 
+\fB\-V\fR|\fB\-\-version\fR
+.PP
+.B ifdown
+[\fB\-nv\fR]
+[\fB\-\-no\-act\fR]
+[\fB\-\-verbose\fR]
+[\fB\-i\fR \fIFILE\fR|\fB\-\-interfaces=\fR\fIFILE\fR]
+[\fB\-\-allow\fR \fICLASS\fR]
+\fB\-a\fR|\fIIFACE\fR...
+.SH DESCRIPTION
+The
+.BR ifup " and " ifdown
+commands may be used to configure (or, respectively, deconfigure) network
+interfaces based on interface definitions in the file
+.IR /etc/network/interfaces .
+.SH OPTIONS
+A summary of options is included below.
+.TP
+.BR \-a ", " \-\-all
+If given to \fBifup\fP, affect all interfaces marked \fBauto\fP.
+Interfaces are brought up in the order in which they are defined
+in /etc/network/interfaces.
+If given to \fBifdown\fP, affect all defined interfaces.
+Interfaces are brought down in the order in which they are
+currently listed in the state file. Only interfaces defined
+in /etc/network/interfaces will be brought down.
+.TP
+.B \-\-force
+Force configuration or deconfiguration of the interface.
+.TP
+.BR \-h ", " \-\-help
+Show summary of options.
+.TP
+\fB\-\-allow=\fR\fICLASS\fR
+Only allow interfaces listed in an
+.I allow\-CLASS
+line in /etc/network/interfaces to be acted upon.
+.TP
+\fB\-i\fR \fIFILE\fR, \fB\-\-interfaces=\fR\fIFILE\fR
+Read interface definitions from 
+.I FILE
+instead of from /etc/network/interfaces.
+.TP
+.BR \-n ", " \-\-no\-act
+Don't configure any interfaces or run any "up" or "down" commands.
+.TP
+.B \-\-no\-mappings
+Don't run any mappings.  See
+.BR interfaces (5)
+for more information about the mapping feature.
+.TP
+.BR \-V ", " \-\-version
+Show copyright and version information.
+.TP
+.BR \-v ", " \-\-verbose
+Show commands as they are executed.
+.SH EXAMPLES
+.TP
+.B ifup -a
+Bring up all the interfaces defined with
+.I auto
+in 
+.I /etc/network/interfaces
+.TP
+.B ifup eth0
+Bring up interface
+.B eth0
+.TP
+.B ifup eth0=home
+Bring up interface
+.B eth0
+as logical interface
+.B home
+.TP
+.B ifdown -a
+Bring down all interfaces that are currently up.
+.SH NOTES
+.BR ifup " and " ifdown
+are actually the same program called by different names.
+.P
+The program does not configure network interfaces directly;
+it runs low level utilities such as
+.BR ifconfig " and " route
+to do its dirty work.
+.SH FILES
+.TP
+.I /etc/network/interfaces
+definitions of network interfaces
+See
+.BR interfaces (5)
+for more information.
+.TP
+.I /etc/network/run/ifstate
+current state of network interfaces
+.SH KNOWN BUGS/LIMITATIONS
+The program keeps records of whether network interfaces are up or down.
+Under exceptional circumstances these records can become
+inconsistent with the real states of the interfaces.
+For example, an interface that was brought up using
+.B ifup
+and later deconfigured using
+.B ifconfig
+will still be recorded as up.
+To fix this you can use the
+.B \-\-force
+option to force
+.B ifup
+or
+.B ifdown
+to run configuration or deconfiguration commands despite what
+it considers the current state of the interface to be.
+.P
+The file
+.I /etc/network/run/ifstate
+must be writable for
+.B ifup
+or
+.B ifdown
+to work properly.
+If that location is not writable
+(for example, because the root filesystem is mounted read-only
+for system recovery)
+then
+.I /etc/network/run/ifstate
+should be made a symbolic link to a writable location.
+If that is not possible then you can use the
+.B \-\-force
+option to run configuration or deconfiguration commands
+without updating the file.
+.P
+Note that the program does not run automatically:
+.B ifup
+alone does not bring up interfaces
+that appear as a result of hardware being installed and 
+.B ifdown
+alone does not bring down interfaces
+that disappear as a result of hardware being removed.
+To automate the configuration of network interfaces you need to
+install other packages such as
+.BR hotplug (8)
+or
+.BR ifplugd (8).
+.SH AUTHOR
+The ifupdown suite was written by Anthony Towns <aj@azure.humbug.org.au>.
+.SH SEE ALSO
+.BR interfaces (5),
+.BR ifconfig (8).

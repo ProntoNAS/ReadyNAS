@@ -1,0 +1,36 @@
+Preserve mtime/atime on compression. (Closes: #286957)
+
+Index: logrotate-3.7.8/logrotate.c
+===================================================================
+--- logrotate-3.7.8.orig/logrotate.c	2009-08-14 23:21:02.444010147 +0100
++++ logrotate-3.7.8/logrotate.c	2009-08-14 23:21:10.700008741 +0100
+@@ -14,6 +14,8 @@
+ #include <unistd.h>
+ #include <glob.h>
+ #include <locale.h>
++#include <sys/types.h>
++#include <utime.h>
+ 
+ #ifdef WITH_SELINUX
+ #include <selinux/selinux.h>
+@@ -275,6 +277,7 @@
+ {
+     char *compressedName;
+     const char **fullCommand;
++    struct utimbuf utim;
+     int inFile;
+     int outFile;
+     int i;
+@@ -326,6 +329,12 @@
+ 	return 1;
+     }
+ 
++    utim.actime = sb->st_atime;
++    utim.modtime = sb->st_mtime;
++    utime(compressedName,&utim);
++    /* If we can't change atime/mtime, it's not a disaster.
++       It might possibly fail under SELinux. */
++
+     shred_file(name, log);
+ 
+     return 0;

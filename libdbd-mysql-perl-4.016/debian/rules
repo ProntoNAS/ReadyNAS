@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+
+include /usr/share/libdbi-perl/perl-dbdabi.make
+
+PACKAGE = $(shell dh_listpackages)
+TMP     = $(CURDIR)/debian/$(PACKAGE)
+
+%:
+	dh $@
+
+override_dh_gencontrol:
+	dh_gencontrol -- -V"libdbi-perl:Depends=libdbi-perl, $(PERL_DBDABI_DEPENDS)"
+
+override_dh_auto_configure:
+	dh_auto_configure -- --ssl --testuser=test
+
+override_dh_auto_test:
+	dh_auto_test -- TEST_FILES='t/00base.t'
+
+override_dh_auto_install:
+	dh_auto_install
+	find $(TMP)/usr -name 'dbimon*' | xargs -r rm -f
+	find $(TMP)/usr -name '*.pod' | xargs -r chmod 0644
+	[ ! -f $(TMP)/usr/lib/perl5/DBD/mysql/INSTALL.pod ] || $(RM) -v $(TMP)/usr/lib/perl5/DBD/mysql/INSTALL.pod

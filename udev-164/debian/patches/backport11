@@ -1,0 +1,30 @@
+commit 1a6ab670304dc8d8cdebc1d273076dc661dbafc5
+Author: Michal Soltys <soltys@ziu.info>
+Date:   Mon Nov 22 13:55:20 2010 +0100
+
+    udevd: create static nodes before /dev/null is needed
+
+diff --git a/udev/udevd.c b/udev/udevd.c
+index 21dde82..aa2e365 100644
+--- a/udev/udevd.c
++++ b/udev/udevd.c
+@@ -1098,6 +1098,10 @@ int main(int argc, char *argv[])
+ 	chdir("/");
+ 	umask(022);
+ 
++	/* create standard links, copy static nodes, create nodes from modules */
++	static_dev_create(udev);
++	static_dev_create_from_modules(udev);
++
+ 	/* before opening new files, make sure std{in,out,err} fds are in a sane state */
+ 	fd = open("/dev/null", O_RDWR);
+ 	if (fd < 0) {
+@@ -1264,8 +1268,6 @@ int main(int argc, char *argv[])
+ 	}
+ 	info(udev, "set children_max to %u\n", children_max);
+ 
+-	static_dev_create(udev);
+-	static_dev_create_from_modules(udev);
+ 	udev_rules_apply_static_dev_perms(rules);
+ 
+ 	udev_list_init(&event_list);

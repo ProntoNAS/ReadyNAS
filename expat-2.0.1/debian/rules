@@ -1,0 +1,124 @@
+#!/usr/bin/make -f
+## ----------------------------------------------------------------------
+## debian/rules : package script for expat
+## ----------------------------------------------------------------------
+
+## uncomment this to turn on verbose mode
+#export DH_VERBOSE=1
+
+include /usr/share/dpatch/dpatch.make
+
+DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_HOST_ARCH      ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+
+BUILD64 = $(filter $(DEB_HOST_ARCH), i386 powerpc sparc s390)
+
+ifeq ($(DEB_BUILD_GNU_TYPE), $(DEB_HOST_GNU_TYPE))
+	CONFFLAGS = --build=$(DEB_HOST_GNU_TYPE)
+else
+	CONFFLAGS = --build=$(DEB_BUILD_GNU_TYPE) --host=$(DEB_HOST_GNU_TYPE)
+endif
+
+ifeq ($(DEB_HOST_ARCH),i386)
+	HOST64FLAG = --host=x86_64-linux-gnu
+endif
+ifeq ($(DEB_HOST_ARCH),powerpc)
+	HOST64FLAG = --host=ppc64-linux-gnu
+endif
+ifeq ($(DEB_HOST_ARCH),sparc)
+	HOST64FLAG = --host=sparc64-linux-gnu
+endif
+ifeq ($(DEB_HOST_ARCH),s390)
+	HOST64FLAG = --host=s390x-linux-gnu
+endif
+
+# -pthread -D_REENTRANT #551079
+CFLAGS  = -Wall -g
+LDFLAGS = -Wl,-Bsymbolic-functions
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2
+endif
+
+UPACKAGE = $(shell dh_listpackages | grep -- -udeb$$)
+
+build/config.status: configure
+	dh_testdir
+	(mkdir -p $(@D); cd $(@D); CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
+	 ../configure $(CONFFLAGS) --prefix=/usr --mandir=\$${prefix}/share/man)
+
+buildw/config.status: configure
+	dh_testdir
+	(mkdir -p $(@D); cd $(@D); CFLAGS="$(CFLAGS) -DXML_UNICODE" LDFLAGS="$(LDFLAGS)" \
+	 ../configure $(CONFFLAGS) --prefix=/usr --mandir=\$${prefix}/share/man)
+
+build64/config.status: configure
+	dh_testdir
+	(mkdir -p $(@D); cd $(@D); CFLAGS="-m64 $(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
+	 ../configure $(CONFFLAGS) $(HOST64FLAG) --prefix=/usr --mandir=\$${prefix}/share/man \
+	 --libdir=\$${prefix}/lib64)
+
+buildw64/config.status: configure
+	dh_testdir
+	(mkdir -p $(@D); cd $(@D); CFLAGS="-m64 $(CFLAGS) -DXML_UNICODE" LDFLAGS="$(LDFLAGS)" \
+	 ../configure $(CONFFLAGS) $(HOST64FLAG) --prefix=/usr --mandir=\$${prefix}/share/man \
+	 --libdir=\$${prefix}/lib64)
+
+clean: unpatch
+	dh_testdir
+	dh_testroot
+	rm -rf build/ build64/ buildw/ buildw64/
+	rm -rf debian/tmp/
+	dh_clean build-stamp patch-stamp debian/xmlwf.1
+
+build: build-stamp
+build-stamp: patch-stamp build/config.status buildw/config.status $(if $(BUILD64), build64/config.status buildw64/config.status)
+	dh_testdir
+	$(MAKE) -C build/
+	$(MAKE) -C buildw/ buildlib LIBRARY=libexpatw.la
+ifneq ($(BUILD64),)
+	$(MAKE) -C build64/ buildlib
+	$(MAKE) -C buildw64/ buildlib LIBRARY=libexpatw.la
+endif
+	docbook-to-man doc/xmlwf.sgml > debian/xmlwf.1
+	touch $@
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+	$(MAKE) -C build/ install DESTDIR=$(CURDIR)/debian/tmp
+	$(MAKE) -C buildw/ installlib LIBRARY=libexpatw.la DESTDIR=$(CURDIR)/debian/tmp APIHEADER=
+ifneq ($(BUILD64),)
+	$(MAKE) -C build64/ installlib DESTDIR=$(CURDIR)/debian/tmp
+	$(MAKE) -C buildw64/ installlib LIBRARY=libexpatw.la DESTDIR=$(CURDIR)/debian/tmp APIHEADER=
+endif
+
+binary-indep: build install
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_install -s --sourcedir=debian/tmp
+	dh_installdocs -s
+	dh_installman -pexpat debian/xmlwf.1
+	dh_installexamples -s
+	dh_installchangelogs -s Changes
+	dh_link -s
+	dh_strip -s
+	dh_compress -s
+	dh_fixperms -s
+	chmod 644 $(CURDIR)/debian/libexpat1-dev/usr/share/doc/libexpat1-dev/examples/* \
+	          $(CURDIR)/debian/libexpat1-dev/usr/share/aclocal/*
+	dh_makeshlibs -s -V --add-udeb=$(UPACKAGE)
+	dh_installdeb -s
+	dh_shlibdeps -s -l $(CURDIR)/debian/libexpat1/usr/lib:$(CURDIR)/debian/lib64expat1/usr/lib64
+	dh_gencontrol -s
+	dh_md5sums -s
+	dh_builddeb -s
+
+binary: binary-indep binary-arch
+
+.PHONY: clean build install binary-indep binary-arch binary

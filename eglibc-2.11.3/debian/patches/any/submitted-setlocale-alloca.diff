@@ -1,0 +1,57 @@
+From: Florian Weimer <fweimer@redhat.com>
+Date: Wed, 28 May 2014 14:41:52 +0200
+Subject: [PATCH 1/3] setlocale: Use the heap for the copy of the locale
+ argument
+
+---
+ ChangeLog          |  5 +++++
+ locale/setlocale.c | 14 ++++++++++++--
+ 2 files changed, 17 insertions(+), 2 deletions(-)
+
+Index: eglibc-2.11.3/locale/setlocale.c
+===================================================================
+--- eglibc-2.11.3.orig/locale/setlocale.c	2014-08-31 13:15:48.000000000 +0200
++++ eglibc-2.11.3/locale/setlocale.c	2014-08-31 13:19:05.000000000 +0200
+@@ -244,6 +244,8 @@
+ 	 of entries of the form `CATEGORY=VALUE'.  */
+       const char *newnames[__LC_LAST];
+       struct locale_data *newdata[__LC_LAST];
++      /* Copy of the locale argument, for in-place splitting.  */
++      char *locale_copy = NULL;
+ 
+       /* Set all name pointers to the argument name.  */
+       for (category = 0; category < __LC_LAST; ++category)
+@@ -253,7 +255,13 @@
+       if (__builtin_expect (strchr (locale, ';') != NULL, 0))
+ 	{
+ 	  /* This is a composite name.  Make a copy and split it up.  */
+-	  char *np = strdupa (locale);
++	  locale_copy = strdup (locale);
++	  if ((locale_copy == NULL))
++	    {
++	      __libc_rwlock_unlock (__libc_setlocale_lock);
++	      return NULL;
++	    }
++	  char *np = locale_copy;
+ 	  char *cp;
+ 	  int cnt;
+ 
+@@ -271,6 +279,7 @@
+ 		{
+ 		error_return:
+ 		  __libc_rwlock_unlock (__libc_setlocale_lock);
++		  free (locale_copy);
+ 
+ 		  /* Bogus category name.  */
+ 		  ERROR_RETURN;
+@@ -363,8 +372,9 @@
+       /* Critical section left.  */
+       __libc_rwlock_unlock (__libc_setlocale_lock);
+ 
+-      /* Free the resources (the locale path variable).  */
++      /* Free the resources.  */
+       free (locale_path);
++      free (locale_copy);
+ 
+       return composite;
+     }

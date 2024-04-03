@@ -1,0 +1,72 @@
+#!/usr/bin/make -f
+
+package = diffutils
+docdir = debian/tmp/usr/share/doc/$(package)
+
+CFLAGS = -g -Wall
+STRIP = true
+
+ifeq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+  CFLAGS += -O2
+endif
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+  STRIP = strip --remove-section=.comment --remove-section=.note
+endif
+
+export DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+ifeq ($(DEB_BUILD_GNU_TYPE), $(DEB_HOST_GNU_TYPE))
+  confflags += --build $(DEB_HOST_GNU_TYPE)
+else
+  confflags += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+endif
+
+build:
+	./configure $(confflags) --prefix=/usr
+	$(MAKE) CFLAGS="$(CFLAGS)"
+	touch build
+
+clean:
+	rm -f build
+	[ ! -f Makefile ] || $(MAKE) distclean
+	rm -f `find . -name "*~"`
+	rm -rf debian/tmp debian/files* core debian/substvars
+
+binary-indep: build
+	rm -rf debian/tmp
+	install -d debian/tmp/DEBIAN \
+		debian/tmp/usr/share/doc/diff
+	cp -p debian/copyright debian/tmp/usr/share/doc/diff
+	cp -p debian/changelog debian/tmp/usr/share/doc/diff/changelog.Debian
+	gzip -9 debian/tmp/usr/share/doc/diff/changelog.Debian
+	dpkg-gencontrol -pdiff
+	cd debian/tmp && \
+		md5sum `find * -type f ! -regex "DEBIAN/.*"` > DEBIAN/md5sums
+	chown -R 0:0 debian/tmp
+	chmod -R u+w,go=rX debian/tmp
+	dpkg --build debian/tmp ..
+
+binary-arch: build
+	rm -rf debian/tmp
+	install -d debian/tmp/DEBIAN $(docdir)
+	cd debian/tmp && install -d usr/bin
+	$(MAKE) install prefix=`pwd`/debian/tmp/usr
+	rm -rf debian/tmp/usr/info
+	cp -p NEWS debian/copyright $(docdir)
+	cp -p ChangeLog $(docdir)/changelog
+	cp -p debian/changelog $(docdir)/changelog.Debian
+	cd $(docdir) && gzip -9 changelog changelog.Debian
+	$(STRIP) debian/tmp/usr/bin/*
+	gzip -r9 debian/tmp/usr/share/man
+	dpkg-shlibdeps debian/tmp/usr/bin/*
+	dpkg-gencontrol -p$(package)
+	cd debian/tmp && \
+		md5sum `find * -type f ! -regex "DEBIAN/.*"` > DEBIAN/md5sums
+	chown -R 0:0 debian/tmp
+	chmod -R u+w,go=rX debian/tmp
+	dpkg --build debian/tmp ..
+
+binary: binary-indep binary-arch
+
+.PHONY: binary binary-arch binary-indep clean

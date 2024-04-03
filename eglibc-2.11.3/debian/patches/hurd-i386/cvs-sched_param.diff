@@ -1,0 +1,51 @@
+2010-09-01  Samuel Thibault  <samuel.thibault@ens-lyon.org>
+
+        This aligns bits/sched.h onto sysdeps/unix/sysv/linux/bits/sched.h:
+        define __sched_param instead of SCHED_* and sched_param when
+	<bits/sched.h> is included with __need_schedparam defined.
+
+        * bits/sched.h [__need_schedparam] (SCHED_OTHER, SCHED_FIFO, SCHED_RR,
+        sched_param): do not define.
+
+        [!__defined_schedparam && (__need_schedparam || _SCHED_H)]
+        (__defined_schedparam): Define to 1.
+	(__sched_param): New structure, identical to sched_param.
+	(__need_schedparam): Undefine.
+
+---
+ sched.h |   15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/bits/sched.h b/bits/sched.h
+index af92dbc..a068e50 100644
+--- a/bits/sched.h
++++ b/bits/sched.h
+@@ -18,6 +18,8 @@
+    Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+    02111-1307 USA.  */
+ 
++#ifndef __need_schedparam
++
+ #ifndef _SCHED_H
+ # error "Never include <bits/sched.h> directly; use <sched.h> instead."
+ #endif
+@@ -34,6 +36,19 @@ struct sched_param
+   int __sched_priority;
+ };
+ 
++#endif	/* need schedparam */
++
++#if !defined __defined_schedparam \
++    && (defined __need_schedparam || defined _SCHED_H)
++# define __defined_schedparam	1
++/* Data structure to describe a process' schedulability.  */
++struct __sched_param
++  {
++    int __sched_priority;
++  };
++# undef __need_schedparam
++#endif
++
+ 
+ #if defined _SCHED_H && !defined __cpu_set_t_defined
+ # define __cpu_set_t_defined

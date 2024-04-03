@@ -1,0 +1,50 @@
+mdadm for Debian - initramfs transition
+=======================================
+
+If you are using monolithic kernels (no modules), you need not concern
+yourself with any of this.
+
+If you are using yaird or initrd-tools/mkinitrd, then the following
+information is irrelevant to you.
+
+The following information is about #367567. The gist is that the hooks and
+scripts to take care of MD arrays (RAIDs) during boot with an initramfs have
+been improved and moved into the mdadm package. mdrun has been deprecated on
+the way.
+
+initramfs-tools does *not* conflict with older mdadm but instead provides
+fallback code in case mdadm << 2.5-1 is installed (which does not provide the
+hooks yet). This decision was made in order to prevent the slight chance that
+mdadm would be removed due to the conflict. See #380089.
+
+Unless I've overlooked a detail, no interaction is required from the side of
+the user (apart from the new debconf question) to install and get mdadm
+running and integrated with initramfs-tools. It helps to ensure that
+update-initramfs produces output that squares with your own perception of what
+is needed to boot, and that the output of the script /usr/share/mdadm/mkconf
+is sane after installation and before you reboot.
+
+Also, you may want to provide yourself a safety net by making a copy of the
+initrd:
+
+  cp /boot/initrd.img-$(uname -r) /boot/initrd.img-$(uname -r).before-mdadm2
+
+and then to duplicate your main grub or lilo stanzas (rerun lilo!) and point
+them to the saved initrd. If things go haywire, you should be able to restore
+a working condition with the saved initrd.
+
+If you want to move to the new hooks and scripts without installing
+initramfs-tools 0.70, do this:
+
+  rm /usr/share/initramfs-tools/hooks/md
+  sed -i -e 's,^PREREQ=\"md\"$,PREREQ=\"mdadm\",' \
+    /usr/share/initramfs-tools/scripts/local-top/lvm
+  update-initramfs -u -k all
+
+If update-initramfs says something about initrd having been altered and
+refuses to do something, use -t unless you modified the initrd on purpose and
+don't want it overwritten.
+
+Again, please report success or failure to me.
+
+ -- martin f. krafft <madduck@debian.org>  Mon, 23 Sep 2006 23:48:21 +0100

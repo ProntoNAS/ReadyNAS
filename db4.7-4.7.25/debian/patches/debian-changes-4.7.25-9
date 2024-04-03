@@ -1,0 +1,5177 @@
+Description: Upstream changes introduced in version 4.7.25-9
+ This patch has been created by dpkg-source during the package build.
+ Here's the last changelog entry, hopefully it gives details on why
+ those changes were made:
+ .
+ db4.7 (4.7.25-9) unstable; urgency=low
+ .
+   * Fix typo in description of libdb4.7-java-gcj.
+   * Switch to 3.0 (quilt) source format.
+   * Fix -java-gcj package build for gcj-4.4.  closes: #560641.
+   * db4.7_load.1: fix typo of "keyword", thanks to "sobtwmxt".
+ .
+ The person named in the Author field signed this changelog entry.
+Author: Clint Adams <schizo@debian.org>
+Bug-Debian: http://bugs.debian.org/560641
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: <vendor|upstream|other>, <url of original patch>
+Bug: <url in upstream bugtracker>
+Bug-Debian: http://bugs.debian.org/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: <YYYY-MM-DD>
+
+--- db4.7-4.7.25.orig/test/env012.tcl
++++ db4.7-4.7.25/test/env012.tcl
+@@ -56,7 +56,7 @@ proc env012 { } {
+ 	    $testdir $testfile PUT $key $data RECOVER 10 &]
+ 
+ 	# Wait a while so process 1 has a chance to get going.
+-	tclsleep 2
++	tclsleep 4
+ 
+ 	puts "\t\tEnv$tnum.b2: Start process 2."
+ 	set p2 [exec $tclsh_path $test_path/wrap.tcl envscript.tcl \
+--- /dev/null
++++ db4.7-4.7.25/test/testutils42.tcl
+@@ -0,0 +1,17 @@
++proc getstats { statlist field } {
++	foreach pair $statlist {
++		set txt [lindex $pair 0]
++		if { [string equal $txt $field] == 1 } {
++			return [lindex $pair 1]
++		}
++	}
++	return -1
++}
++
++# Return the value for a particular field in a set of statistics.
++# Works for regular db stat as well as env stats (log_stat,
++# lock_stat, txn_stat, rep_stat, etc.).
++proc stat_field { handle which_stat field } {
++	set stat [$handle $which_stat]
++	return [getstats $stat $field ]
++}
+--- /dev/null
++++ db4.7-4.7.25/test/rep059.tcl
+@@ -0,0 +1,113 @@
++# See the file LICENSE for redistribution information.
++#
++# Copyright (c) 2005,2007 Oracle.  All rights reserved.
++#
++# $Id: rep059.tcl,v 1.12 2007/05/17 18:17:21 bostic Exp $
++#
++# TEST	rep059
++# TEST
++# TEST	Replication with multiple recycle records.
++# TEST
++# TEST	Mimic an application where a client has multiple recycle records
++# TEST	only in its log and then tries to synchronize.  This has been
++# TEST	a problem because there is real log, but no perm records to
++# TEST	match on.
++#
++proc rep059 { method { tnum "059" } args } {
++	source ./include.tcl
++	global rep_verbose
++
++	set verbargs ""
++	if { $rep_verbose == 1 } {
++		set verbargs " -verbose {rep on} "
++	}
++
++	set orig_tdir $testdir
++
++	if { $is_windows9x_test == 1 } {
++		puts "Skipping replication test on Win 9x platform."
++		return
++	}
++	# There should be no difference with methods.  Just use btree.
++	#
++	if { $checking_valid_methods } {
++		set test_methods { btree }
++		return $test_methods
++	}
++	if { [is_btree $method] == 0 } {
++		puts "Rep059: Skipping for method $method."
++		return
++	}
++
++	set largs [convert_args $method $args]
++
++	set masterdir $testdir/MASTERDIR
++	set clientdir $testdir/CLIENTDIR
++	set clientdir2 $testdir/CLIENTDIR2
++
++	env_cleanup $testdir
++	replsetup $testdir/MSGQUEUEDIR
++	file mkdir $masterdir
++	file mkdir $clientdir
++	file mkdir $clientdir2
++
++	set omethod [convert_method $method]
++
++	# Open a master.
++	repladd 1
++	set envcmd(M) "berkdb_env_noerr -create -txn nosync\
++	    -lock_detect default -errpfx MASTER $verbargs \
++	    -home $masterdir -rep_transport \[list 1 replsend\]"
++	set menv [eval $envcmd(M)]
++
++	# Open a client
++	repladd 2
++	set envcmd(C) "berkdb_env_noerr -create -txn nosync \
++	    -lock_detect default -errpfx CLIENT1 $verbargs \
++	    -home $clientdir -rep_transport \[list 2 replsend\]"
++	set cenv [eval $envcmd(C)]
++
++	# Open a 2nd client
++	repladd 3
++	set envcmd(C2) "berkdb_env_noerr -create -txn nosync \
++	    -lock_detect default -errpfx CLIENT2 $verbargs \
++	    -home $clientdir2 -rep_transport \[list 3 replsend\]"
++	set c2env [eval $envcmd(C2)]
++
++	#
++	# Set test location, then start as master and client
++	# This test hook will cause the master to return after
++	# writing the txn_recycle record in rep_start, but
++	# before writing the checkpoint, so that we have some
++	# log, but no perm records in the log when the new
++	# master takes over.
++	#
++	$menv test copy recycle
++
++	puts "\tRep$tnum.a: Start master and 2 clients."
++	error_check_good master [$menv rep_start -master] 0
++	error_check_good client [$cenv rep_start -client] 0
++	error_check_good client2 [$c2env rep_start -client] 0
++
++	set envlist "{$menv 1} {$cenv 2} {$c2env 3}"
++	process_msgs $envlist
++
++	# Pretend master crashes.  Just close it and
++	# don't use it anymore.
++	error_check_good menv_close [$menv close] 0
++
++	puts "\tRep$tnum.b: Make client1 master."
++	set cenv [eval $envcmd(C) -rep_master]
++	set envlist "{$cenv 2} {$c2env 3}"
++	process_msgs $envlist
++
++	puts "\tRep$tnum.c: Clean up."
++
++	error_check_good cenv_close [$cenv close] 0
++	error_check_good c2env_close [$c2env close] 0
++
++	replclose $testdir/MSGQUEUEDIR
++	set testdir $orig_tdir
++	return
++}
++
+--- db4.7-4.7.25.orig/sequence/sequence.c
++++ db4.7-4.7.25/sequence/sequence.c
+@@ -187,7 +187,11 @@ __seq_open_pp(seq, txn, keyp, flags)
+ 	if ((ret = __db_get_flags(dbp, &tflags)) != 0)
+ 		goto err;
+ 
+-	if (DB_IS_READONLY(dbp)) {
++	/*
++	 * We can let replication clients open sequences, but must
++	 * check later that they do not update them.
++	 */
++	if (F_ISSET(dbp, DB_AM_RDONLY)) {
+ 		ret = __db_rdonly(dbp->env, "DB_SEQUENCE->open");
+ 		goto err;
+ 	}
+@@ -244,6 +248,11 @@ retry:	if ((ret = __db_get(dbp, ip,
+ 		if ((ret != DB_NOTFOUND && ret != DB_KEYEMPTY) ||
+ 		    !LF_ISSET(DB_CREATE))
+ 			goto err;
++		if (IS_REP_CLIENT(env) &&
++		    !F_ISSET(dbp, DB_AM_NOT_DURABLE)) {
++			ret = __db_rdonly(env, "DB_SEQUENCE->open");
++			goto err;
++		}
+ 		ret = 0;
+ 
+ 		rp = &seq->seq_record;
+@@ -296,7 +305,12 @@ retry:	if ((ret = __db_get(dbp, ip,
+ 	 */
+ 	rp = seq->seq_data.data;
+ 	if (rp->seq_version == DB_SEQUENCE_OLDVER) {
+-oldver:		rp->seq_version = DB_SEQUENCE_VERSION;
++oldver:		if (IS_REP_CLIENT(env) &&
++		    !F_ISSET(dbp, DB_AM_NOT_DURABLE)) {
++			ret = __db_rdonly(env, "DB_SEQUENCE->open");
++			goto err;
++		}
++		rp->seq_version = DB_SEQUENCE_VERSION;
+ 		if (!F_ISSET(env, ENV_LITTLEENDIAN)) {
+ 			if (IS_DB_AUTO_COMMIT(dbp, txn)) {
+ 				if ((ret =
+@@ -707,6 +721,13 @@ __seq_get(seq, txn, delta, retp, flags)
+ 
+ 	MUTEX_LOCK(env, seq->mtx_seq);
+ 
++	if (handle_check && IS_REP_CLIENT(env) &&
++	    !F_ISSET(dbp, DB_AM_NOT_DURABLE)) {
++		ret = __db_rdonly(env, "DB_SEQUENCE->get");
++		goto err;
++	}
++
++
+ 	if (rp->seq_min + delta > rp->seq_max) {
+ 		__db_errx(env, "Sequence overflow");
+ 		ret = EINVAL;
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_txn.c
+@@ -0,0 +1,89 @@
++/*
++ * $Id: b_txn.c,v 1.10 2007/06/21 17:42:10 bostic Exp $
++ */
++#include "bench.h"
++
++int usage(void);
++
++int
++main(int argc, char *argv[])
++{
++	DB_ENV *dbenv;
++	DB_TXN *txn;
++	int tabort, ch, i, count;
++
++	cleanup_test_dir();
++
++	count = 1000;
++	tabort = 0;
++	while ((ch = getopt(argc, argv, "ac:")) != EOF)
++		switch (ch) {
++		case 'a':
++			tabort = 1;
++			break;
++		case 'c':
++			count = atoi(optarg);
++			break;
++		case '?':
++		default:
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++	if (argc != 0)
++		return (usage());
++
++	/* Create the environment. */
++	DB_BENCH_ASSERT(db_env_create(&dbenv, 0) == 0);
++	dbenv->set_errfile(dbenv, stderr);
++	DB_BENCH_ASSERT(
++	    dbenv->set_cachesize(dbenv, 0, 1048576 /* 1MB */, 0) == 0);
++#if DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR < 1
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR",
++	    NULL, DB_CREATE | DB_INIT_LOCK | DB_INIT_LOG |
++	    DB_INIT_MPOOL | DB_INIT_TXN | DB_PRIVATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR",
++	    DB_CREATE | DB_INIT_LOCK | DB_INIT_LOG |
++	    DB_INIT_MPOOL | DB_INIT_TXN | DB_PRIVATE, 0666) == 0);
++#endif
++
++	/* Start and commit/abort a transaction count times. */
++	TIMER_START;
++	if (tabort)
++		for (i = 0; i < count; ++i) {
++#if DB_VERSION_MAJOR < 4
++			DB_BENCH_ASSERT(txn_begin(dbenv, NULL, &txn, 0) == 0);
++			DB_BENCH_ASSERT(txn_abort(txn) == 0);
++#else
++			DB_BENCH_ASSERT(
++			    dbenv->txn_begin(dbenv, NULL, &txn, 0) == 0);
++			DB_BENCH_ASSERT(txn->abort(txn) == 0);
++#endif
++		}
++	else
++		for (i = 0; i < count; ++i) {
++#if DB_VERSION_MAJOR < 4
++			DB_BENCH_ASSERT(txn_begin(dbenv, NULL, &txn, 0) == 0);
++			DB_BENCH_ASSERT(txn_commit(txn, 0) == 0);
++#else
++			DB_BENCH_ASSERT(
++			    dbenv->txn_begin(dbenv, NULL, &txn, 0) == 0);
++			DB_BENCH_ASSERT(txn->commit(txn, 0) == 0);
++#endif
++		}
++	TIMER_STOP;
++
++	printf("# %d empty transaction start/%s pairs\n",
++	    count, tabort ? "abort" : "commit");
++	TIMER_DISPLAY(count);
++
++	return (0);
++}
++
++int
++usage()
++{
++	(void)fprintf(stderr, "usage: b_txn [-c count]\n");
++	return (EXIT_FAILURE);
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/LIST
+@@ -0,0 +1,26 @@
++b_curalloc.c
++	allocate a cursor
++b_curwalk.c
++	walk a cursor through N records
++b_del.c
++	delete N records
++b_get.c
++	read a single record
++b_load.c
++	insert N in-order records
++	insert N in-order duplicate records
++b_open.c
++	open/close a database
++b_put.c
++	overwrite a single record 
++		optionally with secondaries
++b_txn.c
++	start/abort a transaction containing no operations
++	start/commit a transaction containing no operations
++b_txn_write.c
++	write/commit transaction synchronously
++	write/commit transaction nosync
++	write/commit transaction write-nosync
++		optionally with replication stub
++b_recover.c
++	time recovery after N transactions.
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_txn_write.c
+@@ -0,0 +1,154 @@
++/*
++ * $Id: b_txn_write.c,v 1.12 2007/06/07 14:06:36 moshen Exp $
++ */
++#include "bench.h"
++
++int usage(void);
++
++/*
++ * send --
++ *	A stubbed-out replication message function.
++ */
++int
++send(dbenv, control, rec, lsn, eid, flags)
++	DB_ENV *dbenv;
++	const DBT *control, *rec;
++	const DB_LSN *lsn;
++	int eid;
++	u_int32_t flags;
++{
++	return (0);
++}
++
++int
++main(int argc, char *argv[])
++{
++	DB *dbp;
++	DBT key, data;
++	DB_ENV *dbenv;
++	DB_TXN *txn;
++	u_int32_t flags, oflags;
++	int ch, i, count, rep_stub;
++	char *config;
++
++	cleanup_test_dir();
++
++	count = 1000;
++	oflags = flags = 0;
++	rep_stub = 0;
++	config = "synchronous";
++	while ((ch = getopt(argc, argv, "ac:rw")) != EOF)
++		switch (ch) {
++		case 'a':
++			config = "nosync";
++			flags = DB_TXN_NOSYNC;
++			break;
++		case 'c':
++			count = atoi(optarg);
++			break;
++		case 'r':
++#ifdef DB_INIT_REP
++			rep_stub = 1;
++#else
++			exit(0);
++#endif
++			break;
++		case 'w':
++			config = "write-nosync";
++#ifdef DB_TXN_WRITE_NOSYNC
++			flags = DB_TXN_WRITE_NOSYNC;
++#else
++			exit(0);
++#endif
++			break;
++		case '?':
++		default:
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++	if (argc != 0)
++		return (usage());
++
++	/* Create the environment. */
++	DB_BENCH_ASSERT(db_env_create(&dbenv, 0) == 0);
++	dbenv->set_errfile(dbenv, stderr);
++	DB_BENCH_ASSERT(
++	    dbenv->set_cachesize(dbenv, 0, 1048576 /* 1MB */, 0) == 0);
++
++#ifdef DB_INIT_REP
++	if (rep_stub) {
++#if DB_VERSION_MAJOR == 4 && DB_VERSION_MINOR >= 5 || DB_VERSION_MAJOR > 4
++		DB_BENCH_ASSERT(dbenv->rep_set_transport(dbenv, 1, send) == 0);
++#else
++		DB_BENCH_ASSERT(dbenv->set_rep_transport(dbenv, 1, send) == 0);
++#endif
++		oflags |= DB_INIT_REP;
++	}
++#endif
++	oflags |= DB_CREATE | DB_INIT_LOCK |
++	    DB_INIT_LOG | DB_INIT_MPOOL | DB_INIT_TXN | DB_PRIVATE;
++#if DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR == 0
++	DB_BENCH_ASSERT(
++	    dbenv->open(dbenv, "TESTDIR", NULL, flags | oflags, 0666) == 0);
++#endif
++#if DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR == 1
++	DB_BENCH_ASSERT(
++	    dbenv->open(dbenv, "TESTDIR", flags | oflags, 0666) == 0);
++#endif
++#if DB_VERSION_MAJOR > 3 || DB_VERSION_MINOR > 1
++	if (flags != 0)
++		DB_BENCH_ASSERT(dbenv->set_flags(dbenv, flags, 1) == 0);
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR", oflags, 0666) == 0);
++#endif
++
++#ifdef DB_INIT_REP
++	if (rep_stub)
++		DB_BENCH_ASSERT(
++		    dbenv->rep_start(dbenv, NULL, DB_REP_MASTER) == 0);
++#endif
++
++	/* Create the database. */
++	DB_BENCH_ASSERT(db_create(&dbp, dbenv, 0) == 0);
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++	DB_BENCH_ASSERT(dbp->open(dbp, NULL,
++	    "a", NULL, DB_BTREE, DB_CREATE | DB_AUTO_COMMIT, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, "a", NULL, DB_BTREE, DB_CREATE, 0666) == 0);
++#endif
++
++	/* Initialize the data. */
++	memset(&key, 0, sizeof(key));
++	memset(&data, 0, sizeof(data));
++	key.size = data.size = 20;
++	key.data = data.data = "01234567890123456789";
++
++	/* Start/commit a transaction count times. */
++	TIMER_START;
++	for (i = 0; i < count; ++i) {
++#if DB_VERSION_MAJOR < 4
++		DB_BENCH_ASSERT(txn_begin(dbenv, NULL, &txn, 0) == 0);
++		DB_BENCH_ASSERT(dbp->put(dbp, txn, &key, &data, 0) == 0);
++		DB_BENCH_ASSERT(txn_commit(txn, 0) == 0);
++#else
++		DB_BENCH_ASSERT(dbenv->txn_begin(dbenv, NULL, &txn, 0) == 0);
++		DB_BENCH_ASSERT(dbp->put(dbp, txn, &key, &data, 0) == 0);
++		DB_BENCH_ASSERT(txn->commit(txn, 0) == 0);
++#endif
++	}
++	TIMER_STOP;
++
++	printf("# %d %stransactions write %s commit pairs\n",
++	    count, rep_stub ? "replicated ": "", config);
++	TIMER_DISPLAY(count);
++
++	return (0);
++}
++
++int
++usage()
++{
++	(void)fprintf(stderr, "usage: b_txn_write [-arw] [-c count]\n");
++	return (EXIT_FAILURE);
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_del.c
+@@ -0,0 +1,149 @@
++/*
++ * $Id: b_del.c,v 1.10 2007/05/29 17:39:15 bostic Exp $
++ */
++#include "bench.h"
++
++int usage(void);
++
++int
++main(int argc, char *argv[])
++{
++	DB *dbp;
++	DBC *dbc;
++	DBT key, data;
++	DBTYPE type;
++	db_recno_t recno;
++	int ch, i, count, ret, use_cursor;
++	char *ts, buf[32];
++
++	cleanup_test_dir();
++
++	type = DB_BTREE;
++	count = 100000;
++	use_cursor = 0;
++	ts = "Btree";
++	while ((ch = getopt(argc, argv, "Cc:t:")) != EOF)
++		switch (ch) {
++		case 'C':
++			use_cursor = 1;
++			break;
++		case 'c':
++			count = atoi(optarg);
++			break;
++		case 't':
++			switch (optarg[0]) {
++			case 'B': case 'b':
++				ts = "Btree";
++				type = DB_BTREE;
++				break;
++			case 'H': case 'h':
++				ts = "Hash";
++				type = DB_HASH;
++				break;
++			case 'Q': case 'q':
++				ts = "Queue";
++				type = DB_QUEUE;
++				break;
++			case 'R': case 'r':
++				ts = "Recno";
++				type = DB_RECNO;
++				break;
++			default:
++				return (usage());
++			}
++			break;
++		case '?':
++		default:
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++	if (argc != 0)
++		return (usage());
++
++	/* Create the database. */
++	DB_BENCH_ASSERT(db_create(&dbp, NULL, 0) == 0);
++	DB_BENCH_ASSERT(dbp->set_cachesize(dbp, 0, 1048576 /* 1MB */, 0) == 0);
++	dbp->set_errfile(dbp, stderr);
++
++	/* Set record length for Queue. */
++	if (type == DB_QUEUE)
++		DB_BENCH_ASSERT(dbp->set_re_len(dbp, 20) == 0);
++
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, NULL, "a", NULL, type, DB_CREATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(dbp->open(dbp, "a", NULL, type, DB_CREATE, 0666) == 0);
++#endif
++
++	/* Initialize the data. */
++	memset(&key, 0, sizeof(key));
++	memset(&data, 0, sizeof(data));
++	data.data = "01234567890123456789";
++	data.size = 20;
++
++	/* Store a key/data pair. */
++	switch (type) {
++	case DB_BTREE:
++	case DB_HASH:
++		key.data = buf;
++		key.size = 10;
++		break;
++	case DB_QUEUE:
++	case DB_RECNO:
++		key.data = &recno;
++		key.size = sizeof(recno);
++		break;
++	case DB_UNKNOWN:
++		abort();
++		break;
++	}
++
++	/* Insert count in-order key/data pairs. */
++	if (type == DB_BTREE || type == DB_HASH)
++		for (i = 0; i < count; ++i) {
++			(void)snprintf(buf, sizeof(buf), "%010d", i);
++			DB_BENCH_ASSERT(
++			    dbp->put(dbp, NULL, &key, &data, 0) == 0);
++		}
++	else
++		for (i = 0, recno = 1; i < count; ++i, ++recno)
++			DB_BENCH_ASSERT(
++			    dbp->put(dbp, NULL, &key, &data, 0) == 0);
++
++	/* Delete the records. */
++	TIMER_START;
++	if (use_cursor) {
++		DB_BENCH_ASSERT(dbp->cursor(dbp, NULL, &dbc, 0) == 0);
++		while ((ret = dbc->c_get(dbc, &key, &data, DB_NEXT)) == 0)
++			DB_BENCH_ASSERT(dbc->c_del(dbc, 0) == 0);
++		DB_BENCH_ASSERT (ret == DB_NOTFOUND);
++	} else
++		if (type == DB_BTREE || type == DB_HASH)
++			for (i = 0; i < count; ++i) {
++				(void)snprintf(buf, sizeof(buf), "%010d", i);
++				DB_BENCH_ASSERT(
++				    dbp->del(dbp, NULL, &key, 0) == 0);
++			}
++		else
++			for (i = 0, recno = 1; i < count; ++i, ++recno)
++				DB_BENCH_ASSERT(
++				    dbp->del(dbp, NULL, &key, 0) == 0);
++
++	TIMER_STOP;
++
++	printf(
++    "# %d %s database in-order delete of 10/20 byte key/data pairs using %s\n",
++	    count, ts, use_cursor ? "a cursor" : "the key");
++	TIMER_DISPLAY(count);
++
++	return (0);
++}
++
++int
++usage()
++{
++	(void)fprintf(stderr, "usage: b_del [-C] [-c count] [-t type]\n");
++	return (EXIT_FAILURE);
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_workload.h
+@@ -0,0 +1,159 @@
++/*
++ * $Id: b_workload.h,v 1.7 2007/06/07 14:02:59 moshen Exp $
++ */
++
++/*
++ * Macros to help with initializing/assigning key dbts
++ */
++
++#define	INIT_KEY(key, config) do {				\
++	memset(&key, 0, sizeof(key));				\
++	if (config->orderedkeys) {				\
++		key.size = sizeof (u_int32_t);			\
++	} else if (config->ksize != 0) {			\
++		DB_BENCH_ASSERT(				\
++		    (key.data = malloc(key.size = config->ksize)) != NULL); \
++	} else {						\
++		key.data = kbuf;				\
++		key.size = 10;					\
++	}							\
++	} while (0)
++
++#define	GET_KEY_NEXT(key, config, kbuf, i) do {			\
++	size_t tmp_int;						\
++	if (config->orderedkeys) {				\
++		/* Will be sorted on little-endian system. */	\
++		tmp_int = i;					\
++		M_32_SWAP(tmp_int);				\
++		key.data = &tmp_int;				\
++	} else if (config->ksize == 0) {			\
++		/*						\
++		 * This will produce duplicate keys.		\
++		 * That is not such a big deal, since we are	\
++		 * using the same seed to srand each time,	\
++		 * the scenario is reproducible.		\
++		 */						\
++		(void)snprintf(kbuf, sizeof(kbuf), "%10d", rand()); \
++	} else {						\
++		/* TODO: Not sure of the best approach here. */	\
++		(void)snprintf(key.data, config->ksize, "%10lu", (u_long)i); \
++	}							\
++	} while (0)
++
++/* Taken from dbinc/db_swap.h */
++#undef	M_32_SWAP
++#define	M_32_SWAP(a) {							\
++	u_int32_t _tmp;							\
++	_tmp = (u_int32_t)a;						\
++	((u_int8_t *)&a)[0] = ((u_int8_t *)&_tmp)[3];			\
++	((u_int8_t *)&a)[1] = ((u_int8_t *)&_tmp)[2];			\
++	((u_int8_t *)&a)[2] = ((u_int8_t *)&_tmp)[1];			\
++	((u_int8_t *)&a)[3] = ((u_int8_t *)&_tmp)[0];			\
++}
++
++/*
++ * A singly linked list, that maintains a pointer
++ * to the start and the end of the queue.
++ * Should be possible to use a STAILQ, but this seemed easier
++ */
++typedef struct bench_qentry {
++	char data[10];
++	struct bench_qentry *next;
++}bench_qentry;
++typedef struct bench_q {
++	struct bench_qentry *head;
++	struct bench_qentry *tail;
++} bench_q;
++#define	BENCH_Q_TAIL_INSERT(queue, buf) do {		\
++	struct bench_qentry *entry;				\
++	DB_BENCH_ASSERT(				\
++	    (entry = malloc(sizeof(struct bench_qentry))) != NULL); \
++	memcpy(entry->data, buf, sizeof(entry->data));	\
++	if (queue.head == NULL)				\
++		queue.head = queue.tail = entry;	\
++	else {						\
++		queue.tail->next = entry;		\
++		queue.tail = entry;			\
++	}						\
++} while (0)
++
++#define	BENCH_Q_POP(queue, buf) do {			\
++	struct bench_qentry *popped = queue.head;	\
++	if (popped == NULL)				\
++		break;					\
++	if (queue.head->next == NULL)			\
++		queue.head = queue.tail = NULL;		\
++	else						\
++		queue.head = queue.head->next;		\
++	memcpy(buf, popped->data, sizeof(buf));	\
++	free(popped);					\
++} while (0)
++
++/*
++ * Retrieve the head of the queue, save the data into user
++ * buffer, and push the item back onto the end of the list.
++ * Same functionality as pop/insert, but saves a malloc/free
++ */
++#define	BENCH_Q_POP_PUSH(queue, buf) do {		\
++	struct bench_qentry *popped = queue.head;	\
++	if (popped == NULL)				\
++		break;					\
++	if (queue.head->next == NULL)			\
++		queue.head = queue.tail = NULL;		\
++	else						\
++		queue.head = queue.head->next;		\
++	memcpy(buf, popped->data, sizeof(buf));	\
++	if (queue.head == NULL)				\
++		queue.head = queue.tail = popped;	\
++	else {						\
++		queue.tail->next = popped;		\
++		queue.tail = popped;			\
++	}						\
++} while (0)
++
++typedef enum {
++	T_PUT,
++	T_GET,
++	T_DELETE,
++	T_PUT_GET,
++	T_PUT_DELETE,
++	T_PUT_GET_DELETE,
++	T_GET_DELETE,
++	T_MIXED
++} test_type;
++
++typedef struct
++{
++	size_t ksize;
++	size_t dsize;
++	size_t orderedkeys;
++	size_t num_dups;
++	size_t pagesz;
++	size_t cachesz;
++	size_t pcount;
++	size_t gcount;
++	size_t cursor_del;
++	size_t verbose;
++	test_type workload;
++	size_t seed;
++	size_t presize;
++	DBTYPE type;
++	char   *ts;
++	char   *message;
++	/* Fields used to store timing information */
++	db_timespec put_time;
++	db_timespec get_time;
++	db_timespec del_time;
++	db_timespec tot_time;
++} CONFIG;
++
++int usage __P((void));
++int s __P((DB *, const DBT *, const DBT *, DBT *));
++int dump_verbose_stats __P((DB *, CONFIG *));
++int run_mixed_workload __P((DB *, CONFIG *));
++int run_std_workload __P((DB *, CONFIG *));
++char *workload_str __P((int));
++int is_get_workload __P((int));
++int is_put_workload __P((int));
++int is_del_workload __P((int));
++
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_curwalk.c
+@@ -0,0 +1,182 @@
++/*
++ * $Id: b_curwalk.c,v 1.10 2007/05/29 17:39:15 bostic Exp $
++ */
++#include "bench.h"
++
++int usage(void);
++
++int
++main(int argc, char *argv[])
++{
++	DB *dbp;
++	DBTYPE type;
++	DBC *dbc;
++	DBT key, data;
++	db_recno_t recno;
++	u_int32_t walkflags;
++	int ch, i, count, dupcount, j;
++	int prev, ret, skipdupwalk, sorted, walkcount;
++	char *ts, dbuf[32], kbuf[32];
++
++	cleanup_test_dir();
++
++	count = 100000;
++	dupcount = prev = skipdupwalk = sorted = 0;
++	walkcount = 1000;
++	ts = "Btree";
++	type = DB_BTREE;
++	while ((ch = getopt(argc, argv, "c:d:pSst:w:")) != EOF)
++		switch (ch) {
++		case 'c':
++			count = atoi(optarg);
++			break;
++		case 'd':
++			dupcount = atoi(optarg);
++			break;
++		case 'p':
++			prev = 1;
++			break;
++		case 'S':
++			skipdupwalk = 1;
++			break;
++		case 's':
++			sorted = 1;
++			break;
++		case 't':
++			switch (optarg[0]) {
++			case 'B': case 'b':
++				ts = "Btree";
++				type = DB_BTREE;
++				break;
++			case 'H': case 'h':
++				ts = "Hash";
++				type = DB_HASH;
++				break;
++			case 'Q': case 'q':
++				ts = "Queue";
++				type = DB_QUEUE;
++				break;
++			case 'R': case 'r':
++				ts = "Recno";
++				type = DB_RECNO;
++				break;
++			default:
++				return (usage());
++			}
++			break;
++		case 'w':
++			walkcount = atoi(optarg);
++			break;
++		case '?':
++		default:
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++	if (argc != 0)
++		return (usage());
++
++	/*
++	 * Queue and Recno don't support duplicates.
++	 */
++	if (dupcount != 0 && (type == DB_QUEUE || type == DB_RECNO)) {
++		fprintf(stderr,
++		    "b_curwalk: Queue and Recno don't support duplicates\n");
++		return (usage());
++	}
++
++#if DB_VERSION_MAJOR < 3 || DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR == 0
++#define	DB_PREV_NODUP	0
++	/*
++	 * DB_PREV_NODUP wasn't available until after 3.0.55.
++	 *
++	 * For some reason, testing sorted duplicates doesn't work either.
++	 * I don't really care about 3.0.55 any more, just ignore it.
++	 */
++	return (0);
++#endif
++
++	/* Create the database. */
++	DB_BENCH_ASSERT(db_create(&dbp, NULL, 0) == 0);
++	DB_BENCH_ASSERT(
++	    dbp->set_cachesize(dbp, 0, 10 * 1024 * 1024 /* 10MB */, 0) == 0);
++	DB_BENCH_ASSERT(dbp->set_pagesize(dbp, 16 * 1024 /* 16KB */) == 0);
++	dbp->set_errfile(dbp, stderr);
++
++	/* Set record length for Queue. */
++	if (type == DB_QUEUE)
++		DB_BENCH_ASSERT(dbp->set_re_len(dbp, 20) == 0);
++
++	/* Set duplicates flag. */
++	if (dupcount != 0)
++		DB_BENCH_ASSERT(
++		    dbp->set_flags(dbp, sorted ? DB_DUPSORT : DB_DUP) == 0);
++
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++	DB_BENCH_ASSERT(dbp->open(
++	    dbp, NULL, "a", NULL, type, DB_CREATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(dbp->open(
++	    dbp, "a", NULL, type, DB_CREATE, 0666) == 0);
++#endif
++
++	/* Initialize the data. */
++	memset(&key, 0, sizeof(key));
++	memset(&data, 0, sizeof(data));
++
++	/* Insert count in-order key/data pairs. */
++	data.data = dbuf;
++	data.size = 20;
++	if (type == DB_BTREE || type == DB_HASH) {
++		key.size = 10;
++		key.data = kbuf;
++		for (i = 0; i < count; ++i) {
++			(void)snprintf(kbuf, sizeof(kbuf), "%010d", i);
++			for (j = 0; j <= dupcount; ++j) {
++				(void)snprintf(dbuf, sizeof(dbuf), "%020d", j);
++				DB_BENCH_ASSERT(
++				    dbp->put(dbp, NULL, &key, &data, 0) == 0);
++			}
++		}
++	} else {
++		key.data = &recno;
++		key.size = sizeof(recno);
++		for (i = 0, recno = 1; i < count; ++i, ++recno)
++			DB_BENCH_ASSERT(
++			    dbp->put(dbp, NULL, &key, &data, 0) == 0);
++	}
++
++	walkflags = prev ?
++	    (skipdupwalk ? DB_PREV_NODUP : DB_PREV) :
++	    (skipdupwalk ? DB_NEXT_NODUP : DB_NEXT);
++
++	/* Walk the cursor through the tree N times. */
++	TIMER_START;
++	for (i = 0; i < walkcount; ++i) {
++		DB_BENCH_ASSERT(dbp->cursor(dbp, NULL, &dbc, 0) == 0);
++		while ((ret = dbc->c_get(dbc, &key, &data, walkflags)) == 0);
++		DB_BENCH_ASSERT(ret == DB_NOTFOUND);
++		DB_BENCH_ASSERT(dbc->c_close(dbc) == 0);
++	}
++	TIMER_STOP;
++
++	printf("# %d %s %s cursor of %d 10/20 byte key/data items",
++	    walkcount, ts, prev ?
++	    (skipdupwalk ? "DB_PREV_NODUP" : "DB_PREV") :
++	    (skipdupwalk ? "DB_NEXT_NODUP" : "DB_NEXT"),
++	    count);
++	if (dupcount != 0)
++		printf(" with %d dups", dupcount);
++	printf("\n");
++	TIMER_DISPLAY(count);
++
++	return (EXIT_SUCCESS);
++}
++
++int
++usage()
++{
++	(void)fprintf(stderr,
++    "usage: b_curwalk [-pSs] [-c cnt] [-d dupcnt] [-t type] [-w walkcnt]\n");
++	return (EXIT_FAILURE);
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_recover.c
+@@ -0,0 +1,134 @@
++/*
++ * $Id: b_recover.c,v 1.8 2007/05/29 17:39:15 bostic Exp $
++ */
++#include "bench.h"
++
++int usage(void);
++
++int
++main(int argc, char *argv[])
++{
++	DB *dbp;
++	DBT key, data;
++	DB_ENV *dbenv;
++	DB_TXN *txn;
++	int ch, i, count;
++	char *config;
++
++	cleanup_test_dir();
++
++	/*
++	 * Recover was too slow before release 4.0 that it's not worth
++	 * running the test.
++	 */
++#if DB_VERSION_MAJOR < 4
++	return (0);
++#endif
++
++	count = 1000;
++	config = "synchronous";
++	while ((ch = getopt(argc, argv, "c:")) != EOF)
++		switch (ch) {
++		case 'c':
++			count = atoi(optarg);
++			break;
++		case '?':
++		default:
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++	if (argc != 0)
++		return (usage());
++
++	/* Create the environment. */
++	DB_BENCH_ASSERT(db_env_create(&dbenv, 0) == 0);
++	dbenv->set_errfile(dbenv, stderr);
++	DB_BENCH_ASSERT(
++	    dbenv->set_cachesize(dbenv, 0, 1048576 /* 1MB */, 0) == 0);
++
++#define	OFLAGS								\
++	DB_CREATE | DB_INIT_LOCK |					\
++	DB_INIT_LOG | DB_INIT_MPOOL | DB_INIT_TXN | DB_PRIVATE
++#if DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR == 0
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR", NULL, OFLAGS, 0666) == 0);
++#endif
++#if DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR == 1
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR", OFLAGS, 0666) == 0);
++#endif
++#if DB_VERSION_MAJOR > 3 || DB_VERSION_MINOR > 1
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR", OFLAGS, 0666) == 0);
++#endif
++
++	/* Create the database. */
++	DB_BENCH_ASSERT(db_create(&dbp, dbenv, 0) == 0);
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++	DB_BENCH_ASSERT(dbp->open(dbp, NULL,
++	    "a", NULL, DB_BTREE, DB_CREATE | DB_AUTO_COMMIT, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, "a", NULL, DB_BTREE, DB_CREATE, 0666) == 0);
++#endif
++
++	/* Initialize the data. */
++	memset(&key, 0, sizeof(key));
++	memset(&data, 0, sizeof(data));
++	key.size = data.size = 20;
++	key.data = data.data = "01234567890123456789";
++
++	/* Start/commit a transaction count times. */
++	for (i = 0; i < count; ++i) {
++#if DB_VERSION_MAJOR < 4
++		DB_BENCH_ASSERT(
++		    txn_begin(dbenv, NULL, &txn, DB_TXN_NOSYNC) == 0);
++		DB_BENCH_ASSERT(dbp->put(dbp, txn, &key, &data, 0) == 0);
++		DB_BENCH_ASSERT(txn_commit(txn, 0) == 0);
++#else
++		DB_BENCH_ASSERT(
++		    dbenv->txn_begin(dbenv, NULL, &txn, DB_TXN_NOSYNC) == 0);
++		DB_BENCH_ASSERT(dbp->put(dbp, txn, &key, &data, 0) == 0);
++		DB_BENCH_ASSERT(txn->commit(txn, 0) == 0);
++#endif
++	}
++
++	/* Flush the log buffer. */
++#if DB_VERSION_MAJOR < 4
++	DB_BENCH_ASSERT(log_flush(dbenv, NULL) == 0);
++#else
++	DB_BENCH_ASSERT(dbenv->log_flush(dbenv, NULL) == 0);
++#endif
++
++	/* Create a new DB_ENV handle. */
++	DB_BENCH_ASSERT(db_env_create(&dbenv, 0) == 0);
++	dbenv->set_errfile(dbenv, stderr);
++	DB_BENCH_ASSERT(
++	    dbenv->set_cachesize(dbenv, 0, 1048576 /* 1MB */, 0) == 0);
++
++	/* Now run recovery. */
++	TIMER_START;
++#if DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR == 0
++	DB_BENCH_ASSERT(dbenv->open(
++	    dbenv, "TESTDIR", NULL, OFLAGS | DB_RECOVER, 0666) == 0);
++#endif
++#if DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR == 1
++	DB_BENCH_ASSERT(
++	    dbenv->open(dbenv, "TESTDIR", OFLAGS | DB_RECOVER, 0666) == 0);
++#endif
++#if DB_VERSION_MAJOR > 3 || DB_VERSION_MINOR > 1
++	DB_BENCH_ASSERT(
++	    dbenv->open(dbenv, "TESTDIR", OFLAGS | DB_RECOVER, 0666) == 0);
++#endif
++	TIMER_STOP;
++
++	printf("# recovery after %d transactions\n", count);
++	TIMER_DISPLAY(count);
++
++	return (0);
++}
++
++int
++usage()
++{
++	(void)fprintf(stderr, "usage: b_recover [-c count]\n");
++	return (EXIT_FAILURE);
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_workload.c
+@@ -0,0 +1,622 @@
++/*
++ * $Id: b_workload.c,v 1.13 2007/06/21 17:43:17 bostic Exp $
++ */
++
++#include "bench.h"
++#include "b_workload.h"
++
++/*
++ * General TODO list:
++ * * The workload type. Might work better as a bitmask than the current enum.
++ * * Improve the verbose stats, so they can be easily parsed.
++ * * Think about doing automatic btree/hash comparison in here.
++ */
++int
++main(argc, argv)
++	int argc;
++	char *argv[];
++{
++	CONFIG conf;
++	DB *dbp;
++	DB_ENV *dbenv;
++	int ch, ffactor, ksz;
++
++	dbenv = NULL;
++	cleanup_test_dir();
++	memset(&conf, 0, sizeof(conf));
++	conf.seed = 124087;
++	srand(conf.seed);
++
++	conf.pcount = 100000;
++	conf.ts = "Btree";
++	conf.type = DB_BTREE;
++	conf.dsize = 20;
++	conf.presize = 0;
++	conf.workload = T_PUT_GET_DELETE;
++
++	while ((ch = getopt(argc, argv, "b:c:d:e:g:ik:m:op:r:t:vw:")) != EOF)
++		switch (ch) {
++		case 'b':
++			conf.cachesz = atoi(optarg);
++			break;
++		case 'c':
++			conf.pcount = atoi(optarg);
++			break;
++		case 'd':
++			conf.dsize = atoi(optarg);
++			break;
++		case 'e':
++			conf.cursor_del = atoi(optarg);
++			break;
++		case 'g':
++			conf.gcount = atoi(optarg);
++			break;
++		case 'i':
++			conf.presize = 1;
++			break;
++		case 'k':
++			conf.ksize = atoi(optarg);
++			break;
++		case 'm':
++			conf.message = optarg;
++			break;
++		case 'o':
++			conf.orderedkeys = 1;
++			break;
++		case 'p':
++			conf.pagesz = atoi(optarg);
++			break;
++		case 'r':
++			conf.num_dups = atoi(optarg);
++			break;
++		case 't':
++			switch (optarg[0]) {
++			case 'B': case 'b':
++				conf.ts = "Btree";
++				conf.type = DB_BTREE;
++				break;
++			case 'H': case 'h':
++				conf.ts = "Hash";
++				conf.type = DB_HASH;
++				break;
++			default:
++				return (usage());
++			}
++			break;
++		case 'v':
++			conf.verbose = 1;
++			break;
++		case 'w':
++			switch (optarg[0]) {
++			case 'A':
++				conf.workload = T_PUT_GET_DELETE;
++				break;
++			case 'B':
++				conf.workload = T_GET;
++				break;
++			case 'C':
++				conf.workload = T_PUT;
++				break;
++			case 'D':
++				conf.workload = T_DELETE;
++				break;
++			case 'E':
++				conf.workload = T_PUT_GET;
++				break;
++			case 'F':
++				conf.workload = T_PUT_DELETE;
++				break;
++			case 'G':
++				conf.workload = T_GET_DELETE;
++				break;
++			case 'H':
++				conf.workload = T_MIXED;
++				break;
++			default:
++				return (usage());
++			}
++			break;
++		case '?':
++		default:
++			fprintf(stderr, "Invalid option: %c\n", ch);
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++	if (argc != 0)
++		return (usage());
++
++	/*
++	 * Validate the input parameters if specified.
++	 */
++	if (conf.pagesz != 0)
++		DB_BENCH_ASSERT(conf.pagesz >= 512 && conf.pagesz <= 65536 &&
++		   ((conf.pagesz & (conf.pagesz - 1)) == 0));
++
++	if (conf.cachesz != 0)
++		DB_BENCH_ASSERT(conf.cachesz > 20480);
++	DB_BENCH_ASSERT(conf.ksize == 0 || conf.orderedkeys == 0);
++
++	/* Create the environment. */
++	DB_BENCH_ASSERT(db_env_create(&dbenv, 0) == 0);
++	dbenv->set_errfile(dbenv, stderr);
++	if (conf.cachesz != 0)
++		DB_BENCH_ASSERT(
++		    dbenv->set_cachesize(dbenv, 0, conf.cachesz, 0) == 0);
++
++#if DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR < 1
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR",
++	    NULL, DB_CREATE | DB_INIT_MPOOL | DB_PRIVATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR",
++	    DB_CREATE | DB_INIT_MPOOL | DB_PRIVATE, 0666) == 0);
++#endif
++
++	/*
++	 * Create the database.
++	 */
++	DB_BENCH_ASSERT(db_create(&dbp, dbenv, 0) == 0);
++	if (conf.pagesz != 0)
++		DB_BENCH_ASSERT(
++		    dbp->set_pagesize(dbp, conf.pagesz) == 0);
++	if (conf.presize != 0 && conf.type == DB_HASH) {
++		ksz = (conf.orderedkeys != 0) ? sizeof(u_int32_t) : conf.ksize;
++		if (ksz == 0)
++			ksz = 10;
++		ffactor = (conf.pagesz - 32)/(ksz + conf.dsize + 8);
++		fprintf(stderr, "ffactor: %d\n", ffactor);
++		DB_BENCH_ASSERT(
++		    dbp->set_h_ffactor(dbp, ffactor) == 0);
++		DB_BENCH_ASSERT(
++		    dbp->set_h_nelem(dbp, conf.pcount*10) == 0);
++	}
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, NULL, "a", NULL, conf.type,
++	    DB_CREATE | DB_TRUNCATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, "a", NULL, conf.type, DB_CREATE, 0666) == 0);
++#endif
++
++	if (conf.workload == T_MIXED)
++		 run_mixed_workload(dbp, &conf);
++	else
++		run_std_workload(dbp, &conf);
++
++	if (is_put_workload(conf.workload) == 0)
++		timespecadd(&conf.tot_time, &conf.put_time);
++	if (is_get_workload(conf.workload) == 0)
++		timespecadd(&conf.tot_time, &conf.get_time);
++	if (is_del_workload(conf.workload) == 0)
++		timespecadd(&conf.tot_time, &conf.del_time);
++
++	/* Ensure data is flushed for following measurements. */
++	DB_BENCH_ASSERT(dbp->sync(dbp, 0) == 0);
++
++	if (conf.verbose != 0)
++		dump_verbose_stats(dbp, &conf);
++
++	DB_BENCH_ASSERT(dbp->close(dbp, 0) == 0);
++	DB_BENCH_ASSERT(dbenv->close(dbenv, 0) == 0);
++
++	/*
++	 * Construct a string for benchmark output.
++	 *
++	 * Insert HTML in-line to make the output prettier -- ugly, but easy.
++	 */
++	printf("# workload test: %s: %s<br>%lu ops",
++	    conf.ts, workload_str(conf.workload), (u_long)conf.pcount);
++	if (conf.ksize != 0)
++		printf(", key size: %lu", (u_long)conf.ksize);
++	if (conf.dsize != 0)
++		printf(", data size: %lu", (u_long)conf.dsize);
++	if (conf.pagesz != 0)
++		printf(", page size: %lu", (u_long)conf.pagesz);
++	else
++		printf(", page size: default");
++	if (conf.cachesz != 0)
++		printf(", cache size: %lu", (u_long)conf.cachesz);
++	else
++		printf(", cache size: default");
++	printf(", %s keys", conf.orderedkeys == 1 ? "ordered" : "unordered");
++	printf(", num dups: %lu", (u_long)conf.num_dups);
++	printf("\n");
++
++	if (conf.workload != T_MIXED) {
++		if (conf.message != NULL)
++			printf("%s %s ", conf.message, conf.ts);
++		TIME_DISPLAY(conf.pcount, conf.tot_time);
++	} else
++		TIMER_DISPLAY(conf.pcount);
++
++	return (0);
++}
++
++int
++s(dbp, pkey, pdata, skey)
++	DB *dbp;
++	const DBT *pkey, *pdata;
++	DBT *skey;
++{
++	skey->data = pkey->data;
++	skey->size = pkey->size;
++	return (0);
++}
++
++/*
++ * The mixed workload is designed to simulate a somewhat real
++ * usage scenario.
++ * NOTES: * rand is used to decide on the current operation. This will
++ *        be repeatable, since the same seed is always used.
++ *        * All added keys are stored in a FIFO queue, this is not very
++ *        space efficient, but is the best way I could come up with to
++ *        insert random key values, and be able to retrieve/delete them.
++ *        * TODO: the workload will currently only work with unordered
++ *        fixed length keys.
++ */
++#define	GET_PROPORTION 90
++#define	PUT_PROPORTION 7
++#define	DEL_PROPORTION 3
++
++int
++run_mixed_workload(dbp, config)
++	DB *dbp;
++	CONFIG *config;
++{
++	DBT key, data;
++	size_t next_op, i, ioff;
++	char kbuf[10];
++	struct bench_q operation_queue;
++
++	/* Having ordered insertion does not make sense here */
++	DB_BENCH_ASSERT(config->orderedkeys == 0);
++
++	srand(config->seed);
++	memset(&operation_queue, 0, sizeof(struct bench_q));
++
++	ioff = 0;
++	INIT_KEY(key, config);
++	memset(&data, 0, sizeof(data));
++	DB_BENCH_ASSERT(
++	    (data.data = malloc(data.size = config->dsize)) != NULL);
++
++	/*
++	 * Add an initial sample set of data to the DB.
++	 * This should add some stability, and reduce the likelihood
++	 * of deleting all of the entries in the DB.
++	 */
++	for (i = 0; i < 100000; ++i) {
++		GET_KEY_NEXT(key, config, kbuf, i);
++		BENCH_Q_TAIL_INSERT(operation_queue, kbuf);
++		DB_BENCH_ASSERT(dbp->put(dbp, NULL, &key, &data, 0) == 0);
++	}
++
++	TIMER_START;
++	for (i = 0; i < config->pcount; ++i) {
++		next_op = rand()%100;
++
++		if (next_op < GET_PROPORTION ) {
++			BENCH_Q_POP_PUSH(operation_queue, kbuf);
++			key.data = kbuf;
++			key.size = sizeof(kbuf);
++			dbp->get(dbp, NULL, &key, &data, 0);
++		} else if (next_op < GET_PROPORTION+PUT_PROPORTION) {
++			GET_KEY_NEXT(key, config, kbuf, i);
++			BENCH_Q_TAIL_INSERT(operation_queue, kbuf);
++			dbp->put(dbp, NULL, &key, &data, 0);
++		} else {
++			BENCH_Q_POP(operation_queue, kbuf);
++			key.data = kbuf;
++			key.size = sizeof(kbuf);
++			dbp->del(dbp, NULL, &key, 0);
++		}
++	}
++	TIMER_STOP;
++	TIMER_GET(config->tot_time);
++
++	return (0);
++}
++
++int
++run_std_workload(dbp, config)
++	DB *dbp;
++	CONFIG *config;
++{
++	DBT key, data;
++	DBC *dbc;
++	u_int32_t i, ret;
++	char kbuf[10];
++
++	/* Setup a key/data pair. */
++	INIT_KEY(key, config);
++	memset(&data, 0, sizeof(data));
++	DB_BENCH_ASSERT(
++	    (data.data = malloc(data.size = config->dsize)) != NULL);
++
++	/* Store the key/data pair count times. */
++	TIMER_START;
++	for (i = 0; i < config->pcount; ++i) {
++		GET_KEY_NEXT(key, config, kbuf, i);
++		DB_BENCH_ASSERT(dbp->put(dbp, NULL, &key, &data, 0) == 0);
++	}
++	TIMER_STOP;
++	TIMER_GET(config->put_time);
++
++	if (is_get_workload(config->workload) == 0) {
++		TIMER_START;
++		for (i = 0; i <= config->gcount; ++i) {
++			DB_BENCH_ASSERT(dbp->cursor(dbp, NULL, &dbc, 0) == 0);
++			while ((dbc->c_get(dbc, &key, &data, DB_NEXT)) == 0);
++			DB_BENCH_ASSERT(dbc->c_close(dbc) == 0);
++		}
++		TIMER_STOP;
++		TIMER_GET(config->get_time);
++	}
++
++	if (is_del_workload(config->workload) == 0) {
++		/* reset rand to reproduce key sequence. */
++		srand(config->seed);
++
++		TIMER_START;
++		if (config->cursor_del != 0) {
++			DB_BENCH_ASSERT(dbp->cursor(dbp, NULL, &dbc, 0) == 0);
++			while (
++			    (ret = dbc->c_get(dbc, &key, &data, DB_NEXT)) == 0)
++				DB_BENCH_ASSERT(dbc->c_del(dbc, 0) == 0);
++			DB_BENCH_ASSERT (ret == DB_NOTFOUND);
++		} else {
++			INIT_KEY(key, config);
++			for (i = 0; i < config->pcount; ++i) {
++				GET_KEY_NEXT(key, config, kbuf, i);
++
++				ret = dbp->del(dbp, NULL, &key, 0);
++				/*
++				 * Random key generation can cause dups,
++				 * so NOTFOUND result is OK.
++				 */
++				if (config->ksize == 0)
++					DB_BENCH_ASSERT
++					    (ret == 0 || ret == DB_NOTFOUND);
++				else
++					DB_BENCH_ASSERT(ret == 0);
++			}
++		}
++		TIMER_STOP;
++		TIMER_GET(config->del_time);
++	}
++	return (0);
++}
++
++int
++dump_verbose_stats(dbp, config)
++	DB *dbp;
++	CONFIG *config;
++{
++/*
++ * It would be nice to be able to define stat as _stat on
++ * Windows, but that substitutes _stat for the db call as well.
++ */
++#ifdef DB_WIN32
++	struct _stat fstat;
++#else
++	struct stat fstat;
++#endif
++	DB_HASH_STAT *hstat;
++	DB_BTREE_STAT *bstat;
++	double free_prop;
++
++#ifdef DB_BENCH_INCLUDE_CONFIG_SUMMARY
++	printf("Completed workload benchmark.\n");
++	printf("Configuration summary:\n");
++	printf("\tworkload type: %d\n", (int)config->workload);
++	printf("\tdatabase type: %s\n", config->ts);
++	if (config->cachesz != 0)
++		printf("\tcache size: %lu\n", (u_long)config->cachesz);
++	if (config->pagesz != 0)
++		printf("\tdatabase page size: %lu\n", (u_long)config->pagesz);
++	printf("\tput element count: %lu\n", (u_long)config->pcount);
++	if ( is_get_workload(config->workload) == 0)
++		printf("\tget element count: %lu\n", (u_long)config->gcount);
++	if (config->orderedkeys)
++		printf("\tInserting items in order\n");
++	else if (config->ksize == 0)
++		printf("\tInserting keys with size 10\n");
++	else
++		printf(
++		    "\tInserting keys with size: %lu\n", (u_long)config->ksize);
++
++	printf("\tInserting data elements size: %lu\n", (u_long)config->dsize);
++
++	if (is_del_workload(config->workload) == 0) {
++		if (config->cursor_del)
++			printf("\tDeleting items using a cursor\n");
++		else
++			printf("\tDeleting items without a cursor\n");
++	}
++#endif /* DB_BENCH_INCLUDE_CONFIG_SUMMARY */
++
++	if (is_put_workload(config->workload) == 0)
++		printf("%s Time spent inserting (%lu) (%s) items: %lu/%lu\n",
++		    config->message[0] == '\0' ? "" : config->message,
++		    (u_long)config->pcount, config->ts,
++		    (u_long)config->put_time.tv_sec, config->put_time.tv_nsec);
++
++	if (is_get_workload(config->workload) == 0)
++		printf("%s Time spent getting (%lu) (%s) items: %lu/%lu\n",
++		    config->message[0] == '\0' ? "" : config->message,
++		    (u_long)config->pcount * ((config->gcount == 0) ?
++		    1 : config->gcount), config->ts,
++		    (u_long)config->get_time.tv_sec, config->get_time.tv_nsec);
++
++	if (is_del_workload(config->workload) == 0)
++		printf("%s Time spent deleting (%lu) (%s) items: %lu/%lu\n",
++		    config->message[0] == '\0' ? "" : config->message,
++		    (u_long)config->pcount, config->ts,
++		    (u_long)config->del_time.tv_sec, config->del_time.tv_nsec);
++
++#ifdef DB_WIN32
++	if (_stat("TESTDIR/a", &fstat) == 0) {
++#else
++	if (stat("TESTDIR/a", &fstat) == 0) {
++#endif
++		printf("%s Size of db file (%s): %lu K\n",
++		    config->message[0] == '\0' ? "" : config->message,
++		    config->ts, (u_long)fstat.st_size/1024);
++	}
++
++	if (config->type == DB_HASH) {
++#if DB_VERSION_MAJOR < 3 || DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR <= 2
++		DB_BENCH_ASSERT(dbp->stat(dbp, &hstat, NULL, 0) == 0);
++#elif DB_VERSION_MAJOR < 4 || DB_VERSION_MAJOR == 4 && DB_VERSION_MINOR <= 2
++		DB_BENCH_ASSERT(dbp->stat(dbp, &hstat, 0) == 0);
++#else
++		DB_BENCH_ASSERT(dbp->stat(dbp, NULL, &hstat, 0) == 0);
++#endif
++		/*
++		 * Hash fill factor is a bit tricky. Want to include
++		 * both bucket and overflow buckets (not offpage).
++		 */
++		free_prop = hstat->hash_pagesize*hstat->hash_buckets;
++		free_prop += hstat->hash_pagesize*hstat->hash_overflows;
++		free_prop =
++		    (free_prop - hstat->hash_bfree - hstat->hash_ovfl_free)/
++		    free_prop;
++		printf("%s db fill factor (%s): %.2f%%\n",
++		    config->message[0] == '\0' ? "" : config->message,
++		    config->ts, free_prop*100);
++		free(hstat);
++	} else { /* Btree */
++#if DB_VERSION_MAJOR < 3 || DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR <= 2
++		DB_BENCH_ASSERT(dbp->stat(dbp, &bstat, NULL, 0) == 0);
++#elif DB_VERSION_MAJOR < 4 || DB_VERSION_MAJOR == 4 && DB_VERSION_MINOR <= 2
++		DB_BENCH_ASSERT(dbp->stat(dbp, &bstat, 0) == 0);
++#else
++		DB_BENCH_ASSERT(dbp->stat(dbp, NULL, &bstat, 0) == 0);
++#endif
++		free_prop = bstat->bt_pagesize*bstat->bt_leaf_pg;
++		free_prop = (free_prop-bstat->bt_leaf_pgfree)/free_prop;
++		printf("%s db fill factor (%s): %.2f%%\n",
++		    config->message[0] == '\0' ? "" : config->message,
++		    config->ts, free_prop*100);
++		free(bstat);
++	}
++	return (0);
++}
++
++char *
++workload_str(workload)
++	int workload;
++{
++	static char buf[128];
++
++	switch (workload) {
++	case T_PUT_GET_DELETE:
++		return ("PUT/GET/DELETE");
++		/* NOTREACHED */
++	case T_GET:
++		return ("GET");
++		/* NOTREACHED */
++	case T_PUT:
++		return ("PUT");
++		/* NOTREACHED */
++	case T_DELETE:
++		return ("DELETE");
++		/* NOTREACHED */
++	case T_PUT_GET:
++		return ("PUT/GET");
++		/* NOTREACHED */
++	case T_PUT_DELETE:
++		return ("PUT/DELETE");
++		/* NOTREACHED */
++	case T_GET_DELETE:
++		return ("GET/DELETE");
++		/* NOTREACHED */
++	case T_MIXED:
++		snprintf(buf, sizeof(buf), "MIXED (get: %d, put: %d, del: %d)",
++		    (int)GET_PROPORTION,
++		    (int)PUT_PROPORTION, (int)DEL_PROPORTION);
++		return (buf);
++	default:
++		break;
++	}
++
++	exit(usage());
++	/* NOTREACHED */
++}
++
++int
++is_get_workload(workload)
++	int workload;
++{
++	switch (workload) {
++	case T_GET:
++	case T_PUT_GET:
++	case T_PUT_GET_DELETE:
++	case T_GET_DELETE:
++		return 0;
++	}
++	return 1;
++}
++
++int
++is_put_workload(workload)
++	int workload;
++{
++	switch (workload) {
++	case T_PUT:
++	case T_PUT_GET:
++	case T_PUT_GET_DELETE:
++	case T_PUT_DELETE:
++		return 0;
++	}
++	return 1;
++}
++
++int
++is_del_workload(workload)
++	int workload;
++{
++	switch (workload) {
++	case T_DELETE:
++	case T_PUT_DELETE:
++	case T_PUT_GET_DELETE:
++	case T_GET_DELETE:
++		return 0;
++	}
++	return 1;
++}
++
++int
++usage()
++{
++	(void)fprintf(stderr,
++	    "usage: b_workload [-b cachesz] [-c count] [-d bytes] [-e]\n");
++	(void)fprintf(stderr,
++	    "\t[-g getitrs] [-i] [-k keysize] [-m message] [-o] [-p pagesz]\n");
++	(void)fprintf(stderr, "\t[-r dup_count] [-t type] [-w type]\n");
++
++	(void)fprintf(stderr, "Where:\n");
++	(void)fprintf(stderr, "\t-b the size of the DB cache.\n");
++	(void)fprintf(stderr, "\t-c the number of elements to be measured.\n");
++	(void)fprintf(stderr, "\t-d the size of each data element.\n");
++	(void)fprintf(stderr, "\t-e delete entries using a cursor.\n");
++	(void)fprintf(stderr, "\t-g number of get cursor traverses.\n");
++	(void)fprintf(stderr, "\t-i Pre-init hash DB bucket count.\n");
++	(void)fprintf(stderr, "\t-k the size of each key inserted.\n");
++	(void)fprintf(stderr, "\t-m message pre-pended to log output.\n");
++	(void)fprintf(stderr, "\t-o keys should be ordered for insert.\n");
++	(void)fprintf(stderr, "\t-p the page size for the database.\n");
++	(void)fprintf(stderr, "\t-r the number of duplicates to insert\n");
++	(void)fprintf(stderr, "\t-t type of the underlying database.\n");
++	(void)fprintf(stderr, "\t-w the workload to measure, available:\n");
++	(void)fprintf(stderr, "\t\tA - PUT_GET_DELETE\n");
++	(void)fprintf(stderr, "\t\tB - GET\n");
++	(void)fprintf(stderr, "\t\tC - PUT\n");
++	(void)fprintf(stderr, "\t\tD - DELETE\n");
++	(void)fprintf(stderr, "\t\tE - PUT_GET\n");
++	(void)fprintf(stderr, "\t\tF - PUT_DELETE\n");
++	(void)fprintf(stderr, "\t\tG - GET_DELETE\n");
++	(void)fprintf(stderr, "\t\tH - MIXED\n");
++	return (EXIT_FAILURE);
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_curalloc.c
+@@ -0,0 +1,63 @@
++/*
++ * $Id: b_curalloc.c,v 1.8 2007/05/29 17:39:15 bostic Exp $
++ */
++#include "bench.h"
++
++int usage(void);
++
++int
++main(int argc, char *argv[])
++{
++	DB *dbp;
++	DBC *curp;
++	int ch, i, count;
++
++	cleanup_test_dir();
++
++	count = 100000;
++	while ((ch = getopt(argc, argv, "c:")) != EOF)
++		switch (ch) {
++		case 'c':
++			count = atoi(optarg);
++			break;
++		case '?':
++		default:
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++	if (argc != 0)
++		return (usage());
++
++	/* Create the database. */
++	DB_BENCH_ASSERT(db_create(&dbp, NULL, 0) == 0);
++	dbp->set_errfile(dbp, stderr);
++
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, NULL, "a", NULL, DB_BTREE, DB_CREATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, "a", NULL, DB_BTREE, DB_CREATE, 0666) == 0);
++#endif
++
++	/* Allocate a cursor count times. */
++	TIMER_START;
++	for (i = 0; i < count; ++i) {
++		DB_BENCH_ASSERT(dbp->cursor(dbp, NULL, &curp, 0) == 0);
++		DB_BENCH_ASSERT(curp->c_close(curp) == 0);
++	}
++	TIMER_STOP;
++
++	printf("# %d cursor allocations\n", count);
++	TIMER_DISPLAY(count);
++
++	return (0);
++}
++
++int
++usage()
++{
++	(void)fprintf(stderr, "usage: b_curalloc [-c count]\n");
++	return (EXIT_FAILURE);
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/inmem.c
+@@ -0,0 +1,390 @@
++/*
++ * $Id: inmem.c,v 1.12 2007/06/22 15:21:24 bostic Exp $
++ */
++
++#include "bench.h"
++
++/*
++ * The in-memory tests don't run on early releases of Berkeley DB.
++ */
++#if DB_VERSION_MAJOR > 4 || DB_VERSION_MAJOR == 4 && DB_VERSION_MINOR > 1
++
++#undef	MEGABYTE
++#define	MEGABYTE	(1024 * 1024)
++
++u_int32_t bulkbufsize = 4 * MEGABYTE;
++u_int32_t cachesize = 32 * MEGABYTE;
++u_int32_t datasize = 32;
++u_int32_t keysize = 8;
++u_int32_t logbufsize = 8 * MEGABYTE;
++u_int32_t numitems;
++u_int32_t pagesize = 32 * 1024;
++
++FILE *fp;
++char *progname;
++
++void op_ds(u_int, int);
++void op_ds_bulk(u_int, u_int *);
++void op_tds(u_int, int, u_int32_t);
++int  usage __P((void));
++
++void
++op_ds(u_int ops, int update)
++{
++	char *letters = "abcdefghijklmnopqrstuvwxuz";
++	DB *dbp;
++	DBT key, data;
++	char *keybuf, *databuf;
++	DB_MPOOL_STAT  *gsp;
++
++	DB_BENCH_ASSERT((keybuf = malloc(keysize)) != NULL);
++	DB_BENCH_ASSERT((databuf = malloc(datasize)) != NULL);
++
++	memset(&key, 0, sizeof(key));
++	memset(&data, 0, sizeof(data));
++	key.data = keybuf;
++	key.size = keysize;
++	memset(keybuf, 'a', keysize);
++
++	data.data = databuf;
++	data.size = datasize;
++	memset(databuf, 'b', datasize);
++
++	DB_BENCH_ASSERT(db_create(&dbp, NULL, 0) == 0);
++
++	dbp->set_errfile(dbp, stderr);
++
++	DB_BENCH_ASSERT(dbp->set_pagesize(dbp, pagesize) == 0);
++	DB_BENCH_ASSERT(dbp->open(
++	    dbp, NULL, NULL, NULL, DB_BTREE, DB_CREATE, 0666) == 0);
++
++	dbp->dbenv->memp_stat(dbp->dbenv, &gsp, NULL, DB_STAT_CLEAR);
++
++	if (update) {
++		TIMER_START;
++		for (; ops > 0; --ops) {
++			keybuf[(ops % keysize)] = letters[(ops % 26)];
++			DB_BENCH_ASSERT(
++			    dbp->put(dbp, NULL, &key, &data, 0) == 0);
++		}
++		TIMER_STOP;
++	} else {
++		DB_BENCH_ASSERT(dbp->put(dbp, NULL, &key, &data, 0) == 0);
++		TIMER_START;
++		for (; ops > 0; --ops)
++			DB_BENCH_ASSERT(
++			    dbp->get(dbp, NULL, &key, &data, 0) == 0);
++		TIMER_STOP;
++	}
++
++	dbp->dbenv->memp_stat(dbp->dbenv, &gsp, NULL, 0);
++	DB_BENCH_ASSERT(gsp->st_cache_miss == 0);
++
++	DB_BENCH_ASSERT(dbp->close(dbp, 0) == 0);
++}
++
++void
++op_ds_bulk(u_int ops, u_int *totalp)
++{
++	DB *dbp;
++	DBC *dbc;
++	DBT key, data;
++	u_int32_t len, klen;
++	u_int i, total;
++	char *keybuf, *databuf;
++	void *pointer, *dp, *kp;
++	DB_MPOOL_STAT  *gsp;
++
++	DB_BENCH_ASSERT((keybuf = malloc(keysize)) != NULL);
++	DB_BENCH_ASSERT((databuf = malloc(bulkbufsize)) != NULL);
++
++	memset(&key, 0, sizeof(key));
++	memset(&data, 0, sizeof(data));
++	key.data = keybuf;
++	key.size = keysize;
++
++	data.data = databuf;
++	data.size = datasize;
++	memset(databuf, 'b', datasize);
++
++	DB_BENCH_ASSERT(db_create(&dbp, NULL, 0) == 0);
++
++	dbp->set_errfile(dbp, stderr);
++
++	DB_BENCH_ASSERT(dbp->set_pagesize(dbp, pagesize) == 0);
++	DB_BENCH_ASSERT(dbp->set_cachesize(dbp, 0, cachesize, 1) == 0);
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, NULL, NULL, NULL, DB_BTREE, DB_CREATE, 0666) == 0);
++
++	for (i = 1; i <= numitems; ++i) {
++		(void)sprintf(keybuf, "%10d", i);
++		DB_BENCH_ASSERT(dbp->put(dbp, NULL, &key, &data, 0) == 0);
++	}
++
++#if 0
++	fp = fopen("before", "w");
++	dbp->set_msgfile(dbp, fp);
++	DB_BENCH_ASSERT (dbp->stat_print(dbp, DB_STAT_ALL) == 0);
++#endif
++
++	DB_BENCH_ASSERT(dbp->cursor(dbp, NULL, &dbc, 0) == 0);
++
++	data.ulen = bulkbufsize;
++	data.flags = DB_DBT_USERMEM;
++
++	dbp->dbenv->memp_stat(dbp->dbenv, &gsp, NULL, DB_STAT_CLEAR);
++
++	TIMER_START;
++	for (total = 0; ops > 0; --ops) {
++		DB_BENCH_ASSERT(dbc->c_get(
++		    dbc, &key, &data, DB_FIRST | DB_MULTIPLE_KEY) == 0);
++		DB_MULTIPLE_INIT(pointer, &data);
++		while (pointer != NULL) {
++			DB_MULTIPLE_KEY_NEXT(pointer, &data, kp, klen, dp, len);
++			if (kp != NULL)
++				++total;
++		}
++	}
++	TIMER_STOP;
++	*totalp = total;
++
++	dbp->dbenv->memp_stat(dbp->dbenv, &gsp, NULL, 0);
++	DB_BENCH_ASSERT(gsp->st_cache_miss == 0);
++
++#if 0
++	fp = fopen("before", "w");
++	dbp->set_msgfile(dbp, fp);
++	DB_BENCH_ASSERT (dbp->stat_print(dbp, DB_STAT_ALL) == 0);
++#endif
++
++	DB_BENCH_ASSERT(dbp->close(dbp, 0) == 0);
++}
++
++void
++op_tds(u_int ops, int update, u_int32_t flags)
++{
++	DB *dbp;
++	DBT key, data;
++	DB_ENV *dbenv;
++	DB_TXN *txn;
++	char *keybuf, *databuf;
++	DB_MPOOL_STAT  *gsp;
++
++	DB_BENCH_ASSERT((keybuf = malloc(keysize)) != NULL);
++	DB_BENCH_ASSERT((databuf = malloc(datasize)) != NULL);
++
++	memset(&key, 0, sizeof(key));
++	memset(&data, 0, sizeof(data));
++	key.data = keybuf;
++	key.size = keysize;
++	memset(keybuf, 'a', keysize);
++
++	data.data = databuf;
++	data.size = datasize;
++	memset(databuf, 'b', datasize);
++
++	DB_BENCH_ASSERT(db_env_create(&dbenv, 0) == 0);
++
++	dbenv->set_errfile(dbenv, stderr);
++
++#ifdef DB_AUTO_COMMIT
++	DB_BENCH_ASSERT(dbenv->set_flags(dbenv, DB_AUTO_COMMIT, 1) == 0);
++#endif
++	DB_BENCH_ASSERT(dbenv->set_flags(dbenv, flags, 1) == 0);
++#ifdef DB_LOG_INMEMORY
++	if (!(flags & DB_LOG_INMEMORY))
++#endif
++		DB_BENCH_ASSERT(dbenv->set_lg_max(dbenv, logbufsize * 10) == 0);
++	DB_BENCH_ASSERT(dbenv->set_lg_bsize(dbenv, logbufsize) == 0);
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR",
++	    DB_CREATE | DB_PRIVATE | DB_INIT_LOCK |
++	    DB_INIT_LOG | DB_INIT_MPOOL | DB_INIT_TXN, 0666) == 0);
++
++	DB_BENCH_ASSERT(db_create(&dbp, dbenv, 0) == 0);
++	DB_BENCH_ASSERT(dbp->set_pagesize(dbp, pagesize) == 0);
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, NULL, "a", NULL, DB_BTREE, DB_CREATE, 0666) == 0);
++
++	if (update) {
++		dbenv->memp_stat(dbenv, &gsp, NULL, DB_STAT_CLEAR);
++
++		TIMER_START;
++		for (; ops > 0; --ops)
++			DB_BENCH_ASSERT(
++			    dbp->put(dbp, NULL, &key, &data, 0) == 0);
++		TIMER_STOP;
++
++		dbenv->memp_stat(dbenv, &gsp, NULL, 0);
++		DB_BENCH_ASSERT(gsp->st_page_out == 0);
++	} else {
++		DB_BENCH_ASSERT(dbp->put(dbp, NULL, &key, &data, 0) == 0);
++		dbenv->memp_stat(dbenv, &gsp, NULL, DB_STAT_CLEAR);
++
++		TIMER_START;
++		for (; ops > 0; --ops) {
++			DB_BENCH_ASSERT(
++			    dbenv->txn_begin(dbenv, NULL, &txn, 0) == 0);
++			DB_BENCH_ASSERT(
++			    dbp->get(dbp, NULL, &key, &data, 0) == 0);
++			DB_BENCH_ASSERT(txn->commit(txn, 0) == 0);
++		}
++		TIMER_STOP;
++
++		dbenv->memp_stat(dbenv, &gsp, NULL, 0);
++		DB_BENCH_ASSERT(gsp->st_cache_miss == 0);
++	}
++
++	DB_BENCH_ASSERT(dbp->close(dbp, 0) == 0);
++	DB_BENCH_ASSERT(dbenv->close(dbenv, 0) == 0);
++}
++
++#define	DEFAULT_OPS	1000000
++
++int
++main(int argc, char *argv[])
++{
++	extern char *optarg;
++	extern int optind;
++	u_int ops, total;
++	int ch;
++
++	cleanup_test_dir();
++
++	if ((progname = strrchr(argv[0], '/')) == NULL)
++		progname = argv[0];
++	else
++		++progname;
++
++	ops = 0;
++	while ((ch = getopt(argc, argv, "d:k:o:p:")) != EOF)
++		switch (ch) {
++		case 'd':
++			datasize = (u_int)atoi(optarg);
++			break;
++		case 'k':
++			keysize = (u_int)atoi(optarg);
++			break;
++		case 'o':
++			ops = (u_int)atoi(optarg);
++			break;
++		case 'p':
++			pagesize = (u_int32_t)atoi(optarg);
++			break;
++		case '?':
++		default:
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++
++	if (argc != 1)
++		return (usage());
++
++	numitems = (cachesize / (keysize + datasize - 1)) / 2;
++
++	if (strcasecmp(argv[0], "read") == 0) {
++		if (ops == 0)
++			ops = DEFAULT_OPS;
++		op_ds(ops, 0);
++		printf(
++		    "# %u in-memory Btree database reads of %u/%u byte key/data pairs\n",
++		    ops, keysize, datasize);
++	} else if (strcasecmp(argv[0], "bulk") == 0) {
++		if (keysize < 8) {
++			fprintf(stderr,
++		    "%s: bulk read requires a key size >= 10\n", progname);
++			return (EXIT_FAILURE);
++		}
++		/*
++		 * The ops value is the number of bulk operations, not key get
++		 * operations.  Reduce the value so the test doesn't take so
++		 * long, and use the returned number of retrievals as the ops
++		 * value for timing purposes.
++		 */
++		if (ops == 0)
++			ops = 100000;
++		op_ds_bulk(ops, &total);
++		ops = total;
++		printf(
++		    "# %u bulk in-memory Btree database reads of %u/%u byte key/data pairs\n",
++		    ops, keysize, datasize);
++	} else if (strcasecmp(argv[0], "write") == 0) {
++		if (ops == 0)
++			ops = DEFAULT_OPS;
++		op_ds(ops, 1);
++		printf(
++		    "# %u in-memory Btree database writes of %u/%u byte key/data pairs\n",
++		    ops, keysize, datasize);
++	} else if (strcasecmp(argv[0], "txn-read") == 0) {
++		if (ops == 0)
++			ops = DEFAULT_OPS;
++		op_tds(ops, 0, 0);
++		printf(
++		    "# %u transactional in-memory Btree database reads of %u/%u byte key/data pairs\n",
++		    ops, keysize, datasize);
++	} else if (strcasecmp(argv[0], "txn-write") == 0) {
++		if (ops == 0)
++			ops = DEFAULT_OPS;
++#ifdef DB_LOG_INMEMORY
++		op_tds(ops, 1, DB_LOG_INMEMORY);
++		printf(
++		    "# %u transactional in-memory logging Btree database writes of %u/%u byte key/data pairs\n",
++		    ops, keysize, datasize);
++#else
++		return (EXIT_SUCCESS);
++#endif
++	} else if (strcasecmp(argv[0], "txn-nosync") == 0) {
++		if (ops == 0)
++			ops = DEFAULT_OPS;
++		op_tds(ops, 1, DB_TXN_NOSYNC);
++		printf(
++		    "# %u transactional nosync logging Btree database writes of %u/%u byte key/data pairs\n",
++		    ops, keysize, datasize);
++	} else if (strcasecmp(argv[0], "txn-write-nosync") == 0) {
++		if (ops == 0)
++			ops = DEFAULT_OPS;
++#ifdef DB_TXN_WRITE_NOSYNC
++		op_tds(ops, 1, DB_TXN_WRITE_NOSYNC);
++		printf(
++		    "# %u transactional OS-write/nosync logging Btree database writes of %u/%u byte key/data pairs\n",
++		    ops, keysize, datasize);
++#else
++		return (EXIT_SUCCESS);
++#endif
++	} else if (strcasecmp(argv[0], "txn-sync") == 0) {
++		/*
++		 * Flushing to disk takes a long time, reduce the number of
++		 * default ops.
++		 */
++		if (ops == 0)
++			ops = 100000;
++		op_tds(ops, 1, 0);
++		printf(
++		    "# %u transactional logging Btree database writes of %u/%u byte key/data pairs\n",
++		    ops, keysize, datasize);
++	} else {
++		fprintf(stderr, "%s: unknown keyword %s\n", progname, argv[0]);
++		return (EXIT_FAILURE);
++	}
++
++	TIMER_DISPLAY(ops);
++	return (EXIT_SUCCESS);
++}
++
++int
++usage()
++{
++	fprintf(stderr, "usage: %s %s%s%s",
++	    progname,
++	    "[-d datasize] [-k keysize] [-o ops] [-p pagesize]\n\t",
++	    "[read | bulk | write | txn-read |\n\t",
++	    "txn-write | txn-nosync | txn-write-nosync | txn-sync]\n");
++	return (EXIT_FAILURE);
++}
++#else
++int
++main()
++{
++	return (0);
++}
++#endif
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/bench.h
+@@ -0,0 +1,148 @@
++/*
++ * $Id: bench.h,v 1.13 2007/06/15 18:44:23 bostic Exp $
++ */
++#include "db_config.h"
++
++#include <sys/types.h>
++#include <sys/stat.h>
++
++#ifndef DB_WIN32
++#include <sys/time.h>
++
++#include <unistd.h>
++#include <stdint.h>
++#else
++#define	WIN32_LEAN_AND_MEAN	1
++#include <windows.h>
++#include <direct.h>
++#include <sys/timeb.h>
++extern int getopt(int, char * const *, const char *);
++extern char *optarg;
++extern int optind;
++#define	snprintf _snprintf
++#endif
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "db.h"
++
++/*
++ * Implement a custom assert to allow consistent behavior across builds and
++ * platforms.
++ *
++ * The BDB library DB_ASSERT implementation is only enabled in diagnostic
++ * builds -- so is not suitable here.
++ */
++#define	DB_BENCH_ASSERT(e) do {						\
++	(e) ? 0 : (fprintf(stderr, "ASSERT FAILED: %s\n", #e), abort());\
++} while (0)
++
++#ifndef	NS_PER_SEC
++#define	NS_PER_SEC	1000000000	/* Nanoseconds in a second */
++#endif
++#ifndef	NS_PER_US
++#define	NS_PER_US	1000		/* Nanoseconds in a microsecond */
++#endif
++#ifndef	MS_PER_NS
++#define	MS_PER_NS	1000000		/* Milliseconds in a nanosecond */
++#endif
++
++/*
++ * Use the timer routines in the Berkeley DB library after their conversion
++ * to POSIX timespec interfaces.
++ */
++#ifdef DB_TIMEOUT_TO_TIMESPEC
++#define	TIMER_START	__os_gettime(NULL, &__start_time)
++#define	TIMER_STOP	__os_gettime(NULL, &__end_time)
++#else
++typedef struct {
++	time_t	tv_sec;				/* seconds */
++	long	tv_nsec;			/* nanoseconds */
++} db_timespec;
++
++#define	timespecadd(vvp, uvp)						\
++	do {								\
++		(vvp)->tv_sec += (uvp)->tv_sec;				\
++		(vvp)->tv_nsec += (uvp)->tv_nsec;			\
++		if ((vvp)->tv_nsec >= NS_PER_SEC) {			\
++			(vvp)->tv_sec++;				\
++			(vvp)->tv_nsec -= NS_PER_SEC;			\
++		}							\
++	} while (0)
++#define	timespecsub(vvp, uvp)						\
++	do {								\
++		(vvp)->tv_sec -= (uvp)->tv_sec;				\
++		(vvp)->tv_nsec -= (uvp)->tv_nsec;			\
++		if ((vvp)->tv_nsec < 0) {				\
++			(vvp)->tv_sec--;				\
++			(vvp)->tv_nsec += NS_PER_SEC;			\
++		}							\
++	} while (0)
++
++#define	TIMER_START	CLOCK(__start_time)
++#define	TIMER_STOP	CLOCK(__end_time)
++
++#if defined(HAVE_CLOCK_GETTIME)
++#define	CLOCK(t) do {							\
++	DB_BENCH_ASSERT(						\
++	    clock_gettime(CLOCK_REALTIME, (struct timespec *)&t) == 0);	\
++} while (0)
++#elif defined(DB_WIN32)
++#define	CLOCK(t) do {							\
++	struct _timeb __now;						\
++	_ftime(&__now);							\
++	t.tv_sec = __now.time;						\
++	t.tv_nsec = __now.millitm * MS_PER_NS;				\
++} while (0)
++#else
++#define	CLOCK(t) do {							\
++	struct timeval __tp;						\
++	DB_BENCH_ASSERT(gettimeofday(&__tp, NULL) == 0);		\
++	t.tv_sec = __tp.tv_sec;						\
++	t.tv_nsec = __tp.tv_usec * NS_PER_US;				\
++} while (0)
++#endif
++#endif /* DB_TIMEOUT_TO_TIMESPEC */
++
++db_timespec __start_time, __end_time;
++
++#define	TIMER_GET(t) do {						\
++	t = __end_time;							\
++	timespecsub(&t, &__start_time);					\
++} while (0)
++#define	TIMER_DISPLAY(ops) do {						\
++	db_timespec __tmp_time;						\
++	__tmp_time = __end_time;					\
++	timespecsub(&__tmp_time, &__start_time);			\
++	TIME_DISPLAY(ops, __tmp_time);					\
++} while (0)
++#define	TIME_DISPLAY(ops, t) do {					\
++	double __secs;							\
++	int __major, __minor, __patch;					\
++	__secs = t.tv_sec + (double)t.tv_nsec / NS_PER_SEC;		\
++	(void)db_version(&__major, &__minor, &__patch);			\
++	printf("%d.%d.%d\t%.2f\n", __major, __minor, __patch,		\
++	    (__secs == 0) ? 0.0 : (ops) / __secs);			\
++} while (0)
++
++/*
++ * Cleanup the test directory.
++ */
++void
++cleanup_test_dir()
++{
++#ifndef DB_WIN32
++	(void)system("rm -rf a TESTDIR; mkdir TESTDIR");
++#else
++	(void)system("RMDIR TESTDIR /s /q");
++	/*
++	 * Windows outputs a message if I delete this via the system
++	 * DEL function, so use unlink.
++	 */
++	_unlink("a");
++	_mkdir("TESTDIR");
++	SetLastError(0);
++#endif
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_load.c
+@@ -0,0 +1,147 @@
++/*
++ * $Id: b_load.c,v 1.12 2007/07/02 09:31:20 moshen Exp $
++ */
++#include "bench.h"
++
++int usage(void);
++
++int
++main(int argc, char *argv[])
++{
++	DB *dbp;
++	DBTYPE type;
++	DBT key, data;
++	db_recno_t recno;
++	int ch, i, count, duplicate;
++	char *ts, buf[32];
++
++	cleanup_test_dir();
++
++	duplicate = 0;
++	count = 100000;
++	ts = "Btree";
++	type = DB_BTREE;
++	while ((ch = getopt(argc, argv, "c:dt:")) != EOF)
++		switch (ch) {
++		case 'c':
++			count = atoi(optarg);
++			break;
++		case 'd':
++			duplicate = 1;
++			break;
++		case 't':
++			switch (optarg[0]) {
++			case 'B': case 'b':
++				ts = "Btree";
++				type = DB_BTREE;
++				break;
++			case 'H': case 'h':
++				ts = "Hash";
++				type = DB_HASH;
++				break;
++			case 'Q': case 'q':
++				ts = "Queue";
++				type = DB_QUEUE;
++				break;
++			case 'R': case 'r':
++				ts = "Recno";
++				type = DB_RECNO;
++				break;
++			default:
++				return (usage());
++			}
++			break;
++		case '?':
++		default:
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++	if (argc != 0)
++		return (usage());
++
++	/* Usage. */
++	if (duplicate && (type == DB_QUEUE || type == DB_RECNO)) {
++		fprintf(stderr,
++		    "b_load: Queue an Recno don't support duplicates\n");
++		return (usage());
++	}
++
++#if DB_VERSION_MAJOR < 3 || DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR < 1
++	/*
++	 * DB versions prior to 3.1.17 didn't have off-page duplicates, so
++	 * this test can run forever.
++	 */
++	if (duplicate)
++		return (0);
++#endif
++
++	/* Create the database. */
++	DB_BENCH_ASSERT(db_create(&dbp, NULL, 0) == 0);
++	DB_BENCH_ASSERT(dbp->set_cachesize(dbp, 0, 1048576 /* 1MB */, 0) == 0);
++	if (duplicate)
++		DB_BENCH_ASSERT(dbp->set_flags(dbp, DB_DUP) == 0);
++	dbp->set_errfile(dbp, stderr);
++
++	/* Set record length for Queue. */
++	if (type == DB_QUEUE)
++		DB_BENCH_ASSERT(dbp->set_re_len(dbp, 20) == 0);
++
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, NULL, "a", NULL, type, DB_CREATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(dbp->open(dbp, "a", NULL, type, DB_CREATE, 0666) == 0);
++#endif
++
++	/* Initialize the data. */
++	memset(&key, 0, sizeof(key));
++	memset(&data, 0, sizeof(data));
++
++	/* Insert count in-order key/data pairs. */
++	TIMER_START;
++	if (duplicate) {
++		key.size = 10;
++		key.data = "01234567890123456789";
++		data.data = buf;
++		data.size = 20;
++		for (i = 0; i < count; ++i) {
++			(void)snprintf(buf, sizeof(buf), "%020d", i);
++			DB_BENCH_ASSERT(
++			    dbp->put(dbp, NULL, &key, &data, 0) == 0);
++		}
++	} else {
++		data.data = buf;
++		data.size = 20;
++		if (type == DB_BTREE || type == DB_HASH) {
++			key.size = 10;
++			key.data = buf;
++			for (i = 0; i < count; ++i) {
++				(void)snprintf(buf, sizeof(buf), "%010d", i);
++				DB_BENCH_ASSERT(
++				    dbp->put(dbp, NULL, &key, &data, 0) == 0);
++			}
++		} else {
++			key.data = &recno;
++			key.size = sizeof(recno);
++			for (i = 0, recno = 1; i < count; ++i, ++recno)
++				DB_BENCH_ASSERT(
++				    dbp->put(dbp, NULL, &key, &data, 0) == 0);
++		}
++	}
++
++	TIMER_STOP;
++
++	printf("# %d %s database in-order put of 10/20 byte key/data %sitems\n",
++	    count, ts, duplicate ? "duplicate " : "");
++	TIMER_DISPLAY(count);
++
++	return (0);
++}
++
++int
++usage()
++{
++	(void)fprintf(stderr, "usage: b_load [-d] [-c count] [-t type]\n");
++	return (EXIT_FAILURE);
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/uname.c
+@@ -0,0 +1,15 @@
++#include <sys/types.h>
++#include <sys/utsname.h>
++
++#include <stdio.h>
++
++int
++main()
++{
++	struct utsname name;
++
++	if (uname(&name) == 0)
++		printf("<p>%s, %s<br>\n%s, %s, %s</p>\n", name.nodename,
++		name.machine, name.sysname, name.release, name.version);
++	return (0);
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_get.c
+@@ -0,0 +1,118 @@
++/*
++ * $Id: b_get.c,v 1.10 2007/05/29 18:53:43 bostic Exp $
++ */
++#include "bench.h"
++
++int usage(void);
++
++int
++main(int argc, char *argv[])
++{
++	DB *dbp;
++	DBTYPE type;
++	DBT key, data;
++	db_recno_t recno;
++	int ch, i, count;
++	char *ts;
++
++	dbp = NULL;
++	cleanup_test_dir();
++
++	count = 100000;
++	ts = "Btree";
++	type = DB_BTREE;
++
++	while ((ch = getopt(argc, argv, "c:t:")) != EOF)
++		switch (ch) {
++		case 'c':
++			count = atoi(optarg);
++			break;
++		case 't':
++			switch (optarg[0]) {
++			case 'B': case 'b':
++				ts = "Btree";
++				type = DB_BTREE;
++				break;
++			case 'H': case 'h':
++				ts = "Hash";
++				type = DB_HASH;
++				break;
++			case 'Q': case 'q':
++				ts = "Queue";
++				type = DB_QUEUE;
++				break;
++			case 'R': case 'r':
++				ts = "Recno";
++				type = DB_RECNO;
++				break;
++			default:
++				return (usage());
++			}
++			break;
++		case '?':
++		default:
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++	if (argc != 0)
++		return (usage());
++
++	/* Create the database. */
++	DB_BENCH_ASSERT(db_create(&dbp, NULL, 0) == 0);
++	DB_BENCH_ASSERT(dbp->set_cachesize(dbp, 0, 1048576 /* 1MB */, 0) == 0);
++	dbp->set_errfile(dbp, stderr);
++
++	/* Set record length for Queue. */
++	if (type == DB_QUEUE)
++		DB_BENCH_ASSERT(dbp->set_re_len(dbp, 10) == 0);
++
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, NULL, "a", NULL, type, DB_CREATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(dbp->open(dbp, "a", NULL, type, DB_CREATE, 0666) == 0);
++#endif
++
++	/* Store a key/data pair. */
++	memset(&key, 0, sizeof(key));
++	memset(&data, 0, sizeof(data));
++	switch (type) {
++	case DB_BTREE:
++	case DB_HASH:
++		key.data = "aaaaa";
++		key.size = 5;
++		break;
++	case DB_QUEUE:
++	case DB_RECNO:
++		recno = 1;
++		key.data = &recno;
++		key.size = sizeof(recno);
++		break;
++	case DB_UNKNOWN:
++		abort();
++		break;
++	}
++	data.data = "bbbbb";
++	data.size = 5;
++
++	DB_BENCH_ASSERT(dbp->put(dbp, NULL, &key, &data, 0) == 0);
++
++	/* Retrieve the key/data pair count times. */
++	TIMER_START;
++	for (i = 0; i < count; ++i)
++		DB_BENCH_ASSERT(dbp->get(dbp, NULL, &key, &data, 0) == 0);
++	TIMER_STOP;
++
++	printf("# %d %s database get of cached key/data item\n", count, ts);
++	TIMER_DISPLAY(count);
++
++	return (0);
++}
++
++int
++usage()
++{
++	(void)fprintf(stderr, "usage: b_get [-c count] [-t type]\n");
++	return (EXIT_FAILURE);
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_put.c
+@@ -0,0 +1,195 @@
++/*
++ * $Id: b_put.c,v 1.11 2007/05/29 17:39:15 bostic Exp $
++ */
++#include "bench.h"
++
++int usage(void);
++int s(DB *, const DBT *, const DBT *, DBT *);
++
++int
++main(int argc, char *argv[])
++{
++	DB_ENV *dbenv = NULL;
++	DB *dbp, **second;
++	DBTYPE type;
++	DBT key, data;
++	db_recno_t recno;
++	size_t dsize;
++	int ch, i, count, secondaries;
++	char *ts, buf[64];
++
++	cleanup_test_dir();
++
++	count = 100000;
++	ts = "Btree";
++	type = DB_BTREE;
++	dsize = 20;
++	secondaries = 0;
++	while ((ch = getopt(argc, argv, "c:d:s:t:")) != EOF)
++		switch (ch) {
++		case 'c':
++			count = atoi(optarg);
++			break;
++		case 'd':
++			dsize = atoi(optarg);
++			break;
++		case 's':
++			secondaries = atoi(optarg);
++			break;
++		case 't':
++			switch (optarg[0]) {
++			case 'B': case 'b':
++				ts = "Btree";
++				type = DB_BTREE;
++				break;
++			case 'H': case 'h':
++				ts = "Hash";
++				type = DB_HASH;
++				break;
++			case 'Q': case 'q':
++				ts = "Queue";
++				type = DB_QUEUE;
++				break;
++			case 'R': case 'r':
++				ts = "Recno";
++				type = DB_RECNO;
++				break;
++			default:
++				return (usage());
++			}
++			break;
++		case '?':
++		default:
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++	if (argc != 0)
++		return (usage());
++
++#if DB_VERSION_MAJOR < 3 || DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR < 3
++	/*
++	 * Secondaries were added after DB 3.2.9.
++	 */
++	if (secondaries)
++		return (0);
++#endif
++
++	/* Create the environment. */
++	DB_BENCH_ASSERT(db_env_create(&dbenv, 0) == 0);
++	dbenv->set_errfile(dbenv, stderr);
++	DB_BENCH_ASSERT(
++	    dbenv->set_cachesize(dbenv, 0, 1048576 /* 1MB */, 0) == 0);
++#if DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR < 1
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR",
++	    NULL, DB_CREATE | DB_INIT_MPOOL | DB_PRIVATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR",
++	    DB_CREATE | DB_INIT_MPOOL | DB_PRIVATE, 0666) == 0);
++#endif
++
++	/*
++	 * Create the database.
++	 * Optionally set the record length for Queue.
++	 */
++	DB_BENCH_ASSERT(db_create(&dbp, dbenv, 0) == 0);
++	if (type == DB_QUEUE)
++		DB_BENCH_ASSERT(dbp->set_re_len(dbp, dsize) == 0);
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++	DB_BENCH_ASSERT(
++	    dbp->open(dbp, NULL, "a", NULL, type, DB_CREATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(dbp->open(dbp, "a", NULL, type, DB_CREATE, 0666) == 0);
++#endif
++
++	/* Optionally create the secondaries. */
++	if (secondaries != 0) {
++		DB_BENCH_ASSERT(
++		    (second = calloc(sizeof(DB *), secondaries)) != NULL);
++		for (i = 0; i < secondaries; ++i) {
++			DB_BENCH_ASSERT(db_create(&second[i], dbenv, 0) == 0);
++			snprintf(buf, sizeof(buf), "%d.db", i);
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++			DB_BENCH_ASSERT(second[i]->open(second[i], NULL,
++			    buf, NULL, DB_BTREE, DB_CREATE, 0600) == 0);
++#else
++			DB_BENCH_ASSERT(second[i]->open(second[i],
++			    buf, NULL, DB_BTREE, DB_CREATE, 0600) == 0);
++#endif
++#if DB_VERSION_MAJOR > 3 || DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR >= 3
++#if DB_VERSION_MAJOR > 3 && DB_VERSION_MINOR > 0
++			/*
++			 * The DB_TXN argument to Db.associate was added in
++			 * 4.1.25.
++			 */
++			DB_BENCH_ASSERT(
++			    dbp->associate(dbp, NULL, second[i], s, 0) == 0);
++#else
++			DB_BENCH_ASSERT(
++			    dbp->associate(dbp, second[i], s, 0) == 0);
++#endif
++#endif
++		}
++	}
++
++	/* Store a key/data pair. */
++	memset(&key, 0, sizeof(key));
++	memset(&data, 0, sizeof(data));
++	switch (type) {
++	case DB_BTREE:
++	case DB_HASH:
++		key.data = "01234567890123456789";
++		key.size = 10;
++		break;
++	case DB_QUEUE:
++	case DB_RECNO:
++		recno = 1;
++		key.data = &recno;
++		key.size = sizeof(recno);
++		break;
++	case DB_UNKNOWN:
++		abort();
++		break;
++	}
++
++	DB_BENCH_ASSERT((data.data = malloc(data.size = dsize)) != NULL);
++
++	/* Store the key/data pair count times. */
++	TIMER_START;
++	for (i = 0; i < count; ++i)
++		DB_BENCH_ASSERT(dbp->put(dbp, NULL, &key, &data, 0) == 0);
++	TIMER_STOP;
++
++	if (type == DB_BTREE || type == DB_HASH)
++		printf(
++		    "# %d %s database put of 10 byte key, %lu byte data",
++		    count, ts, (u_long)dsize);
++	else
++		printf("# %d %s database put of key, %lu byte data",
++		    count, ts, (u_long)dsize);
++	if (secondaries)
++		printf(" with %d secondaries", secondaries);
++	printf("\n");
++	TIMER_DISPLAY(count);
++
++	return (0);
++}
++
++int
++s(dbp, pkey, pdata, skey)
++	DB *dbp;
++	const DBT *pkey, *pdata;
++	DBT *skey;
++{
++	skey->data = pkey->data;
++	skey->size = pkey->size;
++	return (0);
++}
++
++int
++usage()
++{
++	(void)fprintf(stderr,
++	    "usage: b_put [-c count] [-d bytes] [-s secondaries] [-t type]\n");
++	return (EXIT_FAILURE);
++}
+--- /dev/null
++++ db4.7-4.7.25/test_micro/SOURCE/b_open.c
+@@ -0,0 +1,138 @@
++/*
++ * $Id: b_open.c,v 1.9 2007/05/29 18:53:43 bostic Exp $
++ */
++#include "bench.h"
++
++int usage(void);
++
++int
++main(int argc, char *argv[])
++{
++	DB_ENV *dbenv;
++	DB *dbp;
++	DBTYPE type;
++	int ch, i, count;
++	char *fname, *dbname, *ts;
++
++	cleanup_test_dir();
++
++	count = 1000;
++	ts = "Btree";
++	type = DB_BTREE;
++	fname = dbname = NULL;
++	while ((ch = getopt(argc, argv, "c:dft:")) != EOF)
++		switch (ch) {
++		case 'c':
++			count = atoi(optarg);
++			break;
++		case 'd':
++			dbname = "dbname";
++			break;
++		case 'f':
++			fname = "filename";
++			break;
++		case 't':
++			switch (optarg[0]) {
++			case 'B': case 'b':
++				ts = "Btree";
++				type = DB_BTREE;
++				break;
++			case 'H': case 'h':
++				ts = "Hash";
++				type = DB_HASH;
++				break;
++			case 'Q': case 'q':
++				ts = "Queue";
++				type = DB_QUEUE;
++				break;
++			case 'R': case 'r':
++				ts = "Recno";
++				type = DB_RECNO;
++				break;
++			default:
++				return (usage());
++			}
++			break;
++		case '?':
++		default:
++			return (usage());
++		}
++	argc -= optind;
++	argv += optind;
++	if (argc != 0)
++		return (usage());
++
++#if DB_VERSION_MAJOR < 4
++	/*
++	 * Don't run in-memory database tests on versions less than 3, it
++	 * takes forever and eats memory.
++	 */
++	if (fname == NULL && dbname == NULL)
++		return (0);
++#endif
++#if DB_VERSION_MAJOR < 4 || DB_VERSION_MAJOR == 4 && DB_VERSION_MINOR < 4
++	/*
++	 * Named in-memory databases weren't available until 4.4.
++	 */
++	if (fname == NULL && dbname != NULL)
++		return (0);
++#endif
++
++	/* Create the environment. */
++	DB_BENCH_ASSERT(db_env_create(&dbenv, 0) == 0);
++	dbenv->set_errfile(dbenv, stderr);
++	DB_BENCH_ASSERT(dbenv->set_cachesize(
++	    dbenv, 0, 1 * 1024 * 1024 /* 1MB */, 0) == 0);
++#if DB_VERSION_MAJOR == 3 && DB_VERSION_MINOR == 0
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR",
++	    NULL, DB_CREATE | DB_INIT_MPOOL | DB_PRIVATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(dbenv->open(dbenv, "TESTDIR",
++	    DB_CREATE | DB_INIT_MPOOL | DB_PRIVATE, 0666) == 0);
++#endif
++
++	/* Create the database. */
++	DB_BENCH_ASSERT(db_create(&dbp, dbenv, 0) == 0);
++	DB_BENCH_ASSERT(dbp->set_pagesize(dbp, 8 * 1024) == 0);
++
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++	DB_BENCH_ASSERT(dbp->open(
++	    dbp, NULL, fname, dbname, type, DB_CREATE, 0666) == 0);
++#else
++	DB_BENCH_ASSERT(dbp->open(
++	    dbp, fname, dbname, type, DB_CREATE, 0666) == 0);
++#endif
++	DB_BENCH_ASSERT(dbp->close(dbp, 0) == 0);
++
++	/* Open the database count times. */
++	TIMER_START;
++	for (i = 0; i < count; ++i) {
++		DB_BENCH_ASSERT(db_create(&dbp, dbenv, 0) == 0);
++		DB_BENCH_ASSERT(dbp->set_pagesize(dbp, 8 * 1024) == 0);
++#if DB_VERSION_MAJOR >= 4 && DB_VERSION_MINOR >= 1
++		DB_BENCH_ASSERT(dbp->open(
++		    dbp, NULL, fname, dbname, type, DB_CREATE, 0666) == 0);
++#else
++		DB_BENCH_ASSERT(dbp->open(
++		    dbp, fname, dbname, type, DB_CREATE, 0666) == 0);
++#endif
++		DB_BENCH_ASSERT(dbp->close(dbp, 0) == 0);
++	}
++	TIMER_STOP;
++
++	printf("# %d %s %sdatabase open/close pairs\n",
++	    count, ts,
++	    fname == NULL ?
++		(dbname == NULL ? "in-memory " : "named in-memory ") :
++		(dbname == NULL ? "" : "sub-"));
++	TIMER_DISPLAY(count);
++
++	return (0);
++}
++
++int
++usage()
++{
++	(void)fprintf(stderr, "usage: b_open [-df] [-c count] [-t type]\n");
++	return (EXIT_FAILURE);
++}
+--- db4.7-4.7.25.orig/repmgr/repmgr_net.c
++++ db4.7-4.7.25/repmgr/repmgr_net.c
+@@ -100,6 +100,8 @@ __repmgr_send(dbenv, control, rec, lsnp,
+ 		    control, rec, &nsites_sent, &npeers_sent)) != 0)
+ 			goto out;
+ 	} else {
++		DB_ASSERT(env, IS_KNOWN_REMOTE_SITE(eid));
++
+ 		/*
+ 		 * If this is a request that can be sent anywhere, then see if
+ 		 * we can send it to our peer (to save load on the master), but
+--- /dev/null
++++ db4.7-4.7.25/os_windows/os_sleep.c
+@@ -0,0 +1,32 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 1997,2007 Oracle.  All rights reserved.
++ *
++ * $Id: os_sleep.c,v 12.8 2007/05/17 15:15:49 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++/*
++ * __os_sleep --
++ *	Yield the processor for a period of time.
++ */
++void
++__os_sleep(dbenv, secs, usecs)
++	DB_ENV *dbenv;
++	u_long secs, usecs;		/* Seconds and microseconds. */
++{
++	COMPQUIET(dbenv, NULL);
++
++	/*
++	 * It's important we yield the processor here so other processes or
++	 * threads can run.
++	 *
++	 * Sheer raving paranoia -- don't sleep for 0 time, in case some
++	 * implementation doesn't yield the processor in that case.
++	 */
++	Sleep(secs * MS_PER_SEC + (usecs / US_PER_MS) + 1);
++}
+--- /dev/null
++++ db4.7-4.7.25/os_windows/os_spin.c
+@@ -0,0 +1,37 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 1997,2007 Oracle.  All rights reserved.
++ *
++ * $Id: os_spin.c,v 12.8 2007/05/17 15:15:49 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++/*
++ * __os_spin --
++ *	Return the number of default spins before blocking.
++ */
++u_int32_t
++__os_spin(dbenv)
++	DB_ENV *dbenv;
++{
++	SYSTEM_INFO SystemInfo;
++	u_int32_t tas_spins;
++
++	/* Get the number of processors */
++	GetSystemInfo(&SystemInfo);
++
++	/*
++	 * Spin 50 times per processor -- we have anecdotal evidence that this
++	 * is a reasonable value.
++	 */
++	if (SystemInfo.dwNumberOfProcessors > 1)
++		 tas_spins = 50 * SystemInfo.dwNumberOfProcessors;
++	else
++		 tas_spins = 1;
++
++	return (tas_spins);
++}
+--- /dev/null
++++ db4.7-4.7.25/os_windows/ce_time.c
+@@ -0,0 +1,53 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 2006,2007 Oracle.  All rights reserved.
++ *
++ * $Id: ce_time.c,v 12.4 2007/05/17 15:15:49 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++/*
++ * time --
++ *
++ * PUBLIC: #ifndef HAVE_TIME
++ * PUBLIC: time_t time __P((time_t *));
++ * PUBLIC: #endif
++ */
++time_t
++time(timer)
++	time_t *timer;
++{
++	/*
++	 * WinCE does not have a POSIX time implementation
++	 * It only has a GetSystemTime, which returns a struct
++	 * with time day/month/year.
++	 * The API has a GetSystemTimeAsFileTime documented, but
++	 * it does not seem to exist in WinCE.
++	 */
++
++static const __int64 SECS_BETWEEN_EPOCHS = 11644473600;
++static const __int64 SECS_TO_100NS = 10000000; /* 10^7 */
++
++	struct _SYSTEMTIME stime;
++	struct _FILETIME ftime;
++	__int64 res;
++	GetSystemTime(&stime);
++	SystemTimeToFileTime(&stime, &ftime);
++
++	memcpy(&res, &ftime, sizeof(__int64));
++
++	res = (res/SECS_TO_100NS) - SECS_BETWEEN_EPOCHS;
++
++	/*
++	 * TODO: validate result.
++	 * assert((time_t)res == res);
++	 */
++
++	if (timer != NULL)
++		*timer = (time_t)res;
++	return ((time_t)res);
++}
+--- /dev/null
++++ db4.7-4.7.25/os_brew/time.c
+@@ -0,0 +1,39 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 2006,2007 Oracle.  All rights reserved.
++ *
++ * $Id: time.c,v 1.7 2007/05/17 15:15:47 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++/*
++ * time --
++ *
++ * PUBLIC: #ifndef HAVE_TIME
++ * PUBLIC: time_t time __P((time_t *));
++ * PUBLIC: #endif
++ */
++time_t
++time(timer)
++	time_t *timer;
++{
++	time_t now;
++
++	/*
++	 * Berkeley DB uses POSIX time values internally; convert a BREW time
++	 * value into a POSIX time value.
++	 */
++#ifdef HAVE_BREW_SDK2
++	now = (time_t)GETTIMESECONDS() + BREW_EPOCH_OFFSET;
++#else
++	now = (time_t)GETUTCSECONDS() + BREW_EPOCH_OFFSET;
++#endif
++
++	if (timer != NULL)
++		*timer = now;
++	return (now);
++}
+--- /dev/null
++++ db4.7-4.7.25/os_brew/os_sleep.c
+@@ -0,0 +1,30 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 1997,2007 Oracle.  All rights reserved.
++ *
++ * $Id: os_sleep.c,v 1.7 2007/05/17 15:15:47 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++/*
++ * __os_sleep --
++ *	Yield the processor for a period of time.
++ */
++void
++__os_sleep(dbenv, secs, usecs)
++	DB_ENV *dbenv;
++	u_long secs, usecs;		/* Seconds and microseconds. */
++{
++	COMPQUIET(dbenv, NULL);
++
++#ifdef HAVE_BREW_SDK2
++	COMPQUIET(secs, 0);
++	COMPQUIET(usecs, 0);
++#else
++	MSLEEP(secs * MS_PER_SEC + usecs / US_PER_MS);
++#endif
++}
+--- /dev/null
++++ db4.7-4.7.25/os_brew/os_oflags.c
+@@ -0,0 +1,27 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 1997,2007 Oracle.  All rights reserved.
++ *
++ * $Id: os_oflags.c,v 1.4 2007/05/17 15:15:47 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++/*
++ * __db_omode --
++ *	Convert a permission string to the correct open(2) flags.
++ */
++int
++__db_omode(perm)
++	const char *perm;
++{
++	COMPQUIET(perm, NULL);
++
++	/*
++	 * BREW doesn't have permission modes, we're kind of done.
++	 */
++	return (0);
++}
+--- /dev/null
++++ db4.7-4.7.25/docs/.cvsignore
+@@ -0,0 +1,9 @@
++api_c
++api_cxx
++api_tcl
++images
++index.html
++java
++license
++ref
++utility
+--- /dev/null
++++ db4.7-4.7.25/docs/ref/build_wince/faq.html
+@@ -0,0 +1,28 @@
++<!--$Id: faq.so,v 1.2 2007/06/04 14:55:40 bostic Exp $-->
++<!--Copyright (c) 1997,2007 Oracle.  All rights reserved.-->
++<!--See the file LICENSE for redistribution information.-->
++<html>
++<head>
++<title>Berkeley DB Reference Guide: Windows CE FAQ</title>
++<meta name="description" content="Berkeley DB: An embedded database programmatic toolkit.">
++<meta name="keywords" content="embedded,database,programmatic,toolkit,btree,hash,hashing,transaction,transactions,locking,logging,access method,access methods,Java,C,C++">
++</head>
++<body bgcolor=white>
++<a name="2"><!--meow--></a><a name="3"><!--meow--></a>
++<table width="100%"><tr valign=top>
++<td><h3><dl><dt>Berkeley DB Reference Guide:<dd>Building Berkeley DB for Windows CE systems</dl></h3></td>
++<td align=right><a href="../build_wince/notes.html"><img src="../../images/prev.gif" alt="Prev"></a><a href="../toc.html"><img src="../../images/ref.gif" alt="Ref"></a><a href="../build_vxworks/intro.html"><img src="../../images/next.gif" alt="Next"></a>
++</td></tr></table>
++<p>
++<h3 align=center>Windows CE FAQ</h3>
++<ol>
++<p><li><b>Why can't I use the Berkeley_DB workspace in Visual Studio 2005?</b>
++<p>The automatic workspace upgrade tool included with Visual Studio 2005
++is not compatible with the eMbedded Visual Studio 4.0 project files
++distributed with Berkeley DB.</p>
++</ol>
++<table width="100%"><tr><td><br></td><td align=right><a href="../build_wince/notes.html"><img src="../../images/prev.gif" alt="Prev"></a><a href="../toc.html"><img src="../../images/ref.gif" alt="Ref"></a><a href="../build_vxworks/intro.html"><img src="../../images/next.gif" alt="Next"></a>
++</td></tr></table>
++<p><font size=1>Copyright (c) 1996,2007 Oracle.  All rights reserved.</font>
++</body>
++</html>
+--- /dev/null
++++ db4.7-4.7.25/docs/api_c/set_func_unmap.html
+@@ -0,0 +1,61 @@
++<!--$Id: set_func_unmap.so,v 10.18 2004/08/13 03:39:02 bostic Exp $-->
++<!--Copyright (c) 1997,2007 Oracle.  All rights reserved.-->
++<!--See the file LICENSE for redistribution information.-->
++<html>
++<head>
++<title>Berkeley DB: db_env_set_func_unmap</title>
++<meta name="description" content="Berkeley DB: An embedded database programmatic toolkit.">
++<meta name="keywords" content="embedded,database,programmatic,toolkit,btree,hash,hashing,transaction,transactions,locking,logging,access method,access methods,Java,C,C++">
++</head>
++<body bgcolor=white>
++<table width="100%"><tr valign=top>
++<td>
++<h3>db_env_set_func_unmap</h3>
++</td>
++<td align=right>
++<a href="../api_c/api_core.html"><img src="../images/api.gif" alt="API"></a>
++<a href="../ref/toc.html"><img src="../images/ref.gif" alt="Ref"></a></td>
++</tr></table>
++<hr size=1 noshade>
++<tt>
++<h3><pre>
++#include &lt;db.h&gt;
++<p>
++int
++db_env_set_func_unmap(int (*func_unmap)(void *addr, size_t len));
++</pre></h3>
++<hr size=1 noshade>
++<h3>Description: db_env_set_func_unmap</h3>
++<p>The Berkeley DB library requires the ability to unmap a file or shared memory
++region from memory.</p>
++<p>The db_env_set_func_unmap method configures all operations performed by a process and
++all of its threads of control, not operations confined to a single
++database environment.</p>
++<p>Although the db_env_set_func_unmap method may be called at any time during the life of
++the application, it should normally be called before making calls to the
++<a href="../api_c/env_class.html">db_env_create</a> or <a href="../api_c/db_class.html">db_create</a> methods.</p>
++<p>The db_env_set_func_unmap method
++returns a non-zero error value on failure
++and 0 on success.
++</p>
++<h3>Parameters</h3>
++<dl compact>
++<dt><b>func_unmap</b><dd>The <b>func_unmap</b> parameter is the function which unmaps a file or
++shared memory region.
++<p>The <b>addr</b> parameter is the value returned by the
++<a href="../api_c/set_func_map.html">db_env_set_func_map</a> function when the file or region was mapped
++into memory, and the <b>len</b> parameter is the same as the <b>len</b>
++parameter specified to the <a href="../api_c/set_func_map.html">db_env_set_func_map</a> function when the
++file or region was mapped into memory.</p>
++<p>The <b>func_unmap</b> function must return the value of <b>errno</b> on
++failure and 0 on success.</p>
++</dl>
++<h3>See Also</h3>
++<a href="../ref/program/runtime.html">Run-time configuration</a>
++</tt>
++<table width="100%"><tr><td><br></td><td align=right>
++<a href="../api_c/api_core.html"><img src="../images/api.gif" alt="API"></a><a href="../ref/toc.html"><img src="../images/ref.gif" alt="Ref"></a>
++</td></tr></table>
++<p><font size=1>Copyright (c) 1996,2007 Oracle.  All rights reserved.</font>
++</body>
++</html>
+--- /dev/null
++++ db4.7-4.7.25/docs/api_c/set_func_map.html
+@@ -0,0 +1,72 @@
++<!--$Id: set_func_map.so,v 10.20 2004/08/13 03:39:02 bostic Exp $-->
++<!--Copyright (c) 1997,2007 Oracle.  All rights reserved.-->
++<!--See the file LICENSE for redistribution information.-->
++<html>
++<head>
++<title>Berkeley DB: db_env_set_func_map</title>
++<meta name="description" content="Berkeley DB: An embedded database programmatic toolkit.">
++<meta name="keywords" content="embedded,database,programmatic,toolkit,btree,hash,hashing,transaction,transactions,locking,logging,access method,access methods,Java,C,C++">
++</head>
++<body bgcolor=white>
++<table width="100%"><tr valign=top>
++<td>
++<h3>db_env_set_func_map</h3>
++</td>
++<td align=right>
++<a href="../api_c/api_core.html"><img src="../images/api.gif" alt="API"></a>
++<a href="../ref/toc.html"><img src="../images/ref.gif" alt="Ref"></a></td>
++</tr></table>
++<hr size=1 noshade>
++<tt>
++<h3><pre>
++#include &lt;db.h&gt;
++<p>
++int
++db_env_set_func_map(int (*func_map)(char *path,
++    size_t len, int is_region, int is_rdonly, void **addr));
++</pre></h3>
++<hr size=1 noshade>
++<h3>Description: db_env_set_func_map</h3>
++<p>The Berkeley DB library requires the ability to map a file into memory and to
++create shared memory regions (which may or may not be backed by files).</p>
++<p>The db_env_set_func_map method configures all operations performed by a process and
++all of its threads of control, not operations confined to a single
++database environment.</p>
++<p>Although the db_env_set_func_map method may be called at any time during the life of
++the application, it should normally be called before making calls to the
++<a href="../api_c/env_class.html">db_env_create</a> or <a href="../api_c/db_class.html">db_create</a> methods.</p>
++<p>The db_env_set_func_map method
++returns a non-zero error value on failure
++and 0 on success.
++</p>
++<h3>Parameters</h3>
++<dl compact>
++<dt><b>func_map</b><dd>The <b>func_map</b> parameter is the function which maps a file into
++memory and creates shared memory regions.
++<p>The <b>path</b> parameter is the name of a file.</p>
++<p>The <b>is_region</b> parameter will be zero if the intention is to map
++a file into shared memory.  In this case, the <b>map</b> function must
++map the first <b>len</b> bytes of the file into memory and return a
++pointer to the mapped location into the memory location to which the
++parameter <b>addr</b> refers.  The <b>is_rdonly</b> parameter will be
++non-zero if the file is considered read-only by the caller.</p>
++<p>The <b>is_region</b> parameter will be non-zero if the memory is
++intended to be used as a shared memory region for synchronization
++between Berkeley DB threads/processes.  In this case, the returned memory may
++be of any kind (for example, anonymous memory), but must be able to
++support semaphores.  In this case, the <b>path</b> parameter may be
++ignored (although future <b>map</b> calls using the same <b>path</b>
++must return the same memory), and the <b>is_rdonly</b> parameter will
++always be zero.</p>
++<p>The <b>func_map</b> function must return the value of <b>errno</b> on
++failure and 0 on success.</p>
++</dl>
++<h3>See Also</h3>
++<a href="../ref/program/runtime.html">Run-time configuration</a>
++</tt>
++<table width="100%"><tr><td><br></td><td align=right>
++<a href="../api_c/api_core.html"><img src="../images/api.gif" alt="API"></a><a href="../ref/toc.html"><img src="../images/ref.gif" alt="Ref"></a>
++</td></tr></table>
++<p><font size=1>Copyright (c) 1996,2007 Oracle.  All rights reserved.</font>
++</body>
++</html>
+--- /dev/null
++++ db4.7-4.7.25/docs/api_c/set_func_sleep.html
+@@ -0,0 +1,62 @@
++<!--$Id: set_func_sleep.so,v 10.21 2007/05/07 18:03:09 bostic Exp $-->
++<!--Copyright (c) 1997,2007 Oracle.  All rights reserved.-->
++<!--See the file LICENSE for redistribution information.-->
++<html>
++<head>
++<title>Berkeley DB: db_env_set_func_sleep</title>
++<meta name="description" content="Berkeley DB: An embedded database programmatic toolkit.">
++<meta name="keywords" content="embedded,database,programmatic,toolkit,btree,hash,hashing,transaction,transactions,locking,logging,access method,access methods,Java,C,C++">
++</head>
++<body bgcolor=white>
++<table width="100%"><tr valign=top>
++<td>
++<h3>db_env_set_func_sleep</h3>
++</td>
++<td align=right>
++<a href="../api_c/api_core.html"><img src="../images/api.gif" alt="API"></a>
++<a href="../ref/toc.html"><img src="../images/ref.gif" alt="Ref"></a></td>
++</tr></table>
++<hr size=1 noshade>
++<tt>
++<h3><pre>
++#include &lt;db.h&gt;
++<p>
++int
++db_env_set_func_sleep(int (*func_sleep)(u_long seconds, u_long microseconds));
++</pre></h3>
++<hr size=1 noshade>
++<h3>Description: db_env_set_func_sleep</h3>
++<p>The Berkeley DB library requires the ability to cause a thread of control to
++suspend itself for a period of time, relinquishing control of the
++processor to any other waiting thread of control.</p>
++<p>The db_env_set_func_sleep method configures all operations performed by a process and
++all of its threads of control, not operations confined to a single
++database environment.</p>
++<p>Although the db_env_set_func_sleep method may be called at any time during the life of
++the application, it should normally be called before making calls to the
++<a href="../api_c/env_class.html">db_env_create</a> or <a href="../api_c/db_class.html">db_create</a> methods.</p>
++<p>The db_env_set_func_sleep method
++returns a non-zero error value on failure
++and 0 on success.
++</p>
++<h3>Parameters</h3>
++<dl compact>
++<dt><b>func_sleep</b><dd>The <b>func_sleep</b> parameter is the function which suspends execution
++of a thread of control.
++<p>The <b>seconds</b> and <b>microseconds</b> parameters specify the amount
++of time to wait until the suspending thread of control should run again.</p>
++<p>The <b>seconds</b> and <b>microseconds</b> parameters may not be
++normalized when the <b>sleep</b> function is called; that is, the
++<b>microseconds</b> parameter may be greater than 1000000.</p>
++<p>The <b>func_sleep</b> function must return the value of <b>errno</b> on
++failure and 0 on success.</p>
++</dl>
++<h3>See Also</h3>
++<a href="../ref/program/runtime.html">Run-time configuration</a>
++</tt>
++<table width="100%"><tr><td><br></td><td align=right>
++<a href="../api_c/api_core.html"><img src="../images/api.gif" alt="API"></a><a href="../ref/toc.html"><img src="../images/ref.gif" alt="Ref"></a>
++</td></tr></table>
++<p><font size=1>Copyright (c) 1996,2007 Oracle.  All rights reserved.</font>
++</body>
++</html>
+--- /dev/null
++++ db4.7-4.7.25/rep/rep_autop.c
+@@ -0,0 +1,11 @@
++/* Do not edit: automatically built by gen_rec.awk. */
++
++#include "db_config.h"
++
++#include "db_int.h"
++#include "dbinc/db_page.h"
++#include "dbinc/db_am.h"
++#include "dbinc/log.h"
++#include "dbinc/mp.h"
++#include "dbinc/txn.h"
++
+--- db4.7-4.7.25.orig/rep/rep_elect.c
++++ db4.7-4.7.25/rep/rep_elect.c
+@@ -33,7 +33,7 @@ static int __rep_elect_init
+ static int __rep_fire_elected __P((ENV *, REP *, u_int32_t));
+ static void __rep_elect_master __P((ENV *, REP *));
+ static int __rep_tally __P((ENV *, REP *, int, u_int32_t *, u_int32_t, roff_t));
+-static int __rep_wait __P((ENV *, db_timeout_t *, int *, int, u_int32_t));
++static int __rep_wait __P((ENV *, db_timeout_t *, int, u_int32_t));
+ 
+ /*
+  * __rep_elect --
+@@ -55,7 +55,7 @@ __rep_elect(dbenv, given_nsites, nvotes,
+ 	ENV *env;
+ 	LOG *lp;
+ 	REP *rep;
+-	int done, eid, elected, full_elect, locked, in_progress, need_req;
++	int done, elected, full_elect, locked, in_progress, need_req;
+ 	int ret, send_vote, t_ret;
+ 	u_int32_t ack, ctlflags, egen, nsites, orig_tally, priority, realpri;
+ 	u_int32_t tiebreaker;
+@@ -181,8 +181,7 @@ __rep_elect(dbenv, given_nsites, nvotes,
+ 			REP_SYSTEM_UNLOCK(env);
+ 			(void)__rep_send_message(env, DB_EID_BROADCAST,
+ 			    REP_MASTER_REQ, NULL, NULL, 0, 0);
+-			ret = __rep_wait(env, &to, &eid,
+-			    0, REP_F_EPHASE0);
++			ret = __rep_wait(env, &to, 0, REP_F_EPHASE0);
+ 			REP_SYSTEM_LOCK(env);
+ 			F_CLR(rep, REP_F_EPHASE0);
+ 			switch (ret) {
+@@ -286,11 +285,11 @@ restart:
+ 		REP_SYSTEM_LOCK(env);
+ 		goto vote;
+ 	}
+-	ret = __rep_wait(env, &to, &eid, full_elect, REP_F_EPHASE1);
++	ret = __rep_wait(env, &to, full_elect, REP_F_EPHASE1);
+ 	switch (ret) {
+ 		case 0:
+ 			/* Check if election complete or phase complete. */
+-			if (eid != DB_EID_INVALID && !IN_ELECTION(rep)) {
++			if (!IN_ELECTION(rep)) {
+ 				RPRINT(env, DB_VERB_REP_ELECT,
+ 				    (env, "Ended election phase 1"));
+ 				goto edone;
+@@ -398,15 +397,12 @@ phase2:
+ 		REP_SYSTEM_LOCK(env);
+ 		goto i_won;
+ 	}
+-	ret = __rep_wait(env, &to, &eid, full_elect, REP_F_EPHASE2);
++	ret = __rep_wait(env, &to, full_elect, REP_F_EPHASE2);
+ 	RPRINT(env, DB_VERB_REP_ELECT,
+ 	    (env, "Ended election phase 2 %d", ret));
+ 	switch (ret) {
+ 		case 0:
+-			if (eid != DB_EID_INVALID)
+-				goto edone;
+-			ret = DB_REP_UNAVAIL;
+-			break;
++			goto edone;
+ 		case DB_REP_EGENCHG:
+ 			if (to > timeout)
+ 				to = timeout;
+@@ -1050,13 +1046,6 @@ __rep_elect_master(env, rep)
+ 	ENV *env;
+ 	REP *rep;
+ {
+-	/*
+-	 * We often come through here twice, sometimes even more.  We mustn't
+-	 * let the redundant calls affect stats counting.  But rep_elect relies
+-	 * on this first part for setting eidp.
+-	 */
+-	rep->master_id = rep->eid;
+-
+ 	if (F_ISSET(rep, REP_F_MASTERELECT | REP_F_MASTER)) {
+ 		/* We've been through here already; avoid double counting. */
+ 		return;
+@@ -1093,10 +1082,10 @@ __rep_fire_elected(env, rep, egen)
+ 	(timeout > 5000000) ? 500000 : ((timeout >= 10) ? timeout / 10 : 1);
+ 
+ static int
+-__rep_wait(env, timeoutp, eidp, full_elect, flags)
++__rep_wait(env, timeoutp, full_elect, flags)
+ 	ENV *env;
+ 	db_timeout_t *timeoutp;
+-	int *eidp, full_elect;
++	int full_elect;
+ 	u_int32_t flags;
+ {
+ 	DB_REP *db_rep;
+@@ -1174,7 +1163,6 @@ __rep_wait(env, timeoutp, eidp, full_ele
+ 			F_CLR(rep, REP_F_EGENUPDATE);
+ 			ret = DB_REP_EGENCHG;
+ 		} else if (phase_over) {
+-			*eidp = rep->master_id;
+ 			done = 1;
+ 			ret = 0;
+ 		}
+--- db4.7-4.7.25.orig/dbinc/repmgr.h
++++ db4.7-4.7.25/dbinc/repmgr.h
+@@ -374,6 +374,7 @@ typedef struct {
+ #define	SITE_FROM_EID(eid)	(&db_rep->sites[eid])
+ #define	EID_FROM_SITE(s)	((int)((s) - (&db_rep->sites[0])))
+ #define	IS_VALID_EID(e)		((e) >= 0)
++#define	IS_KNOWN_REMOTE_SITE(e)	((e) >= 0 && ((u_int)(e)) < db_rep->site_cnt)
+ #define	SELF_EID		INT_MAX
+ 
+ #define	IS_PEER_POLICY(p) ((p) == DB_REPMGR_ACKS_ALL_PEERS ||		\
+--- db4.7-4.7.25.orig/dbinc/mutex_int.h
++++ db4.7-4.7.25/dbinc/mutex_int.h
+@@ -756,7 +756,11 @@ typedef unsigned char tsl_t;
+  * alignment locally.
+  */
+ #ifndef	MUTEX_ALIGN
+-#define	MUTEX_ALIGN	sizeof(unsigned int)
++# if defined(__linux__) && defined(__sparc__)
++# define	MUTEX_ALIGN	8
++# else
++# define	MUTEX_ALIGN	sizeof(unsigned int)
++# endif
+ #endif
+ 
+ /*
+--- db4.7-4.7.25.orig/dbinc/db_page.h
++++ db4.7-4.7.25/dbinc/db_page.h
+@@ -223,6 +223,17 @@ typedef struct __pg_crypto {
+ 	 */
+ } PG_CRYPTO;
+ 
++/*
++ * With most compilers sizeof(PG_CRYPTO) == 38.  However some ABIs
++ * require it to be padded to 40 bytes.  The padding must be excluded
++ * from our size calculations due to the 16-byte alignment requirement
++ * for crypto.
++ *
++ * A similar problem applies to PG_CHKSUM, but it's too late to change
++ * that.
++ */
++#define SIZEOF_PG_CRYPTO 38
++
+ typedef struct _db_page {
+ 	DB_LSN	  lsn;		/* 00-07: Log sequence number. */
+ 	db_pgno_t pgno;		/* 08-11: Current page number. */
+@@ -258,7 +269,7 @@ typedef struct _db_page {
+  */
+ #define	P_INP(dbp, pg)							\
+ 	((db_indx_t *)((u_int8_t *)(pg) + SIZEOF_PAGE +			\
+-	(F_ISSET((dbp), DB_AM_ENCRYPT) ? sizeof(PG_CRYPTO) :		\
++	(F_ISSET((dbp), DB_AM_ENCRYPT) ? SIZEOF_PG_CRYPTO :		\
+ 	(F_ISSET((dbp), DB_AM_CHKSUM) ? sizeof(PG_CHKSUM) : 0))))
+ 
+ #define	P_IV(dbp, pg)							\
+--- db4.7-4.7.25.orig/lock/lock.c
++++ db4.7-4.7.25/lock/lock.c
+@@ -1274,10 +1274,12 @@ __lock_put_internal(lt, lockp, obj_ndx, 
+ 		SH_TAILQ_REMOVE(
+ 		    &lt->obj_tab[obj_ndx], sh_obj, links, __db_lockobj);
+ 		if (sh_obj->lockobj.size > sizeof(sh_obj->objdata)) {
+-			LOCK_REGION_LOCK(env);
++			if (region->part_t_size != 1)
++				LOCK_REGION_LOCK(env);
+ 			__env_alloc_free(&lt->reginfo,
+ 			    SH_DBT_PTR(&sh_obj->lockobj));
+-			LOCK_REGION_UNLOCK(env);
++			if (region->part_t_size != 1)
++				LOCK_REGION_UNLOCK(env);
+ 		}
+ 		SH_TAILQ_INSERT_HEAD(
+ 		    &FREE_OBJS(lt, part_id), sh_obj, links, __db_lockobj);
+@@ -1467,15 +1469,21 @@ retry:	SH_TAILQ_FOREACH(sh_obj, &lt->obj
+ 		if (obj->size <= sizeof(sh_obj->objdata))
+ 			p = sh_obj->objdata;
+ 		else {
+-			LOCK_REGION_LOCK(env);
++			/*
++			 * If we have only one partition, the region is locked.
++			 */
++			if (region->part_t_size != 1)
++				LOCK_REGION_LOCK(env);
+ 			if ((ret =
+ 			    __env_alloc(&lt->reginfo, obj->size, &p)) != 0) {
+ 				__db_errx(env,
+ 				    "No space for lock object storage");
+-				LOCK_REGION_UNLOCK(env);
++				if (region->part_t_size != 1)
++					LOCK_REGION_UNLOCK(env);
+ 				goto err;
+ 			}
+-			LOCK_REGION_UNLOCK(env);
++			if (region->part_t_size != 1)
++				LOCK_REGION_UNLOCK(env);
+ 		}
+ 
+ 		memcpy(p, obj->data, obj->size);
+--- db4.7-4.7.25.orig/lock/lock_deadlock.c
++++ db4.7-4.7.25/lock/lock_deadlock.c
+@@ -121,7 +121,7 @@ __lock_detect(env, atype, rejectp)
+ 	DB_LOCKTAB *lt;
+ 	db_timespec now;
+ 	locker_info *idmap;
+-	u_int32_t *bitmap, *copymap, **deadp, **free_me, *tmpmap;
++	u_int32_t *bitmap, *copymap, **deadp, **deadlist, *tmpmap;
+ 	u_int32_t i, cid, keeper, killid, limit, nalloc, nlockers;
+ 	u_int32_t lock_max, txn_max;
+ 	int ret, status;
+@@ -133,7 +133,8 @@ __lock_detect(env, atype, rejectp)
+ 	if (IS_REP_CLIENT(env))
+ 		atype = DB_LOCK_MINWRITE;
+ 
+-	free_me = NULL;
++	copymap = tmpmap = NULL;
++	deadlist = NULL;
+ 
+ 	lt = env->lk_handle;
+ 	if (rejectp != NULL)
+@@ -179,11 +180,11 @@ __lock_detect(env, atype, rejectp)
+ 	memcpy(copymap, bitmap, nlockers * sizeof(u_int32_t) * nalloc);
+ 
+ 	if ((ret = __os_calloc(env, sizeof(u_int32_t), nalloc, &tmpmap)) != 0)
+-		goto err1;
++		goto err;
+ 
+ 	/* Find a deadlock. */
+ 	if ((ret =
+-	    __dd_find(env, bitmap, idmap, nlockers, nalloc, &deadp)) != 0)
++	    __dd_find(env, bitmap, idmap, nlockers, nalloc, &deadlist)) != 0)
+ 		return (ret);
+ 
+ 	/*
+@@ -204,8 +205,7 @@ __lock_detect(env, atype, rejectp)
+ 		txn_max = TXN_MAXIMUM;
+ 
+ 	killid = BAD_KILLID;
+-	free_me = deadp;
+-	for (; *deadp != NULL; deadp++) {
++	for (deadp = deadlist; *deadp != NULL; deadp++) {
+ 		if (rejectp != NULL)
+ 			++*rejectp;
+ 		killid = (u_int32_t)(*deadp - bitmap) / nalloc;
+@@ -342,11 +342,12 @@ dokill:		if (killid == BAD_KILLID) {
+ 			__db_msg(env,
+ 			    "Aborting locker %lx", (u_long)idmap[killid].id);
+ 	}
+-	__os_free(env, tmpmap);
+-err1:	__os_free(env, copymap);
+-
+-err:	if (free_me != NULL)
+-		__os_free(env, free_me);
++err:	if(copymap != NULL)
++		__os_free(env, copymap);
++	if (deadlist != NULL)
++		__os_free(env, deadlist);
++	if(tmpmap != NULL)
++		__os_free(env, tmpmap);
+ 	__os_free(env, bitmap);
+ 	__os_free(env, idmap);
+ 
+@@ -360,6 +361,17 @@ err:	if (free_me != NULL)
+ 
+ #define	DD_INVALID_ID	((u_int32_t) -1)
+ 
++/*
++ * __dd_build --
++ *	Build the lock dependency bit maps.
++ * Notes on syncronization:  
++ *	LOCK_SYSTEM_LOCK is used to hold objects locked when we have
++ *		a single partition.
++ *	LOCK_LOCKERS is held while we are walking the lockers list and
++ *		to single thread the use of lockerp->dd_id.
++ *	LOCK_DD protects the DD list of objects.
++ */
++
+ static int
+ __dd_build(env, atype, bmp, nlockers, allocp, idmap, rejectp)
+ 	ENV *env;
+@@ -393,6 +405,7 @@ __dd_build(env, atype, bmp, nlockers, al
+ 	 * In particular we do not build the conflict array and our caller
+ 	 * needs to expect this.
+ 	 */
++	LOCK_SYSTEM_LOCK(lt, region);
+ 	if (atype == DB_LOCK_EXPIRE) {
+ skip:		LOCK_DD(env, region);
+ 		op = SH_TAILQ_FIRST(&region->dd_objs, __db_lockobj);
+@@ -430,17 +443,18 @@ skip:		LOCK_DD(env, region);
+ 			OBJECT_UNLOCK(lt, region, indx);
+ 		}
+ 		UNLOCK_DD(env, region);
++		LOCK_SYSTEM_UNLOCK(lt, region);
+ 		goto done;
+ 	}
+ 
+ 	/*
+-	 * We'll check how many lockers there are, add a few more in for
+-	 * good measure and then allocate all the structures.  Then we'll
+-	 * verify that we have enough room when we go back in and get the
+-	 * mutex the second time.
++	 * Allocate after locking the region
++	 * to make sure the structures are large enough.
+ 	 */
+-retry:	count = region->stat.st_nlockers;
++	LOCK_LOCKERS(env, region);
++	count = region->stat.st_nlockers;
+ 	if (count == 0) {
++		UNLOCK_LOCKERS(env, region);
+ 		*nlockers = 0;
+ 		return (0);
+ 	}
+@@ -448,50 +462,37 @@ retry:	count = region->stat.st_nlockers;
+ 	if (FLD_ISSET(env->dbenv->verbose, DB_VERB_DEADLOCK))
+ 		__db_msg(env, "%lu lockers", (u_long)count);
+ 
+-	count += 20;
+ 	nentries = (u_int32_t)DB_ALIGN(count, 32) / 32;
+ 
+-	/*
+-	 * Allocate enough space for a count by count bitmap matrix.
+-	 *
+-	 * XXX
+-	 * We can probably save the malloc's between iterations just
+-	 * reallocing if necessary because count grew by too much.
+-	 */
++	/* Allocate enough space for a count by count bitmap matrix. */
+ 	if ((ret = __os_calloc(env, (size_t)count,
+-	    sizeof(u_int32_t) * nentries, &bitmap)) != 0)
++	    sizeof(u_int32_t) * nentries, &bitmap)) != 0) {
++		UNLOCK_LOCKERS(env, region);
+ 		return (ret);
++	}
+ 
+ 	if ((ret = __os_calloc(env,
+ 	    sizeof(u_int32_t), nentries, &tmpmap)) != 0) {
++		UNLOCK_LOCKERS(env, region);
+ 		__os_free(env, bitmap);
+ 		return (ret);
+ 	}
+ 
+ 	if ((ret = __os_calloc(env,
+ 	    (size_t)count, sizeof(locker_info), &id_array)) != 0) {
++		UNLOCK_LOCKERS(env, region);
+ 		__os_free(env, bitmap);
+ 		__os_free(env, tmpmap);
+ 		return (ret);
+ 	}
+ 
+ 	/*
+-	 * Now go back in and actually fill in the matrix.
+-	 */
+-	if (region->stat.st_nlockers > count) {
+-		__os_free(env, bitmap);
+-		__os_free(env, tmpmap);
+-		__os_free(env, id_array);
+-		goto retry;
+-	}
+-
+-	/*
+ 	 * First we go through and assign each locker a deadlock detector id.
+ 	 */
+ 	id = 0;
+-	LOCK_LOCKERS(env, region);
+ 	SH_TAILQ_FOREACH(lip, &region->lockers, ulinks, __db_locker) {
+ 		if (lip->master_locker == INVALID_ROFF) {
++			DB_ASSERT(env, id < count);
+ 			lip->dd_id = id++;
+ 			id_array[lip->dd_id].id = lip->id;
+ 			switch (atype) {
+@@ -510,7 +511,6 @@ retry:	count = region->stat.st_nlockers;
+ 			lip->dd_id = DD_INVALID_ID;
+ 
+ 	}
+-	UNLOCK_LOCKERS(env, region);
+ 
+ 	/*
+ 	 * We only need consider objects that have waiters, so we use
+@@ -669,7 +669,6 @@ again:		memset(bitmap, 0, count * sizeof
+ 	 * status after building the bit maps so that we will not detect
+ 	 * a blocked transaction without noting that it is already aborting.
+ 	 */
+-	LOCK_LOCKERS(env, region);
+ 	for (id = 0; id < count; id++) {
+ 		if (!id_array[id].valid)
+ 			continue;
+@@ -738,6 +737,7 @@ get_lock:		id_array[id].last_lock = R_OF
+ 			id_array[id].in_abort = 1;
+ 	}
+ 	UNLOCK_LOCKERS(env, region);
++	LOCK_SYSTEM_UNLOCK(lt, region);
+ 
+ 	/*
+ 	 * Now we can release everything except the bitmap matrix that we
+@@ -839,6 +839,7 @@ __dd_abort(env, info, statusp)
+ 	ret = 0;
+ 
+ 	/* We must lock so this locker cannot go away while we abort it. */
++	LOCK_SYSTEM_LOCK(lt, region);
+ 	LOCK_LOCKERS(env, region);
+ 
+ 	/*
+@@ -895,6 +896,7 @@ __dd_abort(env, info, statusp)
+ done:	OBJECT_UNLOCK(lt, region, info->last_ndx);
+ err:
+ out:	UNLOCK_LOCKERS(env, region);
++	LOCK_SYSTEM_UNLOCK(lt, region);
+ 	return (ret);
+ }
+ 
+--- /dev/null
++++ db4.7-4.7.25/clib/getaddrinfo.c
+@@ -0,0 +1,176 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 2006,2007 Oracle.  All rights reserved.
++ *
++ * $Id: getaddrinfo.c,v 1.8 2007/05/17 15:14:54 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#define	__INCLUDE_NETWORKING	1
++#include "db_int.h"
++
++/*
++ * __db_getaddrinfo and __db_freeaddrinfo wrap the getaddrinfo and freeaddrinfo
++ * calls, as well as the associated platform dependent error handling, mapping
++ * the error return to a ANSI C/POSIX error return.
++ */
++
++/*
++ * __db_getaddrinfo --
++ *
++ * PUBLIC: #if defined(HAVE_REPLICATION_THREADS)
++ * PUBLIC: int __db_getaddrinfo __P((DB_ENV *, const char *, u_int,
++ * PUBLIC:    const char *, const ADDRINFO *, ADDRINFO **));
++ * PUBLIC: #endif
++ */
++int
++__db_getaddrinfo(dbenv, nodename, port, servname, hints, res)
++	DB_ENV *dbenv;
++	const char *nodename, *servname;
++	u_int port;
++	const ADDRINFO *hints;
++	ADDRINFO **res;
++{
++#ifdef HAVE_GETADDRINFO
++	int ret;
++
++	if ((ret = getaddrinfo(nodename, servname, hints, res)) == 0)
++		return (0);
++
++	__db_errx(dbenv, "%s(%u): host lookup failed: %s",
++	    nodename == NULL ? "" : nodename, port,
++#ifdef DB_WIN32
++	    gai_strerrorA(ret));
++#else
++	    gai_strerror(ret));
++#endif
++	return (__os_posix_err(ret));
++#else
++	ADDRINFO *answer;
++	struct hostent *hostaddr;
++	struct sockaddr_in sin;
++	u_int32_t tmpaddr;
++	int ret;
++
++	COMPQUIET(hints, NULL);
++	COMPQUIET(servname, NULL);
++
++	/* INADDR_NONE is not defined on Solaris 2.6, 2.7 or 2.8. */
++#ifndef	INADDR_NONE
++#define	INADDR_NONE	((u_long)0xffffffff)
++#endif
++
++	/*
++	 * Basic implementation of IPv4 component of getaddrinfo.
++	 * Limited to the functionality used by repmgr.
++	 */
++	memset(&sin, 0, sizeof(sin));
++	sin.sin_family = AF_INET;
++	if (nodename) {
++		if (nodename[0] == '\0')
++			sin.sin_addr.s_addr = htonl(INADDR_ANY);
++		else if ((tmpaddr = inet_addr(nodename)) != INADDR_NONE) {
++			sin.sin_addr.s_addr = tmpaddr;
++		} else {
++			hostaddr = gethostbyname(nodename);
++			if (hostaddr == NULL) {
++#ifdef DB_WIN32
++				ret = __os_get_neterr();
++				__db_syserr(dbenv, ret,
++				    "%s(%u): host lookup failed",
++				    nodename == NULL ? "" : nodename, port);
++				return (__os_posix_err(ret));
++#else
++				/*
++				 * Historic UNIX systems used the h_errno
++				 * global variable to return gethostbyname
++				 * errors.  The only function we currently
++				 * use that needs h_errno is gethostbyname,
++				 * so we deal with it here.
++				 *
++				 * hstrerror is not available on Solaris 2.6
++				 * (it is in libresolv but is a private,
++				 * unexported symbol).
++				 */
++#ifdef HAVE_HSTRERROR
++				__db_errx(dbenv,
++				    "%s(%u): host lookup failed: %s",
++				    nodename == NULL ? "" : nodename, port,
++				    hstrerror(h_errno));
++#else
++				__db_errx(dbenv,
++				    "%s(%u): host lookup failed: %d",
++				    nodename == NULL ? "" : nodename, port,
++				    h_errno);
++#endif
++				switch (h_errno) {
++				case HOST_NOT_FOUND:
++				case NO_DATA:
++					return (EHOSTUNREACH);
++				case TRY_AGAIN:
++					return (EAGAIN);
++				case NO_RECOVERY:
++				default:
++					return (EFAULT);
++				}
++				/* NOTREACHED */
++#endif
++			}
++			memcpy(&(sin.sin_addr),
++			    hostaddr->h_addr, (size_t)hostaddr->h_length);
++		}
++	} else					/* No host specified. */
++		sin.sin_addr.s_addr = htonl(INADDR_ANY);
++	sin.sin_port = htons((u_int16_t)port);
++
++	if ((ret = __os_calloc(dbenv, 1, sizeof(ADDRINFO), &answer)) != 0)
++		return (ret);
++	if ((ret = __os_malloc(dbenv, sizeof(sin), &answer->ai_addr)) != 0) {
++		__os_free(dbenv, answer);
++		return (ret);
++	}
++
++	answer->ai_family = AF_INET;
++	answer->ai_protocol = IPPROTO_TCP;
++	answer->ai_socktype = SOCK_STREAM;
++	answer->ai_addrlen = sizeof(sin);
++	memcpy(answer->ai_addr, &sin, sizeof(sin));
++	*res = answer;
++
++	return (0);
++#endif /* HAVE_GETADDRINFO */
++}
++
++/*
++ * __db_freeaddrinfo --
++ *
++ * PUBLIC: #if defined(HAVE_REPLICATION_THREADS)
++ * PUBLIC: void __db_freeaddrinfo __P((DB_ENV *, ADDRINFO *));
++ * PUBLIC: #endif
++ */
++void
++__db_freeaddrinfo(dbenv, ai)
++	DB_ENV *dbenv;
++	ADDRINFO *ai;
++{
++#ifdef HAVE_GETADDRINFO
++	COMPQUIET(dbenv, NULL);
++
++	freeaddrinfo(ai);
++#else
++	ADDRINFO *next, *tmpaddr;
++
++	for (next = ai; next != NULL; next = tmpaddr) {
++		if (next->ai_canonname != NULL)
++			__os_free(dbenv, next->ai_canonname);
++
++		if (next->ai_addr != NULL)
++			__os_free(dbenv, next->ai_addr);
++
++		tmpaddr = next->ai_next;
++		__os_free(dbenv, next);
++	}
++#endif
++}
+--- /dev/null
++++ db4.7-4.7.25/clib/ctime.c
+@@ -0,0 +1,40 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 2001,2007 Oracle.  All rights reserved.
++ *
++ * $Id: ctime.c,v 12.12 2007/05/17 15:14:54 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++/*
++ * __db_ctime --
++ *	Format a time-stamp.
++ *
++ * PUBLIC: char *__db_ctime __P((const time_t *, char *));
++ */
++char *
++__db_ctime(tod, time_buf)
++	const time_t *tod;
++	char *time_buf;
++{
++	time_buf[CTIME_BUFLEN - 1] = '\0';
++
++	/*
++	 * The ctime_r interface is the POSIX standard, thread-safe version of
++	 * ctime.  However, it was implemented in two different ways (with and
++	 * without a buffer length argument), and you can't depend on a return
++	 * value of (char *), the version in HPUX 10.XX returned an int.
++	 */
++#if defined(HAVE_CTIME_R_3ARG)
++	(void)ctime_r(tod, time_buf, CTIME_BUFLEN);
++#elif defined(HAVE_CTIME_R)
++	(void)ctime_r(tod, time_buf);
++#else
++	(void)strncpy(time_buf, ctime(tod), CTIME_BUFLEN - 1);
++#endif
++	return (time_buf);
++}
+--- /dev/null
++++ db4.7-4.7.25/docs_src/ref/build_wince/faq.so
+@@ -0,0 +1,21 @@
++m4_comment([$Id: faq.so,v 1.2 2007/06/04 14:55:40 bostic Exp $])
++
++m4_ref_title(Building m4_db for Windows CE systems,
++    Windows CE FAQ,
++    [@building for Windows CE FAQ, building for @Windows CE FAQ],
++    build_wince/notes, build_vxworks/intro)
++
++m4_nlistbegin
++
++m4_nlist([dnl
++m4_bold([dnl
++Why can't I use the Berkeley_DB workspace in Visual Studio 2005?])
++
++m4_p([dnl
++The automatic workspace upgrade tool included with Visual Studio 2005
++is not compatible with the eMbedded Visual Studio 4.0 project files
++distributed with m4_db.])])
++
++m4_nlistend
++
++m4_page_footer
+--- /dev/null
++++ db4.7-4.7.25/docs_src/rtc/set_func_unmap.so
+@@ -0,0 +1,36 @@
++m4_comment([$Id: set_func_unmap.so,v 10.18 2004/08/13 03:39:02 bostic Exp $])
++
++define(M4PAGELOCAL, dbenv_set_func_unmap)
++include(m4/m4.seealso)
++
++m4_pf_header(m4_ref(dbenv_set_func_unmap),
++ifelse(M4API, C_API, [dnl
++int
++db_env_set_func_unmap(int (*func_unmap)(void *addr, size_t len));
++]))
++
++m4_p([dnl
++The m4_db library requires the ability to unmap a file or shared memory
++region from memory.])
++
++m4_scope_process(dbenv_set_func_unmap)
++
++m4_when_init(dbenv_set_func_unmap)
++
++m4_return(dbenv_set_func_unmap, std)
++
++m4_parambegin
++m4_param(func_unmap, [dnl
++The m4_arg(func_unmap) parameter is the function which unmaps a file or
++shared memory region.
++m4_p([dnl
++The m4_arg(addr) parameter is the value returned by the
++m4_ref(dbenv_set_func_map) function when the file or region was mapped
++into memory, and the m4_arg(len) parameter is the same as the m4_arg(len)
++parameter specified to the m4_ref(dbenv_set_func_map) function when the
++file or region was mapped into memory.])
++m4_ret_internal(func_unmap)])
++m4_paramend
++
++m4_rtc_seealso
++m4_page_footer
+--- /dev/null
++++ db4.7-4.7.25/docs_src/rtc/set_func_map.so
+@@ -0,0 +1,50 @@
++m4_comment([$Id: set_func_map.so,v 10.20 2004/08/13 03:39:02 bostic Exp $])
++
++define(M4PAGELOCAL, dbenv_set_func_map)
++include(m4/m4.seealso)
++
++m4_pf_header(m4_ref(dbenv_set_func_map),
++ifelse(M4API, C_API, [dnl
++int
++db_env_set_func_map(int (*func_map)(char *path,
++    size_t len, int is_region, int is_rdonly, void **addr));
++]))
++
++m4_p([dnl
++The m4_db library requires the ability to map a file into memory and to
++create shared memory regions (which may or may not be backed by files).])
++
++m4_scope_process(dbenv_set_func_map)
++
++m4_when_init(dbenv_set_func_map)
++
++m4_return(dbenv_set_func_map, std)
++
++m4_parambegin
++m4_param(func_map, [dnl
++The m4_arg(func_map) parameter is the function which maps a file into
++memory and creates shared memory regions.
++m4_p([dnl
++The m4_arg(path) parameter is the name of a file.])
++m4_p([dnl
++The m4_arg(is_region) parameter will be zero if the intention is to map
++a file into shared memory.  In this case, the m4_arg(map) function must
++map the first m4_arg(len) bytes of the file into memory and return a
++pointer to the mapped location into the memory location to which the
++parameter m4_arg(addr) refers.  The m4_arg(is_rdonly) parameter will be
++non-zero if the file is considered read-only by the caller.])
++m4_p([dnl
++The m4_arg(is_region) parameter will be non-zero if the memory is
++intended to be used as a shared memory region for synchronization
++between m4_db threads/processes.  In this case, the returned memory may
++be of any kind (for example, anonymous memory), but must be able to
++support semaphores.  In this case, the m4_arg(path) parameter may be
++ignored (although future m4_arg(map) calls using the same m4_arg(path)
++must return the same memory), and the m4_arg(is_rdonly) parameter will
++always be zero.])
++m4_ret_internal(func_map)])
++m4_paramend
++
++m4_rtc_seealso
++m4_page_footer
++
+--- /dev/null
++++ db4.7-4.7.25/docs_src/rtc/set_func_sleep.so
+@@ -0,0 +1,38 @@
++m4_comment([$Id: set_func_sleep.so,v 10.21 2007/05/07 18:03:09 bostic Exp $])
++
++define(M4PAGELOCAL, dbenv_set_func_sleep)
++include(m4/m4.seealso)
++
++m4_pf_header(m4_ref(dbenv_set_func_sleep),
++ifelse(M4API, C_API, [dnl
++int
++db_env_set_func_sleep(int (*func_sleep)(u_long seconds, u_long microseconds));
++]))
++
++m4_p([dnl
++The m4_db library requires the ability to cause a thread of control to
++suspend itself for a period of time, relinquishing control of the
++processor to any other waiting thread of control.])
++
++m4_scope_process(dbenv_set_func_sleep)
++
++m4_when_init(dbenv_set_func_sleep)
++
++m4_return(dbenv_set_func_sleep, std)
++
++m4_parambegin
++m4_param(func_sleep, [dnl
++The m4_arg(func_sleep) parameter is the function which suspends execution
++of a thread of control.
++m4_p([dnl
++The m4_arg(seconds) and m4_arg(microseconds) parameters specify the amount
++of time to wait until the suspending thread of control should run again.])
++m4_p([dnl
++The m4_arg(seconds) and m4_arg(microseconds) parameters may not be
++normalized when the m4_arg(sleep) function is called; that is, the
++m4_arg(microseconds) parameter may be greater than 1000000.])
++m4_ret_internal(func_sleep)])
++m4_paramend
++
++m4_rtc_seealso
++m4_page_footer
+--- db4.7-4.7.25.orig/dist/Makefile.in
++++ db4.7-4.7.25/dist/Makefile.in
+@@ -731,9 +731,15 @@ $(libdb_version): $(C_OBJS)
+ 	$(RM) -f $(libdb)
+ 	$(LN) -s $(libdb_version) $(libdb)
+ 
++Versions: $(C_OBJS)
++	rm -f $@
++	printf "DB4_7 {\n  global:\n" > $@
++	nm `sed -n "/^pic_object='\(.*\)'$$/ { s//\1/;p;}" $(C_OBJS)` | grep " [TR] " | cut -d" " -f3 | sed -e 's/$$/;/' >> $@
++	printf "local: *; };\n" >> $@
++
+ # Shared C library.
+-$(libso_target): $(C_OBJS)
+-	$(SOLINK) $(SOFLAGS) $(LDFLAGS) -o $@ $(C_OBJS) $(LIBCSO_LIBS)
++$(libso_target): $(C_OBJS) Versions
++	$(SOLINK) $(SOFLAGS) -Wl,--version-script=Versions $(LDFLAGS) -o $@ $(C_OBJS) $(LIBCSO_LIBS)
+ 	$(RM) -f $(libdb)
+ 	$(LN) -s .libs/$(libdb_version) $(libdb)
+ 
+--- /dev/null
++++ db4.7-4.7.25/os/os_method.c
+@@ -0,0 +1,262 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 1999,2007 Oracle.  All rights reserved.
++ *
++ * $Id: os_method.c,v 12.6 2007/05/17 15:15:46 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++/*
++ * EXTERN: int db_env_set_func_close __P((int (*)(int)));
++ */
++int
++db_env_set_func_close(func_close)
++	int (*func_close) __P((int));
++{
++	DB_GLOBAL(j_close) = func_close;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_dirfree __P((void (*)(char **, int)));
++ */
++int
++db_env_set_func_dirfree(func_dirfree)
++	void (*func_dirfree) __P((char **, int));
++{
++	DB_GLOBAL(j_dirfree) = func_dirfree;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_dirlist
++ * EXTERN:     __P((int (*)(const char *, char ***, int *)));
++ */
++int
++db_env_set_func_dirlist(func_dirlist)
++	int (*func_dirlist) __P((const char *, char ***, int *));
++{
++	DB_GLOBAL(j_dirlist) = func_dirlist;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_exists __P((int (*)(const char *, int *)));
++ */
++int
++db_env_set_func_exists(func_exists)
++	int (*func_exists) __P((const char *, int *));
++{
++	DB_GLOBAL(j_exists) = func_exists;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_free __P((void (*)(void *)));
++ */
++int
++db_env_set_func_free(func_free)
++	void (*func_free) __P((void *));
++{
++	DB_GLOBAL(j_free) = func_free;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_fsync __P((int (*)(int)));
++ */
++int
++db_env_set_func_fsync(func_fsync)
++	int (*func_fsync) __P((int));
++{
++	DB_GLOBAL(j_fsync) = func_fsync;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_ftruncate __P((int (*)(int, off_t)));
++ */
++int
++db_env_set_func_ftruncate(func_ftruncate)
++	int (*func_ftruncate) __P((int, off_t));
++{
++	DB_GLOBAL(j_ftruncate) = func_ftruncate;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_ioinfo __P((int (*)(const char *,
++ * EXTERN:     int, u_int32_t *, u_int32_t *, u_int32_t *)));
++ */
++int
++db_env_set_func_ioinfo(func_ioinfo)
++	int (*func_ioinfo)
++	    __P((const char *, int, u_int32_t *, u_int32_t *, u_int32_t *));
++{
++	DB_GLOBAL(j_ioinfo) = func_ioinfo;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_malloc __P((void *(*)(size_t)));
++ */
++int
++db_env_set_func_malloc(func_malloc)
++	void *(*func_malloc) __P((size_t));
++{
++	DB_GLOBAL(j_malloc) = func_malloc;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_map
++ * EXTERN:     __P((int (*)(char *, size_t, int, int, void **)));
++ */
++int
++db_env_set_func_map(func_map)
++	int (*func_map) __P((char *, size_t, int, int, void **));
++{
++	DB_GLOBAL(j_map) = func_map;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_pread
++ * EXTERN:    __P((ssize_t (*)(int, void *, size_t, off_t)));
++ */
++int
++db_env_set_func_pread(func_pread)
++	ssize_t (*func_pread) __P((int, void *, size_t, off_t));
++{
++	DB_GLOBAL(j_pread) = func_pread;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_pwrite
++ * EXTERN:    __P((ssize_t (*)(int, const void *, size_t, off_t)));
++ */
++int
++db_env_set_func_pwrite(func_pwrite)
++	ssize_t (*func_pwrite) __P((int, const void *, size_t, off_t));
++{
++	DB_GLOBAL(j_pwrite) = func_pwrite;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_open __P((int (*)(const char *, int, ...)));
++ */
++int
++db_env_set_func_open(func_open)
++	int (*func_open) __P((const char *, int, ...));
++{
++	DB_GLOBAL(j_open) = func_open;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_read __P((ssize_t (*)(int, void *, size_t)));
++ */
++int
++db_env_set_func_read(func_read)
++	ssize_t (*func_read) __P((int, void *, size_t));
++{
++	DB_GLOBAL(j_read) = func_read;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_realloc __P((void *(*)(void *, size_t)));
++ */
++int
++db_env_set_func_realloc(func_realloc)
++	void *(*func_realloc) __P((void *, size_t));
++{
++	DB_GLOBAL(j_realloc) = func_realloc;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_rename
++ * EXTERN:     __P((int (*)(const char *, const char *)));
++ */
++int
++db_env_set_func_rename(func_rename)
++	int (*func_rename) __P((const char *, const char *));
++{
++	DB_GLOBAL(j_rename) = func_rename;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_seek
++ * EXTERN:     __P((int (*)(int, off_t, int)));
++ */
++int
++db_env_set_func_seek(func_seek)
++	int (*func_seek) __P((int, off_t, int));
++{
++	DB_GLOBAL(j_seek) = func_seek;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_sleep __P((int (*)(u_long, u_long)));
++ */
++int
++db_env_set_func_sleep(func_sleep)
++	int (*func_sleep) __P((u_long, u_long));
++{
++	DB_GLOBAL(j_sleep) = func_sleep;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_unlink __P((int (*)(const char *)));
++ */
++int
++db_env_set_func_unlink(func_unlink)
++	int (*func_unlink) __P((const char *));
++{
++	DB_GLOBAL(j_unlink) = func_unlink;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_unmap __P((int (*)(void *, size_t)));
++ */
++int
++db_env_set_func_unmap(func_unmap)
++	int (*func_unmap) __P((void *, size_t));
++{
++	DB_GLOBAL(j_unmap) = func_unmap;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_write
++ * EXTERN:     __P((ssize_t (*)(int, const void *, size_t)));
++ */
++int
++db_env_set_func_write(func_write)
++	ssize_t (*func_write) __P((int, const void *, size_t));
++{
++	DB_GLOBAL(j_write) = func_write;
++	return (0);
++}
++
++/*
++ * EXTERN: int db_env_set_func_yield __P((int (*)(void)));
++ */
++int
++db_env_set_func_yield(func_yield)
++	int (*func_yield) __P((void));
++{
++	DB_GLOBAL(j_yield) = func_yield;
++	return (0);
++}
+--- /dev/null
++++ db4.7-4.7.25/os/os_region.c
+@@ -0,0 +1,143 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 1996,2007 Oracle.  All rights reserved.
++ *
++ * $Id: os_region.c,v 12.11 2007/05/17 15:15:46 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++/*
++ * __os_r_attach --
++ *	Attach to a shared memory region.
++ *
++ * PUBLIC: int __os_r_attach __P((DB_ENV *, REGINFO *, REGION *));
++ */
++int
++__os_r_attach(dbenv, infop, rp)
++	DB_ENV *dbenv;
++	REGINFO *infop;
++	REGION *rp;
++{
++	int ret;
++
++	/*
++	 * All regions are created on 8K boundaries out of sheer paranoia,
++	 * so we don't make some underlying VM unhappy. Make sure we don't
++	 * overflow or underflow.
++	 */
++#define	OS_VMPAGESIZE		(8 * 1024)
++#define	OS_VMROUNDOFF(i) {						\
++	if ((i) <							\
++	    (UINT32_MAX - OS_VMPAGESIZE) + 1 || (i) < OS_VMPAGESIZE)	\
++		(i) += OS_VMPAGESIZE - 1;				\
++	(i) -= (i) % OS_VMPAGESIZE;					\
++}
++	OS_VMROUNDOFF(rp->size);
++
++#ifdef DB_REGIONSIZE_MAX
++	/* Some architectures have hard limits on the maximum region size. */
++	if (rp->size > DB_REGIONSIZE_MAX) {
++		__db_errx(dbenv, "region size %lu is too large; maximum is %lu",
++		    (u_long)rp->size, (u_long)DB_REGIONSIZE_MAX);
++		return (EINVAL);
++	}
++#endif
++
++	/*
++	 * If a region is private, malloc the memory.
++	 *
++	 * !!!
++	 * If this fails because the region is too large to malloc, mmap(2)
++	 * using the MAP_ANON or MAP_ANONYMOUS flags would be an alternative.
++	 * I don't know of any architectures (yet!) where malloc is a problem.
++	 */
++	if (F_ISSET(dbenv, DB_ENV_PRIVATE)) {
++#if defined(HAVE_MUTEX_HPPA_MSEM_INIT)
++		/*
++		 * !!!
++		 * There exist spinlocks that don't work in malloc memory, e.g.,
++		 * the HP/UX msemaphore interface.  If we don't have locks that
++		 * will work in malloc memory, we better not be private or not
++		 * be threaded.
++		 */
++		if (F_ISSET(dbenv, DB_ENV_THREAD)) {
++			__db_errx(dbenv, "%s",
++    "architecture does not support locks inside process-local (malloc) memory");
++			__db_errx(dbenv, "%s",
++    "application may not specify both DB_PRIVATE and DB_THREAD");
++			return (EINVAL);
++		}
++#endif
++		if ((ret = __os_malloc(
++		    dbenv, sizeof(REGENV), &infop->addr)) != 0)
++			return (ret);
++
++		infop->max_alloc = rp->size;
++	} else {
++		/*
++		 * If the user replaced the map call, call through their
++		 * interface.
++		 */
++		if (DB_GLOBAL(j_map) != NULL && (ret = DB_GLOBAL(j_map)
++		    (infop->name, rp->size, 1, 0, &infop->addr)) != 0)
++			return (ret);
++
++		/* Get some space from the underlying system. */
++		if ((ret = __os_r_sysattach(dbenv, infop, rp)) != 0)
++			return (ret);
++	}
++
++	/*
++	 * We may require alignment the underlying system or heap allocation
++	 * library doesn't supply.  Align the address if necessary, saving
++	 * the original values for restoration when the region is discarded.
++	 */
++	infop->addr_orig = infop->addr;
++	infop->addr = ALIGNP_INC(infop->addr_orig, sizeof(size_t));
++
++	rp->size_orig = rp->size;
++	if (infop->addr != infop->addr_orig)
++		rp->size -= (roff_t)
++		    ((u_int8_t *)infop->addr - (u_int8_t *)infop->addr_orig);
++
++	return (0);
++}
++
++/*
++ * __os_r_detach --
++ *	Detach from a shared memory region.
++ *
++ * PUBLIC: int __os_r_detach __P((DB_ENV *, REGINFO *, int));
++ */
++int
++__os_r_detach(dbenv, infop, destroy)
++	DB_ENV *dbenv;
++	REGINFO *infop;
++	int destroy;
++{
++	REGION *rp;
++
++	rp = infop->rp;
++
++	/* Restore any address/size altered for alignment reasons. */
++	if (infop->addr != infop->addr_orig) {
++		infop->addr = infop->addr_orig;
++		rp->size = rp->size_orig;
++	}
++
++	/* If a region is private, free the memory. */
++	if (F_ISSET(dbenv, DB_ENV_PRIVATE)) {
++		__os_free(dbenv, infop->addr);
++		return (0);
++	}
++
++	/* If the user replaced the map call, call through their interface. */
++	if (DB_GLOBAL(j_unmap) != NULL)
++		return (DB_GLOBAL(j_unmap)(infop->addr, rp->size));
++
++	return (__os_r_sysdetach(dbenv, infop, destroy));
++}
+--- /dev/null
++++ db4.7-4.7.25/os/os_sleep.c
+@@ -0,0 +1,72 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 1997,2007 Oracle.  All rights reserved.
++ *
++ * $Id: os_sleep.c,v 12.14 2007/05/17 15:15:46 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#define	__INCLUDE_SELECT_H	1
++#include "db_int.h"
++
++/*
++ * __os_sleep --
++ *	Yield the processor for a period of time.
++ *
++ * PUBLIC: void __os_sleep __P((DB_ENV *, u_long, u_long));
++ */
++void
++__os_sleep(dbenv, secs, usecs)
++	DB_ENV *dbenv;
++	u_long secs, usecs;		/* Seconds and microseconds. */
++{
++	struct timeval t;
++	int ret;
++
++	/* Don't require that the values be normalized. */
++	for (; usecs >= US_PER_SEC; usecs -= US_PER_SEC)
++		++secs;
++
++	if (DB_GLOBAL(j_sleep) != NULL) {
++		(void)DB_GLOBAL(j_sleep)(secs, usecs);
++		return;
++	}
++
++	/*
++	 * It's important we yield the processor here so other processes or
++	 * threads can run.
++	 *
++	 * XXX
++	 * VxWorks doesn't yield the processor on select.  This isn't really
++	 * an infinite loop, even though __os_yield can call __os_sleep, and
++	 * we'll fix this when the tree isn't frozen. [#15037]
++	 */
++#ifdef HAVE_VXWORKS
++	__os_yield(dbenv);
++#endif
++
++	/*
++	 * Sheer raving paranoia -- don't select for 0 time, in case some
++	 * implementation doesn't yield the processor in that case.
++	 */
++	t.tv_sec = (long)secs;
++	if (secs == 0 && usecs == 0)
++		t.tv_usec = 1;
++	else
++		t.tv_usec = (long)usecs;
++
++	/*
++	 * We don't catch interrupts and restart the system call here, unlike
++	 * other Berkeley DB system calls.  This may be a user attempting to
++	 * interrupt a sleeping DB utility (for example, db_checkpoint), and
++	 * we want the utility to see the signal and quit.  This assumes it's
++	 * always OK for DB to sleep for less time than originally scheduled.
++	 */
++	if (select(0, NULL, NULL, NULL, &t) == -1) {
++		ret = __os_get_syserr();
++		if (__os_posix_err(ret) != EINTR)
++			__db_syserr(dbenv, ret, "select");
++	}
++}
+--- /dev/null
++++ db4.7-4.7.25/os/os_oflags.c
+@@ -0,0 +1,175 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 1997,2007 Oracle.  All rights reserved.
++ *
++ * $Id: os_oflags.c,v 12.10 2007/05/17 15:15:46 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++#ifdef HAVE_SYSTEM_INCLUDE_FILES
++#ifdef HAVE_SHMGET
++#include <sys/ipc.h>
++#include <sys/shm.h>
++#endif
++#endif
++
++/*
++ * Ensure that POSIX defined codes are available.
++ */
++#ifndef O_CREAT
++#define	O_CREAT  0x0200
++#endif
++#ifndef O_TRUNC
++#define	O_TRUNC  0x0400
++#endif
++#ifndef O_RDONLY
++#define	O_RDONLY 0x0000
++#endif
++#ifndef O_RDWR
++#define	O_RDWR   0x0002
++#endif
++#ifndef O_WRONLY
++#define	O_WRONLY 0x0001
++#endif
++
++#ifndef S_IREAD
++#define	S_IREAD  0000400
++#endif
++#ifndef S_IWRITE
++#define	S_IWRITE 0000200
++#endif
++
++/*
++ * __db_oflags --
++ *	Convert open(2) flags to DB flags.
++ *
++ * PUBLIC: u_int32_t __db_oflags __P((int));
++ */
++u_int32_t
++__db_oflags(oflags)
++	int oflags;
++{
++	u_int32_t dbflags;
++
++	dbflags = 0;
++
++	if (oflags & O_CREAT)
++		dbflags |= DB_CREATE;
++
++	if (oflags & O_TRUNC)
++		dbflags |= DB_TRUNCATE;
++
++	/*
++	 * !!!
++	 * Convert POSIX 1003.1 open(2) mode flags to DB flags.  This isn't
++	 * an exact science as few POSIX implementations have a flag value
++	 * for O_RDONLY, it's simply the lack of a write flag.
++	 */
++#ifndef	O_ACCMODE
++#define	O_ACCMODE	(O_RDONLY | O_RDWR | O_WRONLY)
++#endif
++	switch (oflags & O_ACCMODE) {
++	case O_RDWR:
++	case O_WRONLY:
++		break;
++	default:
++		dbflags |= DB_RDONLY;
++		break;
++	}
++	return (dbflags);
++}
++
++#ifdef DB_WIN32
++#ifndef	S_IRUSR
++#define	S_IRUSR	S_IREAD		/* R for owner */
++#endif
++#ifndef	S_IWUSR
++#define	S_IWUSR	S_IWRITE	/* W for owner */
++#endif
++#ifndef	S_IXUSR
++#define	S_IXUSR	0		/* X for owner */
++#endif
++#ifndef	S_IRGRP
++#define	S_IRGRP	0		/* R for group */
++#endif
++#ifndef	S_IWGRP
++#define	S_IWGRP	0		/* W for group */
++#endif
++#ifndef	S_IXGRP
++#define	S_IXGRP	0		/* X for group */
++#endif
++#ifndef	S_IROTH
++#define	S_IROTH	0		/* R for other */
++#endif
++#ifndef	S_IWOTH
++#define	S_IWOTH	0		/* W for other */
++#endif
++#ifndef	S_IXOTH
++#define	S_IXOTH	0		/* X for other */
++#endif
++#else
++#ifndef	S_IRUSR
++#define	S_IRUSR	0000400		/* R for owner */
++#endif
++#ifndef	S_IWUSR
++#define	S_IWUSR	0000200		/* W for owner */
++#endif
++#ifndef	S_IXUSR
++#define	S_IXUSR	0000100		/* X for owner */
++#endif
++#ifndef	S_IRGRP
++#define	S_IRGRP	0000040		/* R for group */
++#endif
++#ifndef	S_IWGRP
++#define	S_IWGRP	0000020		/* W for group */
++#endif
++#ifndef	S_IXGRP
++#define	S_IXGRP	0000010		/* X for group */
++#endif
++#ifndef	S_IROTH
++#define	S_IROTH	0000004		/* R for other */
++#endif
++#ifndef	S_IWOTH
++#define	S_IWOTH	0000002		/* W for other */
++#endif
++#ifndef	S_IXOTH
++#define	S_IXOTH	0000001		/* X for other */
++#endif
++#endif /* DB_WIN32 */
++
++/*
++ * __db_omode --
++ *	Convert a permission string to the correct open(2) flags.
++ *
++ * PUBLIC: int __db_omode __P((const char *));
++ */
++int
++__db_omode(perm)
++	const char *perm;
++{
++	int mode;
++	mode = 0;
++	if (perm[0] == 'r')
++		mode |= S_IRUSR;
++	if (perm[1] == 'w')
++		mode |= S_IWUSR;
++	if (perm[2] == 'x')
++		mode |= S_IXUSR;
++	if (perm[3] == 'r')
++		mode |= S_IRGRP;
++	if (perm[4] == 'w')
++		mode |= S_IWGRP;
++	if (perm[5] == 'x')
++		mode |= S_IXGRP;
++	if (perm[6] == 'r')
++		mode |= S_IROTH;
++	if (perm[7] == 'w')
++		mode |= S_IWOTH;
++	if (perm[8] == 'x')
++		mode |= S_IXOTH;
++	return (mode);
++}
+--- /dev/null
++++ db4.7-4.7.25/os/os_spin.c
+@@ -0,0 +1,83 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 1997,2007 Oracle.  All rights reserved.
++ *
++ * $Id: os_spin.c,v 12.13 2007/05/17 15:15:46 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++#ifdef HAVE_SYSTEM_INCLUDE_FILES
++#if defined(HAVE_PSTAT_GETDYNAMIC)
++#include <sys/pstat.h>
++#endif
++#endif
++
++#if defined(HAVE_PSTAT_GETDYNAMIC)
++static int __os_pstat_getdynamic __P((void));
++
++/*
++ * __os_pstat_getdynamic --
++ *	HP/UX.
++ */
++static int
++__os_pstat_getdynamic()
++{
++	struct pst_dynamic psd;
++
++	return (pstat_getdynamic(&psd,
++	    sizeof(psd), (size_t)1, 0) == -1 ? 1 : psd.psd_proc_cnt);
++}
++#endif
++
++#if defined(HAVE_SYSCONF) && defined(_SC_NPROCESSORS_ONLN)
++static u_int32_t __os_sysconf __P((void));
++
++/*
++ * __os_sysconf --
++ *	Solaris, Linux.
++ */
++static u_int32_t
++__os_sysconf()
++{
++	long nproc;
++
++	nproc = sysconf(_SC_NPROCESSORS_ONLN);
++	return ((u_int32_t)(nproc > 1 ? nproc : 1));
++}
++#endif
++
++/*
++ * __os_spin --
++ *	Set the number of default spins before blocking.
++ *
++ * PUBLIC: u_int32_t __os_spin __P((DB_ENV *));
++ */
++u_int32_t
++__os_spin(dbenv)
++	DB_ENV *dbenv;
++{
++	u_int32_t tas_spins;
++
++	COMPQUIET(dbenv, NULL);
++
++	tas_spins = 1;
++#if defined(HAVE_PSTAT_GETDYNAMIC)
++	tas_spins = __os_pstat_getdynamic();
++#endif
++#if defined(HAVE_SYSCONF) && defined(_SC_NPROCESSORS_ONLN)
++	tas_spins = __os_sysconf();
++#endif
++
++	/*
++	 * Spin 50 times per processor, we have anecdotal evidence that this
++	 * is a reasonable value.
++	 */
++	if (tas_spins != 1)
++		tas_spins *= 50;
++
++	return (tas_spins);
++}
+--- /dev/null
++++ db4.7-4.7.25/os/os_fzero.c
+@@ -0,0 +1,106 @@
++/*-
++ * See the file LICENSE for redistribution information.
++ *
++ * Copyright (c) 1997,2007 Oracle.  All rights reserved.
++ *
++ * $Id: os_fzero.c,v 12.20 2007/05/17 15:15:46 bostic Exp $
++ */
++
++#include "db_config.h"
++
++#include "db_int.h"
++
++/*
++ * __os_zerofill --
++ *	Zero out bytes in the file.
++ *
++ *	Pages allocated by writing pages past end-of-file are not zeroed,
++ *	on some systems.  Recovery could theoretically be fooled by a page
++ *	showing up that contained garbage.  In order to avoid this, we
++ *	have to write the pages out to disk, and flush them.  The reason
++ *	for the flush is because if we don't sync, the allocation of another
++ *	page subsequent to this one might reach the disk first, and if we
++ *	crashed at the right moment, leave us with this page as the one
++ *	allocated by writing a page past it in the file.
++ *
++ * PUBLIC: int __os_zerofill __P((DB_ENV *, DB_FH *));
++ */
++int
++__os_zerofill(dbenv, fhp)
++	DB_ENV *dbenv;
++	DB_FH *fhp;
++{
++#ifdef HAVE_FILESYSTEM_NOTZERO
++	off_t stat_offset, write_offset;
++	size_t blen, nw;
++	u_int32_t bytes, mbytes;
++	int group_sync, need_free, ret;
++	u_int8_t buf[8 * 1024], *bp;
++
++	if (dbenv != NULL && FLD_ISSET(dbenv->verbose, DB_VERB_FILEOPS_ALL))
++		__db_msg(dbenv, "fileops: zero-fill %s", fhp->name);
++
++	/* Calculate the byte offset of the next write. */
++	write_offset = (off_t)fhp->pgno * fhp->pgsize + fhp->offset;
++
++	/* Stat the file. */
++	if ((ret = __os_ioinfo(dbenv, NULL, fhp, &mbytes, &bytes, NULL)) != 0)
++		return (ret);
++	stat_offset = (off_t)mbytes * MEGABYTE + bytes;
++
++	/* Check if the file is large enough. */
++	if (stat_offset >= write_offset)
++		return (0);
++
++	/* Get a large buffer if we're writing lots of data. */
++#undef	ZF_LARGE_WRITE
++#define	ZF_LARGE_WRITE	(64 * 1024)
++	if (write_offset - stat_offset > ZF_LARGE_WRITE) {
++		if ((ret = __os_calloc(dbenv, 1, ZF_LARGE_WRITE, &bp)) != 0)
++			    return (ret);
++		blen = ZF_LARGE_WRITE;
++		need_free = 1;
++	} else {
++		bp = buf;
++		blen = sizeof(buf);
++		need_free = 0;
++		memset(buf, 0, sizeof(buf));
++	}
++
++	/* Seek to the current end of the file. */
++	if ((ret = __os_seek(dbenv, fhp, mbytes, MEGABYTE, bytes)) != 0)
++		goto err;
++
++	/*
++	 * Hash is the only access method that allocates groups of pages.  Hash
++	 * uses the existence of the last page in a group to signify the entire
++	 * group is OK; so, write all the pages but the last one in the group,
++	 * flush them to disk, then write the last one to disk and flush it.
++	 */
++	for (group_sync = 0; stat_offset < write_offset; group_sync = 1) {
++		if (write_offset - stat_offset <= (off_t)blen) {
++			blen = (size_t)(write_offset - stat_offset);
++			if (group_sync && (ret = __os_fsync(dbenv, fhp)) != 0)
++				goto err;
++		}
++		if ((ret = __os_physwrite(dbenv, fhp, bp, blen, &nw)) != 0)
++			goto err;
++		stat_offset += blen;
++	}
++	if ((ret = __os_fsync(dbenv, fhp)) != 0)
++		goto err;
++
++	/* Seek back to where we started. */
++	mbytes = (u_int32_t)(write_offset / MEGABYTE);
++	bytes = (u_int32_t)(write_offset % MEGABYTE);
++	ret = __os_seek(dbenv, fhp, mbytes, MEGABYTE, bytes);
++
++err:	if (need_free)
++		__os_free(dbenv, bp);
++	return (ret);
++#else
++	COMPQUIET(dbenv, NULL);
++	COMPQUIET(fhp, NULL);
++	return (0);
++#endif /* HAVE_FILESYSTEM_NOTZERO */
++}

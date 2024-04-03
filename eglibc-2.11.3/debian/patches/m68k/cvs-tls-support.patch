@@ -1,0 +1,4015 @@
+This series of m68k related commits brings eglibc-2.11.2 up to date with the glibc-ports git
+as of 2010-06-30, including NPTL support.
+
+From: Joseph Myers <joseph@codesourcery.com>
+Date: Wed, 18 Nov 2009 17:30:48 +0000 (+0000)
+Subject: Change misleading names of parameters of sync_file_range for M68K.
+X-Git-Tag: glibc-2.12~86
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=6add932d9099ac27762c45e344416c1ee11f6d78
+
+Change misleading names of parameters of sync_file_range for M68K.
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 7a3e8b7..87117d3 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,8 @@
++2009-11-18  Joseph Myers  <joseph@codesourcery.com>
++
++	* sysdeps/unix/sysv/linux/m68k/bits/fcntl.h: Change misleading
++	names of parameters of sync_file_range.
++
+ 2011-01-18  Andreas Schwab  <schwab@linux-m68k.org>
+ 
+ 	* sysdeps/unix/sysv/linux/m68k/bits/mman.h (MADV_HUGEPAGE)
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
+index 6fc7a0a..c6dd1a8 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
+@@ -236,7 +236,7 @@ extern ssize_t readahead (int __fd, __off64_t __offset, size_t __count)
+ 
+ 
+ /* Selective file content synch'ing.  */
+-extern int sync_file_range (int __fd, __off64_t __from, __off64_t __to,
++extern int sync_file_range (int __fd, __off64_t __offset, __off64_t __count,
+ 			    unsigned int __flags);
+ 
+ 
+From: Joseph Myers <joseph@codesourcery.com>
+Date: Thu, 19 Nov 2009 22:34:08 +0000 (+0000)
+Subject: Define F_OWNER_PGRP for M68K.
+X-Git-Tag: glibc-2.12~82
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=76d306ec9888f824496ea7783266ea91e6825374
+
+Define F_OWNER_PGRP for M68K.
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 87117d3..74407c4 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,8 @@
++2009-11-19  Joseph Myers  <joseph@codesourcery.com>
++
++	* sysdeps/unix/sysv/linux/m68k/bits/fcntl.h: Introduce new symbol
++	F_OWNER_PGRP and mark F_OWNER_GID obsolete.
++
+ 2009-11-18  Joseph Myers  <joseph@codesourcery.com>
+ 
+ 	* sysdeps/unix/sysv/linux/m68k/bits/fcntl.h: Change misleading
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
+index c6dd1a8..8ed8eb6 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
+@@ -171,9 +171,10 @@ struct flock64
+ /* Owner types.  */
+ enum __pid_type
+   {
+-    F_OWNER_TID = 0,	/* Kernel thread.  */
+-    F_OWNER_PID,	/* Process.  */
+-    F_OWNER_GID		/* Process group.  */
++    F_OWNER_TID = 0,		/* Kernel thread.  */
++    F_OWNER_PID,		/* Process.  */
++    F_OWNER_PGRP,		/* Process group.  */
++    F_OWNER_GID = F_OWNER_PGRP	/* Alternative, obsolete name.  */
+   };
+ 
+ /* Structure to use with F_GETOWN_EX and F_SETOWN_EX.  */
+From: Andreas Schwab <schwab@redhat.com>
+Date: Mon, 23 Nov 2009 15:34:39 +0000 (+0100)
+Subject: Use struct timespec for timestamps in struct stat also if __USE_XOPEN2K8
+X-Git-Tag: glibc-2.12~81
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=127f9dc1f0b7c21112007f476d710ea6b70d13c0
+
+Use struct timespec for timestamps in struct stat also if __USE_XOPEN2K8
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 74407c4..42d6a91 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,8 @@
++2009-11-23  Andreas Schwab  <schwab@linux-m68k.org>
++
++	* sysdeps/unix/sysv/linux/m68k/bits/stat.h: Use struct timespec
++	for timestamps also if __USE_XOPEN2K8.
++
+ 2009-11-19  Joseph Myers  <joseph@codesourcery.com>
+ 
+ 	* sysdeps/unix/sysv/linux/m68k/bits/fcntl.h: Introduce new symbol
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h
+index 8d18d6d..7801043 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h
+@@ -61,7 +61,7 @@ struct stat
+ #else
+     __blkcnt64_t st_blocks;		/* Number 512-byte blocks allocated. */
+ #endif
+-#ifdef __USE_MISC
++#if defined __USE_MISC || defined __USE_XOPEN2K8
+     /* Nanosecond resolution timestamps are stored in a format
+        equivalent to 'struct timespec'.  This is the type used
+        whenever possible but the Unix namespace rules do not allow the
+@@ -107,7 +107,7 @@ struct stat64
+     __blksize_t st_blksize;		/* Optimal block size for I/O.  */
+ 
+     __blkcnt64_t st_blocks;		/* Number 512-byte blocks allocated. */
+-#ifdef __USE_MISC
++# if defined __USE_MISC || defined __USE_XOPEN2K8
+     /* Nanosecond resolution timestamps are stored in a format
+        equivalent to 'struct timespec'.  This is the type used
+        whenever possible but the Unix namespace rules do not allow the
+@@ -117,14 +117,14 @@ struct stat64
+     struct timespec st_atim;		/* Time of last access.  */
+     struct timespec st_mtim;		/* Time of last modification.  */
+     struct timespec st_ctim;		/* Time of last status change.  */
+-#else
++# else
+     __time_t st_atime;			/* Time of last access.  */
+     unsigned long int st_atimensec;	/* Nscecs of last access.  */
+     __time_t st_mtime;			/* Time of last modification.  */
+     unsigned long int st_mtimensec;	/* Nsecs of last modification.  */
+     __time_t st_ctime;			/* Time of last status change.  */
+     unsigned long int st_ctimensec;	/* Nsecs of last status change.  */
+-#endif
++# endif
+     __ino64_t st_ino;			/* File serial number.		*/
+   };
+ #endif
+From: Joseph Myers <joseph@codesourcery.com>
+Date: Wed, 16 Dec 2009 12:37:07 +0000 (+0000)
+Subject: Update M68K O_SYNC.
+X-Git-Tag: glibc-2.12~69
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=4b8a7d2c3f00ac9a4e31e3c8c132b4b9aefbc5fe
+
+Update M68K O_SYNC.
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 42d6a91..8411570 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,8 @@
++2009-12-16  Joseph Myers  <joseph@codesourcery.com>
++
++	* sysdeps/unix/sysv/linux/m68k/bits/fcntl.h: Redefine O_SYNC and
++	O_DSYNC to match 2.6.33+ kernels.
++
+ 2009-11-23  Andreas Schwab  <schwab@linux-m68k.org>
+ 
+ 	* sysdeps/unix/sysv/linux/m68k/bits/stat.h: Use struct timespec
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
+index 8ed8eb6..1f98cf5 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
+@@ -40,7 +40,7 @@
+ #define O_APPEND	  02000
+ #define O_NONBLOCK	  04000
+ #define O_NDELAY	O_NONBLOCK
+-#define O_SYNC		 010000
++#define O_SYNC	       04010000
+ #define O_FSYNC		 O_SYNC
+ #define O_ASYNC		 020000
+ 
+@@ -56,7 +56,7 @@
+    We define the symbols here but let them do the same as O_SYNC since
+    this is a superset.	*/
+ #if defined __USE_POSIX199309 || defined __USE_UNIX98
+-# define O_DSYNC	O_SYNC	/* Synchronize data.  */
++# define O_DSYNC	010000	/* Synchronize data.  */
+ # define O_RSYNC	O_SYNC	/* Synchronize read operations.	 */
+ #endif
+ 
+From: Joseph Myers <joseph@codesourcery.com>
+Date: Wed, 16 Dec 2009 19:35:09 +0000 (+0000)
+Subject: Update M68K bits/poll.h for POSIX 2008.
+X-Git-Tag: glibc-2.12~65
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=5d79f83e907d938087a5a93c514e48a4ce438c9d
+
+Update M68K bits/poll.h for POSIX 2008.
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 8411570..978cd1a 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,5 +1,11 @@
+ 2009-12-16  Joseph Myers  <joseph@codesourcery.com>
+ 
++	[BZ #11093]
++	* sysdeps/unix/sysv/linux/m68k/bits/poll.h: Define POLLRDNORM,
++	POLLRDBAND, POLLWRNORM, and POLLWRBAND also for POSIX 2008.
++
++2009-12-16  Joseph Myers  <joseph@codesourcery.com>
++
+ 	* sysdeps/unix/sysv/linux/m68k/bits/fcntl.h: Redefine O_SYNC and
+ 	O_DSYNC to match 2.6.33+ kernels.
+ 
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/poll.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/poll.h
+index bc28579..84219ba 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/poll.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/bits/poll.h
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 1997, 2001, 2008 Free Software Foundation, Inc.
++/* Copyright (C) 1997, 2001, 2008, 2009 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -27,7 +27,7 @@
+ #define POLLPRI		0x002		/* There is urgent data to read.  */
+ #define POLLOUT		0x004		/* Writing now will not block.  */
+ 
+-#ifdef __USE_XOPEN
++#if defined __USE_XOPEN || defined __USE_XOPEN2K8
+ /* These values are defined in XPG4.2.  */
+ # define POLLRDNORM	0x040		/* Normal data may be read.  */
+ # define POLLRDBAND	0x080		/* Priority data may be read.  */
+From: Joseph Myers <joseph@codesourcery.com>
+Date: Sun, 10 Jan 2010 19:02:51 +0000 (+0000)
+Subject: Update M68K bits/fcntl.h for XPG7 and allow bits/stat.h inclusion from fcntl.h.
+X-Git-Tag: glibc-2.12~62
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=2f12146a331fa728950cbe55da1efb406c26e5cb
+
+Update M68K bits/fcntl.h for XPG7 and allow bits/stat.h inclusion from fcntl.h.
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 978cd1a..094e7a8 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,11 @@
++2010-01-10  Joseph Myers  <joseph@codesourcery.com>
++
++	* sysdeps/unix/sysv/linux/m68k/bits/fcntl.h: Define O_DIRECTORY,
++	O_NOFOLLOW, O_CLOEXEC, F_DUPFD_CLOEXEC, F_SETOWN, and F_GETOWN for
++	XPG7.
++	* sysdeps/unix/sysv/linux/m68k/bits/stat.h: Enable using from
++	fcntl.h.
++
+ 2009-12-16  Joseph Myers  <joseph@codesourcery.com>
+ 
+ 	[BZ #11093]
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
+index 1f98cf5..d1eb706 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
+@@ -1,5 +1,5 @@
+ /* O_*, F_*, FD_* bit values for Linux.
+-   Copyright (C) 2000, 2004, 2008, 2009 Free Software Foundation, Inc.
++   Copyright (C) 2000, 2004, 2008, 2009, 2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -44,12 +44,14 @@
+ #define O_FSYNC		 O_SYNC
+ #define O_ASYNC		 020000
+ 
+-#ifdef __USE_GNU
++#ifdef __USE_XOPEN2K8
+ # define O_DIRECTORY	 040000	/* Must be a directory.	 */
+ # define O_NOFOLLOW	0100000	/* Do not follow links.	 */
++# define O_CLOEXEC     02000000 /* Set close_on_exec.  */
++#endif
++#ifdef __USE_GNU
+ # define O_DIRECT	0200000	/* Direct disk access.	*/
+ # define O_NOATIME	01000000 /* Do not set atime.  */
+-# define O_CLOEXEC     02000000 /* Set close_on_exec.  */
+ #endif
+ 
+ /* For now Linux has synchronisity options for data and read operations.
+@@ -83,7 +85,7 @@
+ #define F_SETLK64	13	/* Set record locking info (non-blocking).  */
+ #define F_SETLKW64	14	/* Set record locking info (blocking).	*/
+ 
+-#if defined __USE_BSD || defined __USE_UNIX98
++#if defined __USE_BSD || defined __USE_UNIX98 || defined __USE_XOPEN2K8
+ # define F_SETOWN	8	/* Get owner of socket (receiver of SIGIO).  */
+ # define F_GETOWN	9	/* Set owner of socket (receiver of SIGIO).  */
+ #endif
+@@ -99,6 +101,8 @@
+ # define F_SETLEASE	1024	/* Set a lease.	 */
+ # define F_GETLEASE	1025	/* Enquire what lease is active.  */
+ # define F_NOTIFY	1026	/* Request notfications on a directory.	 */
++#endif
++#ifdef __USE_XOPEN2K8
+ # define F_DUPFD_CLOEXEC 1030	/* Duplicate file descriptor with
+ 				   close-on-exit set.  */
+ #endif
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h
+index 7801043..771a53a 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 1992,95,96,97,98,99,2000,2001,2002,2008,2009
++/* Copyright (C) 1992,95,96,97,98,99,2000,2001,2002,2008,2009,2010
+      Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -17,7 +17,7 @@
+    Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+    02111-1307 USA.  */
+ 
+-#ifndef _SYS_STAT_H
++#if !defined _SYS_STAT_H && !defined _FCNTL_H
+ # error "Never include <bits/stat.h> directly; use <sys/stat.h> instead."
+ #endif
+ 
+From: Joseph Myers <joseph@codesourcery.com>
+Date: Mon, 11 Jan 2010 21:51:34 +0000 (+0000)
+Subject: Fix M68K bits/stat.h double inclusion problem.
+X-Git-Tag: glibc-2.12~59
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=fdefc0e1f176327cabedf4011673b3272321093e
+
+Fix M68K bits/stat.h double inclusion problem.
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 094e7a8..cdc9242 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,8 @@
++2010-01-11  Joseph Myers  <joseph@codesourcery.com>
++
++	* sysdeps/unix/sysv/linux/m68k/bits/stat.h: Fix double-inclusion
++	problem.
++
+ 2010-01-10  Joseph Myers  <joseph@codesourcery.com>
+ 
+ 	* sysdeps/unix/sysv/linux/m68k/bits/fcntl.h: Define O_DIRECTORY,
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h
+index 771a53a..0c1d149 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/bits/stat.h
+@@ -21,6 +21,9 @@
+ # error "Never include <bits/stat.h> directly; use <sys/stat.h> instead."
+ #endif
+ 
++#ifndef _BITS_STAT_H
++#define _BITS_STAT_H	1
++
+ /* Versions of the `struct stat' data structure.  */
+ #define _STAT_VER_LINUX_OLD	1
+ #define _STAT_VER_KERNEL	1
+@@ -167,3 +170,5 @@ struct stat64
+ # define UTIME_NOW	((1l << 30) - 1l)
+ # define UTIME_OMIT	((1l << 30) - 2l)
+ #endif
++
++#endif	/* bits/stat.h */
+From: Joseph Myers <joseph@codesourcery.com>
+Date: Wed, 10 Feb 2010 15:32:33 +0000 (+0000)
+Subject: Add hidden alias for M68K fegetenv.
+X-Git-Tag: glibc-2.12~46
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=ee0c4dd1ccc424d57d97dc078a4aba0c70eeb8a4
+
+Add hidden alias for M68K fegetenv.
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index cdc9242..8487ba3 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,7 @@
++2010-02-10  Joseph Myers  <joseph@codesourcery.com>
++
++	* sysdeps/m68k/fpu/fegetenv.c: Add hidden alias.
++
+ 2010-01-11  Joseph Myers  <joseph@codesourcery.com>
+ 
+ 	* sysdeps/unix/sysv/linux/m68k/bits/stat.h: Fix double-inclusion
+diff --git a/ports/sysdeps/m68k/fpu/fegetenv.c b/ports/sysdeps/m68k/fpu/fegetenv.c
+index 6f23e8b..30f3fa5 100644
+--- a/ports/sysdeps/m68k/fpu/fegetenv.c
++++ b/ports/sysdeps/m68k/fpu/fegetenv.c
+@@ -1,5 +1,5 @@
+ /* Store current floating-point environment.
+-   Copyright (C) 1997,99,2000,01 Free Software Foundation, Inc.
++   Copyright (C) 1997,99,2000,01,10 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Andreas Schwab <schwab@issan.informatik.uni-dortmund.de>
+ 
+@@ -41,4 +41,5 @@ strong_alias (__fegetenv, __old_fegetenv)
+ compat_symbol (libm, __old_fegetenv, fegetenv, GLIBC_2_1);
+ #endif
+ 
++libm_hidden_ver (__fegetenv, fegetenv)
+ versioned_symbol (libm, __fegetenv, fegetenv, GLIBC_2_2);
+From: Maxim Kuvyrkov <maxim@codesourcery.com>
+Date: Tue, 9 Mar 2010 10:20:36 +0000 (-0800)
+Subject: m68k: update jmpbuf-unwind.h
+X-Git-Tag: glibc-2.12~41
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=42ae1878f326c413dd026373ebdb6bf6cd20e75d
+
+m68k: update jmpbuf-unwind.h
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 8487ba3..d14368e 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,8 @@
++2010-03-09  Maxim Kuvyrkov  <maxim@codesourcery.com>
++
++	* sysdeps/m68k/jmpbuf-unwind.h (_JMPBUF_CFA_UNWINDS_ADJ)
++	(_jmpbuf_sp, _JMPBUF_UNWINDS_ADJ, __libc_unwind_longjmp): Define.
++
+ 2010-02-10  Joseph Myers  <joseph@codesourcery.com>
+ 
+ 	* sysdeps/m68k/fpu/fegetenv.c: Add hidden alias.
+diff --git a/ports/sysdeps/m68k/jmpbuf-unwind.h b/ports/sysdeps/m68k/jmpbuf-unwind.h
+index 3490c79..28b9537 100644
+--- a/ports/sysdeps/m68k/jmpbuf-unwind.h
++++ b/ports/sysdeps/m68k/jmpbuf-unwind.h
+@@ -1,5 +1,5 @@
+ /* Examine __jmp_buf for unwinding frames.  m68k version.
+-   Copyright (C) 2006 Free Software Foundation, Inc.
++   Copyright (C) 2006, 2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -18,8 +18,29 @@
+    02111-1307 USA.  */
+ 
+ #include <setjmp.h>
++#include <stdint.h>
++#include <unwind.h>
+ 
+ /* Test if longjmp to JMPBUF would unwind the frame
+    containing a local variable at ADDRESS.  */
+ #define _JMPBUF_UNWINDS(jmpbuf, address, demangle)		\
+   ((void *) (address) < (void *) demangle ((jmpbuf)->__sp))
++
++#define _JMPBUF_CFA_UNWINDS_ADJ(_jmpbuf, _context, _adj) \
++  _JMPBUF_UNWINDS_ADJ (_jmpbuf, (void *) _Unwind_GetCFA (_context), _adj)
++
++static inline uintptr_t __attribute__ ((unused))
++_jmpbuf_sp (__jmp_buf regs)
++{
++  uintptr_t sp = regs[0].__sp;
++#ifdef PTR_DEMANGLE
++  PTR_DEMANGLE (sp);
++#endif
++  return sp;
++}
++
++#define _JMPBUF_UNWINDS_ADJ(_jmpbuf, _address, _adj) \
++  ((uintptr_t) (_address) - (_adj) < _jmpbuf_sp (_jmpbuf) - (_adj))
++
++/* We use the normal longjmp for unwinding.  */
++#define __libc_unwind_longjmp(buf, val) __libc_longjmp (buf, val)
+From: Maxim Kuvyrkov <maxim@codesourcery.com>
+Date: Tue, 9 Mar 2010 10:32:38 +0000 (-0800)
+Subject: m68k: remove bits/siginfo.h in favor of generic one
+X-Git-Tag: glibc-2.12~40
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=d8e90a15fedd2660d02f5d8e4e7da17e01916d30
+
+m68k: remove bits/siginfo.h in favor of generic one
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index d14368e..e2b54e5 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,5 +1,7 @@
+ 2010-03-09  Maxim Kuvyrkov  <maxim@codesourcery.com>
+ 
++	* sysdeps/unix/sysv/linux/m68k/bits/siginfo.h: Remove.
++
+ 	* sysdeps/m68k/jmpbuf-unwind.h (_JMPBUF_CFA_UNWINDS_ADJ)
+ 	(_jmpbuf_sp, _JMPBUF_UNWINDS_ADJ, __libc_unwind_longjmp): Define.
+ 
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/siginfo.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/siginfo.h
+deleted file mode 100644
+index 1ded1c2..0000000
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/siginfo.h
++++ /dev/null
+@@ -1,316 +0,0 @@
+-/* siginfo_t, sigevent and constants.  m68k linux version.
+-   Copyright (C) 1997-2002, 2003 Free Software Foundation, Inc.
+-   This file is part of the GNU C Library.
+-
+-   The GNU C Library is free software; you can redistribute it and/or
+-   modify it under the terms of the GNU Lesser General Public
+-   License as published by the Free Software Foundation; either
+-   version 2.1 of the License, or (at your option) any later version.
+-
+-   The GNU C Library is distributed in the hope that it will be useful,
+-   but WITHOUT ANY WARRANTY; without even the implied warranty of
+-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+-   Lesser General Public License for more details.
+-
+-   You should have received a copy of the GNU Lesser General Public
+-   License along with the GNU C Library; if not, write to the Free
+-   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+-   02111-1307 USA.  */
+-
+-#if !defined _SIGNAL_H && !defined __need_siginfo_t \
+-    && !defined __need_sigevent_t
+-# error "Never include this file directly.  Use <signal.h> instead"
+-#endif
+-
+-#include <bits/wordsize.h>
+-
+-#if (!defined __have_sigval_t \
+-     && (defined _SIGNAL_H || defined __need_siginfo_t \
+-	 || defined __need_sigevent_t))
+-# define __have_sigval_t	1
+-
+-/* Type for data associated with a signal.  */
+-typedef union sigval
+-  {
+-    int sival_int;
+-    void *sival_ptr;
+-  } sigval_t;
+-#endif
+-
+-#if (!defined __have_siginfo_t \
+-     && (defined _SIGNAL_H || defined __need_siginfo_t))
+-# define __have_siginfo_t	1
+-
+-# define __SI_MAX_SIZE     128
+-# if __WORDSIZE == 64
+-#  define __SI_PAD_SIZE     ((__SI_MAX_SIZE / sizeof (int)) - 4)
+-# else
+-#  define __SI_PAD_SIZE     ((__SI_MAX_SIZE / sizeof (int)) - 3)
+-# endif
+-
+-typedef struct siginfo
+-  {
+-    int si_signo;		/* Signal number.  */
+-    int si_errno;		/* If non-zero, an errno value associated with
+-				   this signal, as defined in <errno.h>.  */
+-    int si_code;		/* Signal code.  */
+-
+-    union
+-      {
+-	int _pad[__SI_PAD_SIZE];
+-
+-	 /* kill().  */
+-	struct
+-	  {
+-	    __pid_t si_pid;	/* Sending process ID.  */
+-	    unsigned short __pad; /* 16-bit version of si_uid.  */
+-	    __uid_t si_uid;	/* Real user ID of sending process.  */
+-	  } _kill;
+-
+-	/* POSIX.1b timers.  */
+-	struct
+-	  {
+-	    int si_tid;		/* Timer ID.  */
+-	    int si_overrun;	/* Overrun count.  */
+-	    sigval_t si_sigval;	/* Signal value.  */
+-	  } _timer;
+-
+-	/* POSIX.1b signals.  */
+-	struct
+-	  {
+-	    __pid_t si_pid;	/* Sending process ID.  */
+-	    unsigned short __pad; /* 16-bit version of si_uid.  */
+-	    sigval_t si_sigval;	/* Signal value.  */
+-	    __uid_t si_uid;	/* Real user ID of sending process.  */
+-	  } _rt;
+-
+-	/* SIGCHLD.  */
+-	struct
+-	  {
+-	    __pid_t si_pid;	/* Which child.  */
+-	    unsigned short __pad; /* 16-bit version of si_uid.  */
+-	    int si_status;	/* Exit value or signal.  */
+-	    __clock_t si_utime;
+-	    __clock_t si_stime;
+-	    __uid_t si_uid;	/* Real user ID of sending process.  */
+-	  } _sigchld;
+-
+-	/* SIGILL, SIGFPE, SIGSEGV, SIGBUS.  */
+-	struct
+-	  {
+-	    void *si_addr;	/* Faulting insn/memory ref.  */
+-	  } _sigfault;
+-
+-	/* SIGPOLL.  */
+-	struct
+-	  {
+-	    long int si_band;	/* Band event for SIGPOLL.  */
+-	    int si_fd;
+-	  } _sigpoll;
+-      } _sifields;
+-  } siginfo_t;
+-
+-
+-/* X/Open requires some more fields with fixed names.  */
+-# define si_pid		_sifields._kill.si_pid
+-# define si_uid		_sifields._kill.si_uid
+-# define si_timerid	_sifields._timer.si_tid
+-# define si_overrun	_sifields._timer.si_overrun
+-# define si_status	_sifields._sigchld.si_status
+-# define si_utime	_sifields._sigchld.si_utime
+-# define si_stime	_sifields._sigchld.si_stime
+-# define si_value	_sifields._rt.si_sigval
+-# define si_int		_sifields._rt.si_sigval.sival_int
+-# define si_ptr		_sifields._rt.si_sigval.sival_ptr
+-# define si_addr	_sifields._sigfault.si_addr
+-# define si_band	_sifields._sigpoll.si_band
+-# define si_fd		_sifields._sigpoll.si_fd
+-
+-
+-/* Values for `si_code'.  Positive values are reserved for kernel-generated
+-   signals.  */
+-enum
+-{
+-  SI_ASYNCNL = -60,		/* Sent by asynch name lookup completion.  */
+-# define SI_ASYNCNL	SI_ASYNCNL
+-  SI_TKILL = -6,		/* Sent by tkill.  */
+-# define SI_TKILL	SI_TKILL
+-  SI_SIGIO,			/* Sent by queued SIGIO. */
+-# define SI_SIGIO	SI_SIGIO
+-  SI_ASYNCIO,			/* Sent by AIO completion.  */
+-# define SI_ASYNCIO	SI_ASYNCIO
+-  SI_MESGQ,			/* Sent by real time mesq state change.  */
+-# define SI_MESGQ	SI_MESGQ
+-  SI_TIMER,			/* Sent by timer expiration.  */
+-# define SI_TIMER	SI_TIMER
+-  SI_QUEUE,			/* Sent by sigqueue.  */
+-# define SI_QUEUE	SI_QUEUE
+-  SI_USER,			/* Sent by kill, sigsend, raise.  */
+-# define SI_USER	SI_USER
+-  SI_KERNEL = 0x80		/* Send by kernel.  */
+-#define SI_KERNEL	SI_KERNEL
+-};
+-
+-
+-/* `si_code' values for SIGILL signal.  */
+-enum
+-{
+-  ILL_ILLOPC = 1,		/* Illegal opcode.  */
+-# define ILL_ILLOPC	ILL_ILLOPC
+-  ILL_ILLOPN,			/* Illegal operand.  */
+-# define ILL_ILLOPN	ILL_ILLOPN
+-  ILL_ILLADR,			/* Illegal addressing mode.  */
+-# define ILL_ILLADR	ILL_ILLADR
+-  ILL_ILLTRP,			/* Illegal trap. */
+-# define ILL_ILLTRP	ILL_ILLTRP
+-  ILL_PRVOPC,			/* Privileged opcode.  */
+-# define ILL_PRVOPC	ILL_PRVOPC
+-  ILL_PRVREG,			/* Privileged register.  */
+-# define ILL_PRVREG	ILL_PRVREG
+-  ILL_COPROC,			/* Coprocessor error.  */
+-# define ILL_COPROC	ILL_COPROC
+-  ILL_BADSTK			/* Internal stack error.  */
+-# define ILL_BADSTK	ILL_BADSTK
+-};
+-
+-/* `si_code' values for SIGFPE signal.  */
+-enum
+-{
+-  FPE_INTDIV = 1,		/* Integer divide by zero.  */
+-# define FPE_INTDIV	FPE_INTDIV
+-  FPE_INTOVF,			/* Integer overflow.  */
+-# define FPE_INTOVF	FPE_INTOVF
+-  FPE_FLTDIV,			/* Floating point divide by zero.  */
+-# define FPE_FLTDIV	FPE_FLTDIV
+-  FPE_FLTOVF,			/* Floating point overflow.  */
+-# define FPE_FLTOVF	FPE_FLTOVF
+-  FPE_FLTUND,			/* Floating point underflow.  */
+-# define FPE_FLTUND	FPE_FLTUND
+-  FPE_FLTRES,			/* Floating point inexact result.  */
+-# define FPE_FLTRES	FPE_FLTRES
+-  FPE_FLTINV,			/* Floating point invalid operation.  */
+-# define FPE_FLTINV	FPE_FLTINV
+-  FPE_FLTSUB			/* Subscript out of range.  */
+-# define FPE_FLTSUB	FPE_FLTSUB
+-};
+-
+-/* `si_code' values for SIGSEGV signal.  */
+-enum
+-{
+-  SEGV_MAPERR = 1,		/* Address not mapped to object.  */
+-# define SEGV_MAPERR	SEGV_MAPERR
+-  SEGV_ACCERR			/* Invalid permissions for mapped object.  */
+-# define SEGV_ACCERR	SEGV_ACCERR
+-};
+-
+-/* `si_code' values for SIGBUS signal.  */
+-enum
+-{
+-  BUS_ADRALN = 1,		/* Invalid address alignment.  */
+-# define BUS_ADRALN	BUS_ADRALN
+-  BUS_ADRERR,			/* Non-existant physical address.  */
+-# define BUS_ADRERR	BUS_ADRERR
+-  BUS_OBJERR			/* Object specific hardware error.  */
+-# define BUS_OBJERR	BUS_OBJERR
+-};
+-
+-/* `si_code' values for SIGTRAP signal.  */
+-enum
+-{
+-  TRAP_BRKPT = 1,		/* Process breakpoint.  */
+-# define TRAP_BRKPT	TRAP_BRKPT
+-  TRAP_TRACE			/* Process trace trap.  */
+-# define TRAP_TRACE	TRAP_TRACE
+-};
+-
+-/* `si_code' values for SIGCHLD signal.  */
+-enum
+-{
+-  CLD_EXITED = 1,		/* Child has exited.  */
+-# define CLD_EXITED	CLD_EXITED
+-  CLD_KILLED,			/* Child was killed.  */
+-# define CLD_KILLED	CLD_KILLED
+-  CLD_DUMPED,			/* Child terminated abnormally.  */
+-# define CLD_DUMPED	CLD_DUMPED
+-  CLD_TRAPPED,			/* Traced child has trapped.  */
+-# define CLD_TRAPPED	CLD_TRAPPED
+-  CLD_STOPPED,			/* Child has stopped.  */
+-# define CLD_STOPPED	CLD_STOPPED
+-  CLD_CONTINUED			/* Stopped child has continued.  */
+-# define CLD_CONTINUED	CLD_CONTINUED
+-};
+-
+-/* `si_code' values for SIGPOLL signal.  */
+-enum
+-{
+-  POLL_IN = 1,			/* Data input available.  */
+-# define POLL_IN	POLL_IN
+-  POLL_OUT,			/* Output buffers available.  */
+-# define POLL_OUT	POLL_OUT
+-  POLL_MSG,			/* Input message available.   */
+-# define POLL_MSG	POLL_MSG
+-  POLL_ERR,			/* I/O error.  */
+-# define POLL_ERR	POLL_ERR
+-  POLL_PRI,			/* High priority input available.  */
+-# define POLL_PRI	POLL_PRI
+-  POLL_HUP			/* Device disconnected.  */
+-# define POLL_HUP	POLL_HUP
+-};
+-
+-# undef __need_siginfo_t
+-#endif	/* !have siginfo_t && (have _SIGNAL_H || need siginfo_t).  */
+-
+-
+-#if (defined _SIGNAL_H || defined __need_sigevent_t) \
+-    && !defined __have_sigevent_t
+-# define __have_sigevent_t	1
+-
+-/* Structure to transport application-defined values with signals.  */
+-# define __SIGEV_MAX_SIZE	64
+-# if __WORDSIZE == 64
+-#  define __SIGEV_PAD_SIZE	((__SIGEV_MAX_SIZE / sizeof (int)) - 4)
+-# else
+-#  define __SIGEV_PAD_SIZE	((__SIGEV_MAX_SIZE / sizeof (int)) - 3)
+-# endif
+-
+-typedef struct sigevent
+-  {
+-    sigval_t sigev_value;
+-    int sigev_signo;
+-    int sigev_notify;
+-
+-    union
+-      {
+-	int _pad[__SIGEV_PAD_SIZE];
+-
+-	/* When SIGEV_SIGNAL and SIGEV_THREAD_ID set, LWP ID of the
+-	   thread to receive the signal.  */
+-	__pid_t _tid;
+-
+-	struct
+-	  {
+-	    void (*_function) (sigval_t);	/* Function to start.  */
+-	    void *_attribute;			/* Really pthread_attr_t.  */
+-	  } _sigev_thread;
+-      } _sigev_un;
+-  } sigevent_t;
+-
+-/* POSIX names to access some of the members.  */
+-# define sigev_notify_function   _sigev_un._sigev_thread._function
+-# define sigev_notify_attributes _sigev_un._sigev_thread._attribute
+-
+-/* `sigev_notify' values.  */
+-enum
+-{
+-  SIGEV_SIGNAL = 0,		/* Notify via signal.  */
+-# define SIGEV_SIGNAL	SIGEV_SIGNAL
+-  SIGEV_NONE,			/* Other notification: meaningless.  */
+-# define SIGEV_NONE	SIGEV_NONE
+-  SIGEV_THREAD,			/* Deliver via thread creation.  */
+-# define SIGEV_THREAD	SIGEV_THREAD
+-
+-  SIGEV_THREAD_ID = 4		/* Send signal to specific thread.  */
+-#define SIGEV_THREAD_ID	SIGEV_THREAD_ID
+-};
+-
+-#endif	/* have _SIGNAL_H.  */
+From: Maxim Kuvyrkov <maxim@codesourcery.com>
+Date: Tue, 9 Mar 2010 10:34:24 +0000 (-0800)
+Subject: m68k: update ColdFire sigcontext ABI
+X-Git-Tag: glibc-2.12~39
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=75e73e66e49104a7aff24aa50043ae7ab02e38f3
+
+m68k: update ColdFire sigcontext ABI
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index e2b54e5..d63b88e 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,5 +1,8 @@
+ 2010-03-09  Maxim Kuvyrkov  <maxim@codesourcery.com>
+ 
++	* sysdeps/unix/sysv/linux/m68k/bits/sigcontext.h: Remove.
++	* sysdeps/unix/sysv/linux/m68k/register-dump.h: Update.
++
+ 	* sysdeps/unix/sysv/linux/m68k/bits/siginfo.h: Remove.
+ 
+ 	* sysdeps/m68k/jmpbuf-unwind.h (_JMPBUF_CFA_UNWINDS_ADJ)
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/sigcontext.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/sigcontext.h
+deleted file mode 100644
+index 8ad0c96..0000000
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/sigcontext.h
++++ /dev/null
+@@ -1,62 +0,0 @@
+-/* Copyright (C) 2006 Free Software Foundation, Inc.
+-   This file is part of the GNU C Library.
+-
+-   The GNU C Library is free software; you can redistribute it and/or
+-   modify it under the terms of the GNU Lesser General Public
+-   License as published by the Free Software Foundation; either
+-   version 2.1 of the License, or (at your option) any later version.
+-
+-   The GNU C Library is distributed in the hope that it will be useful,
+-   but WITHOUT ANY WARRANTY; without even the implied warranty of
+-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+-   Lesser General Public License for more details.
+-
+-   You should have received a copy of the GNU Lesser General Public
+-   License along with the GNU C Library; if not, write to the Free
+-   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+-   02111-1307 USA.  */
+-
+-#if !defined _SIGNAL_H && !defined _SYS_UCONTEXT_H
+-# error "Never use <bits/sigcontext.h> directly; include <signal.h> instead."
+-#endif
+-
+-#ifndef _BITS_SIGCONTEXT_H
+-#define _BITS_SIGCONTEXT_H 1
+-
+-struct sigcontext {
+-  unsigned long sc_mask;
+-  unsigned long sc_usp;
+-  unsigned long sc_d0;
+-  unsigned long sc_d1;
+-#ifdef __mcoldfire__
+-  unsigned long sc_d2;
+-  unsigned long sc_d3;
+-  unsigned long sc_d4;
+-  unsigned long sc_d5;
+-  unsigned long sc_d6;
+-  unsigned long sc_d7;
+-#endif
+-  unsigned long sc_a0;
+-  unsigned long sc_a1;
+-#ifdef __mcoldfire__
+-  unsigned long sc_a2;
+-  unsigned long sc_a3;
+-  unsigned long sc_a4;
+-  unsigned long sc_a5;
+-  unsigned long sc_a6;
+-#endif
+-  unsigned short sc_sr;
+-  unsigned long sc_pc;
+-  unsigned short sc_formatvec;
+-#ifdef __mcoldfire__
+-  unsigned long sc_fpregs[8][2];
+-  unsigned long sc_fpcntl[3];
+-  unsigned char sc_fpstate[16];
+-#else
+-  unsigned long sc_fpregs[2*3];
+-  unsigned long sc_fpcntl[3];
+-  unsigned char sc_fpstate[216];
+-#endif
+-};
+-
+-#endif
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/register-dump.h b/ports/sysdeps/unix/sysv/linux/m68k/register-dump.h
+index 391902f..78709d9 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/register-dump.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/register-dump.h
+@@ -40,7 +40,6 @@
+ 
+ */
+ 
+-#ifndef __mcoldfire__
+ /* Linux saves only the call-clobbered registers in the sigcontext.  We
+    need to use a trampoline that saves the rest so that the C code can
+    access them.  We use the sc_fpstate field, since the handler is not
+@@ -59,14 +58,17 @@ catch_segfault:\n\
+ 	/* Clear the first 4 bytes to make it a null fp state, just\n\
+ 	   in case the handler does return.  */\n\
+ 	clr.l (%%a0)+\n\
+-	movem.l %%d2-%%d7/%%a2-%%a6,(%%a0)\n\
+-	fmovem.x %%fp2-%%fp7,11*4(%%a0)\n\
+-	jra real_catch_segfault"
++	movem.l %%d2-%%d7/%%a2-%%a6,(%%a0)\n"
++#ifndef __mcoldfire__
++       "fmovem.x %%fp2-%%fp7,11*4(%%a0)\n"
++#elif defined __mcffpu__
++       "fmovem.d %%fp2-%%fp7,11*4(%%a0)\n"
++#endif
++       "jra real_catch_segfault"
+        : : "n" (offsetof (struct sigcontext, sc_fpstate)));
+ }
+ #define catch_segfault(a,b) \
+   __attribute_used__ real_catch_segfault(a,b)
+-#endif
+ 
+ static void
+ hexvalue (unsigned long int value, char *buf, size_t len)
+@@ -104,36 +106,19 @@ register_dump (int fd, struct sigcontext *ctx)
+   /* Generate strings of register contents.  */
+   hexvalue (ctx->sc_d0, regs[0], 8);
+   hexvalue (ctx->sc_d1, regs[1], 8);
+-#ifdef __mcoldfire__
+-  hexvalue (ctx->sc_d2, regs[2], 8);
+-  hexvalue (ctx->sc_d3, regs[3], 8);
+-  hexvalue (ctx->sc_d4, regs[4], 8);
+-  hexvalue (ctx->sc_d5, regs[5], 8);
+-  hexvalue (ctx->sc_d6, regs[6], 8);
+-  hexvalue (ctx->sc_d7, regs[7], 8);
+-#else
+   hexvalue (*p++, regs[2], 8);
+   hexvalue (*p++, regs[3], 8);
+   hexvalue (*p++, regs[4], 8);
+   hexvalue (*p++, regs[5], 8);
+   hexvalue (*p++, regs[6], 8);
+   hexvalue (*p++, regs[7], 8);
+-#endif
+   hexvalue (ctx->sc_a0, regs[8], 8);
+   hexvalue (ctx->sc_a1, regs[9], 8);
+-#ifdef __mcoldfire__
+-  hexvalue (ctx->sc_a2, regs[10], 8);
+-  hexvalue (ctx->sc_a3, regs[11], 8);
+-  hexvalue (ctx->sc_a4, regs[12], 8);
+-  hexvalue (ctx->sc_a5, regs[13], 8);
+-  hexvalue (ctx->sc_a6, regs[14], 8);
+-#else
+   hexvalue (*p++, regs[10], 8);
+   hexvalue (*p++, regs[11], 8);
+   hexvalue (*p++, regs[12], 8);
+   hexvalue (*p++, regs[13], 8);
+   hexvalue (*p++, regs[14], 8);
+-#endif
+   hexvalue (ctx->sc_usp, regs[15], 8);
+   hexvalue (ctx->sc_pc, regs[16], 8);
+   hexvalue (ctx->sc_sr, regs[17], 4);
+@@ -142,9 +127,6 @@ register_dump (int fd, struct sigcontext *ctx)
+   for (i = 0; i < 2; i++)
+     for (j = 0; j < fpreg_size; j += 8)
+       hexvalue (*pfp++, fpregs[i] + j, 8);
+-#ifdef __mcoldfire__
+-  p = pfp;
+-#endif
+   for (i = 2; i < 8; i++)
+     for (j = 0; j < fpreg_size; j += 8)
+       hexvalue (*p++, fpregs[i] + j, 8);
+From: Maxim Kuvyrkov <maxim@codesourcery.com>
+Date: Fri, 12 Mar 2010 18:50:55 +0000 (+0100)
+Subject: NPTL support for m68k/ColdFire
+X-Git-Tag: glibc-2.12~38
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=40111cb9e17a911c8913f00d9b913a71ceb6e609
+
+NPTL support for m68k/ColdFire
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index d63b88e..32681ff 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,5 +1,45 @@
+ 2010-03-09  Maxim Kuvyrkov  <maxim@codesourcery.com>
+ 
++	NPTL support for m68k/ColdFire
++	* sysdeps/unix/sysv/linux/m68k/sysdep.h (tls.h): Include.
++	(INTERNAL_SYSCALL): Convert to INTERNAL_SYSCALL_NCS.
++	(PTR_MANGLE, PTR_DEMANGLE): Define.
++	(NEED_STATIC_SYSINFO_DSO): Define.
++	* sysdeps/unix/sysv/linux/m68k/clone.S: Support RESET_PID.
++	* sysdeps/unix/sysv/linux/m68k/m68k-helpers.S: New.
++	* sysdeps/unix/sysv/linux/m68k/Makefile: Add new files to lists.
++	* sysdeps/unix/sysv/linux/m68k/vfork.S: Add SAVE_PID/RESTORE_PID.
++	* sysdeps/unix/sysv/linux/m68k/m68k-vdso.c: New.
++	* sysdeps/unix/sysv/linux/m68k/libc-m68k-vdso.c: New.
++	* sysdeps/unix/sysv/linux/m68k/bits/m68k-vdso.h: New.
++	* sysdeps/unix/sysv/linux/m68k/coldfire/nptl/bits/atomic.h: New.
++	* sysdeps/unix/sysv/linux/m68k/Versions: Add symbols for NPTL support.
++	* sysdeps/unix/sysv/linux/m68k/init-first.c: New.
++	* sysdeps/unix/sysv/linux/m68k/nptl/sysdep-cancel.h: New.
++	* sysdeps/unix/sysv/linux/m68k/nptl/bits/pthreadtypes.h: New.
++	* sysdeps/unix/sysv/linux/m68k/nptl/bits/semaphore.h: New.
++	* sysdeps/unix/sysv/linux/m68k/nptl/clone.S: New.
++	* sysdeps/unix/sysv/linux/m68k/nptl/fork.c: New.
++	* sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h: New.
++	* sysdeps/unix/sysv/linux/m68k/nptl/vfork.S: New.
++	* sysdeps/unix/sysv/linux/m68k/nptl/pt-vfork.S: New.
++	* sysdeps/unix/sysv/linux/m68k/nptl/createthread.c: New.
++	* sysdeps/unix/sysv/linux/m68k/nptl/pthread_once.c: New.
++	* sysdeps/unix/sysv/linux/m68k/socket.S: Update cancelation code.
++	* sysdeps/m68k/dl-tls.h: New.
++	* sysdeps/m68k/libc-tls.c: New.
++	* sysdeps/m68k/tls-macros.h: New.
++	* sysdeps/m68k/dl-machine.h (RTLD_START): Terminate stack frame to
++	generate better backtraces.
++	(elf_machine_type_class, elf_machine_rela): Handle TLS relocations.
++	* sysdeps/m68k/dl-machine.h: Handle TLS relocations.
++	* sysdeps/m68k/nptl/tcb-offsets.sym: New.
++	* sysdeps/m68k/nptl/pthread_spin_trylock.c: New.
++	* sysdeps/m68k/nptl/tls.h: New.
++	* sysdeps/m68k/nptl/pthread_spin_lock.c: New.
++	* sysdeps/m68k/nptl/pthreaddef.h: New.
++	* sysdeps/m68k/nptl/Makefile: New.
++
+ 	* sysdeps/unix/sysv/linux/m68k/bits/sigcontext.h: Remove.
+ 	* sysdeps/unix/sysv/linux/m68k/register-dump.h: Update.
+ 
+diff --git a/ports/sysdeps/m68k/dl-machine.h b/ports/sysdeps/m68k/dl-machine.h
+index 08a4396..9bc35e7 100644
+--- a/ports/sysdeps/m68k/dl-machine.h
++++ b/ports/sysdeps/m68k/dl-machine.h
+@@ -1,5 +1,6 @@
+ /* Machine-dependent ELF dynamic relocation inline functions.  m68k version.
+-   Copyright (C) 1996-2001, 2002, 2003, 2004, 2005 Free Software Foundation, Inc.
++   Copyright (C) 1996-2001, 2002, 2003, 2004, 2005, 2010
++   Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -24,6 +25,7 @@
+ 
+ #include <sys/param.h>
+ #include <sysdep.h>
++#include <dl-tls.h>
+ 
+ /* Return nonzero iff ELF header is compatible with the running host.  */
+ static inline int
+@@ -121,6 +123,7 @@ elf_machine_runtime_setup (struct link_map *l, int lazy, int profile)
+ 	.globl _start\n\
+ 	.type _start,@function\n\
+ _start:\n\
++	sub.l %fp, %fp\n\
+ 	move.l %sp, -(%sp)\n\
+ 	jbsr _dl_start\n\
+ 	addq.l #4, %sp\n\
+@@ -159,12 +162,16 @@ _dl_start_user:\n\
+ 	.size _dl_start_user, . - _dl_start_user\n\
+ 	.previous");
+ 
+-/* ELF_RTYPE_CLASS_PLT iff TYPE describes relocation of a PLT entry, so
+-   PLT entries should not be allowed to define the value.
++/* ELF_RTYPE_CLASS_PLT iff TYPE describes relocation of a PLT entry or
++   TLS variable, so undefined references should not be allowed to
++   define the value.
+    ELF_RTYPE_CLASS_NOCOPY iff TYPE should not be allowed to resolve to one
+    of the main executable's symbols, as for a COPY reloc.  */
+ #define elf_machine_type_class(type) \
+-  ((((type) == R_68K_JMP_SLOT) * ELF_RTYPE_CLASS_PLT)	\
++  ((((type) == R_68K_JMP_SLOT	     \
++     || (type) == R_68K_TLS_DTPMOD32 \
++     || (type) == R_68K_TLS_DTPREL32 \
++     || (type) == R_68K_TLS_TPREL32) * ELF_RTYPE_CLASS_PLT)	\
+    | (((type) == R_68K_COPY) * ELF_RTYPE_CLASS_COPY))
+ 
+ /* A reloc type used for ld.so cmdline arg lookups to reject PLT entries.  */
+@@ -262,6 +269,25 @@ elf_machine_rela (struct link_map *map, const Elf32_Rela *reloc,
+ 	case R_68K_PC32:
+ 	  *reloc_addr = value + reloc->r_addend - (Elf32_Addr) reloc_addr;
+ 	  break;
++#if defined USE_TLS && !defined RTLD_BOOTSTRAP
++	case R_68K_TLS_DTPMOD32:
++	  /* Get the information from the link map returned by the
++	     resolv function.  */
++	  if (sym_map != NULL)
++	    *reloc_addr = sym_map->l_tls_modid;
++	  break;
++	case R_68K_TLS_DTPREL32:
++	  if (sym != NULL)
++	    *reloc_addr = TLS_DTPREL_VALUE (sym, reloc);
++	  break;
++	case R_68K_TLS_TPREL32:
++	  if (sym != NULL)
++	    {
++	      CHECK_STATIC_TLS (map, sym_map);
++	      *reloc_addr = TLS_TPREL_VALUE (sym_map, sym, reloc);
++	    }
++	  break;
++#endif /* defined USE_TLS && !defined RTLD_BOOTSTRAP */
+ 	case R_68K_NONE:		/* Alright, Wilbur.  */
+ 	  break;
+ 	default:
+diff --git a/ports/sysdeps/m68k/dl-tls.h b/ports/sysdeps/m68k/dl-tls.h
+new file mode 100644
+index 0000000..f2ce998
+--- /dev/null
++++ b/ports/sysdeps/m68k/dl-tls.h
+@@ -0,0 +1,48 @@
++/* Thread-local storage handling in the ELF dynamic linker.  M68K version.
++   Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++
++/* Type used for the representation of TLS information in the GOT.  */
++typedef struct
++{
++  unsigned long int ti_module;
++  unsigned long int ti_offset;
++} tls_index;
++
++/* The thread pointer points 0x7000 past the first static TLS block.  */
++#define TLS_TP_OFFSET		0x7000
++
++/* Dynamic thread vector pointers point 0x8000 past the start of each
++   TLS block.  */
++#define TLS_DTV_OFFSET		0x8000
++
++/* Compute the value for a TPREL reloc.  */
++#define TLS_TPREL_VALUE(sym_map, sym, reloc)				\
++  ((sym_map)->l_tls_offset + (sym)->st_value + (reloc)->r_addend	\
++   - TLS_TP_OFFSET)
++
++/* Compute the value for a DTPREL reloc.  */
++#define TLS_DTPREL_VALUE(sym, reloc)				\
++  ((sym)->st_value + (reloc)->r_addend - TLS_DTV_OFFSET)
++
++extern void *__tls_get_addr (tls_index *ti);
++
++#define GET_ADDR_OFFSET	        (ti->ti_offset + TLS_DTV_OFFSET)
++#define __TLS_GET_ADDR(__ti)	(__tls_get_addr (__ti) - TLS_DTV_OFFSET)
+diff --git a/ports/sysdeps/m68k/libc-tls.c b/ports/sysdeps/m68k/libc-tls.c
+new file mode 100644
+index 0000000..e865fac
+--- /dev/null
++++ b/ports/sysdeps/m68k/libc-tls.c
+@@ -0,0 +1,38 @@
++/* Thread-local storage handling in the ELF dynamic linker.  m68k version.
++   Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <csu/libc-tls.c>
++#include <dl-tls.h>
++
++#if USE_TLS
++
++/* On M68K, linker optimizations are not required, so __tls_get_addr
++   can be called even in statically linked binaries.  In this case module
++   must be always 1 and PT_TLS segment exist in the binary, otherwise it
++   would not link.  */
++
++void *
++__tls_get_addr (tls_index *ti)
++{
++  dtv_t *dtv = THREAD_DTV ();
++  return (char *) dtv[1].pointer.val + GET_ADDR_OFFSET;
++}
++
++#endif
+diff --git a/ports/sysdeps/m68k/nptl/Makefile b/ports/sysdeps/m68k/nptl/Makefile
+new file mode 100644
+index 0000000..f36fc8f
+--- /dev/null
++++ b/ports/sysdeps/m68k/nptl/Makefile
+@@ -0,0 +1,22 @@
++# Copyright (C) 2010 Free Software Foundation, Inc.
++# This file is part of the GNU C Library.
++# Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++#
++# The GNU C Library is free software; you can redistribute it and/or
++# modify it under the terms of the GNU Lesser General Public
++# License as published by the Free Software Foundation; either
++# version 2.1 of the License, or (at your option) any later version.
++#
++# The GNU C Library is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++# Lesser General Public License for more details.
++#
++# You should have received a copy of the GNU Lesser General Public
++# License along with the GNU C Library; if not, write to the Free
++# Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++# 02111-1307 USA.
++
++ifeq ($(subdir),csu)
++gen-as-const-headers += tcb-offsets.sym
++endif
+diff --git a/ports/sysdeps/m68k/nptl/pthread_spin_lock.c b/ports/sysdeps/m68k/nptl/pthread_spin_lock.c
+new file mode 100644
+index 0000000..1cc16c8
+--- /dev/null
++++ b/ports/sysdeps/m68k/nptl/pthread_spin_lock.c
+@@ -0,0 +1,31 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <atomic.h>
++#include "pthreadP.h"
++
++int
++pthread_spin_lock (pthread_spinlock_t *lock)
++{
++  while (atomic_compare_and_exchange_val_acq(lock, 1, 0) != 0)
++   while (*lock != 0)
++    ;
++
++  return 0;
++}
+diff --git a/ports/sysdeps/m68k/nptl/pthread_spin_trylock.c b/ports/sysdeps/m68k/nptl/pthread_spin_trylock.c
+new file mode 100644
+index 0000000..831bffb
+--- /dev/null
++++ b/ports/sysdeps/m68k/nptl/pthread_spin_trylock.c
+@@ -0,0 +1,28 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <errno.h>
++#include <atomic.h>
++#include "pthreadP.h"
++
++int
++pthread_spin_trylock (pthread_spinlock_t *lock)
++{
++  return atomic_compare_and_exchange_val_acq(lock, 1, 0) ? EBUSY : 0;
++}
+diff --git a/ports/sysdeps/m68k/nptl/pthreaddef.h b/ports/sysdeps/m68k/nptl/pthreaddef.h
+new file mode 100644
+index 0000000..0a54907
+--- /dev/null
++++ b/ports/sysdeps/m68k/nptl/pthreaddef.h
+@@ -0,0 +1,39 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++/* Default stack size.  */
++#define ARCH_STACK_DEFAULT_SIZE	(2 * 1024 * 1024)
++
++/* Required stack pointer alignment at beginning.  */
++#define STACK_ALIGN		16
++
++/* Minimal stack size after allocating thread descriptor and guard size.  */
++#define MINIMAL_REST_STACK	2048
++
++/* Alignment requirement for TCB.  */
++#define TCB_ALIGNMENT		16
++
++
++/* Location of current stack frame.  */
++#define CURRENT_STACK_FRAME	__builtin_frame_address (0)
++
++
++/* XXX Until we have a better place keep the definitions here.  */
++#define __exit_thread_inline(val) \
++  INLINE_SYSCALL (exit, 1, (val))
+diff --git a/ports/sysdeps/m68k/nptl/tcb-offsets.sym b/ports/sysdeps/m68k/nptl/tcb-offsets.sym
+new file mode 100644
+index 0000000..b1bba65
+--- /dev/null
++++ b/ports/sysdeps/m68k/nptl/tcb-offsets.sym
+@@ -0,0 +1,11 @@
++#include <sysdep.h>
++#include <tls.h>
++
++--
++
++-- Derive offsets relative to the thread register.
++#define thread_offsetof(mem)	(long)(offsetof(struct pthread, mem) - TLS_TCB_OFFSET - TLS_PRE_TCB_SIZE)
++
++MULTIPLE_THREADS_OFFSET		thread_offsetof (header.multiple_threads)
++PID_OFFSET			thread_offsetof (pid)
++TID_OFFSET			thread_offsetof (tid)
+diff --git a/ports/sysdeps/m68k/nptl/tls.h b/ports/sysdeps/m68k/nptl/tls.h
+new file mode 100644
+index 0000000..c29824c
+--- /dev/null
++++ b/ports/sysdeps/m68k/nptl/tls.h
+@@ -0,0 +1,171 @@
++/* Definition for thread-local data handling.  NPTL/m68k version.
++   Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#ifndef _TLS_H
++#define _TLS_H	1
++
++#include <dl-sysdep.h>
++
++#ifndef __ASSEMBLER__
++# include <stdbool.h>
++# include <stddef.h>
++# include <stdint.h>
++
++/* Type for the dtv.  */
++typedef union dtv
++{
++  size_t counter;
++  struct
++  {
++    void *val;
++    bool is_static;
++  } pointer;
++} dtv_t;
++
++#else /* __ASSEMBLER__ */
++# include <tcb-offsets.h>
++#endif /* __ASSEMBLER__ */
++
++/* Signal that TLS support is available.  */
++#define USE_TLS	1
++
++#ifndef __ASSEMBLER__
++
++/* Get system call information.  */
++# include <sysdep.h>
++
++/* The TP points to the start of the thread blocks.  */
++# define TLS_DTV_AT_TP	1
++
++/* Get the thread descriptor definition.  */
++# include <nptl/descr.h>
++
++typedef struct
++{
++  dtv_t *dtv;
++  void *private;
++} tcbhead_t;
++
++/* This is the size of the initial TCB.  Because our TCB is before the thread
++   pointer, we don't need this.  */
++# define TLS_INIT_TCB_SIZE	0
++
++/* Alignment requirements for the initial TCB.  */
++# define TLS_INIT_TCB_ALIGN	__alignof__ (struct pthread)
++
++/* This is the size of the TCB.  Because our TCB is before the thread
++   pointer, we don't need this.  */
++# define TLS_TCB_SIZE		0
++
++/* Alignment requirements for the TCB.  */
++# define TLS_TCB_ALIGN		__alignof__ (struct pthread)
++
++/* This is the size we need before TCB - actually, it includes the TCB.  */
++# define TLS_PRE_TCB_SIZE						\
++  (sizeof (struct pthread)						\
++   + ((sizeof (tcbhead_t) + TLS_TCB_ALIGN - 1) & ~(TLS_TCB_ALIGN - 1)))
++
++/* The thread pointer (TP) points to the end of the
++   TCB + 0x7000, as for PowerPC and MIPS.  This implies that TCB address is
++   TP - 0x7000.  As we define TLS_DTV_AT_TP we can
++   assume that the pthread struct is allocated immediately ahead of the
++   TCB.  This implies that the pthread_descr address is
++   TP - (TLS_PRE_TCB_SIZE + 0x7000).  */
++# define TLS_TCB_OFFSET	0x7000
++
++/* Install the dtv pointer.  The pointer passed is to the element with
++   index -1 which contain the length.  */
++# define INSTALL_DTV(tcbp, dtvp) \
++  ((tcbhead_t *) (tcbp))[-1].dtv = dtvp + 1
++
++/* Install new dtv for current thread.  */
++# define INSTALL_NEW_DTV(dtv) \
++  (THREAD_DTV () = (dtv))
++
++/* Return dtv of given thread descriptor.  */
++# define GET_DTV(tcbp) \
++  (((tcbhead_t *) (tcbp))[-1].dtv)
++
++/* Code to initially initialize the thread pointer.  This might need
++   special attention since 'errno' is not yet available and if the
++   operation can cause a failure 'errno' must not be touched.  */
++# define TLS_INIT_TP(tcbp, secondcall)					\
++  ({									\
++    INTERNAL_SYSCALL_DECL (err);					\
++    int _sys_result;							\
++									\
++    _sys_result = INTERNAL_SYSCALL (set_thread_area, err, 1,		\
++				    ((void *) (tcbp)) + TLS_TCB_OFFSET); \
++    INTERNAL_SYSCALL_ERROR_P (_sys_result, err) ? "unknown error" : NULL; })
++
++extern void * __m68k_read_tp (void);
++
++/* Return the address of the dtv for the current thread.  */
++# define THREAD_DTV() \
++  (((tcbhead_t *) (__m68k_read_tp () - TLS_TCB_OFFSET))[-1].dtv)
++
++/* Return the thread descriptor for the current thread.  */
++# define THREAD_SELF \
++  ((struct pthread *) (__m68k_read_tp () - TLS_TCB_OFFSET - TLS_PRE_TCB_SIZE))
++
++/* Magic for libthread_db to know how to do THREAD_SELF.  */
++# define DB_THREAD_SELF \
++  CONST_THREAD_AREA (32, TLS_TCB_OFFSET + TLS_PRE_TCB_SIZE)
++
++/* Access to data in the thread descriptor is easy.  */
++# define THREAD_GETMEM(descr, member) \
++  descr->member
++# define THREAD_GETMEM_NC(descr, member, idx) \
++  descr->member[idx]
++# define THREAD_SETMEM(descr, member, value) \
++  descr->member = (value)
++# define THREAD_SETMEM_NC(descr, member, idx, value) \
++  descr->member[idx] = (value)
++
++/* l_tls_offset == 0 is perfectly valid on M68K, so we have to use some
++   different value to mean unset l_tls_offset.  */
++# define NO_TLS_OFFSET		-1
++
++/* Get and set the global scope generation counter in struct pthread.  */
++#define THREAD_GSCOPE_FLAG_UNUSED 0
++#define THREAD_GSCOPE_FLAG_USED   1
++#define THREAD_GSCOPE_FLAG_WAIT   2
++#define THREAD_GSCOPE_RESET_FLAG()					\
++  do									\
++    { int __res								\
++	= atomic_exchange_rel (&THREAD_SELF->header.gscope_flag,	\
++			       THREAD_GSCOPE_FLAG_UNUSED);		\
++      if (__res == THREAD_GSCOPE_FLAG_WAIT)				\
++	lll_futex_wake (&THREAD_SELF->header.gscope_flag, 1, LLL_PRIVATE); \
++    }									\
++  while (0)
++#define THREAD_GSCOPE_SET_FLAG()					\
++  do									\
++    {									\
++      THREAD_SELF->header.gscope_flag = THREAD_GSCOPE_FLAG_USED;	\
++      atomic_write_barrier ();						\
++    }									\
++  while (0)
++#define THREAD_GSCOPE_WAIT() \
++  GL(dl_wait_lookup_done) ()
++
++#endif /* __ASSEMBLER__ */
++
++#endif	/* tls.h */
+diff --git a/ports/sysdeps/m68k/tls-macros.h b/ports/sysdeps/m68k/tls-macros.h
+new file mode 100644
+index 0000000..d03d7b9
+--- /dev/null
++++ b/ports/sysdeps/m68k/tls-macros.h
+@@ -0,0 +1,70 @@
++/* Macros for accessing thread-local storage.  m68k version.
++   Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#define TLS_GD(x)							\
++  ({									\
++    void *__result;							\
++    extern void *__tls_get_addr (void *);				\
++									\
++    asm ("movel #_GLOBAL_OFFSET_TABLE_@GOTPC, %0\n\t"			\
++	 "lea (-6, %%pc, %0), %0\n\t"					\
++	 "lea " #x "@TLSGD(%0), %0"					\
++	 : "=&a" (__result));						\
++    (int *) __tls_get_addr (__result); })
++
++#define TLS_LD(x)							\
++  ({									\
++    char *__tp;								\
++    int __offset;							\
++    extern void *__tls_get_addr (void *);				\
++									\
++    asm ("movel #_GLOBAL_OFFSET_TABLE_@GOTPC, %0\n\t"			\
++	 "lea (-6, %%pc, %0), %0\n\t"					\
++	 "lea " #x "@TLSLDM(%0), %0"					\
++	 : "=&a" (__tp));						\
++    __tp = (char *) __tls_get_addr (__tp);				\
++    asm ("movel #" #x "@TLSLDO, %0"					\
++	 : "=a" (__offset));						\
++    (int *) (__tp + __offset); })
++
++#define TLS_IE(x)							\
++  ({									\
++    char *__tp;								\
++    int __offset;							\
++    extern void * __m68k_read_tp (void);				\
++									\
++    __tp = (char *) __m68k_read_tp ();					\
++    asm ("movel #_GLOBAL_OFFSET_TABLE_@GOTPC, %0\n\t"			\
++	 "lea (-6, %%pc, %0), %0\n\t"					\
++	 "movel " #x "@TLSIE(%0), %0"					\
++	 : "=&a" (__offset));						\
++    (int *) (__tp + __offset); })
++
++#define TLS_LE(x)							\
++  ({									\
++    char *__tp;								\
++    int __offset;							\
++    extern void * __m68k_read_tp (void);				\
++									\
++    __tp = (char *) __m68k_read_tp ();					\
++    asm ("movel #" #x "@TLSLE, %0"					\
++	 : "=a" (__offset));						\
++    (int *) (__tp + __offset); })
++
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/Makefile b/ports/sysdeps/unix/sysv/linux/m68k/Makefile
+index 6bb4f6b..97d9584 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/Makefile
++++ b/ports/sysdeps/unix/sysv/linux/m68k/Makefile
+@@ -2,12 +2,18 @@
+ 
+ m68k-syntax-flag = -DMOTOROLA_SYNTAX
+ 
++ifeq ($(subdir),csu)
++sysdep_routines += m68k-helpers
++endif
++
+ ifeq ($(subdir),misc)
+ sysdep_routines += mremap
+ sysdep_headers += sys/reg.h
+ endif
+ 
+ ifeq ($(subdir),elf)
++sysdep_routines += dl-vdso libc-m68k-vdso
++sysdep-rtld-routines += m68k-vdso
+ sysdep-others += lddlibc4
+ install-bin += lddlibc4
+ endif
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/Versions b/ports/sysdeps/unix/sysv/linux/m68k/Versions
+index 5650f7f..8a941f8 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/Versions
++++ b/ports/sysdeps/unix/sysv/linux/m68k/Versions
+@@ -32,4 +32,18 @@ libc {
+   GLIBC_2.11 {
+     fallocate64;
+   }
++  GLIBC_2.12 {
++    __m68k_read_tp;
++  }
++  GLIBC_PRIVATE {
++    __vdso_atomic_cmpxchg_32; __vdso_atomic_barrier;
++  }
++}
++
++ld {
++  GLIBC_PRIVATE {
++    __rtld___vdso_read_tp;
++    __rtld___vdso_atomic_cmpxchg_32;
++    __rtld___vdso_atomic_barrier;
++  }
+ }
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/m68k-vdso.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/m68k-vdso.h
+new file mode 100644
+index 0000000..c361060
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/bits/m68k-vdso.h
+@@ -0,0 +1,61 @@
++/* Resolve function pointers to VDSO functions.
++   Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++
++#ifndef _M68K_VDSO_H
++#define _M68K_VDSO_H
++
++#ifdef SHARED
++
++# ifdef IS_IN_rtld
++# define M68K_VDSO_SYMBOL(name) __rtld_##name
++# define STR_M68K_VDSO_SYMBOL(name) "__rtld_" #name
++# else
++# define M68K_VDSO_SYMBOL(name) name
++# define STR_M68K_VDSO_SYMBOL(name) #name
++# endif
++
++# ifndef __ASSEMBLER__
++
++/* We define __rtld_* copies for rtld.
++   We need them visible in libc to initialize.  */
++#  if defined IS_IN_rtld || !defined NOT_IN_libc
++extern void *__rtld___vdso_read_tp;
++extern void *__rtld___vdso_atomic_cmpxchg_32;
++extern void *__rtld___vdso_atomic_barrier;
++
++/* These stubs are meant to be invoked only from the assembly.  */
++extern void __vdso_read_tp_stub (void);
++extern void __vdso_atomic_cmpxchg_32_stub (void);
++extern void __vdso_atomic_barrier_stub (void);
++#  endif /* IS_IN_rtld || !NOT_IN_libc */
++
++/* RTLD should only use its own copies.  */
++#  ifndef IS_IN_rtld
++extern void *__vdso_read_tp;
++extern void *__vdso_atomic_cmpxchg_32;
++extern void *__vdso_atomic_barrier;
++#  endif /* !IS_IN_rtld */
++
++# endif /* !__ASSEMBLER__ */
++
++#endif /* SHARED */
++
++#endif /* _M68K_VDSO_H */
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/clone.S b/ports/sysdeps/unix/sysv/linux/m68k/clone.S
+index a179f8e..401e2ef 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/clone.S
++++ b/ports/sysdeps/unix/sysv/linux/m68k/clone.S
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 1996,97,98,2002 Free Software Foundation, Inc.
++/* Copyright (C) 1996,97,98,2002,2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Andreas Schwab (schwab@issan.informatik.uni-dortmund.de)
+ 
+@@ -17,14 +17,21 @@
+    Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+    02111-1307 USA.  */
+ 
+-/* clone is even more special than fork as it mucks with stacks
++/* clone() is even more special than fork() as it mucks with stacks
+    and invokes a function in the right context after its all over.  */
+ 
+ #include <sysdep.h>
+ #define _ERRNO_H	1
+ #include <bits/errno.h>
++#ifdef RESET_PID
++#include <tls.h>
++#endif
++
++#define CLONE_VM      0x00000100
++#define CLONE_THREAD  0x00010000
+ 
+-/* int clone(int (*fn)(void *arg), void *child_stack, int flags, void *arg); */
++/* int clone(int (*fn)(void *arg), void *child_stack, int flags, void *arg,
++	     void *parent_tidptr, void *tls, void *child_tidptr) */
+ 
+         .text
+ ENTRY (__clone)
+@@ -42,7 +49,17 @@ ENTRY (__clone)
+ 	movel	16(%sp), -(%a1)
+ 
+ 	/* Do the system call */
+-	movel	12(%sp), %d1		/* get flags */
++	movel	12+0(%sp), %d1		/* get flags */
++	movel	%d3, -(%a1)             /* save %d3 and get parent_tidptr */
++	movel	%d3, -(%sp)
++	movel	20+4(%sp), %d3
++	movel	%d4, -(%a1)		/* save %d4 and get child_tidptr */
++	movel	%d4, -(%sp)
++	movel	28+8(%sp), %d4
++	movel	%d5, -(%a1)             /* save %d5 and get tls */
++	movel	%d5, -(%sp)
++	movel	24+12(%sp), %d5
++	/* save %d2 and get stack pointer */
+ #ifdef __mcoldfire__
+ 	movel	%d2, -(%a1)
+ 	movel	%d2, -(%sp)
+@@ -57,6 +74,9 @@ ENTRY (__clone)
+ #else
+ 	exg	%d2, %a1		/* restore %d2 */
+ #endif
++	movel	(%sp)+, %d5             /* restore %d5, %d4 and %d3 */
++	movel	(%sp)+, %d4
++	movel	(%sp)+, %d3
+ 
+ 	tstl	%d0
+ 	jmi	SYSCALL_ERROR_LABEL
+@@ -65,11 +85,35 @@ ENTRY (__clone)
+ 	rts
+ 
+ thread_start:
++	cfi_startproc
++	cfi_undefined (pc)	/* Mark end of stack */
+ 	subl	%fp, %fp	/* terminate the stack frame */
++#ifdef RESET_PID
++	/* Check and see if we need to reset the PID.  */
++	movel	%d1, %a1
++	andl	#CLONE_THREAD, %d1
++	jne	donepid
++	movel	%a1, %d1
++	movel	#-1, %d0
++	andl	#CLONE_VM, %d1
++	jne	gotpid
++	movel	#SYS_ify (getpid), %d0
++	trap	#0
++gotpid:
++	movel	%a0, -(%sp)
++	movel	%d0, -(%sp)
++	bsrl	__m68k_read_tp@PLTPC
++	movel	(%sp)+, %d0
++	movel	%d0, PID_OFFSET(%a0)
++	movel	%d0, TID_OFFSET(%a0)
++	movel	(%sp)+, %a0
++donepid:
++#endif
+ 	jsr	(%a0)
+ 	movel	%d0, %d1
+ 	movel	#SYS_ify (exit), %d0
+ 	trap	#0
++	cfi_endproc
+ 
+ PSEUDO_END (__clone)
+ 
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/coldfire/nptl/bits/atomic.h b/ports/sysdeps/unix/sysv/linux/m68k/coldfire/nptl/bits/atomic.h
+new file mode 100644
+index 0000000..1198bb9
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/coldfire/nptl/bits/atomic.h
+@@ -0,0 +1,105 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#ifndef _BITS_ATOMIC_H
++#define _BITS_ATOMIC_H	1
++
++#include <stdint.h>
++#include <sysdep.h>
++#include <bits/m68k-vdso.h>
++
++/* Coldfire has no atomic compare-and-exchange operation, but the
++   kernel provides userspace atomicity operations.  Use them.  */
++
++typedef int32_t atomic32_t;
++typedef uint32_t uatomic32_t;
++typedef int_fast32_t atomic_fast32_t;
++typedef uint_fast32_t uatomic_fast32_t;
++
++typedef intptr_t atomicptr_t;
++typedef uintptr_t uatomicptr_t;
++typedef intmax_t atomic_max_t;
++typedef uintmax_t uatomic_max_t;
++
++/* The only basic operation needed is compare and exchange.  */
++/* For ColdFire we'll have to trap into the kernel mode anyway,
++   so trap from the library rather then from the kernel wrapper.  */
++#ifdef SHARED
++# define atomic_compare_and_exchange_val_acq(mem, newval, oldval)	\
++  ({									\
++    /* Use temporary variables to workaround call-clobberness of */	\
++    /* the registers.  */						\
++    __typeof (mem) _mem = mem;						\
++    __typeof (oldval) _oldval = oldval;					\
++    __typeof (newval) _newval = newval;					\
++    register __typeof (mem) _a0 asm ("a0") = _mem;			\
++    register __typeof (oldval) _d0 asm ("d0") = _oldval;		\
++    register __typeof (newval) _d1 asm ("d1") = _newval;		\
++    void *tmp;								\
++									\
++    asm ("movel #_GLOBAL_OFFSET_TABLE_@GOTPC, %2\n\t"			\
++	 "lea (-6, %%pc, %2), %2\n\t"					\
++	 "movel " STR_M68K_VDSO_SYMBOL (__vdso_atomic_cmpxchg_32)	\
++	 "@GOT(%2), %2\n\t"						\
++	 "movel (%2), %2\n\t"						\
++	 "jsr (%2)\n\t"							\
++	 : "+d" (_d0), "+m" (*_a0), "=&a" (tmp)				\
++	 : "a" (_a0), "d" (_d1));					\
++    _d0;								\
++  })
++#else
++# define atomic_compare_and_exchange_val_acq(mem, newval, oldval)	\
++  ({									\
++    /* Use temporary variables to workaround call-clobberness of */	\
++    /* the registers.  */						\
++    __typeof (mem) _mem = mem;						\
++    __typeof (oldval) _oldval = oldval;					\
++    __typeof (newval) _newval = newval;					\
++    register __typeof (oldval) _d0 asm ("d0")				\
++      = SYS_ify (atomic_cmpxchg_32);					\
++    register __typeof (mem) _a0 asm ("a0") = _mem;			\
++    register __typeof (oldval) _d2 asm ("d2") = _oldval;		\
++    register __typeof (newval) _d1 asm ("d1") = _newval;		\
++									\
++    asm ("trap #0"							\
++	 : "+d" (_d0), "+m" (*_a0)					\
++	 : "a" (_a0), "d" (_d2), "d" (_d1));				\
++    _d0;								\
++  })
++#endif
++
++#ifdef SHARED
++# define atomic_full_barrier()					 \
++  ({								 \
++    void *tmp;							 \
++								 \
++    asm ("movel #_GLOBAL_OFFSET_TABLE_@GOTPC, %0\n\t"		 \
++	 "lea (-6, %pc, %0), %0\n\t"				 \
++	 "movel " STR_M68K_VDSO_SYMBOL (__vdso_atomic_barrier)	 \
++	 "@GOT(%0), %0\n\t"					 \
++	 "movel (%0), %0\n\t"					 \
++	 "jsr (%0)\n\t"						 \
++	 : "=&a" (tmp));					 \
++  })
++#else
++# define atomic_full_barrier()				\
++  (INTERNAL_SYSCALL (atomic_barrier, , 0), (void) 0)
++#endif
++
++#endif
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/init-first.c b/ports/sysdeps/unix/sysv/linux/m68k/init-first.c
+new file mode 100644
+index 0000000..f8168d1
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/init-first.c
+@@ -0,0 +1,74 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++/* Note: linking in vDSO to a static binary requires changes to
++   the main GLIBC proper.  Not yet implemented.  */
++#ifdef SHARED
++
++#include <dl-vdso.h>
++#include <bits/m68k-vdso.h>
++
++static inline void
++_libc_vdso_platform_setup (void)
++{
++  void *p;
++
++  PREPARE_VERSION (linux26, "LINUX_2.6", 61765110);
++
++  /* It may happen that rtld didn't initialize the vDSO, so fallback
++     to the syscall implementations if _dl_vdso_vsym returns NULL.
++     This may happen when a static executable dlopen's a dynamic library.
++     This really is nothing more than a workaround for rtld/csu
++     deficiency.  Ideally, init code would setup the vDSO for static
++     binaries too.  */
++
++  p = _dl_vdso_vsym ("__kernel_read_tp", &linux26);
++  if (p != NULL)
++    {
++      __vdso_read_tp = p;
++      __rtld___vdso_read_tp = p;
++    }
++  else
++    assert (__vdso_read_tp == (void *) __vdso_read_tp_stub);
++
++  p = _dl_vdso_vsym ("__kernel_atomic_cmpxchg_32", &linux26);
++  if (p != NULL)
++    {
++      __vdso_atomic_cmpxchg_32 = p;
++      __rtld___vdso_atomic_cmpxchg_32 = p;
++    }
++  else
++    assert (__vdso_atomic_cmpxchg_32
++	    == (void *) __vdso_atomic_cmpxchg_32_stub);
++
++  p = _dl_vdso_vsym ("__kernel_atomic_barrier", &linux26);
++  if (p != NULL)
++    {
++      __vdso_atomic_barrier = p;
++      __rtld___vdso_atomic_barrier = p;
++    }
++  else
++    assert (__vdso_atomic_barrier == (void *) __vdso_atomic_barrier_stub);
++}
++
++#define VDSO_SETUP _libc_vdso_platform_setup
++
++#endif /* SHARED */
++
++#include <sysdeps/unix/sysv/linux/init-first.c>
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/libc-m68k-vdso.c b/ports/sysdeps/unix/sysv/linux/m68k/libc-m68k-vdso.c
+new file mode 100644
+index 0000000..45982e9
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/libc-m68k-vdso.c
+@@ -0,0 +1 @@
++#include "m68k-vdso.c"
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/m68k-helpers.S b/ports/sysdeps/unix/sysv/linux/m68k/m68k-helpers.S
+new file mode 100644
+index 0000000..00db4bb
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/m68k-helpers.S
+@@ -0,0 +1,105 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   In addition to the permissions in the GNU Lesser General Public
++   License, the Free Software Foundation gives you unlimited
++   permission to link the compiled version of this file with other
++   programs, and to distribute those programs without any restriction
++   coming from the use of this file. (The GNU Lesser General Public
++   License restrictions do apply in other respects; for example, they
++   cover modification of the file, and distribution when not linked
++   into another program.)
++
++   Note that people who make modified versions of this file are not
++   obligated to grant this special exception for their modified
++   versions; it is their choice whether to do so. The GNU Lesser
++   General Public License gives permission to release a modified
++   version without this exception; this exception also makes it
++   possible to release a modified version which carries forward this
++   exception.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <sysdep.h>
++#include <bits/m68k-vdso.h>
++
++	.text
++
++	.hidden __vdso_read_tp_stub
++ENTRY (__vdso_read_tp_stub)
++	cfi_startproc
++	move.l	#__NR_get_thread_area, %d0
++	trap	#0
++	move.l	%d0, %a0
++	rts
++	cfi_endproc
++END (__vdso_read_tp_stub)
++
++# ifdef SHARED
++/* GCC will emit calls to this routine.  Linux has an
++   equivalent helper function (which clobbers fewer registers than
++   a normal function call) in a vdso; tail call to the
++   helper.  */
++# ifdef IS_IN_rtld
++/* rtld gets a hidden copy of __m68k_read_tp.  */
++	.hidden __m68k_read_tp
++# endif
++ENTRY (__m68k_read_tp)
++	cfi_startproc
++	move.l	#_GLOBAL_OFFSET_TABLE_@GOTPC, %a0
++	lea	(-6, %pc, %a0), %a0
++	move.l	M68K_VDSO_SYMBOL (__vdso_read_tp)@GOT(%a0), %a0
++	move.l	(%a0), %a0
++	jmp	(%a0)
++	cfi_endproc
++END (__m68k_read_tp)
++
++/* The following two stubs are for macros in atomic.h, they can't
++   clobber anything.  */
++
++	.hidden __vdso_atomic_cmpxchg_32_stub
++ENTRY (__vdso_atomic_cmpxchg_32_stub)
++	cfi_startproc
++	move.l	%d2, -(%sp)
++	cfi_adjust_cfa_offset (4)
++	cfi_rel_offset (%d2, 0)
++	move.l	%d0, %d2
++	move.l	#SYS_ify (atomic_cmpxchg_32), %d0
++	trap	#0
++	move.l	(%sp)+, %d2
++	cfi_adjust_cfa_offset (-4)
++	cfi_restore (%d2)
++	rts
++	cfi_endproc
++END (__vdso_atomic_cmpxchg_32_stub)
++	
++	.hidden __vdso_atomic_barrier_stub
++ENTRY (__vdso_atomic_barrier_stub)
++	cfi_startproc
++	move.l	%d0, -(%sp)
++	cfi_adjust_cfa_offset (4)
++	move.l	#SYS_ify (atomic_barrier), %d0
++	trap	#0
++	move.l	(%sp)+, %d0
++	cfi_adjust_cfa_offset (-4)
++	rts
++	cfi_endproc
++END (__vdso_atomic_barrier_stub)
++# else /* !SHARED */
++/* If the vDSO is not available, use a syscall to get TP.  */
++	strong_alias (__vdso_read_tp_stub, __m68k_read_tp)
++# endif /* SHARED */
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/m68k-vdso.c b/ports/sysdeps/unix/sysv/linux/m68k/m68k-vdso.c
+new file mode 100644
+index 0000000..73b2570
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/m68k-vdso.c
+@@ -0,0 +1,35 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#ifdef SHARED
++
++#include <bits/m68k-vdso.h>
++
++/* Because these pointers are used from other libraries than libc,
++   they are exported at GLIBC_PRIVATE version.
++   We initialize them to syscall implementation so that they will be ready
++   to use from the very beginning.  */
++void * M68K_VDSO_SYMBOL (__vdso_read_tp)
++= (void *) __vdso_read_tp_stub;
++void * M68K_VDSO_SYMBOL (__vdso_atomic_cmpxchg_32)
++= (void *) __vdso_atomic_cmpxchg_32_stub;
++void * M68K_VDSO_SYMBOL (__vdso_atomic_barrier)
++= (void *) __vdso_atomic_barrier_stub;
++
++#endif /* SHARED */
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/bits/pthreadtypes.h b/ports/sysdeps/unix/sysv/linux/m68k/nptl/bits/pthreadtypes.h
+new file mode 100644
+index 0000000..0140810
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/bits/pthreadtypes.h
+@@ -0,0 +1,172 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#ifndef _BITS_PTHREADTYPES_H
++#define _BITS_PTHREADTYPES_H	1
++
++#include <endian.h>
++
++#define __SIZEOF_PTHREAD_ATTR_T 36
++#define __SIZEOF_PTHREAD_MUTEX_T 24
++#define __SIZEOF_PTHREAD_MUTEXATTR_T 4
++#define __SIZEOF_PTHREAD_COND_T 48
++#define __SIZEOF_PTHREAD_CONDATTR_T 4
++#define __SIZEOF_PTHREAD_RWLOCK_T 32
++#define __SIZEOF_PTHREAD_RWLOCKATTR_T 8
++#define __SIZEOF_PTHREAD_BARRIER_T 20
++#define __SIZEOF_PTHREAD_BARRIERATTR_T 4
++
++
++/* Thread identifiers.  The structure of the attribute type is
++   deliberately not exposed.  */
++typedef unsigned long int pthread_t;
++
++
++typedef union
++{
++  char __size[__SIZEOF_PTHREAD_ATTR_T];
++  long int __align;
++} pthread_attr_t;
++
++
++typedef struct __pthread_internal_slist
++{
++  struct __pthread_internal_slist *__next;
++} __pthread_slist_t;
++
++
++/* Data structures for mutex handling.  The structure of the attribute
++   type is deliberately not exposed.  */
++typedef union
++{
++  struct __pthread_mutex_s
++  {
++    int __lock;
++    unsigned int __count;
++    int __owner;
++    /* KIND must stay at this position in the structure to maintain
++       binary compatibility.  */
++    int __kind;
++    unsigned int __nusers;
++    __extension__ union
++    {
++      int __spins;
++      __pthread_slist_t __list;
++    };
++  } __data;
++  char __size[__SIZEOF_PTHREAD_MUTEX_T];
++  long int __align;
++} pthread_mutex_t;
++
++typedef union
++{
++  char __size[__SIZEOF_PTHREAD_MUTEXATTR_T];
++  int __align;
++} pthread_mutexattr_t;
++
++
++/* Data structure for conditional variable handling.  The structure of
++   the attribute type is deliberately not exposed.  */
++typedef union
++{
++  struct
++  {
++    int __lock;
++    unsigned int __futex;
++    __extension__ unsigned long long int __total_seq;
++    __extension__ unsigned long long int __wakeup_seq;
++    __extension__ unsigned long long int __woken_seq;
++    void *__mutex;
++    unsigned int __nwaiters;
++    unsigned int __broadcast_seq;
++  } __data;
++  char __size[__SIZEOF_PTHREAD_COND_T];
++  __extension__ long long int __align;
++} pthread_cond_t;
++
++typedef union
++{
++  char __size[__SIZEOF_PTHREAD_CONDATTR_T];
++  int __align;
++} pthread_condattr_t;
++
++
++/* Keys for thread-specific data */
++typedef unsigned int pthread_key_t;
++
++
++/* Once-only execution */
++typedef int pthread_once_t;
++
++
++#if defined __USE_UNIX98 || defined __USE_XOPEN2K
++/* Data structure for read-write lock variable handling.  The
++   structure of the attribute type is deliberately not exposed.  */
++typedef union
++{
++  struct
++  {
++    int __lock;
++    unsigned int __nr_readers;
++    unsigned int __readers_wakeup;
++    unsigned int __writer_wakeup;
++    unsigned int __nr_readers_queued;
++    unsigned int __nr_writers_queued;
++    unsigned char __pad1;
++    unsigned char __pad2;
++    unsigned char __shared;
++    /* FLAGS must stay at this position in the structure to maintain
++       binary compatibility.  */
++    unsigned char __flags;
++    int __writer;
++  } __data;
++  char __size[__SIZEOF_PTHREAD_RWLOCK_T];
++  long int __align;
++} pthread_rwlock_t;
++
++typedef union
++{
++  char __size[__SIZEOF_PTHREAD_RWLOCKATTR_T];
++  long int __align;
++} pthread_rwlockattr_t;
++#endif
++
++
++#ifdef __USE_XOPEN2K
++/* POSIX spinlock data type.  */
++typedef volatile int pthread_spinlock_t;
++
++
++/* POSIX barriers data type.  The structure of the type is
++   deliberately not exposed.  */
++typedef union
++{
++  char __size[__SIZEOF_PTHREAD_BARRIER_T];
++  long int __align;
++} pthread_barrier_t;
++
++typedef union
++{
++  char __size[__SIZEOF_PTHREAD_BARRIERATTR_T];
++  int __align;
++} pthread_barrierattr_t;
++#endif
++
++
++#endif	/* bits/pthreadtypes.h */
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/bits/semaphore.h b/ports/sysdeps/unix/sysv/linux/m68k/nptl/bits/semaphore.h
+new file mode 100644
+index 0000000..2950cc9
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/bits/semaphore.h
+@@ -0,0 +1,36 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#ifndef _SEMAPHORE_H
++# error "Never use <bits/semaphore.h> directly; include <semaphore.h> instead."
++#endif
++
++
++#define __SIZEOF_SEM_T	16
++
++
++/* Value returned if `sem_open' failed.  */
++#define SEM_FAILED      ((sem_t *) 0)
++
++
++typedef union
++{
++  char __size[__SIZEOF_SEM_T];
++  long int __align;
++} sem_t;
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/clone.S b/ports/sysdeps/unix/sysv/linux/m68k/nptl/clone.S
+new file mode 100644
+index 0000000..e7388fe
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/clone.S
+@@ -0,0 +1,2 @@
++#define RESET_PID
++#include "../clone.S"
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/createthread.c b/ports/sysdeps/unix/sysv/linux/m68k/nptl/createthread.c
+new file mode 100644
+index 0000000..be11444
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/createthread.c
+@@ -0,0 +1,25 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++/* Value passed to 'clone' for initialization of the thread register.  */
++#define TLS_VALUE ((void *) (pd) \
++		   + TLS_TCB_OFFSET + TLS_PRE_TCB_SIZE)
++
++/* Get the real implementation.	 */
++#include <nptl/sysdeps/pthread/createthread.c>
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/fork.c b/ports/sysdeps/unix/sysv/linux/m68k/nptl/fork.c
+new file mode 100644
+index 0000000..dc1584e
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/fork.c
+@@ -0,0 +1,30 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <sched.h>
++#include <signal.h>
++#include <sysdep.h>
++#include <tls.h>
++
++#define ARCH_FORK() \
++  INLINE_SYSCALL (clone, 5,						      \
++		  CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | SIGCHLD, 0,     \
++		  NULL, &THREAD_SELF->tid, NULL)
++
++#include <sysdeps/unix/sysv/linux/fork.c>
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h b/ports/sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h
+new file mode 100644
+index 0000000..926077d
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h
+@@ -0,0 +1,281 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++/* Borrowed from ARM's version.  */
++
++#ifndef _LOWLEVELLOCK_H
++#define _LOWLEVELLOCK_H	1
++
++#include <time.h>
++#include <sys/param.h>
++#include <bits/pthreadtypes.h>
++#include <atomic.h>
++#include <sysdep.h>
++#include <kernel-features.h>
++
++#define FUTEX_WAIT		0
++#define FUTEX_WAKE		1
++#define FUTEX_REQUEUE		3
++#define FUTEX_CMP_REQUEUE	4
++#define FUTEX_WAKE_OP		5
++#define FUTEX_OP_CLEAR_WAKE_IF_GT_ONE	((4 << 24) | 1)
++#define FUTEX_LOCK_PI		6
++#define FUTEX_UNLOCK_PI		7
++#define FUTEX_TRYLOCK_PI	8
++#define FUTEX_WAIT_BITSET	9
++#define FUTEX_WAKE_BITSET	10
++#define FUTEX_PRIVATE_FLAG	128
++#define FUTEX_CLOCK_REALTIME	256
++
++#define FUTEX_BITSET_MATCH_ANY	0xffffffff
++
++/* Values for 'private' parameter of locking macros.  Yes, the
++   definition seems to be backwards.  But it is not.  The bit will be
++   reversed before passing to the system call.  */
++#define LLL_PRIVATE	0
++#define LLL_SHARED	FUTEX_PRIVATE_FLAG
++
++
++#if !defined NOT_IN_libc || defined IS_IN_rtld
++/* In libc.so or ld.so all futexes are private.  */
++# ifdef __ASSUME_PRIVATE_FUTEX
++#  define __lll_private_flag(fl, private) \
++  ((fl) | FUTEX_PRIVATE_FLAG)
++# else
++#  define __lll_private_flag(fl, private) \
++  ((fl) | THREAD_GETMEM (THREAD_SELF, header.private_futex))
++# endif
++#else
++# ifdef __ASSUME_PRIVATE_FUTEX
++#  define __lll_private_flag(fl, private) \
++  (((fl) | FUTEX_PRIVATE_FLAG) ^ (private))
++# else
++#  define __lll_private_flag(fl, private) \
++  (__builtin_constant_p (private)					      \
++   ? ((private) == 0							      \
++      ? ((fl) | THREAD_GETMEM (THREAD_SELF, header.private_futex))	      \
++      : (fl))								      \
++   : ((fl) | (((private) ^ FUTEX_PRIVATE_FLAG)				      \
++	      & THREAD_GETMEM (THREAD_SELF, header.private_futex))))
++# endif	      
++#endif
++
++
++#define lll_futex_wait(futexp, val, private) \
++  lll_futex_timed_wait(futexp, val, NULL, private)
++
++#define lll_futex_timed_wait(futexp, val, timespec, private) \
++  ({									      \
++    INTERNAL_SYSCALL_DECL (__err);					      \
++    long int __ret;							      \
++    __ret = INTERNAL_SYSCALL (futex, __err, 4, (futexp),		      \
++			      __lll_private_flag (FUTEX_WAIT, private),	      \
++			      (val), (timespec));			      \
++    __ret;								      \
++  })
++
++#define lll_futex_wake(futexp, nr, private) \
++  ({									      \
++    INTERNAL_SYSCALL_DECL (__err);					      \
++    long int __ret;							      \
++    __ret = INTERNAL_SYSCALL (futex, __err, 4, (futexp),		      \
++			      __lll_private_flag (FUTEX_WAKE, private),	      \
++			      (nr), 0);					      \
++    __ret;								      \
++  })
++
++#define lll_robust_dead(futexv, private) \
++  do									      \
++    {									      \
++      int *__futexp = &(futexv);					      \
++      atomic_or (__futexp, FUTEX_OWNER_DIED);				      \
++      lll_futex_wake (__futexp, 1, private);				      \
++    }									      \
++  while (0)
++
++/* Returns non-zero if error happened, zero if success.  */
++#define lll_futex_requeue(futexp, nr_wake, nr_move, mutex, val, private) \
++  ({									      \
++    INTERNAL_SYSCALL_DECL (__err);					      \
++    long int __ret;							      \
++    __ret = INTERNAL_SYSCALL (futex, __err, 6, (futexp),		      \
++			      __lll_private_flag (FUTEX_CMP_REQUEUE, private),\
++			      (nr_wake), (nr_move), (mutex), (val));	      \
++    INTERNAL_SYSCALL_ERROR_P (__ret, __err);				      \
++  })
++
++/* Returns non-zero if error happened, zero if success.  */
++#define lll_futex_wake_unlock(futexp, nr_wake, nr_wake2, futexp2, private) \
++  ({									      \
++    INTERNAL_SYSCALL_DECL (__err);					      \
++    long int __ret;							      \
++    __ret = INTERNAL_SYSCALL (futex, __err, 6, (futexp),		      \
++			      __lll_private_flag (FUTEX_WAKE_OP, private),    \
++			      (nr_wake), (nr_wake2), (futexp2),		      \
++			      FUTEX_OP_CLEAR_WAKE_IF_GT_ONE);		      \
++    INTERNAL_SYSCALL_ERROR_P (__ret, __err);				      \
++  })
++
++#define lll_trylock(lock)				\
++  atomic_compare_and_exchange_val_acq (&(lock), 1, 0)
++
++#define lll_cond_trylock(lock)				\
++  atomic_compare_and_exchange_val_acq (&(lock), 2, 0)
++
++#define lll_robust_trylock(lock, id)			\
++  atomic_compare_and_exchange_val_acq (&(lock), id, 0)
++
++extern void __lll_lock_wait_private (int *futex) attribute_hidden;
++extern void __lll_lock_wait (int *futex, int private) attribute_hidden;
++extern int __lll_robust_lock_wait (int *futex, int private) attribute_hidden;
++
++#define __lll_lock(futex, private)					      \
++  ((void) ({								      \
++    int *__futex = (futex);						      \
++    if (__builtin_expect (atomic_compare_and_exchange_val_acq (__futex,       \
++								1, 0), 0))    \
++      {									      \
++	if (__builtin_constant_p (private) && (private) == LLL_PRIVATE)	      \
++	  __lll_lock_wait_private (__futex);				      \
++	else								      \
++	  __lll_lock_wait (__futex, private);				      \
++      }									      \
++  }))
++#define lll_lock(futex, private) __lll_lock (&(futex), private)
++
++
++#define __lll_robust_lock(futex, id, private)				      \
++  ({									      \
++    int *__futex = (futex);						      \
++    int __val = 0;							      \
++									      \
++    if (__builtin_expect (atomic_compare_and_exchange_bool_acq (__futex, id,  \
++								0), 0))	      \
++      __val = __lll_robust_lock_wait (__futex, private);		      \
++    __val;								      \
++  })
++#define lll_robust_lock(futex, id, private) \
++  __lll_robust_lock (&(futex), id, private)
++
++
++#define __lll_cond_lock(futex, private)					      \
++  ((void) ({								      \
++    int *__futex = (futex);						      \
++    if (__builtin_expect (atomic_exchange_acq (__futex, 2), 0))		      \
++      __lll_lock_wait (__futex, private);				      \
++  }))
++#define lll_cond_lock(futex, private) __lll_cond_lock (&(futex), private)
++
++
++#define lll_robust_cond_lock(futex, id, private) \
++  __lll_robust_lock (&(futex), (id) | FUTEX_WAITERS, private)
++
++
++extern int __lll_timedlock_wait (int *futex, const struct timespec *,
++				 int private) attribute_hidden;
++extern int __lll_robust_timedlock_wait (int *futex, const struct timespec *,
++					int private) attribute_hidden;
++
++#define __lll_timedlock(futex, abstime, private)			      \
++  ({									      \
++     int *__futex = (futex);						      \
++     int __val = 0;							      \
++									      \
++     if (__builtin_expect (atomic_exchange_acq (__futex, 1), 0))	      \
++       __val = __lll_timedlock_wait (__futex, abstime, private);	      \
++     __val;								      \
++  })
++#define lll_timedlock(futex, abstime, private) \
++  __lll_timedlock (&(futex), abstime, private)
++
++
++#define __lll_robust_timedlock(futex, abstime, id, private)		      \
++  ({									      \
++    int *__futex = (futex);						      \
++    int __val = 0;							      \
++									      \
++    if (__builtin_expect (atomic_compare_and_exchange_bool_acq (__futex, id,  \
++								0), 0))	      \
++      __val = __lll_robust_timedlock_wait (__futex, abstime, private);	      \
++    __val;								      \
++  })
++#define lll_robust_timedlock(futex, abstime, id, private) \
++  __lll_robust_timedlock (&(futex), abstime, id, private)
++
++
++#define __lll_unlock(futex, private) \
++  (void)							\
++    ({ int *__futex = (futex);					\
++       int __oldval = atomic_exchange_rel (__futex, 0);		\
++       if (__builtin_expect (__oldval > 1, 0))			\
++	 lll_futex_wake (__futex, 1, private);			\
++    })
++#define lll_unlock(futex, private) __lll_unlock(&(futex), private)
++
++
++#define __lll_robust_unlock(futex, private) \
++  (void)							\
++    ({ int *__futex = (futex);					\
++       int __oldval = atomic_exchange_rel (__futex, 0);		\
++       if (__builtin_expect (__oldval & FUTEX_WAITERS, 0))	\
++	 lll_futex_wake (__futex, 1, private);			\
++    })
++#define lll_robust_unlock(futex, private) \
++  __lll_robust_unlock(&(futex), private)
++
++
++#define lll_islocked(futex) \
++  (futex != 0)
++
++
++/* Our internal lock implementation is identical to the binary-compatible
++   mutex implementation. */
++
++/* Initializers for lock.  */
++#define LLL_LOCK_INITIALIZER		(0)
++#define LLL_LOCK_INITIALIZER_LOCKED	(1)
++
++/* The states of a lock are:
++    0  -  untaken
++    1  -  taken by one user
++   >1  -  taken by more users */
++
++/* The kernel notifies a process which uses CLONE_CLEARTID via futex
++   wakeup when the clone terminates.  The memory location contains the
++   thread ID while the clone is running and is reset to zero
++   afterwards.	*/
++#define lll_wait_tid(tid) \
++  do {							\
++    __typeof (tid) __tid;				\
++    while ((__tid = (tid)) != 0)			\
++      lll_futex_wait (&(tid), __tid, LLL_SHARED);	\
++  } while (0)
++
++extern int __lll_timedwait_tid (int *, const struct timespec *)
++     attribute_hidden;
++
++#define lll_timedwait_tid(tid, abstime) \
++  ({							\
++    int __res = 0;					\
++    if ((tid) != 0)					\
++      __res = __lll_timedwait_tid (&(tid), (abstime));	\
++    __res;						\
++  })
++
++#endif	/* lowlevellock.h */
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/pt-vfork.S b/ports/sysdeps/unix/sysv/linux/m68k/nptl/pt-vfork.S
+new file mode 100644
+index 0000000..36c9270
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/pt-vfork.S
+@@ -0,0 +1,36 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <tcb-offsets.h>
++
++#define SAVE_PID \
++	bsrl	__m68k_read_tp@PLTPC	; /* Get the thread pointer.  */ \
++	movel	%a0, %a1		; /* Save TP for RESTORE_PID.  */ \
++	movel	PID_OFFSET(%a1), %d0	; /* Get the PID.  */ \
++	movel	%d0, %d1		; /* Save PID for RESTORE_PID.  */ \
++	negl	%d0			; /* Negate the PID.  */ \
++	movel	%d0, PID_OFFSET(%a1)	; /* Store the temporary PID.  */
++
++#define RESTORE_PID \
++	tstl	%d0			; \
++	beq	1f			; /* If we are the parent... */ \
++	movel	%d1, PID_OFFSET(%a1)	; /* Restore the PID.  */ \
++1:	
++
++#include <sysdeps/unix/sysv/linux/m68k/vfork.S>
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/pthread_once.c b/ports/sysdeps/unix/sysv/linux/m68k/nptl/pthread_once.c
+new file mode 100644
+index 0000000..415045f
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/pthread_once.c
+@@ -0,0 +1,91 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include "pthreadP.h"
++#include <lowlevellock.h>
++
++unsigned long int __fork_generation attribute_hidden;
++
++static void
++clear_once_control (void *arg)
++{
++  pthread_once_t *once_control = (pthread_once_t *) arg;
++
++  *once_control = 0;
++  lll_futex_wake (once_control, INT_MAX, LLL_PRIVATE);
++}
++
++int
++__pthread_once (pthread_once_t *once_control, void (*init_routine) (void))
++{
++  for (;;)
++    {
++      int oldval;
++      int newval;
++
++      /* Pseudo code:
++	 newval = __fork_generation | 1;
++	 oldval = *once_control;
++	 if ((oldval & 2) == 0)
++	   *once_control = newval;
++	 Do this atomically.
++      */
++      do
++	{
++	  newval = __fork_generation | 1;
++	  oldval = *once_control;
++	  if (oldval & 2)
++	    break;
++	} while (atomic_compare_and_exchange_val_acq (once_control, newval, oldval) != oldval);
++
++      /* Check if the initializer has already been done.  */
++      if ((oldval & 2) != 0)
++	return 0;
++
++      /* Check if another thread already runs the initializer.	*/
++      if ((oldval & 1) == 0)
++	break;
++
++      /* Check whether the initializer execution was interrupted by a fork.  */
++      if (oldval != newval)
++	break;
++
++      /* Same generation, some other thread was faster. Wait.  */
++      lll_futex_wait (once_control, oldval, LLL_PRIVATE);
++    }
++
++  /* This thread is the first here.  Do the initialization.
++     Register a cleanup handler so that in case the thread gets
++     interrupted the initialization can be restarted.  */
++  pthread_cleanup_push (clear_once_control, once_control);
++
++  init_routine ();
++
++  pthread_cleanup_pop (0);
++
++  /* Say that the initialisation is done.  */
++  *once_control = __fork_generation | 2;
++
++  /* Wake up all other threads.  */
++  lll_futex_wake (once_control, INT_MAX, LLL_PRIVATE);
++
++  return 0;
++}
++weak_alias (__pthread_once, pthread_once)
++strong_alias (__pthread_once, __pthread_once_internal)
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/sysdep-cancel.h b/ports/sysdeps/unix/sysv/linux/m68k/nptl/sysdep-cancel.h
+new file mode 100644
+index 0000000..87e2d55
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/sysdep-cancel.h
+@@ -0,0 +1,141 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <sysdep.h>
++#include <tls.h>
++#ifndef __ASSEMBLER__
++# include <nptl/pthreadP.h>
++#endif
++
++#if !defined NOT_IN_libc || defined IS_IN_libpthread || defined IS_IN_librt
++
++# undef PSEUDO
++# define PSEUDO(name, syscall_name, args)				      \
++  .text;								      \
++  ENTRY (name)								      \
++    SINGLE_THREAD_P;							      \
++    jne .Lpseudo_cancel;						      \
++  .type __##syscall_name##_nocancel,@function;			              \
++  .globl __##syscall_name##_nocancel;				 	      \
++  __##syscall_name##_nocancel:					              \
++    DO_CALL (syscall_name, args);					      \
++    cmp.l &-4095, %d0;							      \
++    jcc SYSCALL_ERROR_LABEL;						      \
++    rts;								      \
++  .size __##syscall_name##_nocancel,.-__##syscall_name##_nocancel;	      \
++  .Lpseudo_cancel:							      \
++    cfi_startproc;							      \
++    CENABLE;								      \
++    DOCARGS_##args							      \
++    move.l %d0, -(%sp); /* Save result of CENABLE.  */  		      \
++    cfi_adjust_cfa_offset (4); \
++    move.l &SYS_ify (syscall_name), %d0;				      \
++    trap &0;								      \
++    move.l %d0, %d2;							      \
++    CDISABLE;								      \
++    addq.l &4, %sp; /* Remove result of CENABLE from the stack.  */           \
++    cfi_adjust_cfa_offset (-4); \
++    move.l %d2, %d0;							      \
++    UNDOCARGS_##args							      \
++    cmp.l &-4095, %d0;							      \
++    jcc SYSCALL_ERROR_LABEL;		                                      \
++    cfi_endproc
++
++/* Note: we use D2 to save syscall's return value as D0 will be clobbered in
++   CDISABLE.  */
++# define DOCARGS_0	move.l %d2, -(%sp);		\
++  cfi_adjust_cfa_offset (4); cfi_rel_offset (%d2, 0);
++# define UNDOCARGS_0	move.l (%sp)+, %d2;	\
++  cfi_adjust_cfa_offset (-4); cfi_restore (%d2);
++
++# define DOCARGS_1	_DOCARGS_1 (4); DOCARGS_0
++# define _DOCARGS_1(n)	move.l n(%sp), %d1;
++# define UNDOCARGS_1	UNDOCARGS_0
++
++# define DOCARGS_2	_DOCARGS_2 (8)
++# define _DOCARGS_2(n)	DOCARGS_0 move.l n+4(%sp), %d2; _DOCARGS_1 (n)
++# define UNDOCARGS_2	UNDOCARGS_0
++
++/* TODO: We can optimize DOCARGS_{3, 4} by saving registers to a0 and a1
++   instead of pushing them on stack.  */
++# define DOCARGS_3	_DOCARGS_3 (12)
++# define _DOCARGS_3(n)	move.l %d3, -(%sp);				\
++  cfi_adjust_cfa_offset (4); cfi_rel_offset (%d3, 0);			\
++  move.l n+4(%sp), %d3; _DOCARGS_2 (n)
++# define UNDOCARGS_3	UNDOCARGS_2 move.l (%sp)+, %d3;		\
++  cfi_adjust_cfa_offset (-4); cfi_restore (%d3);
++
++# define DOCARGS_4	_DOCARGS_4 (16)
++# define _DOCARGS_4(n)	move.l %d4, -(%sp);			\
++  cfi_adjust_cfa_offset (4); cfi_rel_offset (%d4, 0);		\
++  move.l n+4(%sp), %d4; _DOCARGS_3 (n)
++# define UNDOCARGS_4	UNDOCARGS_3 move.l (%sp)+, %d4;	\
++  cfi_adjust_cfa_offset (-4); cfi_restore (%d4);
++
++# define DOCARGS_5	_DOCARGS_5 (20)
++# define _DOCARGS_5(n)	move.l %d5, %a1; cfi_register (%d5, a1); \
++  move.l n(%sp), %d5; _DOCARGS_4 (n-4)
++# define UNDOCARGS_5	UNDOCARGS_4 move.l %a1, %d5; cfi_restore (%d5);
++
++# define DOCARGS_6	_DOCARGS_6 (24)
++# define _DOCARGS_6(n)	move.l n(%sp), %a0; _DOCARGS_5 (n-4)
++# define UNDOCARGS_6	UNDOCARGS_5
++
++# ifdef PIC
++#  define PSEUDO_JMP(sym) jbsr sym ## @PLTPC
++# else
++#  define PSEUDO_JMP(sym) jbsr sym
++# endif
++
++# ifdef IS_IN_libpthread
++#  define CENABLE	PSEUDO_JMP (__pthread_enable_asynccancel)
++#  define CDISABLE	PSEUDO_JMP (__pthread_disable_asynccancel)
++# elif !defined NOT_IN_libc
++#  define CENABLE	PSEUDO_JMP (__libc_enable_asynccancel)
++#  define CDISABLE	PSEUDO_JMP (__libc_disable_asynccancel)
++# elif defined IS_IN_librt
++#  define CENABLE	PSEUDO_JMP (__librt_enable_asynccancel)
++#  define CDISABLE	PSEUDO_JMP (__librt_disable_asynccancel)
++# else
++#  error Unsupported library
++# endif
++
++# ifndef __ASSEMBLER__
++#  define SINGLE_THREAD_P						\
++  __builtin_expect (THREAD_GETMEM (THREAD_SELF,				\
++				   header.multiple_threads) == 0, 1)
++# else
++#  define SINGLE_THREAD_P			\
++  PSEUDO_JMP (__m68k_read_tp);		        \
++  tst.l MULTIPLE_THREADS_OFFSET(%a0)
++# endif
++
++#elif !defined __ASSEMBLER__
++
++# define SINGLE_THREAD_P (1)
++# define NO_CANCELLATION (1)
++
++#endif
++
++#ifndef __ASSEMBLER__
++# define RTLD_SINGLE_THREAD_P					  \
++  __builtin_expect (THREAD_GETMEM (THREAD_SELF,			  \
++				   header.multiple_threads) == 0, \
++		    1)
++#endif
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/vfork.S b/ports/sysdeps/unix/sysv/linux/m68k/nptl/vfork.S
+new file mode 100644
+index 0000000..8599c3d
+--- /dev/null
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/vfork.S
+@@ -0,0 +1,38 @@
++/* Copyright (C) 2010 Free Software Foundation, Inc.
++   This file is part of the GNU C Library.
++   Contributed by Maxim Kuvyrkov <maxim@codesourcery.com>, 2010.
++
++   The GNU C Library is free software; you can redistribute it and/or
++   modify it under the terms of the GNU Lesser General Public
++   License as published by the Free Software Foundation; either
++   version 2.1 of the License, or (at your option) any later version.
++
++   The GNU C Library is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with the GNU C Library; if not, write to the Free
++   Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
++   02111-1307 USA.  */
++
++#include <tcb-offsets.h>
++
++#define SAVE_PID \
++	bsrl	__m68k_read_tp@PLTPC	; /* Get the thread pointer.  */ \
++	movel	%a0, %a1		; /* Save TP for RESTORE_PID.  */ \
++	movel	PID_OFFSET(%a1), %d0	; /* Get the PID.  */ \
++	movel	%d0, %d1		; /* Save PID for RESTORE_PID.  */ \
++	negl	%d0			; /* Negate the PID.  */ \
++	bne	1f			; /* If it was zero... */ \
++	movel	#0x80000000, %d0	; /* use 0x80000000 instead.  */ \
++1:	movel	%d0, PID_OFFSET(%a1)	; /* Store the temporary PID.  */
++
++#define RESTORE_PID \
++	tstl	%d0			; \
++	beq	1f			; /* If we are the parent... */ \
++	movel	%d1, PID_OFFSET(%a1)	; /* Restore the PID.  */ \
++1:	
++
++#include <sysdeps/unix/sysv/linux/m68k/vfork.S>
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/socket.S b/ports/sysdeps/unix/sysv/linux/m68k/socket.S
+index 2690f18..147a3b2 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/socket.S
++++ b/ports/sysdeps/unix/sysv/linux/m68k/socket.S
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 1996, 1997, 1998 Free Software Foundation, Inc.
++/* Copyright (C) 1996, 1997, 1998, 2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -41,8 +41,11 @@
+ 
+ .globl __socket
+ ENTRY (__socket)
+-#if defined NEED_CANCELLATION && defined CENABLE
+-	SINGLE_THREAD_P (%a0)
++#ifdef NEED_CANCELLATION
++# if !defined CENABLE || !defined CDISABLE
++#  error CENABLE and/or CDISABLE is not defined
++# endif
++	SINGLE_THREAD_P
+ 	jne 1f
+ #endif
+ 
+@@ -69,21 +72,26 @@ ENTRY (__socket)
+ 	/* Successful; return the syscall's value.  */
+ 	rts
+ 
+-#if defined NEED_CANCELLATION && defined CENABLE
+-1:	/* Enable asynchronous cancellation.  */
++#ifdef NEED_CANCELLATION
++1:	cfi_startproc
++	/* Enable asynchronous cancellation.  */
+ 	CENABLE
+ 
+-	/* Save registers.  */
++	/* Save D2.  */
+ 	move.l %d2, -(%sp)
+-	move.l %d0, -(%sp)
++	cfi_adjust_cfa_offset (4)
++	cfi_rel_offset (%d2, 0)
+ 
+-	move.l #SYS_ify (socketcall), %d0 /* System call number in %d0.  */
++	/* Save the result of CENABLE.  */
++	move.l %d0, -(%sp)
++	cfi_adjust_cfa_offset (4)
+ 
+ 	/* Use ## so `socket' is a separate token that might be #define'd.  */
+ 	move.l #P (SOCKOP_,socket), %d1	/* Subcode is first arg to syscall.  */
+ 	lea 4+8(%sp), %a1		/* Address of args is 2nd arg.  */
+ 	move.l %a1, %d2
+ 
++	move.l #SYS_ify (socketcall), %d0 /* System call number in %d0.  */
+ 	/* Do the system call trap.  */
+ 	trap #0
+ 
+@@ -91,14 +99,18 @@ ENTRY (__socket)
+ 	move.l %d0, %d2
+ 	CDISABLE
+ 	addq.l #4, %sp
++	cfi_adjust_cfa_offset (-4)
+ 	move.l %d2, %d0
+ 
+ 	/* Restore registers.  */
+ 	move.l (%sp)+, %d2
++	cfi_adjust_cfa_offset (-4)
++	cfi_restore (%d2)
+ 
+ 	/* %d0 is < 0 if there was an error.  */
+ 	tst.l %d0
+ 	jmi SYSCALL_ERROR_LABEL
++	cfi_endproc
+ 
+ 	/* Successful; return the syscall's value.  */
+ 	rts
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/sysdep.h b/ports/sysdeps/unix/sysv/linux/m68k/sysdep.h
+index 12687d8..e3aed15 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/sysdep.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/sysdep.h
+@@ -1,4 +1,5 @@
+-/* Copyright (C) 1996, 1997, 1998, 2000, 2003, 2004, 2006 Free Software Foundation, Inc.
++/* Copyright (C) 1996, 1997, 1998, 2000, 2003, 2004, 2006, 2010
++   Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Written by Andreas Schwab, <schwab@issan.informatik.uni-dortmund.de>,
+    December 1995.
+@@ -23,6 +24,7 @@
+ 
+ #include <sysdeps/unix/sysdep.h>
+ #include <sysdeps/m68k/sysdep.h>
++#include <tls.h>
+ 
+ /* Defines RTLD_PRIVATE_ERRNO.  */
+ #include <dl-sysdep.h>
+@@ -148,9 +150,11 @@ SYSCALL_ERROR_LABEL:							      \
+ 	arg 3		%d3	     call-saved
+ 	arg 4		%d4	     call-saved
+ 	arg 5		%d5	     call-saved
++	arg 6		%a0	     call-clobbered
+ 
+    The stack layout upon entering the function is:
+ 
++	24(%sp)		Arg# 6
+ 	20(%sp)		Arg# 5
+ 	16(%sp)		Arg# 4
+ 	12(%sp)		Arg# 3
+@@ -229,7 +233,7 @@ SYSCALL_ERROR_LABEL:							      \
+    normally.  It will never touch errno.  This returns just what the kernel
+    gave back.  */
+ #undef INTERNAL_SYSCALL
+-#define INTERNAL_SYSCALL(name, err, nr, args...)	\
++#define INTERNAL_SYSCALL_NCS(name, err, nr, args...)	\
+   ({ unsigned int _sys_result;				\
+      {							\
+        /* Load argument values in temporary variables
+@@ -237,7 +241,7 @@ SYSCALL_ERROR_LABEL:							      \
+ 	  before the call used registers are set.  */	\
+        LOAD_ARGS_##nr (args)				\
+        LOAD_REGS_##nr					\
+-       register int _d0 asm ("%d0") = __NR_##name;	\
++       register int _d0 asm ("%d0") = name;		\
+        asm volatile ("trap #0"				\
+ 		     : "=d" (_d0)			\
+ 		     : "0" (_d0) ASM_ARGS_##nr		\
+@@ -245,6 +249,8 @@ SYSCALL_ERROR_LABEL:							      \
+        _sys_result = _d0;				\
+      }							\
+      (int) _sys_result; })
++#define INTERNAL_SYSCALL(name, err, nr, args...)	\
++  INTERNAL_SYSCALL_NCS (__NR_##name, err, nr, ##args)
+ 
+ #undef INTERNAL_SYSCALL_ERROR_P
+ #define INTERNAL_SYSCALL_ERROR_P(val, err)		\
+@@ -300,4 +306,15 @@ SYSCALL_ERROR_LABEL:							      \
+ #define ASM_ARGS_6	ASM_ARGS_5, "a" (_a0)
+ 
+ #endif /* not __ASSEMBLER__ */
++
++/* Pointer mangling is not yet supported for M68K.  */
++#define PTR_MANGLE(var) (void) (var)
++#define PTR_DEMANGLE(var) (void) (var)
++
++#if defined NEED_DL_SYSINFO || defined NEED_DL_SYSINFO_DSO
++/* M68K needs system-supplied DSO to access TLS helpers
++   even when statically linked.  */
++# define NEED_STATIC_SYSINFO_DSO 1
++#endif
++
+ #endif
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/vfork.S b/ports/sysdeps/unix/sysv/linux/m68k/vfork.S
+index 8027b2f..61bbf2f 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/vfork.S
++++ b/ports/sysdeps/unix/sysv/linux/m68k/vfork.S
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 1999, 2002, 2003 Free Software Foundation, Inc.
++/* Copyright (C) 1999, 2002, 2003, 2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Andreas Schwab <schwab@gnu.org>.
+ 
+@@ -22,6 +22,14 @@
+ #include <bits/errno.h>
+ #include <kernel-features.h>
+ 
++#ifndef SAVE_PID
++#define SAVE_PID
++#endif
++
++#ifndef RESTORE_PID
++#define RESTORE_PID
++#endif
++
+ /* Clone the calling process, but without copying the whole address space.
+    The calling process is suspended until the new process exits or is
+    replaced by a call to `execve'.  Return -1 for errors, 0 to the new process,
+@@ -31,12 +39,20 @@ ENTRY (__vfork)
+ 
+ #ifdef __NR_vfork
+ 
++	/* SAVE_PID clobbers call-clobbered registers and
++	   saves data in D1 and A1.  */
++
++	SAVE_PID
++	
+ 	/* Pop the return PC value into A0.  */
+ 	movel	%sp@+, %a0
+ 
+ 	/* Stuff the syscall number in D0 and trap into the kernel.  */
+ 	movel	#SYS_ify (vfork), %d0
+ 	trap	#0
++
++	RESTORE_PID
++
+ 	tstl	%d0
+ 	jmi	.Lerror		/* Branch forward if it failed.  */
+ 
+From: Andreas Schwab <schwab@linux-m68k.org>
+Date: Fri, 12 Mar 2010 18:55:40 +0000 (+0100)
+Subject: Whitespace cleanup
+X-Git-Tag: glibc-2.12~37
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=2b3dafb0874b7843355e7e02b0009be6df52271d
+
+Whitespace cleanup
+---
+
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/m68k-helpers.S b/ports/sysdeps/unix/sysv/linux/m68k/m68k-helpers.S
+index 00db4bb..242d23d 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/m68k-helpers.S
++++ b/ports/sysdeps/unix/sysv/linux/m68k/m68k-helpers.S
+@@ -86,7 +86,7 @@ ENTRY (__vdso_atomic_cmpxchg_32_stub)
+ 	rts
+ 	cfi_endproc
+ END (__vdso_atomic_cmpxchg_32_stub)
+-	
++
+ 	.hidden __vdso_atomic_barrier_stub
+ ENTRY (__vdso_atomic_barrier_stub)
+ 	cfi_startproc
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h b/ports/sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h
+index 926077d..bc2970e 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h
+@@ -73,7 +73,7 @@
+       : (fl))								      \
+    : ((fl) | (((private) ^ FUTEX_PRIVATE_FLAG)				      \
+ 	      & THREAD_GETMEM (THREAD_SELF, header.private_futex))))
+-# endif	      
++# endif
+ #endif
+ 
+ 
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/pt-vfork.S b/ports/sysdeps/unix/sysv/linux/m68k/nptl/pt-vfork.S
+index 36c9270..639d5ed 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/nptl/pt-vfork.S
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/pt-vfork.S
+@@ -31,6 +31,6 @@
+ 	tstl	%d0			; \
+ 	beq	1f			; /* If we are the parent... */ \
+ 	movel	%d1, PID_OFFSET(%a1)	; /* Restore the PID.  */ \
+-1:	
++1:
+ 
+ #include <sysdeps/unix/sysv/linux/m68k/vfork.S>
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/vfork.S b/ports/sysdeps/unix/sysv/linux/m68k/nptl/vfork.S
+index 8599c3d..95e3764 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/nptl/vfork.S
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/vfork.S
+@@ -33,6 +33,6 @@
+ 	tstl	%d0			; \
+ 	beq	1f			; /* If we are the parent... */ \
+ 	movel	%d1, PID_OFFSET(%a1)	; /* Restore the PID.  */ \
+-1:	
++1:
+ 
+ #include <sysdeps/unix/sysv/linux/m68k/vfork.S>
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/vfork.S b/ports/sysdeps/unix/sysv/linux/m68k/vfork.S
+index 61bbf2f..4def7e3 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/vfork.S
++++ b/ports/sysdeps/unix/sysv/linux/m68k/vfork.S
+@@ -43,7 +43,7 @@ ENTRY (__vfork)
+ 	   saves data in D1 and A1.  */
+ 
+ 	SAVE_PID
+-	
++
+ 	/* Pop the return PC value into A0.  */
+ 	movel	%sp@+, %a0
+ 
+From: Andreas Schwab <schwab@linux-m68k.org>
+Date: Fri, 12 Mar 2010 20:37:02 +0000 (+0100)
+Subject: Add m68k-helpers optimized for m680x0
+X-Git-Tag: glibc-2.12~36
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=7e261ba3d85d10eefbb55f2e9d67c55910dfae2f
+
+Add m68k-helpers optimized for m680x0
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 32681ff..446a307 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,10 @@
++2010-03-12  Andreas Schwab  <schwab@linux-m68k.org>
++
++	* sysdeps/unix/sysv/linux/m68k/m68k-helpers.S: Renamed ...
++	* sysdeps/unix/sysv/linux/m68k/coldfire/m68k-helpers.S: ... to
++	this.
++	* sysdeps/unix/sysv/linux/m68k/m680x0/m68k-helpers.S: New file.
++
+ 2010-03-09  Maxim Kuvyrkov  <maxim@codesourcery.com>
+ 
+ 	NPTL support for m68k/ColdFire
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/m68k-helpers.S b/ports/sysdeps/unix/sysv/linux/m68k/coldfire/m68k-helpers.S
+similarity index 100%
+copy from sysdeps/unix/sysv/linux/m68k/m68k-helpers.S
+copy to sysdeps/unix/sysv/linux/m68k/coldfire/m68k-helpers.S
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/m68k-helpers.S b/ports/sysdeps/unix/sysv/linux/m68k/m680x0/m68k-helpers.S
+similarity index 97%
+rename from sysdeps/unix/sysv/linux/m68k/m68k-helpers.S
+rename to sysdeps/unix/sysv/linux/m68k/m680x0/m68k-helpers.S
+index 242d23d..83ce564 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/m68k-helpers.S
++++ b/ports/sysdeps/unix/sysv/linux/m68k/m680x0/m68k-helpers.S
+@@ -60,11 +60,9 @@ END (__vdso_read_tp_stub)
+ # endif
+ ENTRY (__m68k_read_tp)
+ 	cfi_startproc
+-	move.l	#_GLOBAL_OFFSET_TABLE_@GOTPC, %a0
+-	lea	(-6, %pc, %a0), %a0
++	lea	_GLOBAL_OFFSET_TABLE_@GOTPC(%pc), %a0
+ 	move.l	M68K_VDSO_SYMBOL (__vdso_read_tp)@GOT(%a0), %a0
+-	move.l	(%a0), %a0
+-	jmp	(%a0)
++	jmp	([%a0])
+ 	cfi_endproc
+ END (__m68k_read_tp)
+ 
+From: Andreas Schwab <schwab@linux-m68k.org>
+Date: Fri, 12 Mar 2010 21:15:23 +0000 (+0100)
+Subject: m68k: don't include <sysdep.h> in lowlevellock.h
+X-Git-Tag: glibc-2.12~35
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=7d6cb729ed0451f51b63cb563271f1ce889d5a78
+
+m68k: don't include <sysdep.h> in lowlevellock.h
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 446a307..712651d 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,5 +1,8 @@
+ 2010-03-12  Andreas Schwab  <schwab@linux-m68k.org>
+ 
++	* sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h: Don't include
++	<sysdep.h>.
++
+ 	* sysdeps/unix/sysv/linux/m68k/m68k-helpers.S: Renamed ...
+ 	* sysdeps/unix/sysv/linux/m68k/coldfire/m68k-helpers.S: ... to
+ 	this.
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h b/ports/sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h
+index bc2970e..5ca78ec 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h
+@@ -26,7 +26,6 @@
+ #include <sys/param.h>
+ #include <bits/pthreadtypes.h>
+ #include <atomic.h>
+-#include <sysdep.h>
+ #include <kernel-features.h>
+ 
+ #define FUTEX_WAIT		0
+From: Andreas Schwab <schwab@linux-m68k.org>
+Date: Sat, 13 Mar 2010 00:00:03 +0000 (+0100)
+Subject: m68k: TLS reference to errno in syscall stubs
+X-Git-Tag: glibc-2.12~34
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=dbd0094b3f71213bc178cd1946496defbedb1d62
+
+m68k: TLS reference to errno in syscall stubs
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 712651d..b16fde2 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,8 @@
++2010-03-13  Andreas Schwab  <schwab@linux-m68k.org>
++
++	* sysdeps/unix/sysv/linux/m68k/sysdep.h (SYSCALL_ERROR_HANDLER):
++	Add variant for USE__THREAD.
++
+ 2010-03-12  Andreas Schwab  <schwab@linux-m68k.org>
+ 
+ 	* sysdeps/unix/sysv/linux/m68k/nptl/lowlevellock.h: Don't include
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/sysdep.h b/ports/sysdeps/unix/sysv/linux/m68k/sysdep.h
+index e3aed15..8bd188b 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/sysdep.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/sysdep.h
+@@ -111,10 +111,27 @@ SYSCALL_ERROR_LABEL:							      \
+        a pointer (e.g., mmap).  */					      \
+     move.l %d0, %a0;							      \
+     rts;
+-# else /* !RTLD_PRIVATE_ERRNO */
+-/* Store (- %d0) into errno through the GOT.  */
+-#  if defined _LIBC_REENTRANT
+-#   define SYSCALL_ERROR_HANDLER					      \
++# elif USE___THREAD
++#  ifndef NOT_IN_libc
++#   define SYSCALL_ERROR_ERRNO __libc_errno
++#  else
++#   define SYSCALL_ERROR_ERRNO errno
++#  endif
++#  define SYSCALL_ERROR_HANDLER						      \
++SYSCALL_ERROR_LABEL:							      \
++    neg.l %d0;								      \
++    move.l %d0, -(%sp);							      \
++    jbsr __m68k_read_tp@PLTPC;						      \
++    lea (_GLOBAL_OFFSET_TABLE_@GOTPC, %pc), %a1;			      \
++    add.l (SYSCALL_ERROR_ERRNO@TLSIE, %a1), %a0;			      \
++    move.l (%sp)+, (%a0);						      \
++    move.l &-1, %d0;							      \
++    /* Copy return value to %a0 for syscalls that are declared to return      \
++       a pointer (e.g., mmap).  */					      \
++    move.l %d0, %a0;							      \
++    rts;
++# elif defined _LIBC_REENTRANT
++#  define SYSCALL_ERROR_HANDLER						      \
+ SYSCALL_ERROR_LABEL:							      \
+     neg.l %d0;								      \
+     move.l %d0, -(%sp);							      \
+@@ -125,8 +142,9 @@ SYSCALL_ERROR_LABEL:							      \
+        a pointer (e.g., mmap).  */					      \
+     move.l %d0, %a0;							      \
+     rts;
+-#  else /* !_LIBC_REENTRANT */
+-#   define SYSCALL_ERROR_HANDLER					      \
++# else /* !_LIBC_REENTRANT */
++/* Store (- %d0) into errno through the GOT.  */
++#  define SYSCALL_ERROR_HANDLER						      \
+ SYSCALL_ERROR_LABEL:							      \
+     move.l (errno@GOTPC, %pc), %a0;					      \
+     neg.l %d0;								      \
+@@ -136,8 +154,7 @@ SYSCALL_ERROR_LABEL:							      \
+        a pointer (e.g., mmap).  */					      \
+     move.l %d0, %a0;							      \
+     rts;
+-#  endif /* _LIBC_REENTRANT */
+-# endif /* RTLD_PRIVATE_ERRNO */
++# endif /* _LIBC_REENTRANT */
+ #else
+ # define SYSCALL_ERROR_HANDLER	/* Nothing here; code in sysdep.S is used.  */
+ #endif /* PIC */
+From: Andreas Schwab <schwab@linux-m68k.org>
+Date: Sat, 13 Mar 2010 15:59:42 +0000 (+0100)
+Subject: m68k: define __signbit inlines
+X-Git-Tag: glibc-2.12~33
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=326a03edf9a702f60ea2116364d8177dc682b9a5
+
+m68k: define __signbit inlines
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index b16fde2..1c8d232 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,5 +1,8 @@
+ 2010-03-13  Andreas Schwab  <schwab@linux-m68k.org>
+ 
++	* sysdeps/m68k/m680x0/fpu/bits/mathinline.h (__signbit)
++	(__signbitf, __signbitl): Define.
++
+ 	* sysdeps/unix/sysv/linux/m68k/sysdep.h (SYSCALL_ERROR_HANDLER):
+ 	Add variant for USE__THREAD.
+ 
+diff --git a/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h b/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h
+index 6b69f7a..0da98e4 100644
+--- a/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h
++++ b/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h
+@@ -1,5 +1,5 @@
+ /* Definitions of inline math functions implemented by the m68881/2.
+-   Copyright (C) 1991,92,93,94,96,97,98,99,2000,2002, 2003, 2004, 2008
++   Copyright (C) 1991,92,93,94,96,97,98,99,2000,2002, 2003, 2004, 2008, 2010
+      Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+@@ -85,6 +85,26 @@
+ 	       : "=dm" (__result) : "f" (x), "f" (y));	\
+       __result != 0; })
+ # endif /* GCC 3.1 */
++
++/* Test for negative number.  Used in the signbit() macro.  */
++__MATH_INLINE int
++__NTH (__signbitf (float __x))
++{
++  __extension__ union { float __f; int __i; } __u = { __f: __x };
++  return __u.__i < 0;
++}
++__MATH_INLINE int
++__NTH (__signbit (double __x))
++{
++  __extension__ union { double __d; int __i[2]; } __u = { __d: __x };
++  return __u.__i[0] < 0;
++}
++__MATH_INLINE int
++__NTH (__signbitl (long double __x))
++{
++  __extension__ union { long double __d; int __i[3]; } __u = { __d: __x };
++  return __u.__i[0] < 0;
++}
+ #endif
+ 
+ 
+From: Andreas Schwab <schwab@linux-m68k.org>
+Date: Sat, 13 Mar 2010 16:28:12 +0000 (+0100)
+Subject: m68k: remove duplicate __signbit definitions
+X-Git-Tag: glibc-2.12~32
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=b5e933757cbe34989698fc1b1390c9b2a9a6b0be
+
+m68k: remove duplicate __signbit definitions
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 1c8d232..9fafc08 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,7 +1,7 @@
+ 2010-03-13  Andreas Schwab  <schwab@linux-m68k.org>
+ 
+ 	* sysdeps/m68k/m680x0/fpu/bits/mathinline.h (__signbit)
+-	(__signbitf, __signbitl): Define.
++	(__signbitf, __signbitl): Always define as inline.
+ 
+ 	* sysdeps/unix/sysv/linux/m68k/sysdep.h (SYSCALL_ERROR_HANDLER):
+ 	Add variant for USE__THREAD.
+diff --git a/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h b/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h
+index 0da98e4..975ffd8 100644
+--- a/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h
++++ b/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h
+@@ -301,17 +301,7 @@ __inline_functions(long double,l)
+ #ifdef __USE_ISOC99
+ 
+ # define __inline_functions(float_type, s)				  \
+-__m81_defun (int, __CONCAT(__signbit,s), (float_type __value))	  	  \
+-{									  \
+-  /* There is no branch-condition for the sign bit, so we must extract	  \
+-     and examine the condition codes manually.  */			  \
+-  unsigned long int __fpsr;						  \
+-  __asm ("ftst%.x %1\n"							  \
+-	 "fmove%.l %/fpsr, %0" : "=dm" (__fpsr) : "f" (__value));	  \
+-  return (__fpsr >> 27) & 1;						  \
+-}									  \
+-									  \
+-  __m81_defun (float_type, __CONCAT(__scalbln,s),			  \
++__m81_defun (float_type, __CONCAT(__scalbln,s),			  \
+ 	     (float_type __x, long int __n))				  \
+ {									  \
+   return __CONCAT(__scalbn,s) (__x, __n);				  \
+From: Andreas Schwab <schwab@linux-m68k.org>
+Date: Sat, 13 Mar 2010 17:14:35 +0000 (+0100)
+Subject: m68k: use signbit macro
+X-Git-Tag: glibc-2.12~31
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=92dd2ecf169ac81a2fa16cbe246a1036c6b94656
+
+m68k: use signbit macro
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 9fafc08..c7d068e 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,5 +1,8 @@
+ 2010-03-13  Andreas Schwab  <schwab@linux-m68k.org>
+ 
++	* sysdeps/m68k/m680x0/fpu/s_ccosh.c: Use signbit macro.
++	* sysdeps/m68k/m680x0/fpu/s_ccos.c: Likewise.
++
+ 	* sysdeps/m68k/m680x0/fpu/bits/mathinline.h (__signbit)
+ 	(__signbitf, __signbitl): Always define as inline.
+ 
+diff --git a/ports/sysdeps/m68k/m680x0/fpu/s_ccos.c b/ports/sysdeps/m68k/m680x0/fpu/s_ccos.c
+index d302d3d..8239159 100644
+--- a/ports/sysdeps/m68k/m680x0/fpu/s_ccos.c
++++ b/ports/sysdeps/m68k/m680x0/fpu/s_ccos.c
+@@ -1,5 +1,5 @@
+ /* Complex cosine function.  m68k fpu version
+-   Copyright (C) 1997, 1999 Free Software Foundation, Inc.
++   Copyright (C) 1997, 1999, 2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Andreas Schwab <schwab@issan.informatik.uni-dortmund.de>.
+ 
+@@ -48,7 +48,7 @@ s(__ccos) (__complex__ float_type x)
+ 	     : "f" (__real__ x));
+       __real__ retval = cos_rx * m81(__ieee754_cosh) (__imag__ x);
+       if (rx_cond & __M81_COND_ZERO)
+-	__imag__ retval = (m81(__signbit) (__imag__ x)
++	__imag__ retval = (signbit (__imag__ x)
+ 			   ? __real__ x : -__real__ x);
+       else
+ 	__imag__ retval = -sin_rx * m81(__ieee754_sinh) (__imag__ x);
+diff --git a/ports/sysdeps/m68k/m680x0/fpu/s_ccosh.c b/ports/sysdeps/m68k/m680x0/fpu/s_ccosh.c
+index 1698881..d272e98 100644
+--- a/ports/sysdeps/m68k/m680x0/fpu/s_ccosh.c
++++ b/ports/sysdeps/m68k/m680x0/fpu/s_ccosh.c
+@@ -1,5 +1,5 @@
+ /* Complex cosine hyperbole function.  m68k fpu version
+-   Copyright (C) 1997, 1999 Free Software Foundation, Inc.
++   Copyright (C) 1997, 1999, 2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Andreas Schwab <schwab@issan.informatik.uni-dortmund.de>.
+ 
+@@ -48,7 +48,7 @@ s(__ccosh) (__complex__ float_type x)
+ 	     : "f" (__imag__ x));
+       __real__ retval = cos_ix * m81(__ieee754_cosh) (__real__ x);
+       if (ix_cond & __M81_COND_ZERO)
+-	__imag__ retval = (m81(__signbit) (__real__ x)
++	__imag__ retval = (signbit (__real__ x)
+ 			   ? -__imag__ x : __imag__ x);
+       else
+ 	__imag__ retval = sin_ix * m81(__ieee754_sinh) (__real__ x);
+From: Andreas Schwab <schwab@linux-m68k.org>
+Date: Sat, 22 May 2010 19:04:42 +0000 (+0200)
+Subject: m68k: add c++-types and localplt data for m68k-linux-gnu
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=0a124d8bc7a3d99f461af942aebdd3a8848672e9
+
+m68k: add c++-types and localplt data for m68k-linux-gnu
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index c7d068e..cdc0ab5 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,8 @@
++2010-05-22  Andreas Schwab  <schwab@linux-m68k.org>
++
++	* data/c++-types-m68k-linux-gnu.data: New file.
++	* data/localplt-m68k-linux-gnu.data: New file.
++
+ 2010-03-13  Andreas Schwab  <schwab@linux-m68k.org>
+ 
+ 	* sysdeps/m68k/m680x0/fpu/s_ccosh.c: Use signbit macro.
+diff --git a/ports/data/c++-types-m68k-linux-gnu.data b/ports/data/c++-types-m68k-linux-gnu.data
+new file mode 100644
+index 0000000..fde53bf
+--- /dev/null
++++ b/ports/data/c++-types-m68k-linux-gnu.data
+@@ -0,0 +1,67 @@
++blkcnt64_t:x
++blkcnt_t:l
++blksize_t:l
++caddr_t:Pc
++clockid_t:i
++clock_t:l
++daddr_t:i
++dev_t:y
++fd_mask:l
++fsblkcnt64_t:y
++fsblkcnt_t:m
++fsfilcnt64_t:y
++fsfilcnt_t:m
++fsid_t:8__fsid_t
++gid_t:j
++id_t:j
++ino64_t:y
++ino_t:m
++int16_t:s
++int32_t:i
++int64_t:x
++int8_t:a
++intptr_t:i
++key_t:i
++loff_t:x
++mode_t:j
++nlink_t:j
++off64_t:x
++off_t:l
++pid_t:i
++pthread_attr_t:14pthread_attr_t
++pthread_barrier_t:17pthread_barrier_t
++pthread_barrierattr_t:21pthread_barrierattr_t
++pthread_cond_t:14pthread_cond_t
++pthread_condattr_t:18pthread_condattr_t
++pthread_key_t:j
++pthread_mutex_t:15pthread_mutex_t
++pthread_mutexattr_t:19pthread_mutexattr_t
++pthread_once_t:i
++pthread_rwlock_t:16pthread_rwlock_t
++pthread_rwlockattr_t:20pthread_rwlockattr_t
++pthread_spinlock_t:i
++pthread_t:m
++quad_t:x
++register_t:i
++rlim64_t:y
++rlim_t:m
++sigset_t:10__sigset_t
++size_t:j
++socklen_t:j
++ssize_t:i
++suseconds_t:l
++time_t:l
++u_char:h
++uid_t:j
++uint:j
++u_int:j
++u_int16_t:t
++u_int32_t:j
++u_int64_t:y
++u_int8_t:h
++ulong:m
++u_long:m
++u_quad_t:y
++useconds_t:j
++ushort:t
++u_short:t
+diff --git a/ports/data/localplt-m68k-linux-gnu.data b/ports/data/localplt-m68k-linux-gnu.data
+new file mode 100644
+index 0000000..d266b8f
+--- /dev/null
++++ b/ports/data/localplt-m68k-linux-gnu.data
+@@ -0,0 +1,8 @@
++libc.so: _Unwind_Find_FDE
++libc.so: __m68k_read_tp
++libc.so: calloc
++libc.so: free
++libc.so: malloc
++libc.so: memalign
++libc.so: realloc
++libm.so: matherr
+From: Andreas Schwab <schwab@linux-m68k.org>
+Date: Fri, 11 Jun 2010 19:58:32 +0000 (+0200)
+Subject: m68k: force alignment of futex variables
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=0df56592854fa25ce091883cb60fc417283383b8
+
+m68k: force alignment of futex variables
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index cdc0ab5..6cf5d39 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,8 @@
++2010-06-11  Andreas Schwab  <schwab@linux-m68k.org>
++
++	* sysdeps/unix/sysv/linux/m68k/nptl/bits/pthreadtypes.h: Force
++	alignment of futex variables.
++
+ 2010-05-22  Andreas Schwab  <schwab@linux-m68k.org>
+ 
+ 	* data/c++-types-m68k-linux-gnu.data: New file.
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/nptl/bits/pthreadtypes.h b/ports/sysdeps/unix/sysv/linux/m68k/nptl/bits/pthreadtypes.h
+index 0140810..832609d 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/nptl/bits/pthreadtypes.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/nptl/bits/pthreadtypes.h
+@@ -57,7 +57,7 @@ typedef union
+ {
+   struct __pthread_mutex_s
+   {
+-    int __lock;
++    int __lock __attribute__ ((__aligned__ (4)));
+     unsigned int __count;
+     int __owner;
+     /* KIND must stay at this position in the structure to maintain
+@@ -87,7 +87,7 @@ typedef union
+ {
+   struct
+   {
+-    int __lock;
++    int __lock __attribute__ ((__aligned__ (4)));
+     unsigned int __futex;
+     __extension__ unsigned long long int __total_seq;
+     __extension__ unsigned long long int __wakeup_seq;
+@@ -112,7 +112,7 @@ typedef unsigned int pthread_key_t;
+ 
+ 
+ /* Once-only execution */
+-typedef int pthread_once_t;
++typedef int __attribute__ ((__aligned__ (4))) pthread_once_t;
+ 
+ 
+ #if defined __USE_UNIX98 || defined __USE_XOPEN2K
+@@ -122,7 +122,7 @@ typedef union
+ {
+   struct
+   {
+-    int __lock;
++    int __lock __attribute__ ((__aligned__ (4)));
+     unsigned int __nr_readers;
+     unsigned int __readers_wakeup;
+     unsigned int __writer_wakeup;
+@@ -158,7 +158,7 @@ typedef volatile int pthread_spinlock_t;
+ typedef union
+ {
+   char __size[__SIZEOF_PTHREAD_BARRIER_T];
+-  long int __align;
++  long int __align __attribute__ ((__aligned__ (4)));
+ } pthread_barrier_t;
+ 
+ typedef union
+From: Andreas Schwab <schwab@linux-m68k.org>
+Date: Sun, 13 Jun 2010 19:09:38 +0000 (+0200)
+Subject: m68k: Add required definitions to sys/user.h
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=08b1b36387286ed1ba48c56a32e52429b5ef6963
+
+m68k: Add required definitions to sys/user.h
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index 6cf5d39..bbc8a8c 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,8 @@
++2010-06-13  Andreas Schwab  <schwab@linux-m68k.org>
++
++	* sysdeps/unix/sysv/linux/m68k/sys/user.h (NBPG, UPAGES)
++	(HOST_TEXT_START_ADDR, HOST_STACK_END_ADDR): Define.
++
+ 2010-06-11  Andreas Schwab  <schwab@linux-m68k.org>
+ 
+ 	* sysdeps/unix/sysv/linux/m68k/nptl/bits/pthreadtypes.h: Force
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/sys/user.h b/ports/sysdeps/unix/sysv/linux/m68k/sys/user.h
+index f8b19fc..2663ac6 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/sys/user.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/sys/user.h
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2008 Free Software Foundation, Inc.
++/* Copyright (C) 2008, 2010 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -58,4 +58,9 @@ struct user {
+ 	char u_comm[32];
+ };
+ 
++#define NBPG 4096
++#define UPAGES 1
++#define HOST_TEXT_START_ADDR u.start_code
++#define HOST_STACK_END_ADDR (u.start_stack + u.u_ssize * NBPG)
++
+ #endif
+From: Andreas Schwab <schwab@linux-m68k.org>
+Date: Sun, 13 Jun 2010 20:30:17 +0000 (+0200)
+Subject: m68k: mark all inline math functions as non-throwing
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=9166f36fcc5390efb701e50564c63cb4534bd998
+
+m68k: mark all inline math functions as non-throwing
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index bbc8a8c..c5b5706 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,5 +1,8 @@
+ 2010-06-13  Andreas Schwab  <schwab@linux-m68k.org>
+ 
++	* sysdeps/m68k/m680x0/fpu/bits/mathinline.h: Mark all functions as
++	non-throwing.
++
+ 	* sysdeps/unix/sysv/linux/m68k/sys/user.h (NBPG, UPAGES)
+ 	(HOST_TEXT_START_ADDR, HOST_STACK_END_ADDR): Define.
+ 
+diff --git a/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h b/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h
+index 975ffd8..8a17127 100644
+--- a/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h
++++ b/ports/sysdeps/m68k/m680x0/fpu/bits/mathinline.h
+@@ -126,7 +126,7 @@ __NTH (__signbitl (long double __x))
+ /* Define a const math function.  */
+ #define __m81_defun(rettype, func, args)				      \
+   __m81_inline rettype __attribute__((__const__))			      \
+-  __m81_u(func) args
++  __NTH (__m81_u(func) args)
+ 
+ /* Define the three variants of a math function that has a direct
+    implementation in the m68k fpu.  FUNC is the name for C (which will be
+@@ -329,8 +329,8 @@ __m81_defun (long int, __CONCAT(__lrint,s), (float_type __x))		  \
+ }									  \
+ 									  \
+ __m81_inline float_type							  \
+-__m81_u(__CONCAT(__fma,s))(float_type __x, float_type __y,		  \
+-			   float_type __z)				  \
++__NTH (__m81_u(__CONCAT(__fma,s))(float_type __x, float_type __y,	  \
++				  float_type __z))			  \
+ {									  \
+   return (__x * __y) + __z;						  \
+ }
+@@ -346,8 +346,8 @@ __inline_functions (long double,l)
+ 
+ # define __inline_functions(float_type, s)				\
+ __m81_inline void							\
+-__m81_u(__CONCAT(__sincos,s))(float_type __x, float_type *__sinx,	\
+-			      float_type *__cosx)			\
++__NTH (__m81_u(__CONCAT(__sincos,s))(float_type __x, float_type *__sinx, \
++				     float_type *__cosx))		\
+ {									\
+   __asm ("fsincos%.x %2,%1:%0"						\
+ 	 : "=f" (*__sinx), "=f" (*__cosx) : "f" (__x));			\
+@@ -368,13 +368,13 @@ __inline_functions (long double,l)
+    NAME, to make token pasting work correctly with -traditional.  */
+ # define __inline_forward_c(rettype, name, args1, args2)	\
+ __MATH_INLINE rettype __attribute__((__const__))		\
+-  name args1							\
++__NTH (name args1)						\
+ {								\
+   return __CONCAT(__,name) args2;				\
+ }
+ 
+ # define __inline_forward(rettype, name, args1, args2)	\
+-__MATH_INLINE rettype name args1			\
++__MATH_INLINE rettype __NTH (name args1)		\
+ {							\
+   return __CONCAT(__,name) args2;			\
+ }
+From: Joseph Myers <joseph@codesourcery.com>
+Date: Thu, 24 Jun 2010 16:18:51 +0000 (+0000)
+Subject: Define F_SETPIPE_SZ and F_GETPIPE_SZ for M68K.
+X-Git-Url: http://sourceware.org/git/?p=glibc-ports.git;a=commitdiff_plain;h=71feaf72066abfe0e434e49d56e26b54152fb221
+
+Define F_SETPIPE_SZ and F_GETPIPE_SZ for M68K.
+---
+
+diff --git a/ports/ChangeLog.m68k b/ports/ChangeLog.m68k
+index c5b5706..be4956b 100644
+--- a/ports/ChangeLog.m68k
++++ b/ports/ChangeLog.m68k
+@@ -1,3 +1,8 @@
++2010-06-24  Joseph Myers  <joseph@codesourcery.com>
++
++	* sysdeps/unix/sysv/linux/m68k/bits/fcntl.h (F_SETPIPE_SZ,
++	F_GETPIPE_SZ): Define.
++
+ 2010-06-13  Andreas Schwab  <schwab@linux-m68k.org>
+ 
+ 	* sysdeps/m68k/m680x0/fpu/bits/mathinline.h: Mark all functions as
+diff --git a/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h b/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
+index d1eb706..f36507b 100644
+--- a/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
++++ b/ports/sysdeps/unix/sysv/linux/m68k/bits/fcntl.h
+@@ -101,6 +101,8 @@
+ # define F_SETLEASE	1024	/* Set a lease.	 */
+ # define F_GETLEASE	1025	/* Enquire what lease is active.  */
+ # define F_NOTIFY	1026	/* Request notfications on a directory.	 */
++# define F_SETPIPE_SZ	1031	/* Set pipe page size array.  */
++# define F_GETPIPE_SZ	1032	/* Set pipe page size array.  */
+ #endif
+ #ifdef __USE_XOPEN2K8
+ # define F_DUPFD_CLOEXEC 1030	/* Duplicate file descriptor with

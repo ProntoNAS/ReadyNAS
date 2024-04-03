@@ -1,0 +1,69 @@
+commit fd34ef53234f465bf12cd51ca3a7bb056856e3dd
+Author: Brandon Philips <brandon@ifup.org>
+Date:   Thu Dec 17 13:36:57 2009 -0800
+
+    setfacl: print useful error from read_acl_comments
+    
+    restore()'s fail path expects errno to contain the error but that is not
+    the case with read_acl_comments().
+    
+    Fix up the error path in restore() and have read_acl_comments() return
+    EINVAL which makes more sense in this case.
+    
+    Signed-off-by: Brandon Philips <bphilips@suse.de>
+
+diff --git a/setfacl/parse.c b/setfacl/parse.c
+index 4df1a19..b333beb 100644
+--- a/setfacl/parse.c
++++ b/setfacl/parse.c
+@@ -527,7 +527,7 @@ read_acl_comments(
+ fail:
+ 	if (path_p && *path_p)
+ 		free(*path_p);
+-	return -1;
++	return -EINVAL;
+ }
+ 
+ 
+diff --git a/setfacl/setfacl.c b/setfacl/setfacl.c
+index 56b0aa4..802f060 100644
+--- a/setfacl/setfacl.c
++++ b/setfacl/setfacl.c
+@@ -136,8 +136,10 @@ restore(
+ 		backup_line = line;
+ 		error = read_acl_comments(file, &line, &path_p, &uid, &gid,
+ 					  &flags);
+-		if (error < 0)
++		if (error < 0) {
++			error = -error;
+ 			goto fail;
++		}
+ 		if (error == 0)
+ 			return status;
+ 
+@@ -158,10 +160,10 @@ restore(
+ 		}
+ 
+ 		if (!(args.seq = seq_init()))
+-			goto fail;
++			goto fail_errno;
+ 		if (seq_append_cmd(args.seq, CMD_REMOVE_ACL, ACL_TYPE_ACCESS) ||
+ 		    seq_append_cmd(args.seq, CMD_REMOVE_ACL, ACL_TYPE_DEFAULT))
+-			goto fail;
++			goto fail_errno;
+ 
+ 		error = read_acl_seq(file, args.seq, CMD_ENTRY_REPLACE,
+ 		                     SEQ_PARSE_WITH_PERM |
+@@ -249,9 +251,11 @@ getout:
+ 	}
+ 	return status;
+ 
++fail_errno:
++	error = errno;
+ fail:
+ 	fprintf(stderr, "%s: %s: %s\n", progname, xquote(filename, "\n\r"),
+-		strerror(errno));
++		strerror(error));
+ 	status = 1;
+ 	goto getout;
+ }

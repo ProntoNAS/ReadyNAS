@@ -1,0 +1,212 @@
+From ea83cbfb06f54a171aef59817410b0b72e8b0388 Mon Sep 17 00:00:00 2001
+From: Gerrit Pape <pape@smarden.org>
+Date: Wed, 26 May 2010 11:01:18 +0000
+Subject: [PATCH] [EVAL] Pass EV_TESTED into evalcmd
+
+This patch fixes the case where the eval command is used with
+set -e and as part of a construct that should not cause the
+shell to abort, e.g., as part of the condition of an if statement.
+
+This is achieved by propagating the EV_TESTED flag into the
+evalstring function through evalcmd.  As this alters the prototype
+of evalcmd it is now invoked explicitly by evalbltin.  The built-in
+infrastructure has been changed to accomodate this special case.
+
+In order to ensure that the EXIT trap is properly executed this
+patch clears evalskip in exitshell.  This wasn't needed before
+because of the broken way evalstring worked where it always clears
+evalskip when called by minusc.
+
+Signed-off-by: Herbert Xu <herbert@gondor.apana.org.au>
+(cherry picked from commit 68097929869a3a3e511ac2e2c3d9dc3730652286)
+
+Conflicts:
+
+	ChangeLog
+---
+ src/builtins.def.in |    3 ++-
+ src/eval.c          |   26 +++++++++++++++-----------
+ src/histedit.c      |    4 ++--
+ src/mkbuiltins      |    3 ++-
+ src/trap.c          |    3 ++-
+ 5 files changed, 23 insertions(+), 16 deletions(-)
+
+diff --git a/src/builtins.def.in b/src/builtins.def.in
+index 362ff3f..266d0ec 100644
+--- a/src/builtins.def.in
++++ b/src/builtins.def.in
+@@ -40,6 +40,7 @@
+  * The -a flag specifies that this is a posix 'assignment builtin' command.
+  * The -s flag specifies that this is a posix 'special builtin' command.
+  * The -u flag specifies that this is a posix 'standard utility'.
++ * The -n flag specifies that this command has a special entry point.
+  * The rest of the line specifies the command name or names used to run
+  * the command.
+  */
+@@ -62,7 +63,7 @@ cdcmd		-u cd chdir
+ commandcmd	-u command
+ dotcmd		-s .
+ echocmd		echo
+-evalcmd		-s eval
++evalcmd		-ns eval
+ execcmd		-s exec
+ exitcmd		-s exit
+ exportcmd	-as export -as readonly
+diff --git a/src/eval.c b/src/eval.c
+index 0b449ee..249bfc1 100644
+--- a/src/eval.c
++++ b/src/eval.c
+@@ -97,7 +97,7 @@ STATIC void evalcommand(union node *, int, struct backcmd *);
+ #else
+ STATIC void evalcommand(union node *, int);
+ #endif
+-STATIC int evalbltin(const struct builtincmd *, int, char **);
++STATIC int evalbltin(const struct builtincmd *, int, char **, int);
+ STATIC int evalfun(struct funcnode *, int, char **, int);
+ STATIC void prehash(union node *);
+ STATIC int eprintlist(struct output *, struct strlist *, int);
+@@ -129,8 +129,7 @@ RESET {
+  * The eval commmand.
+  */
+ 
+-int
+-evalcmd(int argc, char **argv)
++static int evalcmd(int argc, char **argv, int flags)
+ {
+         char *p;
+         char *concat;
+@@ -150,7 +149,7 @@ evalcmd(int argc, char **argv)
+                         STPUTC('\0', concat);
+                         p = grabstackstr(concat);
+                 }
+-                return evalstring(p, ~SKIPEVAL);
++                return evalstring(p, flags & EV_TESTED);
+         }
+         return 0;
+ }
+@@ -161,7 +160,7 @@ evalcmd(int argc, char **argv)
+  */
+ 
+ int
+-evalstring(char *s, int mask)
++evalstring(char *s, int flags)
+ {
+ 	union node *n;
+ 	struct stackmark smark;
+@@ -172,7 +171,7 @@ evalstring(char *s, int mask)
+ 
+ 	status = 0;
+ 	while ((n = parsecmd(0)) != NEOF) {
+-		evaltree(n, 0);
++		evaltree(n, flags);
+ 		status = exitstatus;
+ 		popstackmark(&smark);
+ 		if (evalskip)
+@@ -180,7 +179,6 @@ evalstring(char *s, int mask)
+ 	}
+ 	popfile();
+ 
+-	evalskip &= mask;
+ 	return status;
+ }
+ 
+@@ -861,7 +859,7 @@ bail:
+ 			}
+ 			listsetvar(list, i);
+ 		}
+-		if (evalbltin(cmdentry.u.cmd, argc, argv)) {
++		if (evalbltin(cmdentry.u.cmd, argc, argv, flags)) {
+ 			int status;
+ 			int i, j;
+ 
+@@ -906,10 +904,12 @@ out:
+ }
+ 
+ STATIC int
+-evalbltin(const struct builtincmd *cmd, int argc, char **argv) {
++evalbltin(const struct builtincmd *cmd, int argc, char **argv, int flags)
++{
+ 	char *volatile savecmdname;
+ 	struct jmploc *volatile savehandler;
+ 	struct jmploc jmploc;
++	int status;
+ 	int i;
+ 
+ 	savecmdname = commandname;
+@@ -920,10 +920,14 @@ evalbltin(const struct builtincmd *cmd, int argc, char **argv) {
+ 	commandname = argv[0];
+ 	argptr = argv + 1;
+ 	optptr = NULL;			/* initialize nextopt */
+-	exitstatus = (*cmd->builtin)(argc, argv);
++	if (cmd == EVALCMD)
++		status = evalcmd(argc, argv, flags);
++	else
++		status = (*cmd->builtin)(argc, argv);
+ 	flushall();
++	status |= outerr(out1);
++	exitstatus = status;
+ cmddone:
+-	exitstatus |= outerr(out1);
+ 	freestdout();
+ 	commandname = savecmdname;
+ 	exsig = 0;
+diff --git a/src/histedit.c b/src/histedit.c
+index 36d7937..9a1e533 100644
+--- a/src/histedit.c
++++ b/src/histedit.c
+@@ -371,7 +371,7 @@ histcmd(int argc, char **argv)
+ 				}
+ 
+ 				evalstring(strcpy(stalloc(strlen(s) + 1), s),
+-					   ~0);
++					   0);
+ 				if (displayhist && hist) {
+ 					/*
+ 					 *  XXX what about recursive and
+@@ -396,7 +396,7 @@ histcmd(int argc, char **argv)
+ 		editcmd = stalloc(strlen(editor) + strlen(editfile) + 2);
+ 		sprintf(editcmd, "%s %s", editor, editfile);
+ 		/* XXX - should use no JC command */
+-		evalstring(editcmd, ~0);
++		evalstring(editcmd, 0);
+ 		INTON;
+ 		readcmdfile(editfile);	/* XXX - should read back - quick tst */
+ 		unlink(editfile);
+diff --git a/src/mkbuiltins b/src/mkbuiltins
+index 424d59a..977edb4 100644
+--- a/src/mkbuiltins
++++ b/src/mkbuiltins
+@@ -71,7 +71,8 @@ awk '{	for (i = 2 ; i <= NF ; i++) {
+ 			opt = substr($2, 2)
+ 			$2 = $3
+ 		}
+-		printf "\t{ \"%s\", %s, %d },\n", $1, $2,
++		printf "\t{ \"%s\", %s, %d },\n", $1,
++			(opt ~ /n/) ? "NULL" : $2,
+ 			(opt ~ /s/) + (opt ~ /[su]/) * 2 + (opt ~ /a/) * 4
+ 	}'
+ echo '};'
+diff --git a/src/trap.c b/src/trap.c
+index 58cd0cc..cfcae59 100644
+--- a/src/trap.c
++++ b/src/trap.c
+@@ -308,7 +308,7 @@ dotrap(void)
+ 		p = trap[i + 1];
+ 		if (!p)
+ 			continue;
+-		evalstring(p, SKIPEVAL);
++		evalstring(p, 0);
+ 		exitstatus = savestatus;
+ 		if (evalskip)
+ 			return evalskip;
+@@ -363,6 +363,7 @@ exitshell(void)
+ 	handler = &loc;
+ 	if ((p = trap[0])) {
+ 		trap[0] = NULL;
++		evalskip = 0;
+ 		evalstring(p, 0);
+ 	}
+ out:
+-- 
+1.6.0.3
+

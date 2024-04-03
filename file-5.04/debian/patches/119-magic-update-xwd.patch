@@ -1,0 +1,35 @@
+Author: Adam Buchbinder <adam.buchbinder@gmail.com>
+Description:
+ The XWD magic is too simple--it just matches a single big-endian long at the
+ beginning of the file. This patch implements a few other checks
+ (Closes: #511764).
+
+diff -Naurp file.orig/magic/Magdir/images file/magic/Magdir/images
+--- file.orig/magic/Magdir/images	2009-03-21 09:20:04.000000000 +0000
++++ file/magic/Magdir/images	2009-03-21 09:34:29.000000000 +0000
+@@ -308,11 +308,20 @@
+ #   As described in /usr/X11R6/include/X11/XWDFile.h
+ #   used by the xwd program.
+ #   Bradford Castalia, idaeim, 1/01
+-4	belong	7			XWD X Window Dump image data
+->100	string	>\0			\b, "%s"
+->16	belong	x			\b, %dx
+->20	belong	x			\b%dx
+->12	belong	x			\b%d
++#   updated by Adam Buchbinder, 2/09
++# The following assumes version 7 of the format; the first long is the length
++# of the header, which is at least 25 4-byte longs, and the one at offset 8
++# is a constant which is always either 1 or 2. Offset 12 is the pixmap depth,
++# which is a maximum of 32.
++0	belong	>100
++>8	belong	<3
++>>12	belong	<33
++>>>4	belong	7			XWD X Window Dump image data
++!:mime	image/x-xwindowdump
++>>>>100	string	>\0			\b, "%s"
++>>>>16	belong	x			\b, %dx
++>>>>20	belong	x			\b%dx
++>>>>12	belong	x			\b%d
+ 
+ # PDS - Planetary Data System
+ #   These files use Parameter Value Language in the header section.

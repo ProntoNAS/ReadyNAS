@@ -1,0 +1,38 @@
+Index: logrotate-3.7.8/logrotate.c
+===================================================================
+--- logrotate-3.7.8.orig/logrotate.c	2010-03-15 15:51:57.702006967 +0000
++++ logrotate-3.7.8/logrotate.c	2010-03-15 15:51:57.715006939 +0000
+@@ -229,7 +229,14 @@
+ {
+     int fd;
+ 
+-    fd = open(fileName, flags, (S_IRUSR | S_IWUSR) & sb->st_mode);
++    /*
++     * Protect against malicious linking or symlinking.
++     * This function only ever creates new files.
++     */
++    unlink(fileName);
++
++    fd = open(fileName, (flags | O_EXCL | O_NOFOLLOW),
++		(S_IRUSR | S_IWUSR) & sb->st_mode);
+     if (fd < 0) {
+ 	message(MESS_ERROR, "error creating output file %s: %s\n",
+ 		fileName, strerror(errno));
+@@ -345,7 +352,7 @@
+     }
+ 
+     outFile =
+-	createOutputFile(compressedName, O_RDWR | O_CREAT | O_TRUNC, sb);
++	createOutputFile(compressedName, O_RDWR | O_CREAT, sb);
+     if (outFile < 0) {
+ 	close(inFile);
+ 	return 1;
+@@ -524,7 +531,7 @@
+ 	}
+ #endif
+ 	fdsave =
+-	    createOutputFile(saveLog, O_WRONLY | O_CREAT | O_TRUNC, sb);
++	    createOutputFile(saveLog, O_WRONLY | O_CREAT, sb);
+ #ifdef WITH_SELINUX
+ 	if (selinux_enabled) {
+ 	    setfscreatecon_raw(prev_context);

@@ -1,0 +1,43 @@
+From dda2201ecf1f4cf598f9956339f7b882b1fd7a52 Mon Sep 17 00:00:00 2001
+From: Gerrit Pape <pape@smarden.org>
+Date: Wed, 26 May 2010 11:19:35 +0000
+Subject: [PATCH] [EVAL] Fix command -- crash
+
+parse_command_args() returning a **argv pointer with *argv == 0 makes
+dash segfault in find_command().  To reproduce run
+
+ dash -c 'command --'
+
+With this commit, parse_command_args() returns 0 if *argv is null after
+parsing --, and so fixes the subsequent segfault.
+
+Reported by Jonny through http://bugs.debian.org/579543
+
+Signed-off-by: Gerrit Pape <pape@smarden.org>
+Signed-off-by: Herbert Xu <herbert@gondor.apana.org.au>
+(cherry picked from commit 18071c7b6a847a7d8703c261eea522d5398fee90)
+
+Conflicts:
+
+	ChangeLog
+---
+ src/eval.c |    3 ++-
+ 1 files changed, 2 insertions(+), 1 deletions(-)
+
+diff --git a/src/eval.c b/src/eval.c
+index 904e81b..c1bd182 100644
+--- a/src/eval.c
++++ b/src/eval.c
+@@ -651,7 +651,8 @@ parse_command_args(char **argv, const char **path)
+ 		if (!(c = *cp++))
+ 			break;
+ 		if (c == '-' && !*cp) {
+-			argv++;
++			if (!*++argv)
++				return 0;
+ 			break;
+ 		}
+ 		do {
+-- 
+1.6.0.3
+

@@ -1,0 +1,165 @@
+#!/usr/bin/make -f
+SHELL+= -e
+
+BUILD_UDEB :=
+USE_SELINUX := false
+
+
+
+QUILT_STAMPFN=.stamp-patched
+include /usr/share/quilt/quilt.make
+
+D  := $(CURDIR)/debian/udev
+DU := $(CURDIR)/debian/udev-udeb
+DL := $(CURDIR)/debian/libvolume-id0
+DD := $(CURDIR)/debian/libvolume-id-dev
+
+MAKE_EXTRAS := extras/ata_id/ extras/cdrom_id/ extras/edd_id extras/path_id \
+	extras/scsi_id/ extras/usb_id/ extras/volume_id/ \
+	extras/collect/ extras/fstab_import/
+
+##############################################################################
+DEB_BUILD_ARCH     := $(shell dpkg-architecture -qDEB_BUILD_ARCH)
+DEB_HOST_GNU_TYPE  := $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE := $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+ifneq ($(DEB_HOST_GNU_TYPE),$(DEB_BUILD_GNU_TYPE))
+MAKE_VARIABLES += CC=$(DEB_HOST_GNU_TYPE)-gcc CROSS_COMPILE=$(DEB_HOST_GNU_TYPE)-
+endif
+
+MAKE_VARIABLES += V=true EXTRAS="$(MAKE_EXTRAS)"
+
+ifdef BUILD_UDEB
+BUILD_UDEB_TARGET := .stamp-build-udeb
+else
+NO_PACKAGE := --no-package=udev-udeb
+endif
+
+# the upstream source needs to be copied in the alternate build dir
+src_files := $(shell find . -maxdepth 1 \
+	-and -not -name . -and -not -name debian -and -not -name .pc \
+	-and -not -name 'build-*' -and -not -name '.stamp-*')
+
+##############################################################################
+all: build
+
+clean: unpatch
+	rm -rf .stamp-* build-*
+	$(MAKE) clean $(MAKE_VARIABLES) USE_SELINUX=$(USE_SELINUX)
+	dh_clean
+
+udebdir: .stamp-udebdir
+.stamp-udebdir: $(QUILT_STAMPFN)
+ifdef BUILD_UDEB
+	if [ ! -d build-udeb/ ]; then \
+		mkdir build-udeb/ && \
+		for dir in $(src_files); do cp -ldpR $$dir build-udeb/; done \
+	fi
+endif
+	touch $@
+
+build: .stamp-build
+.stamp-build: .stamp-udebdir $(QUILT_STAMPFN)
+	dh_testdir
+	$(MAKE) all $(MAKE_VARIABLES) USE_SELINUX=$(USE_SELINUX)
+	touch $@
+
+build-udeb: .stamp-build-udeb
+.stamp-build-udeb: .stamp-udebdir
+	dh_testdir
+	cd build-udeb/ && \
+	$(MAKE) all $(MAKE_VARIABLES) VOLUME_ID_STATIC=true \
+		OPTFLAGS='-Os -fomit-frame-pointer'
+	touch $@
+
+binary-arch: .stamp-build $(BUILD_UDEB_TARGET) checkroot
+	dh_testdir
+	dh_clean -k
+	dh_installdirs
+
+	$(MAKE) install $(MAKE_VARIABLES) DESTDIR=$D
+
+	dh_movefiles --sourcedir=debian/udev
+	rmdir $D/usr/lib/pkgconfig/ $D/usr/include/
+	rm -rf $D/etc/udev/rules.d/* $D/lib/udev/rules.d/
+
+	install --mode=755 hotplug/*.agent hotplug/scsi-re-add \
+		extra/create_static_nodes \
+		extras/rule_generator/write_*_rules $D/lib/udev/
+
+	cp rules/debian/*.rules $D/etc/udev/rules.d/
+	cp extra/links.conf $D/etc/udev/
+	printf "# maximum size of the /dev tmpfs\ntmpfs_size=\"10M\"\n\n" \
+		>> $D/etc/udev/udev.conf
+
+	install --mode=644 extras/rule_generator/rule_generator.functions \
+		$D/lib/udev/hotplug.functions
+	install --mode=644 hotplug/modprobe.d/* $D/etc/modprobe.d/
+
+	cp extra/reportbug.presubj $D/usr/share/bug/udev/presubj
+	install --mode=755 extra/reportbug.script $D/usr/share/bug/udev/script
+
+	install --mode=755 extra/initramfs.hook \
+		$D/usr/share/initramfs-tools/hooks/udev
+	install --mode=755 extra/initramfs.premount \
+		$D/usr/share/initramfs-tools/scripts/init-premount/udev
+	install --mode=755 extra/initramfs.bottom \
+		$D/usr/share/initramfs-tools/scripts/init-bottom/udev
+
+ifdef BUILD_UDEB
+	cd build-udeb/ && \
+	$(MAKE) install-bin $(MAKE_VARIABLES) DESTDIR=$(DU)
+
+	cd $(DU) && rm -r lib/libvolume_id.* lib/udev/rules.d/ \
+		lib/udev/collect lib/udev/fstab_import \
+		usr/include/
+
+	grep '^[[:alnum:]]' extra/links.conf > $(DU)/etc/udev/links.conf
+	grep '^[[:alnum:]]' udev.conf > $(DU)/etc/udev/udev.conf
+	cp rules/debian/*.rules $(DU)/etc/udev/rules.d/
+	cd $(DU)/etc/udev/rules.d/ && rm 60-persistent-storage-tape.rules \
+		60-persistent-v4l.rules 91-permissions.rules 95-late.rules
+
+	install --mode=755 extras/rule_generator/write_*_rules \
+		$(DU)/lib/udev/
+	install --mode=644 extras/rule_generator/rule_generator.functions \
+		$(DU)/lib/udev/hotplug.functions
+	install --mode=644 hotplug/modprobe.d/* $(DU)/etc/modprobe.d/
+	install --mode=755 extra/udev.startup \
+		$(DU)/lib/debian-installer/start-udev
+	mkdir -p $(DU)/usr/lib/base-installer.d/
+	install --mode=755 extra/udev.base-installer \
+		$(DU)/usr/lib/base-installer.d/05udev
+endif
+
+	dh_installchangelogs ChangeLog
+	dh_installdocs FAQ README RELEASE-NOTES TODO docs/writing_udev_rules/
+	cp extras/volume_id/README $D/usr/share/doc/udev/README.vol_id
+	dh_installexamples extra/udev.vim
+	dh_installdebconf
+	dh_installinit --no-start --update-rcd-params='start 03 S .'
+	dh_installinit --no-start --update-rcd-params='start 36 S .' \
+		--name=udev-mtab 
+
+	# remove duplicate changelogs
+	rm -rf $(DD)/usr/share/doc/libvolume-id-dev/
+	cd $(DD)/usr/share/doc/ && ln -s libvolume-id0 libvolume-id-dev
+
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs -- -c4
+	dh_shlibdeps --libpackage=libvolume-id0 -l $(DL)/lib/
+	dh_installdeb
+	dh_gencontrol $(NO_PACKAGE)
+	dh_md5sums
+	dh_builddeb $(NO_PACKAGE)
+
+
+binary:	binary-arch
+
+checkroot:
+	test root = "`whoami`"
+
+.PHONY: binary binary-arch binary-indep unpack configure build clean checkroot

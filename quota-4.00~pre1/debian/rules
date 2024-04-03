@@ -1,0 +1,109 @@
+#!/usr/bin/make -f
+# Sample debian/rules that uses debhelper.
+# GNU copyright 1997 to 1999 by Joey Hess.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	dh_quilt_patch
+	# Add here commands to configure the package.
+	( [ "`dpkg --print-architecture`" = "powerpc" ] && export CFLAGS=-D__BYTEORDER_HAS_U64__; \
+	  [ "`dpkg --print-architecture`" = "sparc" ] && export CFLAGS=-DREADYNAS_LCD LDFLAGS=-lreadynas_lgpl; \
+	  [ "`dpkg --print-architecture`" = "i386" ] && export CFLAGS=-DREADYNAS_LCD LDFLAGS=-lreadynas_lgpl; \
+ 	  ./configure --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info --sysconfdir=/etc --enable-ext2direct=no --enable-rpcsetquota=no --enable-rootsbin=yes --enable-ldapmail=no --enable-netlink=yes)
+
+	touch configure-stamp
+
+build: build-stamp
+build-stamp: configure
+	dh_testdir
+
+	# Add here commands to compile the package.
+	$(MAKE) 
+
+	# Create a POT file for translators
+	make pot && mv pot.po po/quota.pot
+
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f po/quota.pot
+	rm -f build-stamp *~ debian/*~ configure-stamp config.log
+
+	# Add here commands to clean up after the build process.
+	[ ! -f Makefile ] || $(MAKE) realclean
+	debconf-updatepo
+	dh_quilt_unpatch
+
+	dh_clean
+
+install: build-stamp
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	# Add here commands to install the package into debian/quota.
+	$(MAKE) ROOTDIR=`pwd`/debian/quota  \
+		STRIP=""\
+		BIN_OWNER=root BIN_GROUP=root \
+		LN="ln -s"\
+		mandir=/usr/share/man \
+                DEF_BIN_MODE=755 DEF_SBIN_MODE=755 install
+
+# Build architecture-independent files here.
+binary-indep: build install
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_install
+	-chmod 755 `pwd`/debian/quota/usr/share/quota/ldap/setquota-ldap.pl
+	dh_installdebconf	
+	dh_installdocs doc/*.* warnquota.conf README.*
+	dh_installexamples
+	dh_installmenu
+	dh_installinit --update-rcd-params="start 35 S . stop 85 0 6 ." --no-start
+	dh_installinit --init-script=quotarpc --update-rcd-params="defaults 21 79"
+	#
+	# dh_installinit cannot be configured to not install the defaults
+	# file for quotarpc, so we have to manually delete it
+	#
+	-rm -rf `pwd`/debian/quota/etc/default/quotarpc
+	dh_installcron
+	dh_installman
+	# remove man pages already in libc
+	-rm -rf `pwd`/debian/quota/usr/share/man/man2
+	# and include files in libc-dev
+	-rm -rf `pwd`/debian/quota/usr/include
+	dh_installinfo
+	dh_installchangelogs Changelog
+	dh_lintian
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install
+
+%:      %pod
+	pod2man \
+		--section=`echo $@ | sed 's/^.*\.//'` \
+		--center="Debian GNU/Linux manual"\
+		--date="Debian Project"\
+		--release="`date '+%B %Y'`" \
+	$< >,$@ && mv -f ,$@ $@;\
+	rm -f ,$@

@@ -1,0 +1,27 @@
+#! /bin/sh
+
+trap 'rm -fr $tmpfiles' 1 2 3 15
+
+tmpfiles="test.bin test.out"
+# Make sure no files are left over.
+rm -fr $tmpfiles
+
+: ${UUDECODE=uudecode}
+${UUDECODE} $top_srcdir/tests/testdata
+result=$?
+
+if test $result -eq 0; then
+  : ${UUENCODE=uuencode}
+  ${UUENCODE} test.bin test.bin > test.out
+  result=$?
+
+  if test $result -eq 0; then
+    : ${DIFF=diff}
+    ${DIFF} $top_srcdir/tests/testdata test.out > /dev/null
+    result=$?
+  fi
+fi
+
+rm -fr $tmpfiles
+
+exit $result

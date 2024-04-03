@@ -1,0 +1,77 @@
+commit d539830d19b35df0c12c0b7d36c1f6c428f34a91
+Author: M. Steinborn <gnugv_maintainer@yahoo.de>
+Date:   Fri Jan 22 14:37:04 2010 -0800
+
+    setfacl: make sure that -R only calls stat(2) on symlinks when it needs to
+    
+    Fixes http://savannah.nongnu.org/bugs/?28131
+    
+    Signed-off-by: Brandon Philips <bphilips@suse.de>
+
+diff --git a/setfacl/setfacl.c b/setfacl/setfacl.c
+index 802f060..731e417 100644
+--- a/setfacl/setfacl.c
++++ b/setfacl/setfacl.c
+@@ -76,7 +76,7 @@ struct option long_options[] = {
+ const char *progname;
+ const char *cmd_line_options, *cmd_line_spec;
+ 
+-int walk_flags = WALK_TREE_DEREFERENCE;
++int walk_flags = WALK_TREE_DEREFERENCE_TOPLEVEL;
+ int opt_recalculate;  /* recalculate mask entry (0=default, 1=yes, -1=no) */
+ int opt_promote;  /* promote access ACL to default ACL */
+ int opt_test;  /* do not write to the file system.
+@@ -590,13 +590,15 @@ int main(int argc, char *argv[])
+ 				break;
+ 
+ 			case 'L':  /* follow symlinks */
+-				walk_flags |= WALK_TREE_LOGICAL;
++				walk_flags |= WALK_TREE_LOGICAL | WALK_TREE_DEREFERENCE;
+ 				walk_flags &= ~WALK_TREE_PHYSICAL;
+ 				break;
+ 
+ 			case 'P':  /* do not follow symlinks */
+ 				walk_flags |= WALK_TREE_PHYSICAL;
+-				walk_flags &= ~WALK_TREE_LOGICAL;
++				walk_flags |= WALK_TREE_PHYSICAL;
++				walk_flags &= ~(WALK_TREE_LOGICAL | WALK_TREE_DEREFERENCE |
++						WALK_TREE_DEREFERENCE_TOPLEVEL);
+ 				break;
+ 
+ 			case 't':  /* test mode */
+diff --git a/test/misc.test b/test/misc.test
+index 7c62c64..d5d7680 100644
+--- a/test/misc.test
++++ b/test/misc.test
+@@ -424,3 +424,31 @@ Now, chmod should change the group_obj entry
+ 	> 
+ 
+ 	$ rmdir d
++
++Dangling symlink test http://savannah.nongnu.org/bugs/?28131
++
++	$ mkdir d
++	$ ln -s d/a d/b
++	$ getfacl -R d
++	> # file: d
++	> # owner: %TUSER
++	> # group: %TGROUP
++	> user::rwx
++	> group::rwx
++	> other::r-x
++	> 
++	$ setfacl -R -m u:bin:rw d
++	$ getfacl -RL d
++	> getfacl: d/b: No such file or directory
++	> # file: d
++	> # owner: %TUSER
++	> # group: %TGROUP
++	> user::rwx
++	> user:bin:rw-
++	> group::rwx
++	> mask::rwx
++	> other::r-x
++	> 
++	$ setfacl -RL -m u:bin:rw d
++	> setfacl: d/b: No such file or directory
++	$ rm -R d

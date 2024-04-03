@@ -1,0 +1,71 @@
+address_family inet6
+architecture linux
+
+method loopback
+  description
+    This method may be used to define the IPv6 loopback interface.
+  up
+    modprobe -q net-pf-10 > /dev/null 2>&1 || true # ignore failure.
+    ifconfig %iface% add ::1
+  down
+    ifconfig %iface% del ::1
+
+method static
+  description
+    This method may be used to define interfaces with statically assigned
+    IPv6 addresses.
+
+  options
+    address address        -- Address (colon delimited) *required*
+    netmask mask           -- Netmask (number of bits, eg 64) *required*
+    gateway address        -- Default gateway (colon delimited)
+    media type             -- Medium type, driver dependent
+    hwaddress class address -- Hardware Address. /class/ is one of \
+                                 *ether*, *ax25*, *ARCnet* or *netrom*. \
+                                 /address/ is dependent on this choice.
+    mtu size               -- MTU size
+  up
+    modprobe -q net-pf-10 > /dev/null 2>&1 || true # ignore failure.
+    ifconfig %iface% [[media %media%]] [[hw %hwaddress%]] [[mtu %mtu%]] up
+    ifconfig %iface% add %address%/%netmask%
+    [[ route -A inet6 add ::/0 gw %gateway% %iface% ]] 
+
+  down
+    ifconfig %iface% down
+
+method manual
+  description
+    This method may be used to define interfaces for which no configuration
+    is done by default.  Such interfaces can be configured manually by
+    means of *up* and *down* commands or /etc/network/if-*.d scripts.
+
+  up
+
+  down
+
+method v4tunnel
+  description
+    This method may be used to setup an IPv6-over-IPv4 tunnel. It requires
+    the *ip* command from the *iproute* package.
+
+  options
+    address address       -- Address (colon delimited)
+    netmask mask          -- Netmask (number of bits, eg 64) 
+    endpoint address      -- Address of other tunnel endpoint (IPv4 \
+                             dotted quad) *required*
+    local address         -- Address of the local endpoint (IPv4 \
+                             dotted quad)
+    gateway address       -- Default gateway (colon delimited)
+    ttl time              -- TTL setting
+
+  up
+    modprobe -q net-pf-10 > /dev/null 2>&1 || true # ignore failure.
+    ip tunnel add %iface% mode sit remote %endpoint% [[local %local%]] \
+       [[ttl %ttl%]]
+    ip link set %iface% up
+    [[ ip addr add %address%/%netmask% dev %iface% ]]
+    [[ ip route add %gateway% dev %iface% ]]
+    [[ ip route add ::/0 via %gateway% dev %iface% ]]
+
+  down
+    ip tunnel del %iface%

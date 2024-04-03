@@ -1,0 +1,48 @@
+#!/usr/bin/make -f
+SHELL+= -e
+
+D := $(CURDIR)/debian/update-inetd
+
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+TESTS_TARGET = check
+else
+TESTS_TARGET =
+endif
+
+clean:
+	dh_testdir
+	dh_testroot
+	debconf-updatepo
+	dh_clean
+
+build:
+
+check:
+	dh_testdir
+	dh_testroot
+	python tests.py
+
+binary-indep: $(TESTS_TARGET)
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs usr/share/perl5/ usr/sbin/
+	install -o root -g root -m 0644 DebianNet.pm $D/usr/share/perl5/
+	install -o root -g root -m 0755 update-inetd $D/usr/sbin/
+	dh_installchangelogs
+	dh_installdocs
+	dh_installdebconf
+	dh_installman DebianNet.3pm update-inetd.8
+	dh_lintian
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary-arch:
+
+binary: binary-indep
+
+.PHONY: clean build binary-indep binary-arch binary install

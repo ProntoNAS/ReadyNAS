@@ -1,0 +1,128 @@
+Purpose: Workaround case where /dev/pts is not mounted initially, but
+         is mounted during the lifetime of startpar process. Scripts
+	 must be treated as interactive until /dev/pts is mounted and
+	 getpt() is able open the pseudo-terminal master and return
+	 its file descriptor.
+
+	 Reimpliment __posix_openpt() from glibc, as it does not retry
+	 to open the pseudo-terminal master if it failed to do so earlier
+	 in the process lifetime.
+
+	 On SuSe /dev/pts is always mounted in very early boot and this
+	 hack is never needed.
+Authour: Petter Reinholdtsen, modified by Kel Modderman
+Fixes:   #457896
+Status:  Submitted to upstream.
+---
+--- a/startpar.c
++++ b/startpar.c
+@@ -33,6 +33,9 @@
+ #include <sys/un.h>
+ #include <sys/sysinfo.h>
+ #include <sys/stat.h>
++#ifndef SUSE
++#include <sys/vfs.h>
++#endif
+ #include <time.h>
+ #include <fcntl.h>
+ #include <errno.h>
+@@ -295,6 +298,70 @@ static inline int checkpar(const int par
+ 
+ #define SOCK_PATH "/dev/shm/preload_sock"
+ 
++#ifdef SUSE
++static int checkdevpts(void)
++{
++  /* /dev/pts is always mounted */
++  return 1;
++}
++#else
++/*
++ * Based on __posix_openpt() from glibc.  Reimplemented here to work
++ * around the problem with getpt() failing for the entire process life
++ * time if /dev/pts/ is missing the first time it is called but
++ * mounted while the process is running.  BSD style pts is not
++ * supported, but might be copied from glibc too if there is need.
++ */
++#define DEVFS_SUPER_MAGIC       0x1373
++#define DEVPTS_SUPER_MAGIC      0x1cd1
++
++static int startpar_getpt(void) {
++  int fd = open("/dev/ptmx", O_RDWR|O_NOCTTY);
++
++  if (fd != -1)
++    {
++      struct statfs fsbuf;
++
++      /* Check that the /dev/pts filesystem is mounted
++        or if /dev is a devfs filesystem (this implies /dev/pts).  */
++      if ((statfs ("/dev/pts", &fsbuf) == 0
++             && fsbuf.f_type == DEVPTS_SUPER_MAGIC)
++         || (statfs ("/dev", &fsbuf) == 0
++             && fsbuf.f_type == DEVFS_SUPER_MAGIC))
++        {
++          /* Everything is ok, switch to the getpt() in libc.  */
++          return fd;
++        }
++
++      /* If /dev/pts is not mounted then the UNIX98 pseudo terminals
++        are not usable.  */
++      close (fd);
++    }
++
++  return -1;
++}
++
++static int checkdevpts(void)
++{
++  int ptsfd = startpar_getpt();
++
++  if (ptsfd == -1)
++    {
++      return 0;
++    }
++  else if (ptsname(ptsfd) == 0 || grantpt(ptsfd) || unlockpt(ptsfd))
++    {
++      close(ptsfd);
++      return 0;
++    }
++  else
++    {
++      close(ptsfd);
++      return 1;
++    }
++}
++#endif
++
+ void run(struct prg *p)
+ {
+   char *m = 0;
+@@ -853,6 +920,7 @@ int main(int argc, char **argv)
+       pid_t pid = 0;
+       int r = 0, s;
+       long diff;
++      int devpts = 0;
+ 
+       gettimeofday(&now, 0);
+       FD_ZERO(&rset);
+@@ -874,6 +942,8 @@ int main(int argc, char **argv)
+       for (s = 0; s < par; s++)			/* never leave this with break!! */
+ 	{
+ 	account:				/* for the new process below */
++	  if (!devpts)
++	    devpts = checkdevpts();
+ 	  p = prgs + s;
+ 	  if (p == interactive_task)
+ 	    continue;				/* don't count this here */
+@@ -906,6 +976,11 @@ int main(int argc, char **argv)
+ 		  p->num = num++;
+ 		  if (interactive_task)
+ 		    continue;			/* don't start this here */
++		  if (!devpts)
++		    {
++		      interactive_task = p;	/* no /dev/pts, treat as interactive */
++		      continue;
++		    }
+ 		  run(p);
+ 		  if (p->pid == 0)
+ 		    {

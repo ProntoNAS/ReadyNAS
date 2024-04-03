@@ -1,0 +1,270 @@
+#!/usr/bin/make -f
+#
+# Created 20 December 1997 by Enrique Zanardi <ezanardi@ull.es>
+# Modified 2002-2004 by Alastair McKinstry, <mckinstry@debian.org>
+#
+# Copying and modification is unlimited, provided that the modified
+# version is marked as being modified.
+
+# Uncomment this to turn on verbose mode.
+# export DH_VERBOSE=1
+
+
+DEB_HOST_GNU_TYPE=$(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE=$(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+ifneq ($(DEB_HOST_GNU_TYPE), $(DEB_BUILD_GNU_TYPE))
+CROSS=--build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+CROSSCC=$(DEB_HOST_GNU_TYPE)-gcc
+else
+CROSS=
+CROSSCC=gcc
+endif
+
+VERSION=0.52.11
+SONAME=0.52
+PYVERS=$(shell pyversions -vr debian/control)
+
+LIB_PKG=libnewt$(SONAME)
+DEV_PKG=libnewt-dev
+PIC_PKG=libnewt-pic
+TCL_PKG=newt-tcl
+PYTHON_PKG=python-newt
+PYTHON_DBG_PKG=python-newt-dbg
+WHIPTAIL_PKG=whiptail
+
+# the dbs rules
+TAR_DIR=newt-$(VERSION)
+include /usr/share/dbs/dbs-build.mk
+
+ifeq (,$(DEB_HOST_ARCH_OS))
+ include /usr/share/dbs/dpkg-arch.mk
+endif
+
+DEB_HOST_ARCH_OS  ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+DEB_HOST_ARCH_CPU ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_CPU)
+
+# get the items created here.
+binarytarget=binary-devel binary-shared binary-runtime binary-tcl \
+	binary-python binary-python-dbg binary-pic 
+
+#target specific configurations come here:
+LIBCDEV=libc-dev
+GPMSUPPORT= --with-gpm-support
+
+ifneq ($(DEB_HOST_ARCH_OS),linux)
+LIBCDEV=libc6-dev
+ifeq ($(DEB_HOST_ARCH_CPU),alpha)
+LIBCDEV=libc6.1-dev
+endif
+ifeq ($(DEB_HOST_ARCH_CPU),ia64)
+LIBCDEV=libc6.1-dev
+endif
+endif
+
+ifeq ($(DEB_HOST_ARCH_OS),hurd)
+GPMSUPPORT=
+LIBCDEV=libc0.3-dev
+endif
+
+ifeq ($(DEB_HOST_ARCH_OS),kfreebsd)
+LIBCDEV=libc0.1-dev
+endif
+
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+NOSTRIP=--with-nostrip=no
+else
+NOSTRIP=--with-nostrip=yes
+endif
+
+build-stamp=$(STAMP_DIR)/build-stamp
+configure-stamp=$(STAMP_DIR)/configure-stamp
+
+$(configure-stamp):  $(patched)
+	dh_testdir
+	cp newt.spec $(BUILD_TREE)
+	rm -f $(BUILD_TREE)/.depend
+	( cd $(BUILD_TREE) && autoconf --force -i )
+	( cd $(BUILD_TREE) && ./configure --prefix=/usr  $(GPMSUPPORT) $(NOSTRIP) $(CROSS) )
+	touch $@
+
+build: $(build-stamp)
+$(build-stamp): $(configure-stamp)
+	dh_testdir
+	( cd $(BUILD_TREE) && sgmltools --backend html tutorial.sgml )
+	CC=$(CROSSCC) $(MAKE) -C $(BUILD_TREE)
+	( cd $(BUILD_TREE) && ar cqv libnewt_pic.a shared/*.o )
+	# build POT file for translators
+	make -C $(BUILD_TREE)/po newt.pot
+	touch $@
+
+clean:
+	dh_testdir
+	dh_testroot
+	dh_clean 
+	rm -rf $(SOURCE_DIR) $(STAMP_DIR)
+	rm -f debian/python-newt*.dirs debian/python-newt*.install debian/python-newt.postinst
+	# rm -rf   debian/substvars debian/*.bak debian/*~ *~ 
+
+binary: binary-indep binary-arch
+
+binary-indep:
+
+binary-arch: $(LIB_PKG) $(DEV_PKG) $(PIC_PKG) $(TCL_PKG) $(PYTHON_PKG) $(PYTHON_DBG_PKG) $(WHIPTAIL_PKG)
+
+$(LIB_PKG): build
+	dh_testdir
+	dh_testroot 
+	dh_installdirs -p $@ 
+	dh_install -p $@ --sourcedir=$(BUILD_TREE)
+	# chmod +x $(BUILD_TREE)/mkinstalldirs
+	CC=$(CROSSCC) $(MAKE) -C $(BUILD_TREE)/po datadir=../../../debian/$(LIB_PKG)/usr/share HAVE_XGETTEXT=yes install
+	dh_strip -p $@
+	dh_makeshlibs -p $@
+	dh_shlibdeps -L $(LIB_PKG) -l debian/$@/usr/lib
+	dh_installdocs -p $@  
+	dh_link -p $@  /usr/lib/libnewt.so.$(VERSION) /usr/lib/libnewt.so.$(SONAME)
+	rm debian/$@/usr/lib/libnewt.so
+	# Currently disabled, as debian-test has been removed.
+	# chmod +x debian/whiptail/usr/lib/debian-test/tests/whiptail/test-newt.sh/test-newt.sh
+	dh_installchangelogs -p $@ 
+	dh_compress -p $@
+	dh_installdeb  -p $@
+	dh_fixperms -p $@
+	dh_gencontrol -p $@ 
+	dh_md5sums -p $@
+	dh_builddeb -p $@
+
+$(PIC_PKG): build
+	dh_testdir
+	dh_testroot 
+	dh_installdirs -p $@
+	dh_install -p $@ --sourcedir=$(BUILD_TREE)
+	cp $(BUILD_TREE)/newt*.ver debian/libnewt-pic/usr/lib/libnewt_pic.map
+	dh_strip -p $@
+	dh_makeshlibs -p $@
+	dh_installdocs -p $@  -p $@ $(BUILD_TREE)/newt.spec
+	# Currently disabled, as debian-test has been removed.
+	# chmod +x debian/whiptail/usr/lib/debian-test/tests/whiptail/test-newt.sh/test-newt.sh
+	dh_installchangelogs -p $@ 
+	dh_compress -p $@
+	dh_shlibdeps -p $@  -ldebian/$@/usr/lib
+	dh_fixperms -p $@
+	dh_installdeb  -p $@
+	dh_gencontrol -p $@ 
+	dh_md5sums -p $@
+	dh_builddeb -p $@
+
+$(DEV_PKG): build
+	dh_testdir
+	dh_testroot 
+	dh_installdirs -p $@
+	dh_install -p $@ --sourcedir=$(BUILD_TREE)
+	dh_strip -p $@
+	dh_makeshlibs -p $@
+	dh_installdocs -p $@  -p $@ $(BUILD_TREE)/newt.spec
+	dh_link -p $@ /usr/lib/libnewt.so.$(VERSION) /usr/lib/libnewt.so
+	dh_link -p $@ \
+	  /usr/share/doc/libnewt-dev/tutorial.html/t1.html \
+	  /usr/share/doc/libnewt-dev/tutorial.html/index.html	
+	# Currently disabled, as debian-test has been removed.
+	# chmod +x debian/whiptail/usr/lib/debian-test/tests/whiptail/test-newt.sh/test-newt.sh
+	dh_installchangelogs -p $@
+	dh_installexamples -p $@ 
+	dh_compress -p $@
+	dh_shlibdeps -p $@ -ldebian/$@/usr/lib
+	dh_fixperms -p $@
+	dh_installdeb  -p $@
+	dh_gencontrol -p $@ 
+	dh_md5sums -p $@
+	dh_builddeb -p $@
+
+$(TCL_PKG): build
+	dh_testdir
+	dh_testroot 
+	dh_installdirs -p $@
+	dh_install -p $@ --sourcedir=$(BUILD_TREE)
+	dh_strip -p $@
+	dh_makeshlibs -p $@
+	dh_installdocs -p $@  -p $@ $(BUILD_TREE)/newt.spec
+	# Currently disabled, as debian-test has been removed.
+	# chmod +x debian/whiptail/usr/lib/debian-test/tests/whiptail/test-newt.sh/test-newt.sh
+	dh_installchangelogs -p $@ 
+	dh_compress -p $@
+	dh_shlibdeps -p $@ -ldebian/$@/usr/lib
+	dh_fixperms -p $@
+	dh_installdeb  -p $@
+	dh_gencontrol -p $@ 
+	dh_md5sums -p $@
+	dh_builddeb -p $@
+
+$(PYTHON_PKG): build
+	dh_testdir
+	dh_testroot 
+	for v in $(PYVERS); do \
+		pylib=$$(python$$v -c 'from distutils import sysconfig; print sysconfig.get_python_lib()'); \
+		echo $$pylib >> debian/$@.dirs; \
+		echo python$$v/_snackmodule.so $$pylib/ \
+		>> debian/$@.install; \
+		echo snack.py $$pylib \
+		>> debian/$@.install; \
+	done
+	dh_installdirs -p $@ 
+	dh_install -p $@ --sourcedir=$(BUILD_TREE)
+	dh_strip -p $@ --dbg-package python-newt-dbg
+	DH_PYCENTRAL=include-links dh_pycentral -p $@
+	dh_installdocs -p $@ $(BUILD_TREE)/newt.spec
+	# Currently disabled, as debian-test has been removed.
+	# chmod +x debian/whiptail/usr/lib/debian-test/tests/whiptail/test-newt.sh/test-newt.sh
+	dh_installchangelogs -p $@ 
+	dh_installexamples -p $@
+	dh_compress -p $@
+	dh_shlibdeps -p $@ -ldebian/$@/usr/lib
+	dh_fixperms -p $@
+	dh_installdeb  -p $@
+	dh_gencontrol -p $@ 
+	dh_md5sums -p $@
+	dh_builddeb -p $@
+
+$(PYTHON_DBG_PKG): build $(PYTHON_PKG)
+	dh_testdir
+	dh_testroot 
+	for v in $(PYVERS); do \
+		pylib=$$(python$$v -c 'from distutils import sysconfig; print sysconfig.get_python_lib()'); \
+		echo $$pylib >> debian/$@.dirs; \
+		echo python$$v/_snackmodule_d.so $$pylib/ \
+		>> debian/$@.install; \
+	done
+	dh_installdirs -p $@ 
+	dh_install -p $@ --sourcedir=$(BUILD_TREE)
+	DH_PYCENTRAL=include-links dh_pycentral -p $@
+	mkdir -p debian/python-newt-dbg/usr/share/doc
+	ln -sf python-newt debian/python-newt-dbg/usr/share/doc/python-newt-dbg
+	dh_compress -p $@
+	dh_shlibdeps -p $@ -ldebian/$@/usr/lib
+	dh_fixperms -p $@
+	dh_installdeb -p $@
+	dh_gencontrol -p $@ 
+	dh_md5sums -p $@
+	dh_builddeb -p $@
+
+$(WHIPTAIL_PKG): build
+	dh_testdir
+	dh_testroot 
+	dh_installdirs -p $@
+	dh_install -p $@ --sourcedir=$(BUILD_TREE)
+	dh_strip -p $@
+	dh_makeshlibs   -V
+	dh_installdocs -p $@  -p $@ $(BUILD_TREE)/newt.spec debian/README.whiptail
+	dh_installman -p $@ $(BUILD_TREE)/whiptail.1
+	# Currently disabled, as debian-test has been removed.
+	# chmod +x debian/whiptail/usr/lib/debian-test/tests/whiptail/test-newt.sh/test-newt.sh
+	dh_installchangelogs -p $@
+	dh_compress -p $@
+	dh_shlibdeps -p $@  -L $(LIB_PKG) -l debian/$(LIB_PKG)/usr/lib
+	dh_fixperms -p $@
+	dh_installdeb  -p $@
+	dh_gencontrol -p $@ 
+	dh_md5sums -p $@
+	dh_builddeb -p $@
+
+.PHONY: binary-arch clean source diff  binary binary-indep

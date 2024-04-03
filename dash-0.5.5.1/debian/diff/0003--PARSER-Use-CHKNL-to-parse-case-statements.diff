@@ -1,0 +1,39 @@
+From b45a1a51fde6913eb6c91277379f7c07415fbf92 Mon Sep 17 00:00:00 2001
+From: Gerrit Pape <pape@smarden.org>
+Date: Wed, 26 May 2010 10:55:10 +0000
+Subject: [PATCH] [PARSER] Use CHKNL to parse case statements
+
+Instead of open-coding the newline loop, use the CHKNL flag to
+get readtoken to eat the newlines before the in keyword for the
+case statement.
+
+Signed-off-by: Herbert Xu <herbert@gondor.apana.org.au>
+(cherry picked from commit 49b82fcfda542b8db21073e6fceb4ac79984600d)
+
+Conflicts:
+
+	ChangeLog
+---
+ src/parser.c |    6 ++----
+ 1 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/src/parser.c b/src/parser.c
+index 425c457..dad1037 100644
+--- a/src/parser.c
++++ b/src/parser.c
+@@ -402,10 +402,8 @@ TRACE(("expecting DO got %s %s\n", tokname[got], got == TWORD ? wordtext : ""));
+ 		n2->narg.text = wordtext;
+ 		n2->narg.backquote = backquotelist;
+ 		n2->narg.next = NULL;
+-		do {
+-			checkkwd = CHKKWD | CHKALIAS;
+-		} while (readtoken() == TNL);
+-		if (lasttoken != TIN)
++		checkkwd = CHKNL | CHKKWD | CHKALIAS;
++		if (readtoken() != TIN)
+ 			synexpect(TIN);
+ 		cpp = &n1->ncase.cases;
+ next_case:
+-- 
+1.6.0.3
+

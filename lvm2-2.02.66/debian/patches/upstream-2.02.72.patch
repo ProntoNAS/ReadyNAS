@@ -1,0 +1,281 @@
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -84,6 +84,7 @@
+ 	$(INSTALL_ROOT_DIR) $(DESTDIR)$(DEFAULT_BACKUP_DIR)
+ 	$(INSTALL_ROOT_DIR) $(DESTDIR)$(DEFAULT_CACHE_DIR)
+ 	$(INSTALL_ROOT_DIR) $(DESTDIR)$(DEFAULT_LOCK_DIR)
++	$(INSTALL_ROOT_DIR) $(DESTDIR)$(DEFAULT_RUN_DIR)
+ 	$(INSTALL_ROOT_DATA) /dev/null $(DESTDIR)$(DEFAULT_CACHE_DIR)/.cache
+ 
+ install_initscripts: 
+--- a/configure.in
++++ b/configure.in
+@@ -1019,6 +1019,13 @@
+ 		    [ AC_DEFINE_UNQUOTED(DMEVENTD_PATH,"$dmeventd_prefix/sbin/dmeventd") ])
+ fi
+ 
++AH_TEMPLATE(DEFAULT_RUN_DIR, [Name of default run directory.])
++AC_ARG_WITH(default-run-dir,
++	    [  --with-default-run-dir=DIR       Default run directory [[/var/run/lvm]] ],
++	    [ DEFAULT_RUN_DIR="$withval" ],
++	    [ DEFAULT_RUN_DIR="/var/run/lvm" ])
++AC_DEFINE_UNQUOTED(DEFAULT_RUN_DIR,["$DEFAULT_RUN_DIR"] )
++
+ ################################################################################
+ dnl -- various defaults
+ AH_TEMPLATE(DEFAULT_SYS_DIR, [Path to LVM system directory.])
+--- a/daemons/clvmd/clvm.h
++++ b/daemons/clvmd/clvm.h
+@@ -22,6 +22,8 @@
+ #ifndef _CLVM_H
+ #define _CLVM_H
+ 
++#include "configure.h"
++
+ struct clvm_header {
+ 	uint8_t  cmd;	        /* See below */
+ 	uint8_t  flags;	        /* See below */
+@@ -45,9 +47,8 @@
+ #define CLVMD_FLAG_SYSTEMLV     2	/* Data in system LV under my node name */
+ #define CLVMD_FLAG_NODEERRS     4       /* Reply has errors in node-specific portion */
+ 
+-/* Name of the local socket to communicate between libclvm and clvmd */
+-//static const char CLVMD_SOCKNAME[]="/var/run/clvmd";
+-static const char CLVMD_SOCKNAME[] = "\0clvmd";
++/* Name of the local socket to communicate between lvm and clvmd */
++static const char CLVMD_SOCKNAME[]= DEFAULT_RUN_DIR "/clvmd.sock";
+ 
+ /* Internal commands & replies */
+ #define CLVMD_CMD_REPLY    1
+--- a/daemons/clvmd/clvmd-singlenode.c
++++ b/daemons/clvmd/clvmd-singlenode.c
+@@ -32,17 +32,29 @@
+ #include "lvm-functions.h"
+ #include "clvmd.h"
+ 
+-static const char SINGLENODE_CLVMD_SOCKNAME[] = "\0singlenode_clvmd";
++static const char SINGLENODE_CLVMD_SOCKNAME[] = DEFAULT_RUN_DIR "/clvmd_singlenode.sock";
+ static int listen_fd = -1;
+ 
++static void close_comms()
++{
++	if (listen_fd != -1 && close(listen_fd))
++		stack;
++	(void)unlink(SINGLENODE_CLVMD_SOCKNAME);
++	listen_fd = -1;
++}
++
+ static int init_comms()
+ {
+ 	struct sockaddr_un addr;
++	mode_t old_mask;
++
++	close_comms();
++	old_mask = umask(0077);
+ 
+ 	listen_fd = socket(PF_UNIX, SOCK_STREAM, 0);
+ 	if (listen_fd < 0) {
+ 		DEBUGLOG("Can't create local socket: %s\n", strerror(errno));
+-		return -1;
++		goto error;
+ 	}
+ 	/* Set Close-on-exec */
+ 	fcntl(listen_fd, F_SETFD, 1);
+@@ -54,16 +66,19 @@
+ 
+ 	if (bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+ 		DEBUGLOG("Can't bind local socket: %s\n", strerror(errno));
+-		close(listen_fd);
+-		return -1;
++		goto error;
+ 	}
+ 	if (listen(listen_fd, 10) < 0) {
+ 		DEBUGLOG("Can't listen local socket: %s\n", strerror(errno));
+-		close(listen_fd);
+-		return -1;
++		goto error;
+ 	}
+ 
++	umask(old_mask);
+ 	return 0;
++error:
++	umask(old_mask);
++	close_comms();
++	return -1;
+ }
+ 
+ static int _init_cluster(void)
+@@ -80,7 +95,7 @@
+ 
+ static void _cluster_closedown(void)
+ {
+-	close(listen_fd);
++	close_comms();
+ 
+ 	DEBUGLOG("cluster_closedown\n");
+ 	destroy_lvhash();
+--- a/daemons/clvmd/clvmd.c
++++ b/daemons/clvmd/clvmd.c
+@@ -139,6 +139,7 @@
+ static int process_reply(const struct clvm_header *msg, int msglen,
+ 			 const char *csid);
+ static int open_local_sock(void);
++static void close_local_sock(int local_socket);
+ static int check_local_clvmd(void);
+ static struct local_client *find_client(int clientid);
+ static void main_loop(int local_sock, int cmd_timeout);
+@@ -287,6 +288,23 @@
+ 	return buf;
+ }
+ 
++/*
++ * clvmd require dm-ioctl capability for operation
++ */
++static void check_permissions()
++{
++	if (getuid() || geteuid()) {
++		log_error("Cannot run as a non-root user.");
++
++		 /*
++		  * Fail cleanly here if not run as root, instead of failing
++		  * later when attempting a root-only operation 
++		  * Preferred exit code from an initscript for this.
++		  */
++		exit(4);
++	}
++}
++
+ int main(int argc, char *argv[])
+ {
+ 	int local_sock;
+@@ -316,9 +334,11 @@
+ 			exit(0);
+ 
+ 		case 'R':
++			check_permissions();
+ 			return refresh_clvmd(1)==1?0:1;
+ 
+ 		case 'S':
++			check_permissions();
+ 			return restart_clvmd(clusterwide_opt)==1?0:1;
+ 
+ 		case 'C':
+@@ -364,6 +384,8 @@
+ 		}
+ 	}
+ 
++	check_permissions();
++
+ 	/* Setting debug options on an existing clvmd */
+ 	if (debug_opt && !check_local_clvmd()) {
+ 
+@@ -460,7 +482,7 @@
+ #endif
+ #ifdef USE_SINGLENODE
+ 	if (!clops)
+-		if ((cluster_iface == IF_AUTO || cluster_iface == IF_SINGLENODE) && (clops = init_singlenode_cluster())) {
++		if (cluster_iface == IF_SINGLENODE && (clops = init_singlenode_cluster())) {
+ 			max_csid_len = SINGLENODE_CSID_LEN;
+ 			max_cluster_message = SINGLENODE_MAX_CLUSTER_MESSAGE;
+ 			max_cluster_member_name_len = MAX_CLUSTER_MEMBER_NAME_LEN;
+@@ -524,6 +546,7 @@
+ 	/* Do some work */
+ 	main_loop(local_sock, cmd_timeout);
+ 
++	close_local_sock(local_sock);
+ 	destroy_lvm();
+ 
+ 	return 0;
+@@ -867,7 +890,6 @@
+ 
+       closedown:
+ 	clops->cluster_closedown();
+-	close(local_sock);
+ }
+ 
+ static __attribute__ ((noreturn)) void wait_for_child(int c_pipe, int timeout)
+@@ -1966,20 +1988,30 @@
+ 	return ret;
+ }
+ 
++static void close_local_sock(int local_socket)
++{
++	if (local_socket != -1 && close(local_socket))
++		stack;
++
++	if (CLVMD_SOCKNAME[0] != '\0' && unlink(CLVMD_SOCKNAME))
++		stack;
++}
+ 
+ /* Open the local socket, that's the one we talk to libclvm down */
+ static int open_local_sock()
+ {
+-	int local_socket;
++	int local_socket = -1;
+ 	struct sockaddr_un sockaddr;
++	mode_t old_mask;
++
++	close_local_sock(local_socket);
++	old_mask = umask(0077);
+ 
+ 	/* Open local socket */
+-	if (CLVMD_SOCKNAME[0] != '\0')
+-		unlink(CLVMD_SOCKNAME);
+ 	local_socket = socket(PF_UNIX, SOCK_STREAM, 0);
+ 	if (local_socket < 0) {
+ 		log_error("Can't create local socket: %m");
+-		return -1;
++		goto error;
+ 	}
+ 
+ 	/* Set Close-on-exec & non-blocking */
+@@ -1992,18 +2024,19 @@
+ 	sockaddr.sun_family = AF_UNIX;
+ 	if (bind(local_socket, (struct sockaddr *) &sockaddr, sizeof(sockaddr))) {
+ 		log_error("can't bind local socket: %m");
+-		close(local_socket);
+-		return -1;
++		goto error;
+ 	}
+ 	if (listen(local_socket, 1) != 0) {
+ 		log_error("listen local: %m");
+-		close(local_socket);
+-		return -1;
++		goto error;
+ 	}
+-	if (CLVMD_SOCKNAME[0] != '\0')
+-		chmod(CLVMD_SOCKNAME, 0600);
+ 
++	umask(old_mask);
+ 	return local_socket;
++error:
++	close_local_sock(local_socket);
++	umask(old_mask);
++	return -1;
+ }
+ 
+ void process_message(struct local_client *client, const char *buf, int len,
+--- a/daemons/clvmd/clvmd.h
++++ b/daemons/clvmd/clvmd.h
+@@ -20,9 +20,6 @@
+ #define CLVMD_MINOR_VERSION 2
+ #define CLVMD_PATCH_VERSION 1
+ 
+-/* Name of the cluster LVM admin lock */
+-#define ADMIN_LOCK_NAME "CLVMD_ADMIN"
+-
+ /* Default time (in seconds) we will wait for all remote commands to execute
+    before declaring them dead */
+ #define DEFAULT_CMD_TIMEOUT 60
+--- a/lib/misc/configure.h.in
++++ b/lib/misc/configure.h.in
+@@ -29,6 +29,9 @@
+ /* Name of default locking directory. */
+ #undef DEFAULT_LOCK_DIR
+ 
++/* Name of default run directory. */
++#undef DEFAULT_RUN_DIR
++
+ /* Define to 0 to reinstate the pre-2.02.54 handling of unit suffixes. */
+ #undef DEFAULT_SI_UNIT_CONSISTENCY
+ 

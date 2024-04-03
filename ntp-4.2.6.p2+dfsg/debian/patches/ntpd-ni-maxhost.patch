@@ -1,0 +1,35 @@
+Compilation fix for systems without MAXHOSTNAMELEN (e.g., Hurd); but the
+use of MAXHOSTNAMELEN is incorrect here anyway.  (bug #387665,
+http://bugs.ntp.org/978)
+
+Index: ntp-4.2.6+dfsg/ntpd/ntp_intres.c
+===================================================================
+--- ntp-4.2.6+dfsg.orig/ntpd/ntp_intres.c	2009-12-09 07:36:36.000000000 +0000
++++ ntp-4.2.6+dfsg/ntpd/ntp_intres.c	2009-12-24 10:43:50.000000000 +0000
+@@ -167,11 +167,11 @@
+ struct ntp_res_t_pkt {		/* Tagged packet: */
+ 	void *tag;		/* For the caller */
+ 	u_int32 paddr;		/* IP to look up, or 0 */
+-	char name[MAXHOSTNAMELEN]; /* Name to look up (if 1st byte is not 0) */
++        char *name;             /* Name to look up (if 1st byte is not 0) */
+ };
+ 
+ struct ntp_res_c_pkt {		/* Control packet: */
+-	char name[MAXHOSTNAMELEN];
++	char *name;
+ 	u_int32 paddr;
+ 	int mode;
+ 	int version;
+@@ -564,10 +564,10 @@
+ 		DPRINTF(2, ("findhostaddr: Resolving <%s>\n",
+ 			stoa(&entry->peer_store)));
+ 
+-		entry->ce_name = emalloc(MAXHOSTNAMELEN);
++		entry->ce_name = emalloc(NI_MAXHOST);
+ 		error = getnameinfo((const struct sockaddr *)&entry->peer_store,
+ 				   SOCKLEN(&entry->peer_store),
+-				   (char *)&entry->ce_name, MAXHOSTNAMELEN,
++				   (char *)&entry->ce_name, NI_MAXHOST,
+ 				   NULL, 0, 0);
+ 	}
+ 

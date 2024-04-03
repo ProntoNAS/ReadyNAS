@@ -1,0 +1,111 @@
+From: Jonathan Nieder <jrnieder@gmail.com>
+Date: Mon, 25 Oct 2010 02:53:04 -0500
+Subject: Revert "liblzma: A few ABI tweaks to reserve space in structures."
+
+This reverts commit 613939fc82603b75b59eee840871a05bc8dd08e0.
+
+It is not the time in the Debian release cycle to change ABI for
+the sake of forward-compatibility, since to do so would be a
+rather disruptive change.
+
+This revert is Debian-specific.
+
+Signed-off-by: Jonathan Nieder <jrnieder@gmail.com>
+---
+ src/liblzma/api/lzma/base.h         |    7 +------
+ src/liblzma/api/lzma/lzma.h         |    4 ++--
+ src/liblzma/api/lzma/stream_flags.h |    4 ++++
+ src/liblzma/common/common.c         |    4 ----
+ 4 files changed, 7 insertions(+), 12 deletions(-)
+
+diff --git a/src/liblzma/api/lzma/base.h b/src/liblzma/api/lzma/base.h
+index 43dde8d..fc165ab 100644
+--- a/src/liblzma/api/lzma/base.h
++++ b/src/liblzma/api/lzma/base.h
+@@ -478,12 +478,8 @@ typedef struct {
+ 	 */
+ 	void *reserved_ptr1;
+ 	void *reserved_ptr2;
+-	void *reserved_ptr3;
+-	void *reserved_ptr4;
+ 	uint64_t reserved_int1;
+ 	uint64_t reserved_int2;
+-	size_t reserved_int3;
+-	size_t reserved_int4;
+ 	lzma_reserved_enum reserved_enum1;
+ 	lzma_reserved_enum reserved_enum2;
+ 
+@@ -510,8 +506,7 @@ typedef struct {
+  */
+ #define LZMA_STREAM_INIT \
+ 	{ NULL, 0, 0, NULL, 0, 0, NULL, NULL, \
+-	NULL, NULL, NULL, NULL, 0, 0, 0, 0, \
+-	LZMA_RESERVED_ENUM, LZMA_RESERVED_ENUM }
++	NULL, NULL, 0, 0, LZMA_RESERVED_ENUM, LZMA_RESERVED_ENUM }
+ 
+ 
+ /**
+diff --git a/src/liblzma/api/lzma/lzma.h b/src/liblzma/api/lzma/lzma.h
+index 8d5fdb6..ae57728 100644
+--- a/src/liblzma/api/lzma/lzma.h
++++ b/src/liblzma/api/lzma/lzma.h
+@@ -381,6 +381,8 @@ typedef struct {
+ 	 * with the currently supported options, so it is safe to leave these
+ 	 * uninitialized.
+ 	 */
++	void *reserved_ptr1;
++	void *reserved_ptr2;
+ 	uint32_t reserved_int1;
+ 	uint32_t reserved_int2;
+ 	uint32_t reserved_int3;
+@@ -393,8 +395,6 @@ typedef struct {
+ 	lzma_reserved_enum reserved_enum2;
+ 	lzma_reserved_enum reserved_enum3;
+ 	lzma_reserved_enum reserved_enum4;
+-	void *reserved_ptr1;
+-	void *reserved_ptr2;
+ 
+ } lzma_options_lzma;
+ 
+diff --git a/src/liblzma/api/lzma/stream_flags.h b/src/liblzma/api/lzma/stream_flags.h
+index bbdd408..c6e7303 100644
+--- a/src/liblzma/api/lzma/stream_flags.h
++++ b/src/liblzma/api/lzma/stream_flags.h
+@@ -91,6 +91,8 @@ typedef struct {
+ 	lzma_reserved_enum reserved_enum2;
+ 	lzma_reserved_enum reserved_enum3;
+ 	lzma_reserved_enum reserved_enum4;
++	lzma_reserved_enum reserved_enum5;
++	lzma_reserved_enum reserved_enum6;
+ 	lzma_bool reserved_bool1;
+ 	lzma_bool reserved_bool2;
+ 	lzma_bool reserved_bool3;
+@@ -101,6 +103,8 @@ typedef struct {
+ 	lzma_bool reserved_bool8;
+ 	uint32_t reserved_int1;
+ 	uint32_t reserved_int2;
++	uint32_t reserved_int3;
++	uint32_t reserved_int4;
+ 
+ } lzma_stream_flags;
+ 
+diff --git a/src/liblzma/common/common.c b/src/liblzma/common/common.c
+index 0408e15..d1a9bed 100644
+--- a/src/liblzma/common/common.c
++++ b/src/liblzma/common/common.c
+@@ -186,12 +186,8 @@ lzma_code(lzma_stream *strm, lzma_action action)
+ 	// which would indicate that some new feature is wanted.
+ 	if (strm->reserved_ptr1 != NULL
+ 			|| strm->reserved_ptr2 != NULL
+-			|| strm->reserved_ptr3 != NULL
+-			|| strm->reserved_ptr4 != NULL
+ 			|| strm->reserved_int1 != 0
+ 			|| strm->reserved_int2 != 0
+-			|| strm->reserved_int3 != 0
+-			|| strm->reserved_int4 != 0
+ 			|| strm->reserved_enum1 != LZMA_RESERVED_ENUM
+ 			|| strm->reserved_enum2 != LZMA_RESERVED_ENUM)
+ 		return LZMA_OPTIONS_ERROR;
+-- 
+1.7.2.3
+

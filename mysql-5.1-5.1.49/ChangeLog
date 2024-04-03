@@ -1,0 +1,674 @@
+------------------------------------------------------------
+revno: 3463
+author: karen.langford@oracle.com
+committer: Karen Langford <karen.langford@oracle.com>
+branch nick: mysql-5.1.49-release
+timestamp: Fri 2010-07-09 14:23:48 +0200
+message:
+  Fix bug #55039 Failing assertion: space_id > 0 in fil0fil.c.
+------------------------------------------------------------
+revno: 3462
+committer: sunanda <sunanda.menon@sun.com>
+branch nick: mysql-5.1.49-release
+timestamp: Wed 2010-07-07 20:34:50 +0200
+message:
+  rko Mdkeld change, revision 3351.14.134 add innodb_plugin to mysql-test-run default suites
+  was not complete. Bootstrap failed to pick up necessary files needed by test and hence
+  all tests failed.
+------------------------------------------------------------
+revno: 3461 [merge]
+tags: clone-5.1.49-build
+committer: Vasil Dimov <vasil.dimov@oracle.com>
+branch nick: mysql-5.1-security
+timestamp: Sun 2010-07-04 10:12:44 +0300
+message:
+  Merge mysql-5.1-innodb -> mysql-5.1-security
+  
+  Merge up to sunny.bains@oracle.com-20100625081841-ppulnkjk1qlazh82 .
+  There are 8 more changesets in mysql-5.1-innodb, but PB2 shows a
+  failure for a test added in one of them. If that is resolved quickly
+  then those 8 more changesets will be merged too.
+    ------------------------------------------------------------
+    revno: 3351.14.164
+    committer: Sunny Bains <Sunny.Bains@Oracle.Com>
+    branch nick: 5.1
+    timestamp: Fri 2010-06-25 18:18:41 +1000
+    message:
+      Fix bug#54583. This change reverses rsvn:1350 by getting rid of a bogus assertion
+      and clarifies the invariant in dict_table_get_on_id().
+            
+      In Mar 2007 Marko observed a crash during recovery, the crash resulted from
+      an UNDO operation on a system table. His solution was to acquire an X lock on
+      the data dictionary, this in hindsight was an overkill. It is unclear what
+      caused the crash, current hypothesis is that it was a memory corruption.
+            
+      The X lock results in performance issues by when undoing changes due to
+      rollback during normal operation on regular tables.
+            
+      Why the change is safe:
+      ======================
+      The InnoDB code has changed since the original X lock change was made. In the
+      new code we always lock the data dictionary in X mode during startup when
+      UNDOing operations on the system tables (this is a given). This ensures that
+      the crash Marko observed cannot happen as long as all transactions that update
+      the system tables follow the standard rules by setting the appropriate DICT_OP
+      flag when writing the log records when they make the changes.
+            
+      If transactions violate the above mentioned rule then during recovery (at
+      startup) the rollback code (see trx0roll.c) will not acquire the X lock
+      and we will see the crash again.  This will however be a different bug.
+    ------------------------------------------------------------
+    revno: 3351.14.163 [merge]
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Fri 2010-06-25 11:10:44 +0300
+    message:
+      Merge a lost changeset inaam.rana@oracle.com-20100624124843-m7ouqwe5zqcqapn1
+      (no changed files)
+        ------------------------------------------------------------
+        revno: 3351.57.2 [merge]
+        committer: Inaam Rana <inaam.rana@oracle.com>
+        branch nick: 5.1
+        timestamp: Thu 2010-06-24 08:48:43 -0400
+        message:
+          merge
+    ------------------------------------------------------------
+    revno: 3351.14.162 [merge]
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Fri 2010-06-25 11:08:52 +0300
+    message:
+      Merge a lost changeset inaam.rana@oracle.com-20100624124450-2m3mg1238ewvakgx
+        ------------------------------------------------------------
+        revno: 3351.57.1
+        committer: Inaam Rana <inaam.rana@oracle.com>
+        branch nick: 5.1
+        timestamp: Thu 2010-06-24 08:44:50 -0400
+        message:
+          Add ChangeLog for bug#39168
+    ------------------------------------------------------------
+    revno: 3351.14.161 [merge]
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Fri 2010-06-25 11:06:02 +0300
+    message:
+      Merge a lost changeset marko.makela@oracle.com-20100624104820-p4ojmxcmq8qeos6d
+        ------------------------------------------------------------
+        revno: 3351.56.3
+        committer: Marko Mäkelä <marko.makela@oracle.com>
+        branch nick: 5.1-innodb
+        timestamp: Thu 2010-06-24 13:48:20 +0300
+        message:
+          Add ChangeLog entry for Bug#54679
+    ------------------------------------------------------------
+    revno: 3351.14.160 [merge]
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Fri 2010-06-25 11:03:38 +0300
+    message:
+      Merge a lost changeset marko.makela@oracle.com-20100624104620-pklunowaigv7quu9
+        ------------------------------------------------------------
+        revno: 3351.56.2
+        committer: Marko Mäkelä <marko.makela@oracle.com>
+        branch nick: 5.1-innodb
+        timestamp: Thu 2010-06-24 13:46:20 +0300
+        message:
+          Bug#54679: alter table causes compressed row_format to revert to compact
+          
+          ha_innobase::create(): Add the local variable row_type = form->s->row_type.
+          Adjust it to ROW_TYPE_COMPRESSED when ROW_FORMAT is not specified or inherited
+          but KEY_BLOCK_SIZE is. Observe the inherited ROW_FORMAT even when it is not
+          explicitly specified.
+          
+          innodb_bug54679.test: New test, to test the bug and to ensure that there are
+          no regressions. (The only difference in the test result without the patch
+          applied is that the first ALTER TABLE changes ROW_FORMAT to Compact.)
+    ------------------------------------------------------------
+    revno: 3351.14.159 [merge]
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Fri 2010-06-25 11:02:31 +0300
+    message:
+      Merge a lost changeset jimmy.yang@oracle.com-20100624021010-oh2hnp8e1xbaax6u
+        ------------------------------------------------------------
+        revno: 3351.56.1
+        committer: Jimmy Yang <jimmy.yang@oracle.com>
+        branch nick: mysql-5.1-innodb
+        timestamp: Wed 2010-06-23 19:10:10 -0700
+        message:
+          Move the fix for bug #54044 to security branch, and revert commit -r3520:3521.
+    ------------------------------------------------------------
+    revno: 3351.14.158
+    committer: Jimmy Yang <jimmy.yang@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Tue 2010-06-22 19:39:20 -0700
+    message:
+      Port fix for "bug #54044 Create temporary tables and using innodb crashes"
+      to 5.1 plugin codeline.
+      
+      rb://378, approved by Marko
+    ------------------------------------------------------------
+    revno: 3351.14.157
+    committer: Jimmy Yang <jimmy.yang@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Tue 2010-06-22 19:04:31 -0700
+    message:
+      Fix bug #54044, Create temporary tables and using innodb crashes. Screen
+      out NULL type columns, and return without creating the table.
+      
+      rb://378 approved by Marko
+    ------------------------------------------------------------
+    revno: 3351.14.156 [merge]
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Tue 2010-06-22 20:12:05 +0300
+    message:
+      Merge mysql-5.1-innodb from bk-internal to my local tree
+        ------------------------------------------------------------
+        revno: 3351.55.2
+        committer: Marko Mäkelä <marko.makela@oracle.com>
+        branch nick: 5.1-innodb
+        timestamp: Tue 2010-06-22 14:59:49 +0300
+        message:
+          ChangeLog for Bug#54686 "field->col->mtype == type" assertion error at row/row0sel.c
+        ------------------------------------------------------------
+        revno: 3351.55.1
+        committer: Marko Mäkelä <marko.makela@oracle.com>
+        branch nick: 5.1-innodb
+        timestamp: Tue 2010-06-22 14:52:15 +0300
+        message:
+          Bug#54686 "field->col->mtype == type" assertion error at row/row0sel.c
+          ha_innobase::index_read(), ha_innobase::records_in_range(): Check that
+          the index is useable before invoking row_sel_convert_mysql_key_to_innobase().
+          
+          This fix is based on a suggestion by Yasufumi Kinoshita.
+    ------------------------------------------------------------
+    revno: 3351.14.155
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Tue 2010-06-22 20:04:54 +0300
+    message:
+      Add ChangeLog entry for the fix of Bug#47991
+    ------------------------------------------------------------
+    revno: 3351.14.154
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Tue 2010-06-22 19:30:43 +0300
+    message:
+      Fix Bug#47991 InnoDB Dictionary Cache memory usage increases indefinitely
+      when renaming tables
+      
+      Allocate the table name using ut_malloc() instead of table->heap because
+      the latter cannot be freed.
+      
+      Adjust dict_sys->size calculations all over the code.
+      
+      Change dict_table_t::name from const char* to char* because we need to
+      ut_malloc()/ut_free() it.
+      
+      Reviewed by:	Inaam, Marko, Heikki (rb://384)
+      Approved by:	Heikki (rb://384)
+    ------------------------------------------------------------
+    revno: 3351.14.153
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Mon 2010-06-21 12:51:48 +0300
+    message:
+      Bug#54658: Add ChangeLog entry
+    ------------------------------------------------------------
+    revno: 3351.14.152
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Mon 2010-06-21 12:40:08 +0300
+    message:
+      Bug #54658: InnoDB: Warning: allocated tablespace %lu, old maximum was 0
+      
+      dict_check_tablespaces_and_store_max_id(): Initialize max_space_id
+      and fil_system->max_assigned_id from DICT_HDR_MAX_SPACE_ID.
+      
+      fil_space_create(): Suppress the warning unless !recv_recovery_on
+      (do not complain while applying the redo log).
+    ------------------------------------------------------------
+    revno: 3351.14.151 [merge]
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Fri 2010-06-18 11:51:55 +0300
+    message:
+      Merge mysql-5.1-innodb from bk-internal to my local repo
+        ------------------------------------------------------------
+        revno: 3351.54.2
+        committer: Jimmy Yang <jimmy.yang@oracle.com>
+        branch nick: mysql-5.1-innodb
+        timestamp: Thu 2010-06-17 22:38:22 -0700
+        message:
+          Check in fix for Bug #52814 InnoDB: Use the new ha_data interfaces
+          
+          rb://290, approved by Sunny
+        ------------------------------------------------------------
+        revno: 3351.54.1
+        committer: Jimmy Yang <jimmy.yang@oracle.com>
+        branch nick: mysql-5.1-innodb
+        timestamp: Thu 2010-06-17 10:33:03 -0700
+        message:
+          Fix an overly asserted assertion during previous checkin for bug #54330.
+    ------------------------------------------------------------
+    revno: 3351.14.150
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Fri 2010-06-18 10:00:01 +0300
+    message:
+      Increment InnoDB Plugin version from 1.0.9 to 1.0.10, after
+      1.0.9 has been released with MySQL 5.1.48.
+    ------------------------------------------------------------
+    revno: 3351.14.149
+    committer: Jimmy Yang <jimmy.yang@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Wed 2010-06-16 19:12:04 -0700
+    message:
+      Fix Bug #54330 Broken fast index creation. Add additional array to
+      account for each merge run's start offset, so correct offsets are
+      paired up for multiple merge runs.
+      
+      rb://377 approved by Marko
+    ------------------------------------------------------------
+    revno: 3351.14.148
+    committer: Jimmy Yang <jimmy.yang@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Tue 2010-06-15 02:33:26 -0700
+    message:
+      Add checkin description for bug #47622 to ChangeLog.
+    ------------------------------------------------------------
+    revno: 3351.14.147
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Mon 2010-06-14 13:35:15 +0300
+    message:
+      Adjust suite/innodb/r/innodb_mysql.result after the merge
+    ------------------------------------------------------------
+    revno: 3351.14.146 [merge]
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Mon 2010-06-14 12:43:02 +0300
+    message:
+      Merge mysql-5.1 -> mysql-5.1-innodb
+      (innodb_mysql.result needs to be adjusted after this commit)
+    ------------------------------------------------------------
+    revno: 3351.14.145 [merge]
+    committer: Inaam Rana <inaam.rana@oracle.com>
+    branch nick: 5.1
+    timestamp: Thu 2010-06-10 10:35:39 -0400
+    message:
+      merge from parent
+        ------------------------------------------------------------
+        revno: 3351.53.3
+        committer: Marko Mäkelä <marko.makela@oracle.com>
+        branch nick: 5.1-innodb
+        timestamp: Thu 2010-06-10 15:56:23 +0300
+        message:
+          Bug #38999: Re-enable innodb_multi_update.test
+        ------------------------------------------------------------
+        revno: 3351.53.2
+        committer: Sergey Glukhov <Sergey.Glukhov@sun.com>
+        branch nick: mysql-5.1-innodb
+        timestamp: Wed 2010-06-09 16:17:18 +0400
+        message:
+          Bug#38999 valgrind warnings for update statement in function compare_record()
+          (InnoDB plugin branch)
+        ------------------------------------------------------------
+        revno: 3351.53.1
+        committer: Sergey Glukhov <Sergey.Glukhov@sun.com>
+        branch nick: mysql-5.1-innodb
+        timestamp: Wed 2010-06-09 16:07:34 +0400
+        message:
+          Bug#38999 valgrind warnings for update statement in function compare_record()
+          Valgrind warning happpens because of uninitialized null bytes.
+          In row_sel_push_cache_row_for_mysql() function we fill fetch cache
+          with necessary field values, row_sel_store_mysql_rec() is called
+          for this and leaves null bytes untouched.
+          Later row_sel_pop_cached_row_for_mysql() rewrites table record
+          buffer with uninited null bytes. We can see the problem from the
+          test case:
+          At 'SELECT...' we call row_sel_push...->row_sel_store...->row_sel_pop_cached...
+          chain which rewrites table->record[0] buffer with uninitialized null bytes.
+          When we call 'UPDATE...' statement, compare_record uses this buffer and
+          valgrind warning occurs.
+          The fix is to init null bytes with default values.
+    ------------------------------------------------------------
+    revno: 3351.14.144
+    committer: Inaam Rana <inaam.rana@oracle.com>
+    branch nick: 5.1
+    timestamp: Thu 2010-06-10 10:31:28 -0400
+    message:
+      Add a debug assertion.
+    ------------------------------------------------------------
+    revno: 3351.14.143
+    committer: Inaam Rana <inaam.rana@oracle.com>
+    branch nick: 5.1
+    timestamp: Thu 2010-06-10 09:58:11 -0400
+    message:
+      Formatting changes
+    ------------------------------------------------------------
+    revno: 3351.14.142
+    committer: Inaam Rana <inaam.rana@oracle.com>
+    branch nick: 5.1
+    timestamp: Tue 2010-06-08 14:14:08 -0400
+    message:
+      Add call to log_free_check() in the DML code paths that were missing
+      this before.
+    ------------------------------------------------------------
+    revno: 3351.14.141
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Tue 2010-06-08 15:12:15 +0300
+    message:
+      Document Bug#54009 in the InnoDB Plugin ChangeLog.
+    ------------------------------------------------------------
+    revno: 3351.14.140
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Tue 2010-06-08 15:10:41 +0300
+    message:
+      Bug#54009: Server crashes when data is selected from non backed up table
+      for InnoDB plugin
+      
+      dict_load_table(): Pass the correct tablespace flags to
+      fil_open_single_table_tablespace(). For ROW_FORMAT=COMPACT and REDUNDANT,
+      the tablespace flags are 0. The table flags would be 0 or DICT_TF_COMPACT.
+    ------------------------------------------------------------
+    revno: 3351.14.139
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Tue 2010-06-08 14:40:55 +0300
+    message:
+      buf_page_get_gen(): Pass file,line to rw_lock_x_lock().
+    ------------------------------------------------------------
+    revno: 3351.14.138
+    committer: Jimmy Yang <jimmy.yang@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Thu 2010-06-03 06:44:48 -0700
+    message:
+      Remove unncessary name comapre in innobase_get_mysql_key_number_for_index()
+      introduced in bug fix #53592, since dict_table_t can sufficiently unique
+      identify the the table.
+    ------------------------------------------------------------
+    revno: 3351.14.137
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Thu 2010-06-03 12:50:32 +0300
+    message:
+      Move some InnoDB tests to mysql-test/suite/innodb.
+    ------------------------------------------------------------
+    revno: 3351.14.136
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Thu 2010-06-03 12:48:59 +0300
+    message:
+      Copy built-in InnoDB tests to mysql-test/suite/innodb_plugin.
+    ------------------------------------------------------------
+    revno: 3351.14.135
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Thu 2010-06-03 12:46:37 +0300
+    message:
+      Source have_innodb_plugin.inc in the plugin tests.
+    ------------------------------------------------------------
+    revno: 3351.14.134
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Thu 2010-06-03 12:45:34 +0300
+    message:
+      Add innodb_plugin to mysql-test-run default suites.
+    ------------------------------------------------------------
+    revno: 3351.14.133
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Wed 2010-06-02 13:39:03 +0300
+    message:
+      Document the Bug #53674 fix in the InnoDB Plugin
+    ------------------------------------------------------------
+    revno: 3351.14.132
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Wed 2010-06-02 13:37:14 +0300
+    message:
+      Bug#53674: InnoDB: Error: unlock row could not find a 4 mode lock on the record
+      
+      In semi-consistent read, only unlock freshly locked non-matching records.
+      
+      lock_rec_lock_fast(): Return LOCK_REC_SUCCESS,
+      LOCK_REC_SUCCESS_CREATED, or LOCK_REC_FAIL instead of TRUE/FALSE.
+      
+      enum db_err: Add DB_SUCCESS_LOCKED_REC for indicating a successful
+      operation where a record lock was created.
+      
+      lock_sec_rec_read_check_and_lock(),
+      lock_clust_rec_read_check_and_lock(), lock_rec_enqueue_waiting(),
+      lock_rec_lock_slow(), lock_rec_lock(), row_ins_set_shared_rec_lock(),
+      row_ins_set_exclusive_rec_lock(), sel_set_rec_lock(),
+      row_sel_get_clust_rec_for_mysql(): Return DB_SUCCESS_LOCKED_REC if a
+      new record lock was created. Adjust callers.
+      
+      row_unlock_for_mysql(): Correct the function documentation.
+      
+      row_prebuilt_t::new_rec_locks: Correct the documentation.
+    ------------------------------------------------------------
+    revno: 3351.14.131
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Wed 2010-06-02 13:26:37 +0300
+    message:
+      Bug#53674: InnoDB: Error: unlock row could not find a 4 mode lock on the record
+      
+      In semi-consistent read, only unlock freshly locked non-matching records.
+      
+      Define DB_SUCCESS_LOCKED_REC for indicating a successful operation
+      where a record lock was created.
+      
+      lock_rec_lock_fast(): Return LOCK_REC_SUCCESS,
+      LOCK_REC_SUCCESS_CREATED, or LOCK_REC_FAIL instead of TRUE/FALSE.
+      
+      lock_sec_rec_read_check_and_lock(),
+      lock_clust_rec_read_check_and_lock(), lock_rec_enqueue_waiting(),
+      lock_rec_lock_slow(), lock_rec_lock(), row_ins_set_shared_rec_lock(),
+      row_ins_set_exclusive_rec_lock(), sel_set_rec_lock(),
+      row_sel_get_clust_rec_for_mysql(): Return DB_SUCCESS_LOCKED_REC if a
+      new record lock was created. Adjust callers.
+      
+      row_unlock_for_mysql(): Correct the function documentation.
+      
+      row_prebuilt_t::new_rec_locks: Correct the documentation.
+    ------------------------------------------------------------
+    revno: 3351.14.130
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Wed 2010-06-02 13:19:40 +0300
+    message:
+      fil_print_orphaned_tablespaces(): Unused function, remove.
+    ------------------------------------------------------------
+    revno: 3351.14.129
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Tue 2010-06-01 16:58:02 +0300
+    message:
+      Document Bug #48197 fix
+    ------------------------------------------------------------
+    revno: 3351.14.128
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Tue 2010-06-01 16:43:35 +0300
+    message:
+      Bug#48197: Concurrent rw_lock_free may cause assertion failure
+      
+      rw_lock_t: Remove magic_n unless UNIV_DEBUG is defined.
+      rw_lock_free(): Invalidate magic_n only after removing from rw_lock_list.
+    ------------------------------------------------------------
+    revno: 3351.14.127
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Tue 2010-06-01 15:07:51 +0300
+    message:
+      Minor cleanup.
+      
+      lock_rec_unlock(): Cache first_lock and rewrite while() loops as for().
+      
+      btr_cur_optimistic_update(): Use common error handling return.
+      
+      row_create_prebuilt(): Add Valgrind instrumentation.
+    ------------------------------------------------------------
+    revno: 3351.14.126
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Tue 2010-06-01 15:05:21 +0300
+    message:
+      Document the Bug #53812 fix.
+    ------------------------------------------------------------
+    revno: 3351.14.125
+    committer: Marko Mäkelä <marko.makela@oracle.com>
+    branch nick: 5.1-innodb
+    timestamp: Tue 2010-06-01 13:37:38 +0300
+    message:
+      Bug#53812: assert row/row0umod.c line 660 in txn rollback after crash recovery
+      
+      row_undo_mod_upd_exist_sec(): Tolerate a failure to build the index entry
+      for a DYNAMIC or COMPRESSED table during crash recovery.
+    ------------------------------------------------------------
+    revno: 3351.14.124
+    committer: Vasil Dimov <vasil.dimov@oracle.com>
+    branch nick: mysql-5.1-innodb
+    timestamp: Mon 2010-05-31 19:35:40 +0300
+    message:
+      Merge a change from mysql-trunk-innodb:
+      
+        ------------------------------------------------------------
+        revno: 3127
+        revision-id: vasil.dimov@oracle.com-20100531152341-x2d4hma644icamh1
+        parent: vasil.dimov@oracle.com-20100531105923-kpjwl4rbgfpfj13c
+        committer: Vasil Dimov <vasil.dimov@oracle.com>
+        branch nick: mysql-trunk-innodb
+        timestamp: Mon 2010-05-31 18:23:41 +0300
+        message:
+          Fix Bug #53947 InnoDB: Assertion failure in thread 4224 in file .\sync\sync0sync.c line 324
+          
+          Destroy the rw-lock object before freeing the memory it is occupying.
+          If we do not do this, then the mutex that is contained in the rw-lock
+          object btr_search_latch_temp->mutex gets "freed" and subsequently
+          mutex_free() from sync_close() hits a mutex whose memory has been
+          freed and crashes.
+          
+          Approved by:	Heikki (via IRC)
+          Discussed with:	Calvin
+------------------------------------------------------------
+revno: 3460 [merge]
+committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+branch nick: merge-5.1-bugteam
+timestamp: Fri 2010-07-02 14:34:17 +0300
+message:
+  merge
+    ------------------------------------------------------------
+    revno: 1810.3987.33
+    committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+    branch nick: merge-5.0-bugteam
+    timestamp: Fri 2010-07-02 14:33:17 +0300
+    message:
+      merge
+    ------------------------------------------------------------
+    revno: 1810.3987.32 [merge]
+    committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+    branch nick: merge-5.0-bugteam
+    timestamp: Fri 2010-07-02 14:29:19 +0300
+    message:
+      merge
+------------------------------------------------------------
+revno: 3459
+committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+branch nick: merge-5.1-bugteam
+timestamp: Fri 2010-07-02 14:31:16 +0300
+message:
+  merge
+------------------------------------------------------------
+revno: 3458 [merge]
+committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+branch nick: merge-5.1-bugteam
+timestamp: Fri 2010-07-02 14:29:55 +0300
+message:
+  merge
+    ------------------------------------------------------------
+    revno: 3436.2.3
+    committer: Jimmy Yang <jimmy.yang@oracle.com>
+    branch nick: mysql-5.1-security
+    timestamp: Tue 2010-06-29 00:13:18 -0700
+    message:
+      Change the table name in innodb_bug54044 to lower case to avoid
+      platform dependent diffs.
+    ------------------------------------------------------------
+    revno: 3436.2.2
+    committer: Jimmy Yang <jimmy.yang@oracle.com>
+    branch nick: mysql-5.1-security
+    timestamp: Thu 2010-06-24 01:20:25 -0700
+    message:
+      Fix Bug #54044 Create temporary tables and using innodb crashes.
+    ------------------------------------------------------------
+    revno: 3436.2.1 [merge]
+    committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+    branch nick: mysql-5.1-security
+    timestamp: Mon 2010-06-21 14:49:37 +0300
+    message:
+      merge
+        ------------------------------------------------------------
+        revno: 1810.3994.2
+        committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+        branch nick: mysql-5.0-security
+        timestamp: Mon 2010-06-21 14:09:23 +0300
+        message:
+          tree name change
+        ------------------------------------------------------------
+        revno: 1810.3994.1
+        committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+        branch nick: mysql-5.0-security
+        timestamp: Mon 2010-06-21 14:06:14 +0300
+        message:
+          Switched the mailing lists
+------------------------------------------------------------
+revno: 3457 [merge]
+committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+branch nick: merge-5.1-bugteam
+timestamp: Fri 2010-07-02 14:25:26 +0300
+message:
+  merge
+    ------------------------------------------------------------
+    revno: 1810.3987.31 [merge]
+    committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+    branch nick: merge-5.0-bugteam
+    timestamp: Fri 2010-07-02 14:21:48 +0300
+    message:
+      merge
+------------------------------------------------------------
+revno: 3456 [merge]
+committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+branch nick: merge-5.1-bugteam
+timestamp: Fri 2010-07-02 14:23:07 +0300
+message:
+  merge
+    ------------------------------------------------------------
+    revno: 3408.1.2
+    author: karen.langford@oracle.com
+    committer: MySQL Build Team<build@mysql.com>
+    branch nick: mysql-5.1
+    timestamp: Thu 2010-06-03 16:03:17 +0200
+    message:
+      Raise version number after cloning 5.1.48
+    ------------------------------------------------------------
+    revno: 3408.1.1 [merge]
+    tags: mysql-5.1.48, clone-5.1.48-build
+    committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+    branch nick: merge-5.1-bugteam
+    timestamp: Wed 2010-06-02 11:44:11 +0300
+    message:
+      merge
+        ------------------------------------------------------------
+        revno: 1810.3993.1
+        committer: Georgi Kodinov <Georgi.Kodinov@Oracle.com>
+        branch nick: merge-5.0-bugteam
+        timestamp: Wed 2010-06-02 11:42:37 +0300
+        message:
+          changed the tree name

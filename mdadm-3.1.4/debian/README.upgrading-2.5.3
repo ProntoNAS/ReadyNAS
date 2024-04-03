@@ -1,0 +1,134 @@
+Upgrading to mdadm 2.5.3 from previous versions
+===============================================
+
+With version 2.5.3, the Debian mdadm package now requires a mdadm.conf file.
+This file should be in /etc/mdadm/mdadm.conf, although /etc/mdadm.conf will
+also be read if the former is not present, but it is less preferred.
+
+The reason the configuration file is now required is because it was impossible
+to come up with robust heuristics to replace the previously used mdrun, while
+addressing its primary deficiency of not honouring the super-minor field and
+randomly assembling devices (see #354705). mdrun has been deprecated and is no
+longer provided by this package.
+
+Systems without a mdadm.conf file
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If your system does not have an mdadm.conf file, the package creates one for
+you during the installation phase. Furthermore, a configuration file is
+created during the updating of the initramfs (initial ramdisk), if no file is
+found at the time. In both cases, the running system is used as a reference,
+meaning that the file is generated automatically in such a way as to reflect
+the running system.
+
+This should work in most cases. I strongly suggest, however, that you inspect
+the generated file (/etc/mdadm/mdadm.conf) before you reboot. If you find any
+anomaly or mistakes, correct them and proceed with the next step ("Systems
+with a mdadm.conf file").
+
+Systems with a mdadm.conf file
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If an existing configuration file is found, it is *ignored* until you checked
+it and gave mdadm permission to use it. Even though this is a nuisance to some
+users, it is a necessary measure: previous versions of mdadm did not
+necessarily use the information in this file, even if it existed; thus there
+is no guarantee that the file properly describes the system's configuration.
+
+Therefore, you are required to inspect /etc/mdadm/mdadm.conf or
+/etc/mdadm.conf (whichever one is present, the first gets priority if both are
+present) and ensure that all arrays are properly identified. Here are a number
+of recommended checks:
+
+  - Verify that all arrays referenced by /etc/fstab, /etc/crypttab, your LVM
+    metadata, and whatever other subsystem uses MD arrays (RAIDs) on your
+    machine have a corresponding line in the configuration file.
+
+    Make sure to verify that your bootloader refers to the proper device name,
+    in case your root filesystem is on an MD array.
+
+    In particular, verify that the device node name is exactly the same;
+    /dev/md6 is *not* identical to /dev/md/6. Partitionable arrays are
+    a slight exception: if /dev/md_d0p3 is referenced, you need an entry for
+    /dev/md_d0 in the configuration file.
+
+  - Compare your file with the output of /usr/share/mdadm/mkconf . In
+    particular, make sure that the UUID matches for each array, whenever
+    a UUID is specified. Also compare the values of super-minor, name, and
+    devices. Only one match identifier (UUID, super-minor, name, devices) is
+    needed for each array, but if multiple identifiers are specified, all must
+    match. See mdadm.conf(5).
+
+    Identifying arrays by UUID is the preferred method.
+
+Once you have verified that the configuration file is accurate, you need to
+let mdadm know, and update the initial ramdisk. This is accomplished with the
+following two commands:
+
+  rm -f /var/lib/mdadm/CONF-UNCHECKED
+  update-initramfs -u -k all
+
+Depending on your setup, mdadm should print an appropriate informational
+message. Please make sure that it is in accordance with what you would expect.
+
+What to do if my system does not boot anymore?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+First thing: don't panic! If your system does not boot anymore as a result of
+an mdadm upgrade, it is *very* unlikely that you lost any data.
+
+Having said that, it is important that you exercise great care and understand
+what you are doing. If you do not know how to revive a system that does not
+boot because it fails to assemble MD arrays (RAIDs), consider asking someone
+who does for help.
+
+If you are using initramfs (which is the default since Debian "etch"), it will
+probably be easy to revive the system. If you are experiencing problems with
+another initial ramdisk alternative, you will have to resort to using a rescue
+disk, such as the debian-installer CD/DVD, or a live system, such as Knoppix.
+
+With initramfs, specify 'break=mount' as a kernel boot command line option,
+and commence the boot process. Eventually, you will be dumped into a shell.
+From here, you can execute
+
+  ./scripts/local-top/mdadm
+
+and inspect the output. If you want to see what exactly the script is doing,
+run
+
+  sh -x ./scripts/local-top/mdadm
+
+instead.
+
+Your primary goal is the assembly of the array(s) needed to bring up your root
+filesystem. If the above script fails to do that, take note of its output (for
+a later bug report), and then proceed to simply assemble the array by hand.
+
+For instance, if your root array is on /dev/md1, which is made up of
+/dev/sd[abc]1, just run:
+
+  /sbin/mdadm -A --auto=yes /dev/md1 --run /dev/sd[abc]1
+  /sbin/mdadm -Q /dev/md1  # to verify
+
+If your root filesystem is on multiple arrays (e.g. on LVM), repeat for each
+constituent array.
+
+When you are done, hit ctrl-d and watch the system boot.
+
+When it is back up, carefully inspect your mdadm.conf file and ensure that
+INITRDSTART is properly set in /etc/default/mdadm; set it to 'all' to be safe.
+
+In case you are not using initramfs, you need to find out what's going wrong
+during the boot process. Both yaird and initrd use a single mdadm --assemble
+call to bring up the device holding the root filesystem. If that command
+fails, you may need to recreate the image and make sure it gets the right
+parameters.
+
+If you rely on the kernel to assemble the arrays (MD support built-in, not
+modular, and partitions of type 0xfd) and the process fails, the superblock
+information is probably not accurate. In such a case, try to assemble the
+arrays from a rescue disc or live system just as you would expect the kernel
+to do it. Afterwards, verify the superblock information (mdadm --examine).
+
+If you continue to experience problems, please file a bug report with all the
+relevant information. The reportbug tool will automatically include the most
+relevant data in the report.
+
+ -- martin f. krafft <madduck@debian.org>  Wed, 02 Jul 2008 11:33:12 +0200

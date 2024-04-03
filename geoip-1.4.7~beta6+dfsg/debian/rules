@@ -1,0 +1,44 @@
+#!/usr/bin/make -f
+
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/autotools.mk
+
+# Add here any variable or target overrides you need.
+DEB_CONFIGURE_SYSCONFDIR := /etc
+DEB_SHLIBS_INCLUDE := debian/libgeoip1/usr/lib
+DEB_NOREVISION_VERSION := $(shell dpkg-parsechangelog|egrep '^Version:'|cut -f 2 -d ' '|cut -f 1 -d '-')
+DEB_UPSTREAM_VERSION := $(shell dpkg-parsechangelog|grep "^Version:"|cut -d" " -f2|rev|cut -d- -f2-|rev|cut -d':' -f2)
+DEB_DH_MAKESHLIBS_ARGS_libgeoip1 := -V"libgeoip1 (>= $(DEB_NOREVISION_VERSION))"
+DEB_MAKE_INSTALL_TARGET := install DESTDIR=$(CURDIR)/debian/tmp
+
+install/geoip-bin::
+	chrpath -d -k debian/tmp/usr/bin/geoip*
+
+install/libgeoip1::
+	chrpath -d -k debian/tmp/usr/lib/libGeoIPUpdate.so.0.0.0
+
+binary-post-install/libgeoip-dev::
+	sed "s/VERSION/$(DEB_UPSTREAM_VERSION)/g" -i debian/libgeoip-dev/usr/lib/pkgconfig/geoip.pc
+
+install/geoip-database::
+	rm -f debian/tmp/usr/share/GeoIP/GeoIP.dat
+	# Build the build script.
+	g++ debian/src/geoip-csv-to-dat.cpp -o debian/tmp/geoip-generator -lGeoIP \
+		-I $(CURDIR)/debian/tmp/usr/include/ -L $(CURDIR)/debian/tmp/usr/lib/
+	# Building geoip v4 country database.
+	LD_LIBRARY_PATH=$(CURDIR)/debian/tmp/usr/lib/ ./debian/tmp/geoip-generator -v \
+		-4 --info="$$(date +'GEO-106FREE %Y%m%d Build')" -o \
+		debian/tmp/usr/share/GeoIP/GeoIP.dat debian/databases/GeoIPCountryWhois.csv
+	# Convert the v4 csv layout to the v6 one.
+	perl $(CURDIR)/debian/src/v4-to-v6-layout.pl < debian/databases/GeoIPCountryWhois.csv \
+		> debian/databases/v4_converted.csv
+	# Merge the converted v4 with the v6 database.
+	cat debian/databases/GeoIPv6.csv debian/databases/v4_converted.csv > \
+		debian/databases/v4v6merged.csv
+	# Building geoip v6 country database.
+	LD_LIBRARY_PATH=$(CURDIR)/debian/tmp/usr/lib/ ./debian/tmp/geoip-generator -v \
+		-6 --info="$$(date +'GEO-106FREE %Y%m%d Build')" -o \
+		debian/tmp/usr/share/GeoIP/GeoIPv6.dat debian/databases/v4v6merged.csv
+	# Clean up the temporary databases.
+	rm -f $(CURDIR)/debian/databases/v4v6merged.csv \
+		$(CURDIR)/debian/databases/v4_converted.csv

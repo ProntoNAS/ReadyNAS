@@ -1,0 +1,92 @@
+Goal: Re-enable logging and displaying failures on login when login is
+      compiled with PAM and when FAILLOG_ENAB is set to yes. And create the
+      faillog file if it does not exist on postinst (as on Woody).
+Depends: 008_login_more_LOG_UNKFAIL_ENAB
+Fixes: #192849
+
+Note: It could be removed if pam_tally could report the number of failures
+      preceding a successful login.
+
+--- a/src/login.c
++++ b/src/login.c
+@@ -131,9 +131,9 @@
+                          const char *host,
+                          /*@null@*/const struct utmp *utent);
+ 
+-#ifndef USE_PAM
+ static struct faillog faillog;
+ 
++#ifndef USE_PAM
+ static void bad_time_notify (void);
+ static void check_nologin (bool login_to_root);
+ #else
+@@ -792,6 +792,9 @@
+ 				SYSLOG ((LOG_NOTICE,
+ 				         "TOO MANY LOGIN TRIES (%u)%s FOR '%s'",
+ 				         failcount, fromhost, failent_user));
++				if ((NULL != pwd) && getdef_bool("FAILLOG_ENAB")) {
++					failure (pwd->pw_uid, tty, &faillog);
++				}
+ 				fprintf(stderr,
+ 				        _("Maximum number of tries exceeded (%u)\n"),
+ 				        failcount);
+@@ -809,6 +812,14 @@
+ 				         pam_strerror (pamh, retcode)));
+ 				failed = true;
+ 			}
++			if (   (NULL != pwd)
++			    && getdef_bool("FAILLOG_ENAB")
++			    && ! failcheck (pwd->pw_uid, &faillog, failed)) {
++				SYSLOG((LOG_CRIT,
++				        "exceeded failure limit for `%s' %s",
++				        failent_user, fromhost));
++				failed = 1;
++			}
+ 
+ 			if (!failed) {
+ 				break;
+@@ -832,6 +843,10 @@
+ 			(void) puts ("");
+ 			(void) puts (_("Login incorrect"));
+ 
++			if ((NULL != pwd) && getdef_bool("FAILLOG_ENAB")) {
++				failure (pwd->pw_uid, tty, &faillog);
++			}
++
+ 			if (getdef_str("FTMP_FILE") != NULL) {
+ #ifdef USE_UTMPX
+ 				struct utmpx *failent =
+@@ -1282,6 +1297,7 @@
+ 		 */
+ #ifndef USE_PAM
+ 		motd ();	/* print the message of the day */
++#endif
+ 		if (   getdef_bool ("FAILLOG_ENAB")
+ 		    && (0 != faillog.fail_cnt)) {
+ 			failprint (&faillog);
+@@ -1294,6 +1310,7 @@
+ 				         username, (int) faillog.fail_cnt));
+ 			}
+ 		}
++#ifndef USE_PAM
+ 		if (   getdef_bool ("LASTLOG_ENAB")
+ 		    && (ll.ll_time != 0)) {
+ 			time_t ll_time = ll.ll_time;
+--- a/lib/getdef.c
++++ b/lib/getdef.c
+@@ -61,6 +61,7 @@
+ 	{"ENV_SUPATH", NULL},
+ 	{"ERASECHAR", NULL},
+ 	{"FAIL_DELAY", NULL},
++	{"FAILLOG_ENAB", NULL},
+ 	{"FAKE_SHELL", NULL},
+ 	{"FTMP_FILE", NULL},
+ 	{"GID_MAX", NULL},
+@@ -103,7 +104,6 @@
+ 	{"ENV_HZ", NULL},
+ 	{"ENVIRON_FILE", NULL},
+ 	{"ENV_TZ", NULL},
+-	{"FAILLOG_ENAB", NULL},
+ 	{"ISSUE_FILE", NULL},
+ 	{"LASTLOG_ENAB", NULL},
+ 	{"LOGIN_STRING", NULL},

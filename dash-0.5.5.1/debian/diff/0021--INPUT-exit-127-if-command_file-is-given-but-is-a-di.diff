@@ -1,0 +1,33 @@
+From ef03fa018f8d3250745f52f3faa2b495be01b849 Mon Sep 17 00:00:00 2001
+From: Gerrit Pape <pape@smarden.org>
+Date: Tue, 29 Sep 2009 11:16:26 +0000
+Subject: [PATCH] [INPUT] exit 127 if command_file is given but is a directory
+
+This commit makes dash exit with return code 127 instead of 0 if
+started as non-interactive shell with a command_file specified as
+argument that is actually a directory.
+
+The wrong exit code was reported by Jari Aalto
+ http://bugs.debian.org/548687
+---
+ src/input.c |    4 ++++
+ 1 files changed, 4 insertions(+), 0 deletions(-)
+
+diff --git a/src/input.c b/src/input.c
+index 4693bcf..d965d2a 100644
+--- a/src/input.c
++++ b/src/input.c
+@@ -205,6 +205,10 @@ retry:
+ 				}
+ 			}
+ 		}
++		if (errno == EISDIR) {
++			exitstatus = 127;
++			exraise(EXEXIT);
++		}
+ 	}
+ 	return nr;
+ }
+-- 
+1.6.0.3
+

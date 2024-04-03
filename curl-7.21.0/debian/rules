@@ -1,0 +1,154 @@
+#! /usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# This has to be exported to make some magic below work.
+export DH_OPTIONS
+
+# These are locations of quilt stuff
+export QUILT_PATCHES=$(shell pwd)/debian/patches
+
+# These are used for cross-compiling and for saving the configure script
+# from having to guess our platform (since we know it already)
+DEB_BUILD_ARCH ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH)
+DEB_BUILD_ARCH_OS ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH_OS)
+DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+
+# set the number of build jobs
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+    JOBS:=-j$(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+endif
+
+ifneq ($(DEB_HOST_GNU_TYPE),$(DEB_BUILD_GNU_TYPE))
+CROSS= --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE) --with-random=/dev/urandom
+else
+CROSS= --build $(DEB_BUILD_GNU_TYPE)
+endif
+
+DO_TEST=no
+ifeq (${DEB_BUILD_GNU_TYPE},${DEB_HOST_GNU_TYPE})
+ifneq (${DEB_BUILD_ARCH},m68k)
+ifneq (${DEB_BUILD_ARCH_OS},kfreebsd)
+ifneq (${DEB_BUILD_ARCH_OS},knetbsd)
+ifneq (${DEB_BUILD_ARCH_OS},hurd)
+DO_TEST=yes
+endif
+endif
+endif
+endif
+endif
+
+SHLIBS_VERSION=7.16.2-1
+
+# this will catch miss-linking. (e.g. undefined symbols)
+# LDFLAGS = -Wl,-z,defs
+
+CONFIGURE_ARGS = $(CROSS) --prefix=/usr --mandir=/usr/share/man --disable-dependency-tracking --enable-ipv6 --with-lber-lib=lber --enable-manual --enable-versioned-symbols 
+# this is still not ready
+# --enable-ares
+# this fixes the ldap warning of dpkg-shlibdebs, but we dont want that.
+# --with-ldap-lib=/usr/lib/libldap_r.so 
+
+ifneq (${DEB_BUILD_ARCH_OS},hurd)
+CONFIGURE_ARGS += --with-gssapi=/usr
+endif
+
+build: build-stamp
+
+#configure-stamp: DH_OPTIONS=
+configure-stamp:
+	dh_testdir
+	mkdir -p debian/build debian/build-gnutls
+
+	-quilt push -a
+
+	# pop the last patch which must be gnutls
+	quilt pop
+	tar -cf - --exclude=debian --exclude=.pc . | tar -xf - -C debian/build
+
+	# push the last patch which must be gnutls
+	quilt push
+	tar -cf - --exclude=debian --exclude=.pc . | tar -xf - -C debian/build-gnutls
+
+	for flavour in build build-gnutls; do \
+		(cd debian/$$flavour && ./buildconf) \
+	done
+
+	cd debian/build && ./configure ${CONFIGURE_ARGS} --with-ca-path=/etc/ssl/certs
+	cd debian/build-gnutls && ./configure ${CONFIGURE_ARGS} --with-ca-bundle=/etc/ssl/certs/ca-certificates.crt --without-ssl --with-gnutls --without-libssh2
+	touch configure-stamp
+
+#build-stamp: DH_OPTIONS=
+build-stamp: configure-stamp
+	dh_testdir
+	${MAKE} $(JOBS) -C debian/build
+	${MAKE} $(JOBS) -C debian/build-gnutls
+
+ifeq (${DO_TEST},yes)
+	-${MAKE} -C debian/build test
+	-${MAKE} -C debian/build-gnutls test
+endif
+
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	-quilt pop -a
+	rm -rf build-stamp configure-stamp debian/build debian/build-gnutls debian/tmp-gnutls
+	dh_clean debian/shlibs.local
+
+#install: DH_OPTIONS=
+install: build-stamp
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+	${MAKE} -C debian/build DESTDIR=$(shell pwd)/debian/tmp install
+	${MAKE} -C debian/build-gnutls DESTDIR=$(shell pwd)/debian/tmp-gnutls install
+	dh_install -plibcurl3-gnutls -plibcurl4-gnutls-dev --sourcedir=debian/tmp-gnutls
+	dh_install -Nlibcurl3-gnutls -Nlibcurl4-gnutls-dev --sourcedir=debian/tmp
+	install -m 644 debian/libcurl3-gnutls.lintian-overrides debian/libcurl3-gnutls/usr/share/lintian/overrides/libcurl3-gnutls
+	install -m 644 debian/libcurl3.lintian-overrides debian/libcurl3/usr/share/lintian/overrides/libcurl3
+	for i in `find debian/lib* -name "lib*.la"`; do echo "removing dependency_libs from $$i"; sed -i -e "/dependency_libs/ s/'.*'/''/" $$i; done
+
+# Build architecture-independent files here.
+#binary-indep: DH_OPTIONS=-i
+binary-indep: build-stamp install
+# We have nothing to do here.
+
+# Build architecture-dependent files here.
+#binary-arch: DH_OPTIONS=-a
+binary-arch: build-stamp install
+	dh_testdir
+	dh_testroot
+	dh_installdocs
+	for package in libcurl4-openssl-dev libcurl4-gnutls-dev; do \
+		install -m 644 docs/libcurl/libcurl.m4 debian/$${package}/usr/share/aclocal; \
+		for doc_ext in html pdf; do \
+			install -m 644 docs/*.$${doc_ext} debian/$${package}/usr/share/doc/$${package}/$${doc_ext}; \
+			install -m 644 docs/libcurl/*.$${doc_ext} debian/$${package}/usr/share/doc/$${package}/$${doc_ext}/libcurl; \
+		done; \
+	done
+	dh_installman
+	dh_installexamples
+	dh_installchangelogs CHANGES
+	dh_link
+	dh_strip -Nlibcurl3 -Nlibcurl3-gnutls
+	dh_strip -plibcurl3 -plibcurl3-gnutls --dbg-package=libcurl3-dbg
+	dh_compress
+	dh_fixperms
+	echo "libcurl 4 libcurl3 (>= $(SHLIBS_VERSION))" > debian/shlibs.local
+	dh_makeshlibs -plibcurl3 -V "libcurl3 (>= $(SHLIBS_VERSION))"
+	dh_makeshlibs -plibcurl3-gnutls -V "libcurl3-gnutls (>= $(SHLIBS_VERSION))"
+	dh_installdeb
+	dh_shlibdeps
+	dh_md5sums
+	dh_gencontrol
+	dh_builddeb
+
+binary: binary-indep binary-arch
+
+.PHONY: binary binary-arch binary-indep build clean install

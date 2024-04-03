@@ -1,0 +1,62 @@
+#!/usr/bin/make -f
+
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/autotools.mk
+include /usr/share/cdbs/1/rules/buildvars.mk
+include debian/clean-la.mk
+
+# List any files which are not installed
+include /usr/share/cdbs/1/rules/utils.mk
+common-binary-post-install-arch:: list-missing
+
+# Ensure at build time that the library has no dependencies on undefined
+# symbols, and speed up loading.
+LDFLAGS += -Wl,-z,defs -Wl,-O1
+
+DEB_CONFIGURE_EXTRA_FLAGS += --enable-compat-libdns_sd \
+                             --disable-mono --disable-monodoc \
+                             --disable-gtk3
+
+# Only enable the stack protector on certain archs
+ifeq (,$(filter $(DEB_HOST_ARCH), powerpc s390 sparc amd64 i386 lpia))
+	DEB_CONFIGURE_EXTRA_FLAGS += --disable-stack-protector
+endif
+
+ifneq (linux,$(DEB_HOST_ARCH_OS))
+	DEB_CONFIGURE_EXTRA_FLAGS += --disable-autoipd
+endif
+
+DEB_UPDATE_RCD_PARAMS_avahi-daemon := start 14 2 3 4 5 . stop 86 0 1 6 .
+DEB_UPDATE_RCD_PARAMS_avahi-dnsconfd := start 16 2 3 4 5 . stop 84 0 1 6 .
+
+DEB_INSTALL_DOCS_ALL += docs/README docs/NEWS
+
+common-build-arch::
+	# create an up to date PO template
+	cd po; intltool-update -p --verbose
+
+clean::
+	rm -f po/*.pot
+
+binary-install/avahi-discover::
+	dh_pysupport -p$(cdbs_curpkg)
+
+binary-install/python-avahi::
+	dh_pysupport -p$(cdbs_curpkg)
+
+install/avahi-autoipd::
+	dh_installifupdown -p$(cdbs_curpkg)
+
+install/avahi-daemon::
+	dh_installifupdown -p$(cdbs_curpkg)
+	install -D -o root -g root -m 755 debian/avahi-daemon.resolvconf \
+		debian/$(cdbs_curpkg)/etc/resolvconf/update-libc.d/avahi-daemon
+	install -D -o root -g root -m 755 debian/avahi-daemon-check-dns.sh \
+		debian/$(cdbs_curpkg)/usr/lib/avahi/avahi-daemon-check-dns.sh
+
+ifeq (linux,$(DEB_HOST_ARCH_OS))
+common-install-impl::
+	mv $(DEB_DESTDIR)/etc/dhcp/dhclient-exit-hooks.d/avahi-autoipd \
+		$(DEB_DESTDIR)/etc/dhcp/dhclient-exit-hooks.d/zzz_avahi-autoipd
+endif
+

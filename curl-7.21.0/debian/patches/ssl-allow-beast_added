@@ -1,0 +1,79 @@
+From 62d15f159e163bf4e1a27ac1b0ffd9b84e02bf56 Mon Sep 17 00:00:00 2001
+From: Daniel Stenberg <daniel@haxx.se>
+Date: Mon, 6 Feb 2012 22:25:04 +0100
+Subject: [PATCH 2/2] --ssl-allow-beast added
+
+This new option tells curl to not work around a security flaw in the
+SSL3 and TLS1.0 protocols. It uses the new libcurl option
+CURLOPT_SSL_OPTIONS with the CURLSSLOPT_ALLOW_BEAST bit set.
+---
+ docs/curl.1         |    6 ++++++
+ src/tool_cfgable.h  |    4 ++--
+ src/tool_getparam.c |    7 ++++++-
+ src/tool_help.c     |    3 ++-
+ src/tool_operate.c  |    4 ++++
+ 5 files changed, 20 insertions(+), 4 deletions(-)
+
+--- a/docs/curl.1
++++ b/docs/curl.1
+@@ -490,6 +490,12 @@
+ NAT routers to follow the FTP transaction. The default mode is
+ passive. See --ftp-ssl-ccc-mode for other modes.
+ (Added in 7.16.1)
++.IP "--ssl-allow-beast"
++(SSL) This option tells curl to not work around a security flaw in the SSL3
++and TLS1.0 protocols known as BEAST.  If this option isn't used, the SSL layer
++may use work-arounds known to cause interoperability problems with some older
++SSL implementations. WARNING: this option loosens the SSL security, and by
++using this flag you ask for exactly that.  (Added in 7.25.0)
+ .IP "--ftp-ssl-ccc-mode [active/passive]"
+ (FTP) Use CCC (Clear Command Channel)
+ Sets the CCC mode. The passive mode will not initiate the shutdown, but
+--- a/src/main.c
++++ b/src/main.c
+@@ -620,6 +620,7 @@
+ 
+   int default_node_flags; /* default flags to seach for each 'node', which is
+                              basically each given URL to transfer */
++  bool ssl_allow_beast;     /* allow this SSL vulnerability */
+   struct OutStruct *outs;
+ };
+ 
+@@ -885,6 +886,7 @@
+     "    --ssl-reqd      Require SSL/TLS (FTP, IMAP, POP3, SMTP)",
+     " -2/--sslv2         Use SSLv2 (SSL)",
+     " -3/--sslv3         Use SSLv3 (SSL)",
++    "    --ssl-allow-beast Allow security flaw to improve interop (SSL)",
+     "    --stderr <file> Where to redirect stderr. - means stdout",
+     "    --tcp-nodelay   Use the TCP_NODELAY option",
+     " -t/--telnet-option <OPT=val> Set telnet option",
+@@ -1891,6 +1893,7 @@
+     {"Eg","capath ",     TRUE},
+     {"Eh","pubkey",      TRUE},
+     {"Ei", "hostpubmd5", TRUE},
++    {"En", "ssl-allow-beast",   FALSE},
+     {"Ej","crlfile",     TRUE},
+     {"f", "fail",        FALSE},
+     {"F", "form",        TRUE},
+@@ -2703,6 +2706,10 @@
+         /* CRL file */
+         GetStr(&config->crlfile, nextarg);
+         break;
++      case 'n': /* no empty SSL fragments */
++        if(curlinfo->features & CURL_VERSION_SSL)
++          config->ssl_allow_beast = toggle;
++        break;
+       default: /* certificate file */
+         {
+           char *ptr = strchr(nextarg, ':');
+@@ -4549,6 +4556,10 @@
+     }
+   }
+ 
++  /* new in 7.25.0 */
++  if(config->ssl_allow_beast)
++    my_setopt(curl, CURLOPT_SSL_OPTIONS, (long)CURLSSLOPT_ALLOW_BEAST);
++
+   retry_sleep_default = config->retry_delay?
+     config->retry_delay*1000:RETRY_SLEEP_DEFAULT; /* ms */
+   retry_sleep = retry_sleep_default;

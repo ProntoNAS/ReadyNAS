@@ -1,0 +1,39 @@
+From ce16739213cfe4e652b5655606937bf8041a339c Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Fri, 7 Mar 2014 12:23:58 -0800
+Subject: [PATCH] samsung: fix root_container setting
+
+Pretend that we don't support SamsungGetFeatureList if we have a
+custom root container specified, or else the Samsung client will
+jump straight to our normal A/V/P sections.
+---
+ upnpsoap.c |    9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/upnpsoap.c b/upnpsoap.c
+index 374a3ab..18f1e15 100644
+--- a/upnpsoap.c
++++ b/upnpsoap.c
+@@ -1800,13 +1800,16 @@ SamsungGetFeatureList(struct upnphttp * h, const char * action)
+ 		" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\""
+ 		" xsi:schemaLocation=\"urn:schemas-upnp-org:av:avs http://www.upnp.org/schemas/av/avs.xsd\"&gt;"
+ 		"&lt;Feature name=\"samsung.com_BASICVIEW\" version=\"1\"&gt;"
+-		 "&lt;container id=\"1\" type=\"object.item.audioItem\"/&gt;"
+-		 "&lt;container id=\"2\" type=\"object.item.videoItem\"/&gt;"
+-		 "&lt;container id=\"3\" type=\"object.item.imageItem\"/&gt;"
++		 "&lt;container id=\"" MUSIC_ID "\" type=\"object.item.audioItem\"/&gt;"
++		 "&lt;container id=\"" VIDEO_ID "\" type=\"object.item.videoItem\"/&gt;"
++		 "&lt;container id=\"" IMAGE_ID "\" type=\"object.item.imageItem\"/&gt;"
+ 		"&lt;/Feature&gt;"
+ 		"&lt;/Features&gt;"
+ 		"</FeatureList></u:X_GetFeatureListResponse>";
+ 
++	if (runtime_vars.root_container)
++		return SoapError(h, 401, "Invalid Action");
++
+ 	BuildSendAndCloseSoapResp(h, resp, sizeof(resp)-1);
+ }
+ 
+-- 
+1.7.9.5
+

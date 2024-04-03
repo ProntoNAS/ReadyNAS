@@ -1,0 +1,42 @@
+#!/usr/bin/make -f
+
+include /usr/share/cdbs/1/class/makefile.mk
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/rules/dpatch.mk
+
+LUA_V = 5.1
+LUA_FULL_V = 5.1.4
+SONUM = 0
+LUA = lua$(LUA_V)
+DEB_DESTDIR := $(DEB_DESTDIR)usr
+DEB_MAKE_BUILD_TARGET = \
+    debian_linux \
+    RPATH=/usr/lib
+DEB_MAKE_CLEAN_TARGET = debian_clean
+DEB_MAKE_CHECK_TARGET = debian_test
+# adjust some install directories
+DEB_MAKE_INSTALL_TARGET = \
+    debian_install \
+    INSTALL_TOP=$(DEB_DESTDIR) \
+    INSTALL_MAN=$(DEB_DESTDIR)/share/man/man1 \
+    INSTALL_INC=$(DEB_DESTDIR)/include/$(LUA)
+
+LIB_PACKAGE_NAME = lib$(LUA)-$(SONUM)
+
+DEB_INSTALL_DOCS_$(LUA)-doc = -X/man/
+DEB_INSTALL_DOCS_ALL = debian/README.Debian
+DEB_DH_INSTALL_SOURCEDIR = debian/tmp
+
+PKG_CONFIG_FILE = debian/$(LIB_PACKAGE_NAME)-dev/usr/lib/pkgconfig/$(LUA).pc
+DOC_DIR = debian/$(LUA)-doc/usr/share/doc/$(LUA)-doc
+
+binary-install/$(LUA)-doc::
+	chmod +x $(DOC_DIR)/examples/debian/script/hello
+	mv $(DOC_DIR)/doc/readme.html $(DOC_DIR)/doc/index.html
+
+binary-install/$(LIB_PACKAGE_NAME)-dev::
+	mkdir -p $(dir $(PKG_CONFIG_FILE))
+	echo "prefix=/usr" > $(PKG_CONFIG_FILE)
+	echo "major_version=$(LUA_V)" >> $(PKG_CONFIG_FILE)
+	echo "version=$(LUA_FULL_V)" >> $(PKG_CONFIG_FILE)
+	cat debian/lua.pc.in >> $(PKG_CONFIG_FILE)

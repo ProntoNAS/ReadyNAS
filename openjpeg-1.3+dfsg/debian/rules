@@ -1,0 +1,95 @@
+#!/usr/bin/make -f
+
+include /usr/share/dpatch/dpatch.make
+
+# used as trailer in the generated manpages
+UVERSION = $(shell dpkg-parsechangelog | perl -ne 'print "$$1\n" if (/^Version: (.*?)(?:\.dfsg)?\-.*?$$/)')
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	EXTRA_CFLAGS += -O0
+else
+	# Upstream default optimisation level
+	EXTRA_CFLAGS += -O3
+endif
+
+build: build-stamp
+build-stamp: patch
+	dh_testdir
+
+	# build all library targets
+	$(MAKE) OpenJPEG
+	$(MAKE) -C codec
+	$(MAKE) -C indexer_JPIP
+
+	# build manpages
+	for i in debian/*.pod; do \
+		pod2man --center 'OPENJPEG TOOLS' \
+			--release $(UVERSION) \
+			$$i $${i%%.pod}.1 ; \
+	done
+
+	touch $@
+
+clean: realclean unpatch
+realclean:
+	dh_testdir
+	dh_testroot
+
+	# Remove execute permission since upstreams ships all files with +x
+	chmod -R a-x .
+	chmod -R a+X .
+	chmod a+x debian/rules
+
+	[ ! -f  codec/*.o ] || $(MAKE) -C codec clean
+	[ ! -f  indexer_JPIP/*.o ] || $(MAKE) -C indexer_JPIP clean
+
+	$(MAKE) clean
+
+	# delete the manpages which were built from perlpod (not using *.1,
+	# in case a later file is added and not checked in)
+	for i in debian/*.pod; do \
+		rm -f $${i%%.pod}.1; \
+	done
+
+	dh_clean indexer_JPIP/index_create codec/image_to_j2k codec/j2k_to_image libopenjpeg.a.nopic libopenjpeg.so build-stamp
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	$(MAKE) dist
+	# The libraries and header file are in dist/
+	# So we'll dump the binaries there too
+	cp codec/j2k_to_image codec/image_to_j2k dist/
+	cp indexer_JPIP/index_create dist/
+	cp debian/jp2-thumbnailer dist/
+
+binary-indep: build install
+# We have nothing to do by default.
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs ChangeLog
+	dh_installdocs
+	dh_installexamples
+	dh_install --sourcedir=dist/
+	dh_installman
+	dh_gconf	
+	dh_link
+	dh_strip --dbg-package=libopenjpeg2-dbg
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+
+.PHONY: build clean realclean binary-indep binary-arch binary install
+.SUFFIXES: .1 .help

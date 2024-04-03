@@ -1,0 +1,63 @@
+#! /bin/sh
+
+test "X${VERBOSE}" = Xtrue && {
+  set -x
+  PS4=">$`basename $0`> "
+}
+
+current_dir=`pwd`
+
+tmpfile=shar-1-$$
+inf=shar-1.in
+sharf=${tmpfile}.shar
+outf=${tmpfile}.outf
+
+# Test whether -f/--basename option removes all references to the old
+# file name.
+
+trap "rm -fr shar-1.in ${tmpfile}.*" 1 2 3 15
+
+echo "This is a test" > ${inf}
+chmod 0644 ${inf} 2> /dev/null >&2
+SHAR=../src/shar
+
+${SHAR} -f $current_dir/${inf} > ${sharf} 2> /dev/null || exit 1
+
+sed -e "s/__PACKAGE_STRING__/${PACKAGE_STRING}/" \
+  $top_srcdir/tests/shar-1.ok > ${tmpfile}.sample
+
+# Remove variations based on PID and the current date
+#
+sed -e 's/^# Made on.*/# Made on .../' \
+    -e 's/^# Source directory was.*/# Source directory was .../' \
+    -e 's/=_sh[0-9][0-9]*/=_sh<PID>/' \
+    -e 's/(set .. .. .. .. .. .. ../(set <date>/' \
+${sharf} > ${outf} 2> /dev/null
+
+: ${DIFF=diff}
+${DIFF} -c ${tmpfile}.sample ${outf} || exit 1
+
+# test basic functioning of unshar
+#
+: ${UNSHAR=../src/unshar}
+mv -f ${inf} ${outf}
+
+res=`${UNSHAR} ${sharf} 2>&1` || {
+  echo "${res}" >&2
+  exit 1
+}
+
+${DIFF} ${inf} ${outf} || exit 1
+
+rm -f shar-1.in ${tmpfile}.*
+exit 0
+
+## Local Variables:
+## mode: shell-script
+## tab-width: 8
+## indent-tabs-mode: nil
+## sh-indentation: 2
+## sh-basic-offset: 2
+## End:
+
+## end of shar-1

@@ -1,0 +1,35 @@
+commit 23d101d8eea76469b41c12b10a8e8ed13cf66bc6
+Author: Emilio Pozuelo Monfort <pochu27@gmail.com>
+Date:   Tue Jul 20 19:19:34 2010 -0700
+
+    Hurd: fix sendmsg memory leak in error paths
+
+diff --git a/sysdeps/mach/hurd/sendmsg.c b/sysdeps/mach/hurd/sendmsg.c
+index a9d1c8c..118fd59 100644
+--- a/sysdeps/mach/hurd/sendmsg.c
++++ b/sysdeps/mach/hurd/sendmsg.c
+@@ -109,14 +109,22 @@ __libc_sendmsg (int fd, const struct msghdr *message, int flags)
+ 	     and talk to it with the ifsock protocol.  */
+ 	  file_t file = __file_name_lookup (addr->sun_path, 0, 0);
+ 	  if (file == MACH_PORT_NULL)
+-	    return -1;
++	    {
++	      if (dealloc)
++		__vm_deallocate (__mach_task_self (), data.addr, len);
++	      return -1;
++	    }
+ 	  err = __ifsock_getsockaddr (file, &aport);
+ 	  __mach_port_deallocate (__mach_task_self (), file);
+ 	  if (err == MIG_BAD_ID || err == EOPNOTSUPP)
+ 	    /* The file did not grok the ifsock protocol.  */
+ 	    err = ENOTSOCK;
+ 	  if (err)
+-	    return __hurd_fail (err);
++	    {
++	      if (dealloc)
++		__vm_deallocate (__mach_task_self (), data.addr, len);
++	      return __hurd_fail (err);
++	    }
+ 	}
+       else
+ 	err = EIEIO;

@@ -1,0 +1,25 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 560692_fix_fatal_after_homedir_creation.dpatch by Daniel Leidert (dale) <daniel.leidert@wgdd.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Fix a mistaken fatal error after creating the home-directory.
+## DP: This can only be seen in a few scenarios.
+## DP:
+## DP: <URL:http://bugs.debian.org/560692>
+## DP: <URL:https://bugs.g10code.com/gnupg/issue1169>
+## DP: <URL:http://lists.gnupg.org/pipermail/gnupg-commits/2009-December/008688.html>
+
+@DPATCH@
+diff -urNad trunk~/g10/tdbio.c trunk/g10/tdbio.c
+--- trunk~/g10/tdbio.c	2009-07-23 08:47:35.000000000 +0200
++++ trunk/g10/tdbio.c	2010-01-22 02:21:03.216141400 +0100
+@@ -508,7 +508,8 @@
+ 	    *p = 0;
+ 	    if( access( fname, F_OK ) ) {
+ 		try_make_homedir( fname );
+-		log_fatal( _("%s: directory does not exist!\n"), fname );
++                if (access (fname, F_OK ))
++                  log_fatal (_("%s: directory does not exist!\n"), fname);
+ 	    }
+ 	    *p = DIRSEP_C;
+ 

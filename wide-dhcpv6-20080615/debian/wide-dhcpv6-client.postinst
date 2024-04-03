@@ -1,0 +1,58 @@
+#!/bin/sh -e
+
+case "$1" in
+	configure|reconfigure)
+		# continue
+		;;
+	abort-upgrade|abort-remove|abort-deconfigure)
+		exit 0
+		;;
+	*)
+		echo "postinst called with unknown argument \`$1'" >&2
+		exit 0
+		;;
+esac
+
+# debconf
+. /usr/share/debconf/confmodule
+
+DHCP6CCTLKEY=/etc/wide-dhcpv6/dhcp6cctlkey
+INITCONFFILE=/etc/default/wide-dhcpv6-client
+
+# The key mustn't be world readable
+umask 066
+
+[ -r "${DHCP6CCTLKEY}" ] || {
+	echo "Generating ${DHCP6CCTLKEY}..." >&2
+	dd if=/dev/urandom bs=32 count=1 2>/dev/null | \
+		uuencode -m ${DHCP6CCTLKEY} | \
+		head -n 2 | tail -n 1 > ${DHCP6CCTLKEY}
+}
+
+umask 022
+
+echo "Generating ${INITCONFFILE}..." >&2
+cat >$INITCONFFILE <<'EOFINITCONFFILE'
+# Defaults for dhcpv6 client initscript
+# Used by /etc/init.d/wide-dhcpv6-client
+
+# Interfaces on which the client should send DHCPv6 requests and listen to
+# answers. If empty, the client is deactivated.
+INTERFACES=""
+EOFINITCONFFILE
+
+# Debconf
+db_get wide-dhcpv6-client/interfaces || true
+INTERFACES=${RET}
+
+TMPFILE=`mktemp -q ${INITCONFFILE}.new.XXXXXX`
+sed -e "s,^[[:space:]]*INTERFACES[[:space:]]*=.*,INTERFACES=\"${INTERFACES}\"," \
+       	<${INITCONFFILE} >${TMPFILE}
+cp ${TMPFILE} ${INITCONFFILE}
+rm ${TMPFILE}
+
+db_stop
+
+#DEBHELPER#
+
+exit 0

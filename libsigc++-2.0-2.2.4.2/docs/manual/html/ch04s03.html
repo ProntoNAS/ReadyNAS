@@ -1,0 +1,43 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"><title>Marshallers</title><meta name="generator" content="DocBook XSL Stylesheets V1.73.2"><link rel="start" href="index.html" title="LibSigC++"><link rel="up" href="ch04.html" title="Chapter 4. Advanced topics"><link rel="prev" href="ch04s02.html" title="Retyping"><link rel="next" href="ch05.html" title="Chapter 5. Reference"></head><body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF"><div class="navheader"><table width="100%" summary="Navigation header"><tr><th colspan="3" align="center">Marshallers</th></tr><tr><td width="20%" align="left"><a accesskey="p" href="ch04s02.html">Prev</a> </td><th width="60%" align="center">Chapter 4. Advanced topics</th><td width="20%" align="right"> <a accesskey="n" href="ch05.html">Next</a></td></tr></table><hr></div><div class="sect1" lang="en"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a name="id339176"></a>Marshallers</h2></div></div></div><p>When I first mentioned return values, I said that more advanced handling of
+	multiple return values was possible with <code class="literal">Marshallers</code>.</p><p>A Marshaller is a class that gets fed all the return values as they're
+	returned. It can do a couple of things:
+	</p><div class="itemizedlist"><ul type="disc"><li>It can stop the emit process at any point, causing no further slots
+	        to be called</li><li>It can return a value, of any type</li></ul></div><p>For example, if each <code class="literal">slot</code> returned an <code class="literal">int</code>, we could use a marshaller return
+	the average value as a <code class="literal">double</code>. Or we could return all values in a
+	<code class="literal">std::vector&lt;int&gt;</code>, or maybe stop as soon as the first slot returns 5.</p><p>As an example, here's the averaging marshaller:</p><pre class="programlisting">
+class Averager
+{
+public:
+    // we must typedef InType and OutType for the libsigc++ library
+    typedef double OutType;
+    typedef int InType;
+
+    Averager()
+      : total_(0), number_(0)
+      {}
+
+
+    OutType value() { return (double)total_/(double)number_; } // avoid integer division
+
+    static OutType default_value() { return 0; }
+
+    // This is the function called for each return value.
+    // If it returns 'true' it stops here.
+    bool marshal(InType newval)
+    {
+        total_ += newval; // total of values
+        ++number_;        // count of values
+        return false;     // continue emittion process
+    };
+
+private:
+    int   total_;
+    int   number_;
+};
+</pre><p>To use this, we pass the type as an extra template argument when defining
+	the <code class="literal">Signal</code>, eg.</p><pre class="programlisting">
+sigc::signal&lt;int, Averager&gt; mysignal;
+</pre><p>Now we can do:</p><pre class="programlisting">
+double average_of_all_connected_slots = mysignal();
+</pre><p>Each connected <code class="literal">slot</code> will be called, its value passed to an instance of
+	<code class="literal">Averager</code> and that <code class="literal">Averager</code>'s <code class="literal">value()</code> will be returned.</p><p>In the downloadable examples, this is example6.cc.</p></div><div class="navfooter"><hr><table width="100%" summary="Navigation footer"><tr><td width="40%" align="left"><a accesskey="p" href="ch04s02.html">Prev</a> </td><td width="20%" align="center"><a accesskey="u" href="ch04.html">Up</a></td><td width="40%" align="right"> <a accesskey="n" href="ch05.html">Next</a></td></tr><tr><td width="40%" align="left" valign="top">Retyping </td><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td><td width="40%" align="right" valign="top"> Chapter 5. Reference</td></tr></table></div></body></html>

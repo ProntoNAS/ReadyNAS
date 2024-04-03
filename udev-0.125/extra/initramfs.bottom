@@ -1,0 +1,26 @@
+#!/bin/sh -e
+
+PREREQS=""
+
+prereqs() { echo "$PREREQS"; }
+
+case "$1" in
+    prereqs)
+    prereqs
+    exit 0
+    ;;
+esac
+
+# Stop udevd, we'll miss a few events while we run init, but we catch up
+for proc in /proc/[0-9]*; do
+    [ -x $proc/exe ] || continue
+    [ "$(readlink $proc/exe)" != /sbin/udevd ] || kill ${proc#/proc/}
+done
+
+# move the /dev tmpfs to the rootfs
+mount -n -o move /dev $rootmnt/dev
+
+# create a temporary symlink to the final /dev for other initramfs scripts
+nuke /dev
+ln -s $rootmnt/dev /dev
+

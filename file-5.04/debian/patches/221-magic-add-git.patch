@@ -1,0 +1,41 @@
+Author: Adam Buchbinder <adam.buchbinder@gmail.com>
+Description:
+ Add detection for git packs and indexes, making sure it doesn't clash with id
+ Software PACK files (Closes: #509942).
+
+diff -Naurp file.orig/magic/Magdir/games file/magic/Magdir/games
+--- file.orig/magic/Magdir/games	2009-03-21 09:20:03.000000000 +0000
++++ file/magic/Magdir/games	2009-03-21 17:13:30.000000000 +0000
+@@ -33,6 +33,7 @@
+ # Quake
+ 
+ 0       string  PACK    Quake I or II world or extension
++>8	lelong	>0	\b, %d entries
+ 
+ #0       string  -1\x0a  Quake I demo
+ #>30     string  x        version %.4s
+diff -Naurp file.orig/magic/Magdir/revision file/magic/Magdir/revision
+--- file.orig/magic/Magdir/revision	2009-03-21 09:20:03.000000000 +0000
++++ file/magic/Magdir/revision	2009-03-21 17:13:30.000000000 +0000
+@@ -12,6 +12,21 @@
+ # From: Josh Triplett <josh@freedesktop.org>
+ 0	string	#\ v2\ git\ bundle\n	Git bundle
+ 
++# Type: Git pack
++# From: Adam Buchbinder <adam.buchbinder@gmail.com>
++# The actual magic is 'PACK', but that clashes with Doom/Quake packs. However,
++# those have a little-endian offset immediately following the magic 'PACK',
++# the first byte of which is never 0, while the first byte of the Git pack
++# version, since it's a tiny number stored in big-endian format, is always 0.
++0	string	PACK\0		Git pack
++>4	belong	>0		\b, version %d
++>>8	belong	>0		\b, %d objects
++
++# Type: Git pack index
++# From: Adam Buchbinder <adam.buchbinder@gmail.com>
++0	string	\377tOc		Git pack index
++>4	belong	=2		\b, version 2
++
+ # Type:	Mercurial bundles
+ # From:	Seo Sanghyeon <tinuviel@sparcs.kaist.ac.kr>
+ 0	string	HG10		Mercurial bundle,
