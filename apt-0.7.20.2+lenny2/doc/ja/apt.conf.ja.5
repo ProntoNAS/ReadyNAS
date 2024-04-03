@@ -1,0 +1,454 @@
+.\"     Title: apt.conf
+.\"    Author: Jason Gunthorpe
+.\" Generator: DocBook XSL Stylesheets v1.73.2 <http://docbook.sf.net/>
+.\"      Date: 29 February 2004
+.\"    Manual: 
+.\"    Source: Linux
+.\"
+.TH "APT\&.CONF" "5" "29 February 2004" "Linux" ""
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.SH "NAME"
+apt.conf \- APT 設定ファイル
+.SH "説明"
+.PP
+\fIapt\&.conf\fR
+は、 APT ツール集のメイン設定ファイルです。 この設定ファイルと共通のコマンドラインパーサを使って、 すべてのツールを統一環境で使用できます。 APT ツールの起動時には、\fBAPT_CONFIG\fR
+環境変数に指定した設定を (存在すれば) 読み込みます。 次に
+Dir::Etc::Parts
+のファイルを読み込みます。 次に
+Dir::Etc::main
+で指定した主設定ファイルを読み込み、 最後にコマンドラインオプションで、 設定ファイルより取得した値を上書きします。
+.PP
+設定ファイルは、 機能グループごとに系統立てられたオプションを木構造で表します。 オプションの内容は、2 つのコロンで区切ります。 例えば
+APT::Get::Assume\-Yes
+は、 APT ツールグループの、Get ツール用オプションです。 オプションは、親グループから継承しません。
+.PP
+設定言語の文法は、 bind や dhcp のような ISC ツールをモデルにしています。
+//
+で始まる行はコメントとして扱われます (無視)。 いずれの行も、
+.sp
+.RS 4
+.nf
+APT::Get::Assume\-Yes "true";
+.fi
+.RE
+.sp
+の ような形式です。 行末のセミコロンは必要ですが、ダブルクォートは使わなくてもかまいません。 以下のように中カッコを使うと、新しいスコープを開くことができます。
+.sp
+.RS 4
+.nf
+   
+APT {
+  Get {
+    Assume\-Yes "true";
+    Fix\-Broken "true";
+  };
+};
+.fi
+.RE
+.PP
+また適宜改行することで、より読みやすくなります。 リストは、開いたスコープ、クォートで囲まれた単語、 そしてセミコロンと続けることで作成できます。 セミコロンで区切ることで、複数のエントリを表すことができます。
+.sp
+.RS 4
+.nf
+   
+DPkg::Pre\-Install\-Pkgs {"/usr/sbin/dpkg\-preconfigure \-\-apt";};
+.fi
+.RE
+.PP
+\fI/usr/share/doc/apt/examples/apt\&.conf\fR
+\fI/usr/share/doc/apt/examples/configure\-index\&.gz\fR
+は一般的な設定ファイルのサンプルです。 どのように設定するか参考になるでしょう。
+.PP
+#include
+と
+#clear
+の 2 つの特別な記法があります。
+#include
+は指定したファイルを取り込みます。 ファイル名がスラッシュで終わった場合には、 そのディレクトリをすべて取り込みます。
+#clear
+は名前のリストを削除するのに便利です。
+.PP
+すべての APT ツールで、 コマンドラインで任意の設定を行う \-o オプションが使用できます。 文法は、完全なオプション名 (例:
+APT::Get::Assume\-Yes)、 等号、続いてオプションの新しい値となります。 リスト名に続き::を加えることで、リストを追加することができます。
+.SH "APT グループ"
+.PP
+このオプショングループは、ツール全体に影響のある、 一般的な APT の振る舞いを制御します。
+.PP
+Architecture
+.RS 4
+システムアーキテクチャ \- ファイルを取得したり、 パッケージリストを解析するときに使用するアーキテクチャをセットします。 内部でのデフォルトは、 apt をコンパイルしたアーキテクチャです。
+.RE
+.PP
+Ignore\-Hold
+.RS 4
+保留パッケージの無視 \- このグローバルオプションは、 問題解決器に保留と指定したパッケージを無視します。
+.RE
+.PP
+Clean\-Installed
+.RS 4
+デフォルトで有効です。autoclean 機能が on の時、 ダウンロードできなくなったパッケージをキャッシュから削除します。 off の場合、ローカルにインストールされているパッケージは、 削除対象から外します。 しかし、 APT はキャッシュから削除したパッケージの再インストール方法を、 直接提供するわけではないことに注意してください。
+.RE
+.PP
+Immediate\-Configure
+.RS 4
+即時設定無効 \- この危険なオプションは、 APT の要求コードを無効にして dpkg の呼び出しをほとんどしないようにします。 これは、非常に遅いシングルユーザシステムでは必要かもしれませんが、 非常に危険で、パッケージのインストールスクリプトが失敗したり、 もしくはもっと悪いことがおきるかもしれません。 自己責任で使用してください。
+.RE
+.PP
+Force\-LoopBreak
+.RS 4
+何をしようとしているのか「本当に」判っているのでなければ、 絶対にこのオプションを有効にしないでください。 不可欠 (essential) パッケージ同士で、 競合 (Conflicts) /競合や競合/事前依存 (Pre\-Depend) のループに落ち込んだときに、 不可欠パッケージを一時的に削除してループを抜けられるようにします。
+\fIそんなループはあり得ないはずで、 あるとすれば重大なバグです。\fR
+このオプションは、tar, gzip, libc, dpkg, bash とそれらが依存している パッケージ以外の不可欠パッケージで動作します。
+.RE
+.PP
+Cache\-Limit
+.RS 4
+APT は「利用可能」情報を格納するために、 固定サイズのメモリマップキャッシュファイルを使用します。 このオプションは、そのキャッシュサイズを指定します。
+.RE
+.PP
+Build\-Essential
+.RS 4
+構築依存関係で不可欠なパッケージを定義します。
+.RE
+.PP
+Get
+.RS 4
+サブセクション Get は
+\fBapt-get\fR(8)
+ツールを制御します。 このオプションの詳細は
+\fBapt-get\fR(8)
+の文書を参照してください。
+.RE
+.PP
+Cache
+.RS 4
+サブセクション Cache は
+\fBapt-cache\fR(8)
+ツールを制御します。 このオプションの詳細は
+\fBapt-cache\fR(8)
+の文書を参照してください。
+.RE
+.PP
+CDROM
+.RS 4
+サブセクション CDROM は
+\fBapt-cdrom\fR(8)
+ツールを制御します。 このオプションの詳細は
+\fBapt-cdrom\fR(8)
+の文書を参照してください。
+.RE
+.SH "ACQUIRE グループ"
+.PP
+Acquire
+オプショングループは、 パッケージのダウンロードや URI ハンドラの制御を行います。
+.PP
+Queue\-Mode
+.RS 4
+キューモード \-
+Queue\-Mode
+は、 APT がどのように並列接続を行うか、
+host
+か
+access
+で指定できます。
+host
+は、ターゲットホストごとに 1 接続を開きます。
+access
+は、 URI タイプごとに 1 接続を開きます。
+.RE
+.PP
+Retries
+.RS 4
+リトライの回数を設定します。 0 でない場合、APT は失敗したファイルに対して、 与えられた回数だけリトライを行います。
+.RE
+.PP
+Source\-Symlinks
+.RS 4
+ソースアーカイブのシンボリックリンクを使用します。 true がセットされているとき、可能ならコピーの代わりにシンボリックリンクが 張られます。true がデフォルトです。
+.RE
+.PP
+http
+.RS 4
+HTTP URI \- http::Proxy は、 デフォルトで使用する http プロキシです。
+http://[[user][:pass]@]host[:port]/
+という標準形で表します。ホストごとのプロキシの場合は、
+http::Proxy::<host>
+という形と、 プロキシを使用しないという意味の特殊キーワード
+DIRECT
+を使用して指定することもできます。すべての設定は、 環境変数
+\fBhttp_proxy\fR
+で上書きされます。
+.sp
+HTTP/1\&.1 準拠のプロキシキャッシュの制御について、 3 種類の設定があります。No\-Cache
+はプロキシに対して、 いかなる時もキャッシュを使用しないと伝えます。
+Max\-Age
+は、インデックスファイル用のときだけ送信し、 得られた時間よりも古かった場合に、 オブジェクトをリフレッシュするようキャッシュに指示します。 デフォルトでは 1 日となっているため、 Debian は日毎にそのインデックスファイルを更新します。
+No\-Store
+は、キャッシュがこのリクエストを格納せず、 アーカイブファイルのみ設定するよう指定します。 これは、非常に大きな \&.deb ファイルでプロキシキャッシュが汚れるのを、 防ぐのに便利かもしれません。 注) Squid 2\&.0\&.2 では、これらのオプションをサポートしていません。
+.sp
+timeout
+オプションは、 この方法でのタイムアウトまでの時間を設定します。 これには、接続のタイムアウトとデータのタイムアウトが含まれています。
+.sp
+リモートサーバが RFC 準拠でなかったり、 (Squid 2\&.0\&.2 のように) バグがあったりしたときのために、 パイプラインの深さの制御を設定します。
+Acquire::http::Pipeline\-Depth
+により、 APT が送信できるリクエストの回数を 0 から 5 の値で設定できます。 リモートサーバが適切でなく、TCP 接続に時間がかかるときは、
+\fI必ず\fR
+0 の値を設定しなければなりません。 そうでなければデータが破損してしまいます。 これが必要なホストは RFC 2068 に違反しています。
+.RE
+.PP
+ftp
+.RS 4
+FTP URI \- ftp::Proxy は、デフォルトで使用するプロキシサーバです。
+ftp://[[user][:pass]@]host[:port]/
+という標準形で表しますが、 環境変数
+\fBftp_proxy\fR
+で上書きされます。 ftp プロキシを使用するには、設定ファイルに
+ftp::ProxyLogin
+スクリプトを設定する必要があります。 プロキシサーバに送信する接続コマンドを、このエントリに設定します。 どのようにするのかは
+\fI/usr/share/doc/apt/examples/configure\-index\&.gz\fR
+の例を参照してください。 その他にも、$(PROXY_USER)
+$(PROXY_PASS)
+$(SITE_USER)
+$(SITE_PASS)
+$(SITE)
+$(SITE_PORT)
+が利用可能です。 いずれも、それぞれ URI を構成するトークンです。
+.sp
+timeout
+オプションは、 この方法でのタイムアウトまでの時間を設定します。 これには、接続のタイムアウトとデータのタイムアウトが含まれています。
+.sp
+設定のいくつかは、パッシブモードを制御するものです。 一般的に、パッシブモードのままにしておく方が安全で、 ほぼどんな環境でも動作します。 しかしある状況下では、パッシブモードが無効のため、 代わりにポートモード ftp を使用する必要があります。 この設定は、プロキシを通る接続や特定のホストへの接続全般に有効です。 (設定例はサンプル設定ファイルを参照してください)
+.sp
+環境変数
+\fBftp_proxy\fR
+の http url により FTP over HTTP のプロキシが利用可能になります。 文法は上の http についての説明を参照してください。 設定ファイルの中でこれをセットすることはできません。 また、効率が悪いため FTP over HTTP を使用するのは推奨しません。
+.sp
+ForceExtended
+の設定は RFC2428 の
+EPSV
+コマンドと
+EPRT
+コマンドの使用を制御します。デフォルトでは false です。 これは、コントロールコネクションが IPv6 の時にのみ、 このコマンドを使用するということです。 これを true にセットすると、IPv4 コネクションでも強制的に、 このコマンドを使用します。 注) ほとんどの FTP サーバは RFC2428 をサポートしていません。
+.RE
+.PP
+cdrom
+.RS 4
+CDROM URI \- マウントポイントの設定のみを行います。
+\fI/etc/fstab\fR
+で設定されているように、 CDROM ドライブのマウントポイントを
+cdrom::Mount
+に設定しなければなりません。 (SMB マウントや古い mount パッケージなど) マウントポイントが fstab に記述できない場合、かわりにマウント・アンマウントコマンドも使用できます。 文法は、cdrom ブロックを
+.sp
+.RS 4
+.nf
+"/cdrom/"::Mount "foo";
+.fi
+.RE
+.sp
+の形で記述します。 スラッシュを後につけるのは重要です。 アンマウントコマンドは UMount で指定することができます。
+.RE
+.PP
+gpgv
+.RS 4
+GPGV URI \- GPGV URI 用の唯一のオプションは、 gpgv に渡す追加パラメータのオプションです。
+gpgv::Options
+gpgv に渡す追加オプション。
+.RE
+.SH "ディレクトリ"
+.PP
+Dir::State
+セクションは、 ローカル状態情報に関するディレクトリを保持します。
+lists
+は、 ダウンロードしたパッケージ一覧を格納するディレクトリで、
+status
+は dpkg の状態ファイルの名前を表します。
+preferences
+は APT の 設定ファイルの名前です。
+Dir::State
+には、
+\fI/\fR
+や
+\fI\&./\fR
+で始まらない 全サブアイテムに付加する、デフォルトディレクトリを含んでいます。
+.PP
+Dir::Cache
+は、 ローカルキャッシュ情報に関する場所を格納しています。これは、 ダウンロード済アーカイブの場所を示す
+Dir::Cache::archives
+と同様に、srcpkgcache
+と
+pkgcache
+のパッケージキャッシュの場所となります。 それぞれを空にセットすることで、キャッシュの生成を無効にできます。 おそらく、srcpkgcache よりも pkgcache を無効にすることが多いと思います。
+Dir::State
+と同様、Dir::Cache
+はデフォルトディレクトリを含んでいます。
+.PP
+Dir::Etc
+は設定ファイルの場所を格納しています。
+sourcelist
+はソースリストの場所を示し、
+main
+はデフォルトの設定ファイルです。 (\fBAPT_CONFIG\fR
+で設定ファイルを指定された場合のみ、 この設定の効果があります)
+.PP
+Dir::Parts
+設定は、指定されたディレクトリから、 字句単位の全ての設定断片を読みこみます。 これを設定した後に、メイン設定ファイルをロードします。
+.PP
+バイナリプログラムは
+Dir::Bin
+で指定します。
+Dir::Bin::Methods
+はメソッドハンドラの場所を指定し、
+gzip,
+dpkg,
+apt\-get,
+dpkg\-source,
+dpkg\-buildpackage,
+apt\-cache
+はそれぞれプログラムの場所を指定します。
+.SH "DSELECT での APT"
+.PP
+
+\fBdselect\fR(8)
+上で APT を使用する際、
+DSelect
+セクション以下の設定項目で、 デフォルトの動作を制御します。
+.PP
+Clean
+.RS 4
+キャッシュクリーンモード \- この値は always, prompt, auto, pre\-auto, never のうちひとつを取ります。 always と prompt は更新後、全パッケージをキャッシュから削除します。 (デフォルトの) prompt では条件付きで削除します。 auto はダウンロード不能パッケージ (例えば新バージョンで置き換えられたもの) を削除します。pre\-auto はこの動作を、 新パッケージをダウンロードする直前に行います。
+.RE
+.PP
+options
+.RS 4
+この変数の内容は、 install 時のコマンドラインオプションと同様に
+\fBapt-get\fR(8)
+に渡されます。
+.RE
+.PP
+Updateoptions
+.RS 4
+この変数の内容は、 update 時のコマンドラインオプションと同様に
+\fBapt-get\fR(8)
+に渡されます。
+.RE
+.PP
+PromptAfterUpdate
+.RS 4
+true の場合、
+\fBdselect\fR(8)
+の [U]pdate 実行時に、続行のためのプロンプトを毎回表示します。 デフォルトはエラーが発生した場合のみです。
+.RE
+.SH "APT が DPKG を呼ぶ方法"
+.PP
+数種の設定項目で APT がどのように
+\fBdpkg\fR(8)
+を呼び出すかを制御できます。
+DPkg
+セクションにあります。
+.PP
+options
+.RS 4
+dpkg に渡すオプションのリストです。 オプションは、リスト記法を使用して指定しなければなりません。 また、各リストは単一の引数として
+\fBdpkg\fR(8)
+に渡されます。
+.RE
+.PP
+Pre\-Invoke, Post\-Invoke
+.RS 4
+\fBdpkg\fR(8)
+を呼び出す前後で実行するシェルコマンドのリストです。
+options
+のようにリスト記法で指定しなければなりません。 コマンドは
+\fI/bin/sh\fR
+を使用して呼び出され、 何か問題があれば、APT は異常終了します。
+.RE
+.PP
+Pre\-Install\-Pkgs
+.RS 4
+\fBdpkg\fR(8)
+を呼び出す前に実行するシェルコマンドのリストです。
+options
+のようにリスト記法で指定しなければなりません。 コマンドは
+\fI/bin/sh\fR
+を通して呼び出され、 何か問題があれば、APT は異常終了します。 APT はインストールしようとする全 \&.deb ファイルのファイル名を、 ひとつずつコマンドの標準入力に送ります。
+.sp
+このプロトコルのバージョン 2 では、(プロトコルのバージョンや APT 設定スペース、パッケージを含む) 詳細情報やファイル、 変更されているバージョンを出力します。
+DPkg::Tools::options::cmd::Version
+に 2 を設定すると、 バージョン 2 を有効にできます。
+cmd
+は
+Pre\-Install\-Pkgs
+で与えられるコマンドです。
+.RE
+.PP
+Run\-Directory
+.RS 4
+APT は dpkg を呼び出す前にこのディレクトリに移動します。 デフォルトは
+\fI/\fR
+です。
+.RE
+.PP
+Build\-options
+.RS 4
+これらのオプションは、 パッケージのコンパイル時に
+\fBdpkg-buildpackage\fR(1)
+に渡されます。 デフォルトでは、署名を無効にし、全バイナリを生成します。
+.RE
+.SH "デバッグオプション"
+.PP
+debug
+の多くのオプションは、 普通のユーザにとって興味を引くものではありません。 しかし
+Debug::pkgProblemResolver
+で、 dist\-upgrade の判断についての興味深い出力が得られます。
+Debug::NoLockingは、 APT が非 root で操作できるようにファイルのロックを無効にしますし、
+Debug::pkgDPkgPMは、 dpkg を呼ぶ際のコマンドラインを出力します。
+Debug::IdentCdrom
+は、 CDROM ID の状態データの包含を無効にします。
+Debug::Acquire::gpgv
+gpgv 法のデバッグです。
+.SH "例"
+.PP
+\fI/usr/share/doc/apt/examples/configure\-index\&.gz\fR
+に、全利用可能オプションのデフォルト値を参照できる、 設定ファイルのサンプルがあります。
+.SH "ファイル"
+.PP
+\fI/etc/apt/apt\&.conf\fR
+.SH "関連項目"
+.PP
+\fBapt-cache\fR(8),
+\fBapt-config\fR(8),
+\fBapt_preferences\fR(5)\&.
+.SH "バグ"
+.PP
+\fIAPT バグページ\fR\&[1]を ご覧ください。 APT のバグを報告する場合は、
+\fI/usr/share/doc/debian/bug\-reporting\&.txt\fR
+や
+\fBreportbug\fR(1)
+コマンドをご覧ください。
+.SH "訳者"
+.PP
+倉澤 望
+<nabetaro@debian\&.or\&.jp>
+(2003\-2006), Debian JP Documentation ML
+<debian\-doc@debian\&.or\&.jp>
+.SH "AUTHORS"
+.PP
+\fBJason Gunthorpe\fR
+.sp -1n
+.IP "" 4
+Author.
+.PP
+\fBAPT team\fR
+.sp -1n
+.IP "" 4
+Author.
+.SH "NOTES"
+.IP " 1." 4
+APT バグページ
+.RS 4
+\%http://bugs.debian.org/src:apt
+.RE

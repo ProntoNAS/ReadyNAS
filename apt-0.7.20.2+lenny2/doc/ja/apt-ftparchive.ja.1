@@ -1,0 +1,615 @@
+.\"     Title: apt-ftparchive
+.\"    Author: Jason Gunthorpe
+.\" Generator: DocBook XSL Stylesheets v1.73.2 <http://docbook.sf.net/>
+.\"      Date: 29 February 2004
+.\"    Manual: 
+.\"    Source: Linux
+.\"
+.TH "APT\-FTPARCHIVE" "1" "29 February 2004" "Linux" ""
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.SH "NAME"
+apt-ftparchive \- インデックスファイル生成ユーティリティ
+.SH "SYNOPSIS"
+.HP 15
+\fBapt\-ftparchive\fR [\fB\-hvdsq\fR] [\fB\-\-md5\fR] [\fB\-\-delink\fR] [\fB\-\-readonly\fR] [\fB\-\-contents\fR] [\fB\-o=\fR\fB\fIconfig\ string\fR\fR] [\fB\-c=\fR\fB\fIfile\fR\fR] {[packages\ \fIpath\fR...\ [\fIoverride\fR\ [\fIpathprefix\fR]]] | [sources\ \fIpath\fR...\ [\fIoverride\fR\ [\fIpathprefix\fR]]] | [contents\ \fIpath\fR] | [release\ \fIpath\fR] | [generate\ \fIconfig\-file\fR\ \fIsection\fR...] | [clean\ \fIconfig\-file\fR]}
+.SH "説明"
+.PP
+\fBapt\-ftparchive\fR
+は、 APT が取得元にアクセスするのに必要な、 インデックスファイルを生成するコマンドラインツールです。 インデックスファイルは、元のサイトの内容に基づき生成されるべきです。
+.PP
+\fBapt\-ftparchive\fR
+は、
+\fBdpkg-scanpackages\fR(8)
+プログラムのスーパーセットで、
+packages
+コマンド経由で機能全体を取り込んでいます。 また、contents ファイルジェネレータ
+contents
+と 完全なアーカイブの生成プロセス「スクリプト」である綿密な手段を含んでいます。
+.PP
+本質的に
+\fBapt\-ftparchive\fR
+は、 \&.deb ファイルの内容をキャッシュするのにバイナリデータベースを使用できます。 また、\fBgzip\fR(1)
+以外のいかなる外部プログラムにも依存しません。 すべて生成する際には、 ファイル変更点の検出と希望した圧縮出力ファイルの作成を自動的に実行します。
+.PP
+\fB\-h\fR
+オプションや
+\fB\-\-help\fR
+オプションを除き、 以下に挙げるコマンドが必要です。
+.PP
+packages
+.RS 4
+
+packages コマンドは、 ディレクトリツリーからパッケージファイルを生成します。 与えられたディレクトリから再帰検索し、\&.deb ファイルを取得します。 またパッケージレコードを標準出力にそれぞれ出力します。 このコマンドは、\fBdpkg-scanpackages\fR(8)
+とほぼ同じです。
+.sp
+\fB\-\-db\fR
+オプションで、 キャッシュ DB を指定できます。
+.RE
+.PP
+sources
+.RS 4
+
+
+sources
+コマンドは、 ディレクトリツリーからソースインデックスファイルを生成します。 与えられたディレクトリから再帰検索し、\&.dsc ファイルを取得します。 またソースレコードを標準出力にそれぞれ出力します。 このコマンドは、\fBdpkg-scansources\fR(8)
+とほぼ同じです。
+.sp
+
+override ファイルを指定した場合、 src 拡張子がついたソースオーバーライドファイルを探します。 使用するソースオーバーライドファイルを変更するのには、 \-\-source\-override オプションを使用します。
+.RE
+.PP
+contents
+.RS 4
+
+
+contents
+コマンドは、 ディレクトリツリーからコンテンツファイルを生成します。 与えられたディレクトリから再帰検索し、\&.deb ファイルを取得します。 またファイルごとにファイル一覧を読み取ります。 その後、パッケージに対応するファイル一覧を標準出力にソートして出力します。 ディレクトリは出力に含まれません。 複数のパッケージが同じファイルを持つ場合、 パッケージ名をカンマ区切りで出力します。
+.sp
+
+
+\fB\-\-db\fR
+オプションで、 キャッシュ DB を指定できます。
+.RE
+.PP
+release
+.RS 4
+
+
+release
+コマンドは、 ディレクトリツリーから Release ファイルを生成します。 与えられたディレクトリから、Packages, Packages\&.gz, Packages\&.bz2, Sources, Sources\&.gz, Sources\&.bz2, Release, md5sum\&.txt といったファイルを再帰検索します。 その後、ファイルごとの MD5 ダイジェストと SHA1 ダイジェストを含んだ Release ファイルを、標準出力に書き出します。
+.sp
+
+Release ファイルの追加メタデータフィールドの値は、
+APT::FTPArchive::Release
+以下の相当する値 (例:
+APT::FTPArchive::Release::Origin) をとります。 サポートするフィールドは、
+Origin,
+Label,
+Suite,
+Version,
+Codename,
+Date,
+Architectures,
+Components,
+Description
+です。
+.RE
+.PP
+generate
+.RS 4
+
+
+generate
+コマンドは、 cron スクリプトから実行できるよう設計されており、 与えられた設定ファイルに従ってインデックスを生成します。 設定言語は、必要な設定を維持する簡単な方法を提供すると共に、 インデックスファイルをどのディレクトリから作成するかを指定する、 柔軟な方法を提供します。
+.RE
+.PP
+clean
+.RS 4
+
+
+clean
+コマンドは、 設定ファイルで与えられたデータベースを、 もう必要ないレコードを削除して整理します。
+.RE
+.SH "GENERATE 設定"
+.PP
+
+
+generate
+コマンドは、 生成するアーカイブに関する記述をした設定ファイルを使用します。 設定ファイルは、bind 8 や dhcpd といった ISC ツールに見られるような、 ISC 設定フォーマットに従います。
+\fBapt.conf\fR(5)
+に、文法の説明があります。 generate 設定はセクション法で解析しますが、
+\fBapt.conf\fR(5)
+はツリー法で解析するのに注意してください。 これはスコープタグの扱い方に違いがあるだけです。
+.PP
+
+generate 設定には 4 個の独立したセクションがあります。 以下それぞれ説明します。
+.SS "Dir セクション"
+.PP
+
+
+Dir
+セクションは、 生成プロセスで必要なファイルを配置するための、 標準ディレクトリを定義します。 このディレクトリは、完全な絶対パスを生成するため、 後のセクションで定義される相対パスの前に結合します。
+.PP
+ArchiveDir
+.RS 4
+
+FTP アーカイブのルートを指定します。 標準的な Debian 設定では、このディレクトリには
+\fIls\-LR\fR
+と dist ノードがあります。
+.RE
+.PP
+OverrideDir
+.RS 4
+
+オーバーライドファイルの場所を指定します。
+.RE
+.PP
+CacheDir
+.RS 4
+
+キャッシュファイルの場所を指定します。
+.RE
+.PP
+FileListDir
+.RS 4
+
+
+FileList
+設定が以下で使用されている場合、 ファイルリストファイルの場所を指定します。
+.RE
+.SS "Default セクション"
+.PP
+
+
+Default
+セクションではデフォルト値を指定します。 また、生成器の動作を制御する設定も行います。 他のセクションでは、ここにあるデフォルト値を、 セクションごとの設定で上書きします。
+.PP
+Packages::Compress
+.RS 4
+
+Package インデックスファイルのデフォルトの圧縮方法を設定します。 少なくともひとつは \'\&.\' (圧縮なし), \'gzip\', \'bzip2\' が入る、 空白区切りの文字列です。 圧縮方法のデフォルトはすべて \'\&. gzip\' です。
+.RE
+.PP
+Packages::Extensions
+.RS 4
+
+パッケージファイル拡張子のデフォルト値を列挙します。 このデフォルト値は \'\&.deb\' です。
+.RE
+.PP
+Sources::Compress
+.RS 4
+
+
+Packages::Compress
+と同様に、 Sources ファイルの圧縮方法を指定します。
+.RE
+.PP
+Sources::Extensions
+.RS 4
+
+ソースファイル拡張子のデフォルト値を列挙します。 このデフォルト値は \'\&.dsc\' です。
+.RE
+.PP
+Contents::Compress
+.RS 4
+
+
+Packages::Compress
+と同様に、 Contents ファイルの圧縮方法を指定します。
+.RE
+.PP
+DeLinkLimit
+.RS 4
+
+実行するごとに delink (及びハードリンクの置き換え) する量を、 キロバイト単位で指定します。セクションごとの
+External\-Links
+設定と合わせて使います。
+.RE
+.PP
+FileMode
+.RS 4
+
+作成したインデックスファイルのモードを指定します。 デフォルトは 0644 です。全インデックスファイルは、 umask を無視してこのモードを使用します。
+.RE
+.SS "TreeDefault セクション"
+.PP
+
+特定の
+Tree
+セクションのデフォルトを設定します。 これらの変数はすべて置換変数であり、 文字列 $(DIST), $(SECTION), $(ARCH) をそれぞれの値に展開します。
+.PP
+MaxContentsChange
+.RS 4
+
+日毎に生成する contents ファイルをキロバイト単位で設定します。 contents ファイルをラウンドロビンし、数日経つとすべて再生成します。
+.RE
+.PP
+ContentsAge
+.RS 4
+
+変更がない contents ファイルをチェックする日数を指定します。 この制限を越えた contents ファイルの mtime を、更新します。 パッケージファイルが変更されても、 [例えば上書き編集で] contents ファイルが更新されないような場合、 こういったことが発生します。 新しい \&.deb ファイルをインストールしたい場合、保留を解除でき、 少なくとも新しいファイルが必要です。 デフォルトは 10 で、単位は日です。
+.RE
+.PP
+Directory
+.RS 4
+
+\&.deb ディレクトリツリーの先頭を設定します。デフォルトは
+\fI$(DIST)/$(SECTION)/binary\-$(ARCH)/\fR
+です。
+.RE
+.PP
+SrcDirectory
+.RS 4
+
+ソースパッケージディレクトリツリーの先頭を設定します。デフォルトは
+\fI$(DIST)/$(SECTION)/source/\fR
+です。
+.RE
+.PP
+Packages
+.RS 4
+
+Packages ファイルの出力先を設定します。デフォルトは
+\fI$(DIST)/$(SECTION)/binary\-$(ARCH)/Packages\fR
+です。
+.RE
+.PP
+Sources
+.RS 4
+
+Packages ファイルの出力先を設定します。デフォルトは
+\fI$(DIST)/$(SECTION)/source/Sources\fR
+です。
+.RE
+.PP
+InternalPrefix
+.RS 4
+
+外部リンクではなく、内部リンクと見なす判断材料となる、 パスのプレフィックスを設定します。デフォルトは、
+\fI$(DIST)/$(SECTION)/\fR
+です。
+.RE
+.PP
+Contents
+.RS 4
+
+Contents ファイルの出力先を設定します。デフォルトは、
+\fI$(DIST)/Contents\-$(ARCH)\fR
+です。 複数の Packages ファイルを ひとつの Contents ファイルにまとめられる設定 (デフォルト) の場合、\fBapt\-ftparchive\fR
+は自動でパッケージファイルをまとめます。
+.RE
+.PP
+Contents::Header
+.RS 4
+
+contents の出力に付けるヘッダファイルを設定します。
+.RE
+.PP
+BinCacheDB
+.RS 4
+
+このセクションで使用するバイナリキャッシュデータベースを設定します。 複数のセクションで同じデータベースを共有できます。
+.RE
+.PP
+FileList
+.RS 4
+
+ディレクトリツリーを走査する代わりに、\fBapt\-ftparchive\fR
+が読み込むファイル一覧ファイルを指定します。 相対ファイル名は、アーカイブディレクトリが先頭につきます。
+.RE
+.PP
+SourceFileList
+.RS 4
+
+ディレクトリツリーを走査する代わりに、\fBapt\-ftparchive\fR
+が読み込むファイル一覧ファイルを指定します。 相対ファイル名は、アーカイブディレクトリが先頭につきます。 ソースインデックスを処理する際に使用します。
+.RE
+.SS "Tree セクション"
+.PP
+
+
+Tree
+セクションでは、 ベースディレクトリからの標準 Debian ファイルツリー、 ベースディレクトリの複数のセクション、 最終的にはセクションごとの複数のアーキテクチャを定義します。 使用する正確なパスは、Directory
+変数で定義されます。
+.PP
+
+
+Tree
+セクションは、
+$(DIST)
+変数で設定されているスコープタグをとり、 ツリーのルート (ArchiveDirが先頭につくパス) を定義します。 通常、この設定は
+\fIdists/woody\fR
+のようになります。
+.PP
+
+
+TreeDefault
+セクションで定義される設定はすべて、 3 個の新しい変数と同様に、
+Tree
+セクションで使用できます。
+.PP
+
+
+Tree
+セクションを処理する際、
+\fBapt\-ftparchive\fR
+は以下のような操作を行います。
+.sp .RS 4 .nf for i in Sections do for j in Architectures do Generate for DIST=scope SECTION=i ARCH=j .fi .RE
+.PP
+Sections
+.RS 4
+
+distribution 以下に現れるセクションを、空白区切りで指定したリストです。 通常、main contrib non\-freeのようになります。
+.RE
+.PP
+Architectures
+.RS 4
+
+search セクション以下に現れるアーキテクチャを、 空白区切りで指定したリストです。 特殊アーキテクチャ \'source\' は、 ソースアーカイブのツリーであることを示します。
+.RE
+.PP
+BinOverride
+.RS 4
+
+バイナリオーバーライドファイルを設定します。 このオーバーライドファイルには、セクション、優先度、 メンテナのアドレスといった情報が含まれています。
+.RE
+.PP
+SrcOverride
+.RS 4
+
+ソースオーバーライドファイルを設定します。 このオーバーライドファイルには、 セクションの情報が含まれています。
+.RE
+.PP
+ExtraOverride
+.RS 4
+
+バイナリ特別オーバーライドファイルを設定します。
+.RE
+.PP
+SrcExtraOverride
+.RS 4
+
+ソース特別オーバーライドファイルを設定します。
+.RE
+.SS "BinDirectory セクション"
+.PP
+
+
+bindirectory
+セクションでは、 特殊な構造を持たないバイナリディレクトリツリーを定義します。 スコープタグはバイナリディレクトリの場所を指定し、 設定は、変数展開のない
+Tree
+セクションや
+SectionArchitecture
+設定に似ています。
+.PP
+Packages
+.RS 4
+
+Packages ファイルの出力先を設定します。
+.RE
+.PP
+SrcPackages
+.RS 4
+
+Sources ファイルの出力先を設定します。 少なくとも
+Packages
+や
+SrcPackages
+は設定されていなければなりません。
+.RE
+.PP
+Contents
+.RS 4
+
+Contents ファイルの出力先を設定します。(オプション)
+.RE
+.PP
+BinOverride
+.RS 4
+
+バイナリオーバーライドファイルを設定します。
+.RE
+.PP
+SrcOverride
+.RS 4
+
+ソースオーバーライドファイルを設定します。
+.RE
+.PP
+ExtraOverride
+.RS 4
+
+バイナリ特別オーバーライドファイルを設定します。
+.RE
+.PP
+SrcExtraOverride
+.RS 4
+
+ソース特別オーバーライドファイルを設定します。
+.RE
+.PP
+BinCacheDB
+.RS 4
+
+キャッシュ DB を設定します。
+.RE
+.PP
+PathPrefix
+.RS 4
+
+全出力パスに付加するパス。
+.RE
+.PP
+FileList, SourceFileList
+.RS 4
+
+ファイル一覧ファイルを指定します。
+.RE
+.SH "バイナリオーバーライドファイル"
+.PP
+バイナリオーバーライドファイルは、
+\fBdpkg-scanpackages\fR(8)
+と完全に互換性があります。 ここには、空白区切りでフィールドが 4 個あります。 先頭のフィールドはパッケージ名、 2 番目のフィールドはパッケージに強制する優先度、 3 番目のフィールドはパッケージに強制するセクション、 最後のフィールドはメンテナ順列フィールドです。
+.PP
+メンテナフィールドは一般的には、
+.sp
+.RS 4
+.nf
+old [// oldn]* => new
+.fi
+.RE
+.sp
+という形式か、単純に
+.sp
+.RS 4
+.nf
+new
+.fi
+.RE
+.sp
+となります。 最初の形式は、// で区切られた古い email アドレスのリストを許可します。 この形式がある場合は、メンテナフィールドになるよう new に置換してください。 2 番目の形式は無条件にメンテナフィールドに置換します。
+.SH "ソースオーバーライドファイル"
+.PP
+
+ソースオーバーライドファイルは、
+\fBdpkg-scansources\fR(8)
+と完全に互換性があります。 ここには、空白区切りでフィールドが 2 個あります。 先頭のフィールドはソースパッケージ名、 2 番目のフィールドは割り当てるセクションです。
+.SH "特別オーバーライドファイル"
+.PP
+
+特別オーバーライドファイルは、 出力中に任意のタグを追加・置換できるようにします。 3 列からなり、先頭はパッケージ、2番目はタグ、残りは新しい値です。
+.SH "オプション"
+.PP
+この説明で示したオプションは、 すべて設定ファイルを使用して設定できます。 設定ファイルに書いた真偽値をとるオプションは
+\fB\-f\-\fR,\fB\-\-no\-f\fR,
+\fB\-f=no\fR
+などのようにして上書きできます。
+.PP
+\fB\-\-md5\fR
+.RS 4
+
+MD5 sum を生成します。デフォルトで on になっており、 off にすると生成したインデックスファイルに MD5Sum フィールドがありません。 設定項目 \-
+APT::FTPArchive::MD5
+.RE
+.PP
+\fB\-d\fR, \fB\-\-db\fR
+.RS 4
+
+バイナリキャッシュ DB を使用します。 generate コマンドには影響しません。 設定項目 \-
+APT::FTPArchive::DB
+.RE
+.PP
+\fB\-q\fR, \fB\-\-quiet\fR
+.RS 4
+
+静粛 \- 進捗表示を省略し、ログをとるのに便利な出力を行います。 最大 2 つまで q を重ねることでより静粛にできます。 また、\fB\-q=#\fR
+のように静粛レベルを指定して、 設定ファイルを上書きすることもできます。 設定項目 \-
+quiet
+.RE
+.PP
+\fB\-\-delink\fR
+.RS 4
+
+Delink を実行します。
+External\-Links
+設定を使用している場合、 このオプションはファイルの delink を有効にします。 デフォルトは on で、 off にするには
+\fB\-\-no\-delink\fR
+としてください。 設定項目 \-
+APT::FTPArchive::DeLinkAct
+.RE
+.PP
+\fB\-\-contents\fR
+.RS 4
+
+contents の生成を行います。このオプションを指定し、 パッケージインデックスをキャッシュ DB と共に生成する際、 ファイルリストを後で使用するように、抽出し DB に格納します。 generate コマンドを使用する際、 このオプションでいずれの Contents ファイルも作成できます。 デフォルトは on です。 設定項目 \-
+APT::FTPArchive::Contents
+.RE
+.PP
+\fB\-s\fR, \fB\-\-source\-override\fR
+.RS 4
+
+
+sources
+コマンドで使用する、 ソースオーバーライドファイルを選択します。 設定項目 \-
+APT::FTPArchive::SourceOverride
+.RE
+.PP
+\fB\-\-readonly\fR
+.RS 4
+
+キャッシュデータベースを読み取り専用にします。 設定項目 \-
+APT::FTPArchive::ReadOnlyDB
+.RE
+.PP
+\fB\-h\fR, \fB\-\-help\fR
+.RS 4
+使い方の短い要約を表示します。
+.RE
+.PP
+\fB\-v\fR, \fB\-\-version\fR
+.RS 4
+プログラムのバージョンを表示します。
+.RE
+.PP
+\fB\-c\fR, \fB\-\-config\-file\fR
+.RS 4
+設定ファイル。 使用する設定ファイルを指定します。 この設定ファイルが読めない場合はデフォルトの設定ファイルを読み込みます。 文法については
+\fBapt.conf\fR(5)
+を参照してください。
+.RE
+.PP
+\fB\-o\fR, \fB\-\-option\fR
+.RS 4
+設定オプションのセット。任意の設定オプションをセットします。 文法は
+\fB\-o Foo::Bar=bar\fR
+となります。
+.RE
+.SH "サンプル"
+.PP
+バイナリパッケージ (\&.deb) があるディレクトリの Packages ファイルを生成するには、以下のようにします。
+.sp
+.RS 4
+.nf
+\fBapt\-ftparchive\fR packages \fIdirectory\fR | \fBgzip\fR > \fIPackages\&.gz\fR
+.fi
+.RE
+.SH "関連項目"
+.PP
+\fBapt.conf\fR(5)
+.SH "診断メッセージ"
+.PP
+\fBapt\-ftparchive\fR
+は正常終了時に 0 を返します。 エラー時には十進の 100 を返します。
+.SH "バグ"
+.PP
+\fIAPT バグページ\fR\&[1]を ご覧ください。 APT のバグを報告する場合は、
+\fI/usr/share/doc/debian/bug\-reporting\&.txt\fR
+や
+\fBreportbug\fR(1)
+コマンドをご覧ください。
+.SH "訳者"
+.PP
+倉澤 望
+<nabetaro@debian\&.or\&.jp>
+(2003\-2006), Debian JP Documentation ML
+<debian\-doc@debian\&.or\&.jp>
+.SH "AUTHORS"
+.PP
+\fBJason Gunthorpe\fR
+.sp -1n
+.IP "" 4
+Author.
+.PP
+\fBAPT team\fR
+.sp -1n
+.IP "" 4
+Author.
+.SH "NOTES"
+.IP " 1." 4
+APT バグページ
+.RS 4
+\%http://bugs.debian.org/src:apt
+.RE

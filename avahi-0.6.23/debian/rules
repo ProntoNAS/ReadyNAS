@@ -1,0 +1,84 @@
+#!/usr/bin/make -f
+
+include /usr/share/emdebian-tools/emdebhelper.mk
+include /usr/share/cdbs/1/class/autotools.mk
+include /usr/share/cdbs/1/rules/simple-patchsys.mk
+include /usr/share/cdbs/1/rules/buildvars.mk
+include debian/clean-la.mk
+
+# List any files which are not installed
+include /usr/share/cdbs/1/rules/utils.mk
+common-binary-post-install-arch:: list-missing
+
+# Ensure at build time that the library has no dependencies on undefined
+# symbols, and speed up loading.
+LDFLAGS += -Wl,-z,defs -Wl,-O1
+
+DEB_CONFIGURE_EXTRA_FLAGS += --enable-compat-libdns_sd --enable-compat-howl \
+                             --disable-mono --disable-monodoc \
+                             --disable-mono --disable-monodoc --disable-python \
+                             --disable-doxygen-doc --disable-pygtk --disable-gtk --disable-glib \
+                             --disable-python-dbus --disable-core-docs \
+                             --disable-qt3 --disable-qt4 --disable-gobject \
+                             --with-distro=debian --cache-file=$(DEB_HOST_GNU_TYPE).cache
+
+DEB_CONFIGURE_SCRIPT_ENV=
+# Only enable the stack protector on certain archs
+ifeq (,$(filter $(DEB_HOST_ARCH), powerpc s390 sparc amd64 i386 lpia))
+  DEB_CONFIGURE_EXTRA_FLAGS += --disable-stack-protector
+endif
+
+ifneq (linux,$(DEB_HOST_ARCH_OS))
+	DEB_CONFIGURE_EXTRA_FLAGS += --disable-autoipd
+endif
+
+DEB_UPDATE_RCD_PARAMS_avahi-daemon := start 14 2 3 4 5 . stop 86 0 1 6 .
+DEB_UPDATE_RCD_PARAMS_avahi-dnsconfd := start 16 2 3 4 5 . stop 84 0 1 6 .
+
+DEB_INSTALL_DOCS_ALL += docs/README docs/NEWS
+
+DEB_SHLIBDEPS_INCLUDE := debian/libavahi-common3/usr/lib \
+                         debian/libavahi-core4/usr/lib \
+                         debian/libavahi-client3/usr/lib \
+                         debian/libavahi-glib1/usr/lib \
+                         debian/libavahi-ui0/usr/lib
+
+# ensure that ServiceTypeDatabase.py is regenerated 
+pre-build::
+	-rm -f avahi-python/avahi/ServiceTypeDatabase.py
+
+common-build-arch::
+	# create an up to date PO template
+	cd po; intltool-update -p --verbose
+
+clean::
+	rm -f po/*.pot
+
+binary-install/avahi-discover::
+	dh_pysupport -p$(cdbs_curpkg)
+	rm -f debian/tmp/usr/lib/python*/site-packages/avahi/*.py[co]
+
+binary-install/python-avahi::
+	dh_pysupport -p$(cdbs_curpkg)
+	rm -f debian/tmp/usr/lib/python*/site-packages/avahi/*.py[co]
+
+install/avahi-autoipd::
+	install -D -o root -g root -m 755 debian/avahi-autoipd.ifup \
+		debian/$(cdbs_curpkg)/etc/network/if-up.d/avahi-autoipd
+	install -D -o root -g root -m 755 debian/avahi-autoipd.ifdown \
+		debian/$(cdbs_curpkg)/etc/network/if-down.d/avahi-autoipd
+
+install/avahi-daemon::
+	install -D -o root -g root -m 755 debian/avahi-daemon.ifupdown \
+		debian/$(cdbs_curpkg)/etc/network/if-up.d/avahi-daemon
+	install -D -o root -g root -m 755 debian/avahi-daemon.resolvconf \
+		debian/$(cdbs_curpkg)/etc/resolvconf/update-libc.d/avahi-daemon
+	install -D -o root -g root -m 755 debian/avahi-daemon-check-dns.sh \
+		debian/$(cdbs_curpkg)/usr/lib/avahi/avahi-daemon-check-dns.sh
+
+ifeq (linux,$(DEB_HOST_ARCH_OS))
+common-install-impl::
+	mv $(DEB_DESTDIR)/etc/dhcp3/dhclient-exit-hooks.d/avahi-autoipd \
+		$(DEB_DESTDIR)/etc/dhcp3/dhclient-exit-hooks.d/zzz_avahi-autoipd
+endif
+

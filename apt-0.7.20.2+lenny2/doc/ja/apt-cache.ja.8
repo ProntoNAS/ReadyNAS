@@ -1,0 +1,388 @@
+.\"     Title: apt-cache
+.\"    Author: Jason Gunthorpe
+.\" Generator: DocBook XSL Stylesheets v1.73.2 <http://docbook.sf.net/>
+.\"      Date: 29 February 2004
+.\"    Manual: 
+.\"    Source: Linux
+.\"
+.TH "APT\-CACHE" "8" "29 February 2004" "Linux" ""
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.SH "NAME"
+apt-cache \- APT パッケージ操作ユーティリティ -- キャッシュ操作
+.SH "SYNOPSIS"
+.HP 10
+\fBapt\-cache\fR [\fB\-hvsn\fR] [\fB\-o=\fR\fB\fIconfig\ string\fR\fR] [\fB\-c=\fR\fB\fIfile\fR\fR] {[add\ \fIfile\fR...] | [gencaches] | [showpkg\ \fIpkg\fR...] | [showsrc\ \fIpkg\fR...] | [stats] | [dump] | [dumpavail] | [unmet] | [search\ \fIregex\fR] | [show\ \fIpkg\fR...] | [depends\ \fIpkg\fR...] | [rdepends\ \fIpkg\fR...] | [pkgnames\ \fIprefix\fR] | [dotty\ \fIpkg\fR...] | [policy\ \fIpkgs\fR...] | [madison\ \fIpkgs\fR...]}
+.SH "説明"
+.PP
+\fBapt\-cache\fR
+は APT のパッケージキャッシュに対して、 さまざまな操作を行います。
+\fBapt\-cache\fR
+は、システム状態の操作は行いませんが、 パッケージのメタデータより検索したり、 興味深い出力を生成するといった操作を提供します。
+.PP
+\fB\-h\fR
+オプションや
+\fB\-\-help\fR
+オプションを除き、 以下に挙げるコマンドが必要です。
+.PP
+add \fIfile(s)\fR
+.RS 4
+add
+は、 パッケージキャッシュに指定したパッケージインデックスファイルを追加します。 デバッグ専用です。
+.RE
+.PP
+gencaches
+.RS 4
+gencaches
+は、
+\fBapt\-get check\fR
+と同じ動作を提供します。 これは
+\fBsources.list\fR(5)
+内の取得元と
+\fI/var/lib/dpkg/status\fRから、 ソースとパッケージのキャッシュを構築します。
+.RE
+.PP
+showpkg \fIpkg(s)\fR
+.RS 4
+showpkg
+は、 コマンドライン上に列挙したパッケージの情報を表示します。 後に続く引数はパッケージ名となります。 各パッケージについて、有効なバージョンと被依存関係を列挙し、 さらにその各バージョンについて依存関係を表示します。 (通常の) 依存関係とは、対象のパッケージが依存しているパッケージを指します。 また、被依存関係とは、対象のパッケージに依存しているパッケージを指します。 従って、パッケージの依存関係は満たさなければなりませんが、 被依存関係は満たす必要はありません。 実例として、以下に
+\fBapt\-cache showpkg libreadline2\fR
+の 出力を掲げます。
+.sp
+.RS 4
+.nf
+Package: libreadline2
+Versions: 2\&.1\-12(/var/state/apt/lists/foo_Packages),
+Reverse Depends: 
+  libreadlineg2,libreadline2
+  libreadline2\-altdev,libreadline2
+Dependencies:
+2\&.1\-12 \- libc5 (2 5\&.4\&.0\-0) ncurses3\&.0 (0 (null))
+Provides:
+2\&.1\-12 \- 
+Reverse Provides: 
+.fi
+.RE
+つまり、libreadline2 の version 2\&.1\-12 は、 libc5 と ncurses3\&.0 に依存していて、libreadline2 が動作するには、 これらをインストールする必要があるということが判ります。 一方、libreadlineg2 と libreadline2\-altdev は libreadline2 に依存しています。 libreadline2 をインストールするためには、libc5, ncurses3\&.0, ldso を すべてインストールしなければなりませんが、libreadlineg2 と libreadline2\-altdev はインストールする必要はありません。 出力の残りの部分の意味については、 apt のソースコードを調べるのが最良でしょう。
+.RE
+.PP
+stats
+.RS 4
+stats
+はキャッシュについての統計情報を表示します。 それ以上、引数は必要ありません。以下の統計情報を表示します。
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'パッケージ名総数は、 キャッシュに存在するパッケージ数を表します。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'通常パッケージは、 公式の普通のパッケージ数を表します。 これは、他のパッケージの依存関係で使用された名称で、それが一対一に対応 するパッケージです。 大多数のパッケージはこのカテゴリに入ります。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'純粋仮想パッケージは、 仮想パッケージ名としてのみ存在するパッケージ (仮想パッケージ名のみを「提供」し、 実際にはいかなるパッケージもその名称を持たない) の数を表します。 例えば、Debian GNU/Linux システムでは "mail\-transport\-agent" は純粋仮想パッケージです。 "mail\-transport\-agent" を提供するパッケージはいくつもありますが、 "mail\-transport\-agent" という名称のパッケージはありません。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'単一仮想パッケージは、 特定の仮想パッケージ名を提供するパッケージが、 ただ一つの場合の数を表します。 例えば、Debian GNU/Linux システムでは、"X11\-text\-viewer" は仮想パッケージですが、"X11\-text\-viewer" を提供するパッケージは、 xless パッケージのみということです。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'複合仮想パッケージは、 その仮想パッケージ名を提供するパッケージが複数あるか、 またパッケージ名と同じ仮想パッケージ名を持つパッケージ数を表します。 例えば、Debian GNU/Linux システムでは、 debconf は実際のパッケージ名でもありますが、 debconf\-tiny によって提供もされています。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'欠落は、依存関係中には存在するのに、 どのパッケージにも提供されていないパッケージ名の数を表します。 このパッケージがあるということは、 全ディストリビューションにアクセスできていないか、 (実ないし仮想) パッケージがディストリビューションからはずされてしまった可能性もあります。 通常では、構文が矛盾するとこのようになります。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'個別バージョン総数は、 キャッシュに存在するパッケージのバージョンの数を表します。 そのため、この値は最小でもパッケージ名総数と一致します。 もし複数のディストリビューション (例 "stable" と "unstable" の両方) を利用した場合、 この値はパッケージ名総数よりもかなり大きい数になります。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'依存関係総数は、 キャッシュにあるすべてのパッケージで要求された依存関係の数です。
+.RE
+.IP "" 4
+.RE
+.PP
+showsrc \fIpkg(s)\fR
+.RS 4
+showsrc
+は、 指定したパッケージ名に一致するソースパッケージを、すべて表示します。 バイナリになるときの名称を宣言したレコードと同様に、 すべてのバージョンについて表示します。
+.RE
+.PP
+dump
+.RS 4
+dump
+は、 キャッシュ内のパッケージそれぞれについて、短い一覧を表示します。 主にデバッグ用です。
+.RE
+.PP
+dumpavail
+.RS 4
+dumpavail
+は、 標準出力に利用可能なものの一覧を出力します。
+\fBdpkg\fR(8)
+と共に使用すると便利ですし、
+\fBdselect\fR(8)
+でも使用されます。
+.RE
+.PP
+unmet
+.RS 4
+unmet
+は、 パッケージキャッシュ内にある、 不適当な依存関係の概要を表示します。
+.RE
+.PP
+show \fIpkg(s)\fR
+.RS 4
+show
+は、
+\fBdpkg \-\-print\-avail\fR
+と同様の機能を実行します。 これは、指定したパッケージのパッケージレコードの表示です。
+.RE
+.PP
+search \fIregex [ regex \&.\&.\&. ]\fR
+.RS 4
+search
+は、与えられた正規表現によって、 すべての利用可能なパッケージに対して全文検索を行います。 パッケージ名と説明に対して検索を行い、 パッケージ名と短い説明文を表示します。
+\fB\-\-full\fR
+が与えられた場合、マッチしたパッケージに対し
+show
+と同じ情報を出力します。
+\fB\-\-names\-only\fR
+が与えられた場合は、 説明文に対して検索を行わず、パッケージ名に対してのみ対象とします。
+.sp
+
+空白で区切った引数で、 複数の検索パターンの and をとることができます。
+.RE
+.PP
+depends \fIpkg(s)\fR
+.RS 4
+depends
+は、 パッケージが持っている依存関係と、 その依存関係を満たす他のパッケージの一覧を表示します。
+.RE
+.PP
+rdepends \fIpkg(s)\fR
+.RS 4
+rdepends
+は、 パッケージが持つ被依存関係を一覧表示します。
+.RE
+.PP
+pkgnames \fI[ prefix ]\fR
+.RS 4
+このコマンドは、 システムでの各パッケージの名称を表示します。 オプションの引数により、取得する一覧より先頭一致で抽出することができます。 この出力はシェルのタブによる補完機能に使いやすく、 また非常に速く生成されます。 このコマンドは
+\fB\-\-generate\fR
+オプションと共に使用すると、 非常に便利です。
+.RE
+.PP
+dotty \fIpkg(s)\fR
+.RS 4
+dotty
+は、 コマンドライン上のパッケージ名から、
+\fIGraphViz\fR\&[1]
+パッケージの dotty コマンドで利用するのに便利な出力を生成します。 結果はパッケージの関係を表わす、ノード・エッジのセットで表現されます。 デフォルトでは、すべての依存パッケージをトレースするので、 非常に大きい図が得られます。 これは、APT::Cache::GivenOnly
+オプションを設定して解除できます。
+.sp
+結果のノードは数種の形状をとります。 通常パッケージは四角、純粋仮想パッケージは三角、複合仮想パッケージは菱形、 六角形は欠落パッケージをそれぞれ表します。 オレンジの四角は再帰が終了した「リーフパッケージ」、青い線は先行依存、 緑の線は競合を表します。
+.sp
+注意) dotty は、 パッケージのより大きなセットのグラフは描けません。
+.RE
+.PP
+policy \fI[ pkg(s) ]\fR
+.RS 4
+policy
+は、 設定ファイル関係の問題について、デバッグを支援します。 引数を指定しなかった場合、取得元ごとの優先順位を表示します。 一方、パッケージ名を指定した場合、 優先順の詳細情報を表示します。
+.RE
+.PP
+madison \fI/[ pkg(s) ]\fR
+.RS 4
+apt\-cache
+の
+madison
+コマンドは、Debian アーカイブ管理ツール
+madison
+の機能のサブセットで、出力フォーマットを真似ようとします。 パッケージの利用可能バージョンを表形式で表示します。 オリジナルの
+madison
+と違い、 APT がパッケージ一覧を検索したアーキテクチャ (APT::Architecture) の情報を表示するだけです。
+.RE
+.SH "オプション"
+.PP
+この説明で示したオプションは、 すべて設定ファイルを使用して設定できます。 設定ファイルに書いた真偽値をとるオプションは
+\fB\-f\-\fR,\fB\-\-no\-f\fR,
+\fB\-f=no\fR
+などのようにして上書きできます。
+.PP
+\fB\-p\fR, \fB\-\-pkg\-cache\fR
+.RS 4
+パッケージキャッシュを格納するファイルを選択します。 パッケージキャッシュは、すべての操作で使用される一次キャッシュです。 設定項目 \-
+Dir::Cache::pkgcache
+.RE
+.PP
+\fB\-s\fR, \fB\-\-src\-cache\fR
+.RS 4
+ソースキャッシュを格納するファイルを選択します。 このソースキャッシュは
+gencaches
+でのみ使用され、 ここに解析された取得元のパッケージ情報が格納されています。 パッケージキャッシュを構築する際に、ソースキャッシュは、 全パッケージファイルを再解析を避ける上で便利です。
+設定項目 \-
+Dir::Cache::srcpkgcache
+.RE
+.PP
+\fB\-q\fR, \fB\-\-quiet\fR
+.RS 4
+静粛 \- 進捗表示を省略し、 ログをとるのに便利な出力を行います。 最大 2 つまで q を重ねることでさらに静粛にできます。 また、\fB\-q=#\fR
+のように静粛レベルを指定して、 設定ファイルを上書きすることもできます。 設定項目 \-
+quiet
+.RE
+.PP
+\fB\-i\fR, \fB\-\-important\fR
+.RS 4
+「重要」依存関係のみ表示 \- unmet と共に使用します。 これは「依存」関係と「先行依存」関係のみを表示するためです。 設定項目 \-
+APT::Cache::Important
+.RE
+.PP
+\fB\-f\fR, \fB\-\-full\fR
+.RS 4
+search 時に全パッケージレコードを表示します。 設定項目 \-
+APT::Cache::ShowFull
+.RE
+.PP
+\fB\-a\fR, \fB\-\-all\-versions\fR
+.RS 4
+全利用可能バージョンのレコード全体を表示します。 これはデフォルトの動作で、 無効にするには
+\fB\-\-no\-all\-versions\fR
+を使用してください。
+\fB\-\-no\-all\-versions\fR
+を指定すると、 候補バージョン (インストールの際に選択されるもの) だけ表示します。 このオプションは、show コマンドでのみ適用できます。 設定項目 \-
+APT::Cache::AllVersions
+.RE
+.PP
+\fB\-g\fR, \fB\-\-generate\fR
+.RS 4
+そのままキャッシュを使用するのではなく、 自動的にパッケージキャッシュを再生成します。これはデフォルトの動作で、 無効にするには
+\fB\-\-no\-generate\fR
+を使用してください。 設定項目 \-
+APT::Cache::Generate
+.RE
+.PP
+\fB\-\-names\-only\fR, \fB\-n\fR
+.RS 4
+説明文ではなく、パッケージ名からのみ検索します。 設定項目 \-
+APT::Cache::NamesOnly
+.RE
+.PP
+\fB\-\-all\-names\fR
+.RS 4
+pkgnames
+で、 仮想パッケージや欠落依存関係を含めた全名称を表示します。 設定項目 \-
+APT::Cache::AllNames
+.RE
+.PP
+\fB\-\-recurse\fR
+.RS 4
+depends
+や
+rdepends
+で、指定した全パッケージを再帰的に一度に表示します。 設定項目 \-
+APT::Cache::RecurseDepends
+.RE
+.PP
+\fB\-\-installed\fR
+.RS 4
+
+depends
+や
+rdepends
+の出力を、 現在インストールされているパッケージに限定します。 設定項目 \-
+APT::Cache::Installed
+.RE
+.PP
+\fB\-h\fR, \fB\-\-help\fR
+.RS 4
+使い方の短い要約を表示します。
+.RE
+.PP
+\fB\-v\fR, \fB\-\-version\fR
+.RS 4
+プログラムのバージョンを表示します。
+.RE
+.PP
+\fB\-c\fR, \fB\-\-config\-file\fR
+.RS 4
+設定ファイル。 使用する設定ファイルを指定します。 この設定ファイルが読めない場合はデフォルトの設定ファイルを読み込みます。 文法については
+\fBapt.conf\fR(5)
+を参照してください。
+.RE
+.PP
+\fB\-o\fR, \fB\-\-option\fR
+.RS 4
+設定オプションのセット。任意の設定オプションをセットします。 文法は
+\fB\-o Foo::Bar=bar\fR
+となります。
+.RE
+.SH "ファイル"
+.PP
+\fI/etc/apt/sources\&.list\fR
+.RS 4
+パッケージの取得元。 設定項目 \-
+Dir::Etc::SourceList
+.RE
+.PP
+\fI/var/lib/apt/lists/\fR
+.RS 4
+\fBsources.list\fR(5)
+に指定した、 パッケージリソースごとの状態情報格納エリア。 設定項目 \-
+Dir::State::Lists
+.RE
+.PP
+\fI/var/lib/apt/lists/partial/\fR
+.RS 4
+取得中状態情報格納エリア。 設定項目 \-
+Dir::State::Lists
+(必然的に不完全)
+.RE
+.SH "関連項目"
+.PP
+\fBapt.conf\fR(5),
+\fBsources.list\fR(5),
+\fBapt-get\fR(8)
+.SH "診断メッセージ"
+.PP
+\fBapt\-cache\fR
+は正常終了時に 0 を返します。 エラー時には十進の 100 を返します。
+.SH "バグ"
+.PP
+\fIAPT バグページ\fR\&[2]を ご覧ください。 APT のバグを報告する場合は、
+\fI/usr/share/doc/debian/bug\-reporting\&.txt\fR
+や
+\fBreportbug\fR(1)
+コマンドをご覧ください。
+.SH "訳者"
+.PP
+倉澤 望
+<nabetaro@debian\&.or\&.jp>
+(2003\-2006), Debian JP Documentation ML
+<debian\-doc@debian\&.or\&.jp>
+.SH "AUTHORS"
+.PP
+\fBJason Gunthorpe\fR
+.sp -1n
+.IP "" 4
+Author.
+.PP
+\fBAPT team\fR
+.sp -1n
+.IP "" 4
+Author.
+.SH "NOTES"
+.IP " 1." 4
+GraphViz
+.RS 4
+\%http://www.research.att.com/sw/tools/graphviz/
+.RE
+.IP " 2." 4
+APT バグページ
+.RS 4
+\%http://bugs.debian.org/src:apt
+.RE

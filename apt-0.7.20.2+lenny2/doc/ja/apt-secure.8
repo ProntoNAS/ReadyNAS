@@ -1,0 +1,167 @@
+.\"     Title: apt-secure
+.\"    Author: Jason Gunthorpe
+.\" Generator: DocBook XSL Stylesheets v1.73.2 <http://docbook.sf.net/>
+.\"      Date: 14 December 2003
+.\"    Manual: 
+.\"    Source: Linux
+.\"
+.TH "APT\-SECURE" "8" "14 December 2003" "Linux" ""
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.SH "NAME"
+apt-secure \- APT アーカイブ認証サポート
+.SH "説明"
+.PP
+
+バージョン 0\&.6 より、\fBapt\fR
+全アーカイブに対する Release ファイルの署名チェックコードが含まれています。 Release ファイル署名キーにアクセスできない人が、 アーカイブのパッケージの変更が確実にできないようにします。
+.PP
+
+パッケージに署名されなかったり、apt が知らないキーで署名されていた場合、 アーカイブから来たパッケージは、信頼されていないと見なし、 インストールの際に重要な警告が表示されます。
+\fBapt\-get\fR
+は、 現在未署名のパッケージに対して警告するだけですが、 将来のリリースでは、全ソースに対し、 パッケージダウンロード前に強制的に検証される可能性があります。
+.PP
+
+
+\fBapt-get\fR(8),
+\fBaptitude\fR(8),
+\fBsynaptic\fR(8)
+といったパッケージフロントエンドは、 この新認証機能をサポートしています。
+.SH "信頼済アーカイブ"
+.PP
+
+apt アーカイブからエンドユーザまでの信頼の輪は、 いくつかのステップで構成されています。
+\fBapt\-secure\fR
+は、この輪の最後のステップで、 アーカイブを信頼することは、 パッケージに悪意のあるコードが含まれていないと信頼するわけではありませんが、 アーカイブメンテナを信頼すると言うことです。 これは、アーカイブの完全性を保証するのは、 アーカイブメンテナの責任だということです。
+.PP
+apt\-secure はパッケージレベルの署名検証は行いません。 そのようなツールが必要な場合は、
+\fBdebsig\-verify\fR
+や
+\fBdebsign\fR
+(debsig\-verify パッケージと devscripts パッケージでそれぞれ提供されています) を確認してください。
+.PP
+
+Debian における信頼の輪は、 新しいパッケージやパッケージの新しいバージョンを、 メンテナが Debian アーカイブにアップロードすることで始まります。 これは、Debian メンテナキーリング (debian\-keyring パッケージにあります) にあるメンテナのキーで署名しなければ、アップロードできないということです。 メンテナのキーは、キーの所有者のアイデンティティを確保するため、 以下のような事前に確立した手段で、他のメンテナに署名されています。
+.PP
+
+アップロードされたパッケージごとに、検証してアーカイブに格納します。 パッケージは、メンテナの署名をはがされ、 MD5 sum を計算されて、 Packages ファイルに格納されます。 その後、全パッケージファイルの MD5 sum を計算してから、 Release ファイルに置きます。 Release ファイルは、アーカイブキーで署名されます。 アーカイブキーは年ごとに作成され、FTP サーバで配布されます。 このキーも Debian キーリングに含まれます。
+.PP
+
+エンドユーザは誰でも、Release ファイルの署名をチェックし、 パッケージの MD5 sum を抽出して、ダウンロードしたパッケージの MD5 sum と比較できます。 バージョン 0\&.6 以前では、ダウンロードした Debian パッケージの MD5 sum しか、 チェックしていませんでした。 現在では、MD5 sum と Release ファイルの署名の両方でチェックします。
+.PP
+以上は、パッケージごとの署名チェックとは違うことに注意してください。 以下のように考えられる 2 種類の攻撃を防ぐよう設計されています。
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'ネットワーク中間者攻撃
+署名をチェックしないと、 悪意あるエージェントがパッケージダウンロードプロセスに割り込んだり、 ネットワーク構成要素 (ルータ、スイッチなど) の制御や、 悪漢サーバへのネットワークトラフィックのリダイレクトなど (arp 経由や DNS スプーフィング攻撃) で、 悪意あるソフトウェアを掴まされたりします。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'ミラーネットワーク感染\&. 署名をチェックしないと、悪意あるエージェントがミラーホストに感染し、 このホストからダウンロードしたユーザすべてに、 悪意あるソフトウェアが伝播するようにファイルを変更できます。
+.RE
+.PP
+しかしこれは、 (パッケージに署名する) Debian マスターサーバ自体の感染や、 Release ファイルに署名するのに使用したキーの感染を防げません。 いずれにせよ、この機構はパッケージごとの署名を補完することができます。
+.SH "ユーザの設定"
+.PP
+
+
+\fBapt\-key\fR
+は、 apt が使用するキーリストを管理するプログラムです。 このリリースのインストールでは、Debian パッケージリポジトリで使用する、 キーで署名するデフォルトの Debian アーカイブを提供しますが、
+\fBapt\-key\fR
+でキーの追加・削除が行えます。
+.PP
+
+新しいキーを追加するためには、まずキーをダウンロードする必要があります。 (取得する際には、信頼できる通信チャネルを使用するよう、特に留意してください) 取得したキーを、\fBapt\-key\fR
+で追加し、
+\fBapt\-get update\fR
+を実行してください。 以上により、apt は指定したアーカイブから、\fIRelease\&.gpg\fR
+ファイルをダウンロード・検証できるようになります。
+.SH "アーカイブの設定"
+.PP
+
+あなたがメンテナンスしているアーカイブで、アーカイブ署名を提供したい場合、 以下のようにしてください。
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'上位 Release ファイルの作成
+既にこれが存在しているのでなければ、
+\fBapt\-ftparchive release\fR
+(apt\-utils で提供) を実行して作成してください。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'署名
+\fBgpg \-abs \-o Release\&.gpg Release\fR
+を実行して、 署名してください。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'キーの指紋を配布
+これにより、アーカイブ内のファイル認証に、 どのキーをインポートする必要があるかを、 ユーザに知らせることになります。
+.RE
+.PP
+アーカイブの内容に変化がある場合 (新しいパッケージの追加や削除)、 アーカイブメンテナは前述の最初の 1, 2 ステップに従わなければなりません。
+.SH "関連項目"
+.PP
+
+\fBapt.conf\fR(5),
+\fBapt-get\fR(8),
+\fBsources.list\fR(5),
+\fBapt-key\fR(8),
+\fBapt-ftparchive\fR(1),
+\fBdebsign\fR(1)
+\fBdebsig-verify\fR(1),
+\fBgpg\fR(1)
+.PP
+詳細な背景情報を検証するのなら、 the Securing Debian Manual (harden\-doc パッケージにもあります) の
+\fIDebian Security Infrastructure\fR\&[1]
+章と、 V\&. Alex Brennen による
+\fIStrong Distribution HOWTO\fR\&[2]
+をご覧ください。
+.SH "バグ"
+.PP
+\fIAPT バグページ\fR\&[3]を ご覧ください。 APT のバグを報告する場合は、
+\fI/usr/share/doc/debian/bug\-reporting\&.txt\fR
+や
+\fBreportbug\fR(1)
+コマンドをご覧ください。
+.SH "著者"
+.PP
+APT は the APT team
+<apt@packages\&.debian\&.org>
+によって 書かれました。
+.SH "マニュアルページ筆者"
+.PP
+このマニュアルページは Javier Fernández\-Sanguino Peña, Isaac Jones, Colin Walters, Florian Weimer, Michael Vogt の作業を元にしています。
+.SH "訳者"
+.PP
+倉澤 望
+<nabetaro@debian\&.or\&.jp>
+(2003\-2006), Debian JP Documentation ML
+<debian\-doc@debian\&.or\&.jp>
+.SH "AUTHOR"
+.PP
+\fBJason Gunthorpe\fR
+.sp -1n
+.IP "" 4
+Author.
+.SH "COPYRIGHT"
+Copyright \(co 1998-2001 Jason Gunthorpe
+.br
+.SH "NOTES"
+.IP " 1." 4
+Debian Security Infrastructure
+.RS 4
+\%http://www.debian.org/doc/manuals/securing-debian-howto/ch7.en.html
+.RE
+.IP " 2." 4
+Strong Distribution HOWTO
+.RS 4
+\%http://www.cryptnet.net/fdp/crypto/strong_distro.html
+.RE
+.IP " 3." 4
+APT バグページ
+.RS 4
+\%http://bugs.debian.org/src:apt
+.RE

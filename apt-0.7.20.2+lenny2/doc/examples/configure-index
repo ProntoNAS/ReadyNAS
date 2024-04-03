@@ -1,0 +1,311 @@
+/* This file is an index of all APT configuration directives. It should
+   NOT actually be used as a real config file, though it is (except for the
+   last line) a completely valid file. Most of the options have sane default
+   values, unless you have specific needs you should NOT include arbitrary
+   items in a custom configuration.
+   
+   In some instances involving filenames it is possible to set the default
+   directory when the path is evaluated. This means you can use relative
+   paths within the sub scope.
+   
+   The configuration directives are specified in a tree with {} designating
+   a subscope relative to the tag before the {}. You can further specify
+   a subscope using scope notation eg,
+     APT::Architecture "i386";
+   This is prefixed with the current scope. Scope notation must be used
+   if an option is specified on the command line with -o.
+*/
+
+quiet "0";
+
+// Options for APT in general
+APT 
+{
+  Architecture "i386";
+  Build-Essential "build-essential";
+
+  NeverAutoRemove  { "linux-image.*";  };  // packages that should never
+                                            // considered for autoRemove
+
+  // Options for apt-get
+  Get 
+  {
+     Arch-Only "false";
+     AllowUnauthenticated "false";
+     AutomaticRemove "false";       
+     HideAutoRemove "false";
+     Download-Only "false";
+     Simulate "false";
+     Assume-Yes "false";
+     Force-Yes "false";             // I would never set this.
+     Fix-Broken "false";  
+     Fix-Missing "false";     
+     Show-Upgraded "false";
+     Show-Versions "false";
+     Upgrade "true";
+     Print-URIs "false";
+     Compile "false";
+     Download "true";
+     Purge "false";
+     List-Cleanup "true";
+     ReInstall "false";
+     Trivial-Only "false";
+     Remove "true";
+     Only-Source "";
+     Diff-Only "false";
+     Tar-Only "false";
+     Build-Dep-Automatic "true";
+  };
+
+  Cache 
+  {
+     Important "false";
+     AllVersions "false";
+     GivenOnly "false";
+     RecurseDepends "false";
+     ShowFull "false";
+     Generate "true";
+     NamesOnly "false";
+     AllNames "false";
+     Installed "false";
+  };
+
+  CDROM 
+  {
+     Rename "false";
+     NoMount "false";
+     Fast "false";
+     NoAct "false";
+  };
+
+  Update
+  {
+     Pre-Invoke {"touch /var/lib/apt/pre-update-stamp"; };
+     Post-Invoke {"touch /var/lib/apt/post-update-stamp"; };
+  };
+
+  Authentication
+  {
+     TrustCDROM "false";            // consider the CDROM always trusted
+  };
+
+  GPGV
+  {
+     TrustedKeyring "/etc/apt/trusted.gpg";
+  };
+
+  // Some general options
+  Ignore-Hold "false";
+  Clean-Installed "true";
+  Immediate-Configure "true";      // DO NOT turn this off, see the man page
+  Force-LoopBreak "false";         // DO NOT turn this on, see the man page
+  Cache-Limit "4194304";
+  Default-Release "";
+
+  // consider Recommends, Suggests as important dependencies that should
+  // be installed by default
+  Install-Recommends "true";
+  Install-Suggests "false";
+
+  // consider dependencies of packages in this section manual
+  Never-MarkAuto-Sections {"metapackages"; "universe/metapackages"; };
+
+  // Write progress messages on this fd (for stuff like base-config)
+  Status-Fd "-1";
+  // Keep the list of FDs open (normally apt closes all fds when it
+  // does a ExecFork)
+  Keep-Fds {};
+};
+
+// Options for the downloading routines
+Acquire
+{
+  Queue-Mode "host";       // host|access
+  Retries "0";
+  Source-Symlinks "true";
+
+  PDiffs "true";     // try to get the IndexFile diffs
+  
+  // HTTP method configuration
+  http 
+  {
+    Proxy "http://127.0.0.1:3128";
+    Proxy::http.us.debian.org "DIRECT";  // Specific per-host setting
+    Timeout "120";
+    Pipeline-Depth "5";
+    
+    // Cache Control. Note these do not work with Squid 2.0.2
+    No-Cache "false";
+    Max-Age "86400";     // 1 Day age on index files
+    No-Store "false";    // Prevent the cache from storing archives    
+    Dl-Limit "7";        // 7Kb/sec maximum download rate
+  };
+
+  // HTTPS method configuration:
+  // - uses the http proxy config 
+  // - uses the http cache-control values
+  // - uses the http Dl-Limit values
+  https 
+  {
+	Verify-Peer "false";
+	SslCert "/etc/apt/some.pem";
+        CaPath  "/etc/ssl/certs";
+        Verify-Host" "2";
+  };
+
+  ftp
+  {
+    Proxy "ftp://127.0.0.1/";
+    Proxy::http.us.debian.org "DIRECT"; // Specific per-host setting
+
+    /* Required script to perform proxy login. This example should work
+       for tisfwtk */
+    ProxyLogin
+    {
+       "USER $(PROXY_USER)";
+       "PASS $(PROXY_PASS)";
+       "USER $(SITE_USER)@$(SITE):$(SITE_PORT)";
+       "PASS $(SITE_PASS)";
+    };
+    
+    Timeout "120";
+    
+    /* Passive mode control, proxy, non-proxy and per-host. Pasv mode
+       is preferred if possible */
+    Passive "true";
+    Proxy::Passive "true";
+    Passive::http.us.debian.org "true"; // Specific per-host setting
+  };
+  
+  cdrom
+  {
+    mount "/cdrom";
+
+    // You need the trailing slash!
+    "/cdrom/"
+    {
+       Mount "sleep 1000";
+       UMount "sleep 500";
+    }
+  };
+
+  gpgv
+  {
+   Options {"--ignore-time-conflict";}	// not very useful on a normal system
+  };
+};
+
+// Directory layout
+Dir "/"
+{
+  // Location of the state dir
+  State "var/lib/apt/" 
+  {
+     Lists "lists/";
+     xstatus "xstatus";
+     userstatus "status.user";
+     status "/var/lib/dpkg/status";
+     cdroms "cdroms.list";
+  };
+  
+  // Location of the cache dir
+  Cache "var/cache/apt/" {
+     Archives "archives/";
+     srcpkgcache "srcpkgcache.bin";
+     pkgcache "pkgcache.bin";     
+  };
+  
+  // Config files
+  Etc "etc/apt/" {
+     SourceList "sources.list";
+     Main "apt.conf";
+     Preferences "preferences";     
+     Parts "apt.conf.d/";
+  };
+  
+  // Locations of binaries
+  Bin {
+     methods "/usr/lib/apt/methods/";
+     gzip "/bin/gzip";
+     gpg  "/usr/bin/gpgv";
+     dpkg "/usr/bin/dpkg";
+     dpkg-source "/usr/bin/dpkg-source";
+     dpkg-buildpackage "/usr/bin/dpkg-buildpackage";
+     apt-get "/usr/bin/apt-get";
+     apt-cache "/usr/bin/apt-cache";
+  };
+
+  // Location of the logfile
+  Log "var/log/apt" {
+	Terminal "term.log";
+  };
+};
+
+// Things that effect the APT dselect method
+DSelect 
+{
+   Clean "auto";   // always|auto|prompt|never
+   Options "-f";
+   UpdateOptions "";
+   PromptAfterUpdate "no";
+   CheckDir "no";
+}
+
+DPkg 
+{
+   // Probably don't want to use force-downgrade..
+   Options {"--force-overwrite";"--force-downgrade";}
+   
+   // Auto re-mounting of a readonly /usr
+   Pre-Invoke {"mount -o remount,rw /usr";};
+   Post-Invoke {"mount -o remount,ro /usr";};
+   
+   // Prevents daemons from getting cwd as something mountable (default)
+   Run-Directory "/";
+   
+   // Build options for apt-get source --compile
+   Build-Options "-b -uc";
+
+   // Pre-configure all packages before they are installed using debconf.
+   Pre-Install-Pkgs {"dpkg-preconfigure --apt --priority=low --frontend=dialog";};
+
+   // Flush the contents of stdin before forking dpkg.
+   FlushSTDIN "true";
+
+   // Control the size of the command line passed to dpkg.
+   MaxBytes 1024;
+   MaxArgs 350;
+
+   // controls if apt will apport on the first dpkg error or if it 
+   // tries to install as many packages as possible
+   StopOnError "true";
+}
+
+/* Options you can set to see some debugging text They correspond to names
+   of classes in the source code */
+Debug 
+{
+  pkgProblemResolver "false";
+  pkgDepCache::AutoInstall "false"; // what packages apt install to satify dependencies
+  pkgAcquire "false";
+  pkgAcquire::Worker "false";
+  pkgAcquire::Auth "false";
+  pkgDPkgPM "false";
+  pkgDPkgProgressReporting "false";
+  pkgOrderList "false";
+  pkgAutoRemove "false";   // show information about automatic removes
+  BuildDeps "false";
+  pkgInitialize "false";   // This one will dump the configuration space
+  NoLocking "false";
+  Acquire::Ftp "false";    // Show ftp command traffic
+  Acquire::Http "false";   // Show http command traffic
+  Acquire::Https "false";   // Show https debug
+  Acquire::gpgv "false";   // Show the gpgv traffic
+  aptcdrom "false";        // Show found package files
+  IdentCdrom "false";
+  
+}
+
+/* Whatever you do, do not use this configuration file!! Take out ONLY
+   the portions you need! */
+This Is Not A Valid Config File

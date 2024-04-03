@@ -1,0 +1,439 @@
+.\"     Title: apt.conf
+.\"    Author: Jason Gunthorpe
+.\" Generator: DocBook XSL Stylesheets v1.73.2 <http://docbook.sf.net/>
+.\"      Date: 29 Février 2004
+.\"    Manual: 
+.\"    Source: Linux
+.\"
+.TH "APT\&.CONF" "5" "29 Février 2004" "Linux" ""
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.SH "NOM"
+apt.conf \- Fichier de configuration pour APT
+.SH "DESCRIPTION"
+.PP
+Le fichier
+\fIapt\&.conf\fR
+est le principal fichier de configuration de la collection d\'outils que constitue APT\ \&; tous les outils font appel à ce fichier de configuration et utilisent un analyseur syntaxique en ligne de commande commun afin de fournir un environnement uniforme\&. Quand un outil d\'APT démarre, il lit (si elle existe) la variable d\'environnement
+\fBAPT_CONFIG\fR\ \&; puis il lit les fichiers situés dans
+Dir::Etc::Parts
+ainsi que le principal fichier de configuration indiqué par
+Dir::Etc::main\ \&; enfin il applique les options de la ligne de commande qui annulent les directives de configuration, chargeant, si nécessaire, d\'autres fichiers de configuration\&.
+.PP
+Le fichier de configuration est construit comme un arbre d\'options organisées en groupes fonctionnels\&. On se sert du double deux points (\(Fo\ \&::\ \&\(Fc) pour indiquer une option\ \&; par exemple,
+APT::Get::Assume\-Yes
+est une option pour le groupe d\'outils APT, destinée à l\'outil Get\&. Les options n\'héritent pas des groupes de leurs parents\&.
+.PP
+Syntaxiquement, le langage de configuration est conçu sur le même modèle que les langages utilisés par des outils ISC tels que bind et dhcp\&. Une ligne qui commence par
+//
+est un commentaire et elle est ignorée\&. Chaque ligne est de la forme\ \&:
+APT::Get::Assume\-Yes "true";
+Le point\-virgule final est obligatoire et les guillemets sont optionnels\&. On peut déclarer un nouveau champ d\'action avec des accolades, comme suit\ \&:
+.sp
+.RS 4
+.nf
+   
+APT {
+  Get {
+    Assume\-Yes "true";
+    Fix\-Broken "true";
+  };
+};
+.fi
+.RE
+.PP
+avec des retours à la ligne pour faciliter la lecture\&. On peut créer des listes en ouvrant un champ d\'action et en mettant un seul mot entre apostrophes suivi d\'un point\-virgule\&. On peut mettre plusieurs entrées, séparées par un point\-virgule\&.
+.sp
+.RS 4
+.nf
+   
+DPkg::Pre\-Install\-Pkgs {"/usr/sbin/dpkg\-preconfigure \-\-apt";};
+.fi
+.RE
+.PP
+Les modèles
+\fI/usr/share/doc/apt/examples/apt\&.conf\fR
+\fI/usr/share/doc/apt/examples/configure\-index\&.gz\fR
+montrent à quoi devrait ressembler le fichier de configuration\&.
+.PP
+Deux éléments spéciaux sont autorisés\ \&:
+#include
+et
+#clear\&.
+#include
+inclut le fichier donné en argument, à moins que le nom ne se termine par une barre oblique\&.
+#clear
+sert à effacer une liste de noms\&.
+.PP
+Tous les outils d\'APT possèdent une option
+\fB\-o\fR
+qui permet de spécifier une configuration arbitraire depuis la ligne de commande\&. La syntaxe consiste en un nom complet d\'option (par exemple
+APT::Get::Assume\-Yes) suivi par un signe égal, puis par la nouvelle valeur de l\'option\&. On peut compléter une liste en ajoutant un \(Fo\ \&::\ \&\(Fc au nom de la liste\&.
+.SH "LE GROUPE APT"
+.PP
+Ce groupe d\'options contrôle aussi bien le comportement global d\'APT que la prise en compte des options pour chaque outil\&.
+.PP
+Architecture
+.RS 4
+L\'architecture du système\ \&; cette option positionne l\'architecture à utiliser pour récupérer des fichiers et analyser des listes de paquets\&. L\'architecture interne par défaut est celle pour laquelle APT a été compilé\&.
+.RE
+.PP
+Ignore\-Hold
+.RS 4
+Ignore les paquets \(Fo\ \&gelés\ \&\(Fc\ \&; cette option globale indique au système de résolution de ne pas tenir compte des paquets \(Fo\ \&gelés\ \&\(Fc dans sa prise de décision\&.
+.RE
+.PP
+Clean\-Installed
+.RS 4
+Avec cette option qui est activée par défaut, la fonctionnalité \(Fo\ \&autoclean\ \&\(Fc supprime tout paquet qui ne peut plus être récupéré dans le cache\&. Quand cette option est désactivée, les paquets qui sont installés localement sont aussi exclus du nettoyage \- mais notez que APT ne fournit aucun moyen direct pour les réinstaller\&.
+.RE
+.PP
+Immediate\-Configure
+.RS 4
+Désactive la configuration immédiate\ \&; cette dangereuse option désactive une partie du code de mise en ordre de APT pour que ce dernier effectue le moins d\'appels possible à Dpkg\&. C\'est peut\-être nécessaire sur des systèmes lents à un seul utilisateur mais c\'est extrêmement dangereux et cela peut faire échouer les scripts d\'installation, voire pire\&. Utilisez\-la à vos risques et périls\&.
+.RE
+.PP
+Force\-LoopBreak
+.RS 4
+Ne jamais activer cette option à moins que vous ne sachiez \- réellement \- ce que vous faites\&. Elle autorise APT à supprimer temporairement un paquet essentiel pour mettre fin à une boucle Conflicts / Conflicts ou Conflicts / Pre\-Depends entre deux paquets essentiels\&. UNE TELLE BOUCLE NE DOIT JAMAIS SE PRODUIRE\ \&: C\'EST UN BOGUE SÉRIEUX\&. Cette option fonctionne si les paquets essentiels ne sont pas tar, gzip, libc, dpkg, bash ou tous les paquets dont ces paquets dépendent\&.
+.RE
+.PP
+Cache\-Limit
+.RS 4
+APT utilise un fichier cache d\'une taille mémoire fixe pour ranger les informations du fichier \(Fo\ \&available\ \&\(Fc\&. Cette option fixe la taille de ce cache\&.
+.RE
+.PP
+Build\-Essential
+.RS 4
+Cette option définit les paquets qui sont considérés comme faisant partie des dépendances essentielles pour la construction des paquets\&.
+.RE
+.PP
+Get
+.RS 4
+La sous\-section
+Get
+contrôle l\'outil
+\fBapt-get\fR(8), veuillez consulter sa documentation pour avoir plus d\'informations sur les options en question\&.
+.RE
+.PP
+Cache
+.RS 4
+La sous\-section
+Cache
+contrôle l\'outil
+\fBapt-cache\fR(8), veuillez consulter sa documentation pour avoir plus d\'informations sur les options en question\&.
+.RE
+.PP
+CDROM
+.RS 4
+La sous\-section
+CDROM
+contrôle l\'outil\fBapt-cdrom\fR(8), veuillez consulter sa documentation pour avoir plus d\'informations sur les options en question\&.
+.RE
+.SH "LE GROUPE ACQUIRE"
+.PP
+Le groupe d\'options
+Acquire
+contrôle le téléchargement des paquets et les gestionnaires d\'URI\&.
+.PP
+Queue\-Mode
+.RS 4
+Le mode file d\'attente\ \&;
+Queue\-Mode
+peut prendre une valeur parmi
+host
+ou
+access
+et cela détermine comment APT parallélise les connexions sortantes\&.
+Host
+signifie qu\'une connexion par cible sera initiée, tandis que
+access
+signifie qu\'une connexion par type d\'URI sera initiée\&.
+.RE
+.PP
+Retries
+.RS 4
+Nombre d\'essais à effectuer\&. Si ce nombre n\'est pas nul, APT essaie de récupérer, le nombre donné de fois, les fichiers dont la récupération a échoué\&.
+.RE
+.PP
+Source\-Symlinks
+.RS 4
+Utilise des liens symboliques pour les archives de sources\&. Positionnée à \(Fo\ \&true\ \&\(Fc, cette option crée si possible des liens symboliques vers les archives de sources au lieu de les copier\&. Par défaut à \(Fo\ \&true\ \&\(Fc\&.
+.RE
+.PP
+http
+.RS 4
+URI HTTP ; http::Proxy est le mandataire (proxy) http à utiliser par défaut\&. Il se présente sous la forme standard\ \&:
+http://[[user][:pass]@]host[:port]/\&. En utilisant la syntaxe\ \&:
+http::Proxy::<host>, où le mot\-clé spécial
+DIRECT
+indique de n\'utiliser aucun mandataire, on peut spécifier un mandataire pour chaque machine distante\&. La variable d\'environnement
+\fBhttp_proxy\fR
+remplace tous ces paramètres\&.
+.sp
+Trois options de configuration sont fournies pour le contrôle des caches qui sont compatibles avec HTTP/1\&.1\&.
+No\-Cache
+signifie que le mandataire ne doit pas du tout utiliser les réponses qu\'il a stockées\ \&;
+Max\-Age
+sert uniquement pour les fichiers d\'index\ \&: cela demande au cache de les mettre à jour quand leur ancienneté est supérieure au nombre de secondes donné\&. Debian met à jour son fichier d\'index de manière journalière, la valeur par défaut est donc de 1 jour\&.
+No\-Store
+sert uniquement pour les fichiers d\'archive\ \&: cela demande au cache de ne jamais garder la requête\&. Cela peut éviter de polluer un cache mandataire avec des fichiers \&.deb très grands\&. Note\ \&: Squid 2\&.0\&.2 ne prend en compte aucune de ces options\&.
+.sp
+L\'option
+timeout
+positionne le compteur de temps mort (timeout) utilisé par la méthode\ \&: cela vaut pour tout (connexion, données)\&.
+.sp
+Une option de configuration est fournie pour contrôler la profondeur du tube pour le cas où un serveur distant n\'est pas conforme à la RFC ou est bogué (comme Squid 2\&.0\&.2)\&.
+Acquire::http::Pipeline\-Depth
+a une valeur comprise entre 0 et 5\ \&: elle indique le nombre de requêtes en attente qui peuvent être émises\&. Quand la machine distante ne conserve pas correctement les connexions TCP, on DOIT donner une valeur égale à 0 \-\- sinon des données seront corrompues\&. Les machines qui ont besoin de cette option ne respectent pas la RFC 2068\&.
+.RE
+.PP
+ftp
+.RS 4
+URI FTP ; ftp::Proxy est le serveur mandataire par défaut à utiliser\&. Il se présente sous la forme standard\ \&:
+ftp://[[user][:pass]@]host[:port]/\ \&; il est remplacé par la variable d\'environnement
+\fBftp_proxy\fR\&. Pour utiliser un mandataire ftp, vous devez renseigner l\'entrée
+ftp::ProxyLogin
+dans le fichier de configuration\&. Cette entrée spécifie les commandes qui disent au serveur mandataire comment se connecter\&. Voyez
+\fI/usr/share/doc/apt/examples/configure\-index\&.gz\fR
+pour savoir comment faire\&. Les variables de substitution disponibles sont\ \&:
+$(PROXY_USER),
+$(PROXY_PASS),
+$(SITE_USER),
+$(SITE_PASS),
+$(SITE), et
+$(SITE_PORT)\&. Chacune correspond à un élément de l\'URI\&.
+.sp
+L\'option
+timeout
+positionne le compteur de temps mort (timeout) utilisé par la méthode\ \&: cela vaut pour tout (connexion, données)\&.
+.sp
+Plusieurs options de configuration sont fournies pour contrôler le mode passif\&. Généralement, c\'est plus sûr d\'activer le mode passif\ \&; cela marche dans presque tous les environnements\&. Cependant, certaines situations nécessitent que le mode passif soit désactivé et que le mode \(Fo\ \&port\ \&\(Fc de ftp soit utilisé à la place\&. On peut le faire globalement, pour des connexions qui passent par un mandataire ou pour une machine spécifique (examinez le modèle de fichier de configuration)\&.
+.sp
+On peut utiliser un mandataire FTP pour atteindre une cible HTTP en positionnant la variable d\'environnement
+\fBftp_proxy\fR
+à une url http \-\- consultez la méthode http ci\-dessus pour la syntaxe\&. On ne peut pas fixer cette variable dans le fichier de configuration et il n\'est pas recommandé d\'utiliser HTTP par FTP à cause de son peu d\'efficacité\&.
+.sp
+L\'option
+ForceExtended
+contrôle l\'utilisation des commandes liées à la RFC 2428,
+EPSV
+et
+EPRT\&. Par défaut, elle vaut \(Fo\ \&false\ \&\(Fc\ \&; ce qui signifie que ces commandes ne sont utilisées que pour une connexion de type IPv6\&. Quand elle vaut \(Fo\ \&true\ \&\(Fc, on les utilise même si la connexion est de type IPv4\&. La plupart des serveurs FTP ne suivent pas la RFC 2428\&.
+.RE
+.PP
+cdrom
+.RS 4
+URI CDROM\ \&; la seule option de configuration pour les URI de CDROM est le point de montage\ \&:
+cdrom::Mount\ \&; il doit représenter le point de montage du lecteur de cédérom indiqué dans
+\fI/etc/fstab\fR\&. On peut fournir d\'autres commandes de montage et de démontage quand le point de montage ne peut être listé dans le fichier
+\fI/etc/fstab\fR
+(par exemple, un montage SMB)\&. Syntaxiquement, il faut placer
+.sp
+.RS 4
+.nf
+"/cdrom/"::Mount "foo";
+.fi
+.RE
+.sp
+dans le bloc cdrom\&. La barre oblique finale est importante\&. Les commandes de démontage peuvent être spécifiées en utilisant
+UMount\&.
+.RE
+.PP
+gpgv
+.RS 4
+URI GPGV ; la seule option pour les URI GPGV est celle qui permet de passer des paramètres à gpgv\&.
+gpgv::Options
+Options supplémentaires passées à gpgv\&.
+.RE
+.SH "LES RÉPERTOIRES"
+.PP
+Les répertoires de la section
+Dir::State
+concernent le système local\&.
+lists
+est le répertoire où placer les listes de paquets téléchargés et
+status
+est le nom du fichier d\'état de Dpkg\&.
+preferences
+concerne APT\ \&: c\'est le nom du fichier des préférences\&.
+Dir::State
+contient le répertoire par défaut préfixé à tous les sous\-éléments, quand ceux\-ci ne commencent pas par
+\fI/\fR
+ou
+\fI\&./\fR\&.
+.PP
+
+Dir::Cache
+contient les emplacements qui renseignent sur le cache local\ \&: par exemple, les deux caches de paquets
+srcpkgcache
+et
+pkgcache, et aussi l\'endroit où sont placées les archives téléchargées,
+Dir::Cache::archives\&. On peut empêcher la création des caches en laissant leur nom en blanc\&. Cela ralentit le démarrage mais cela sauve de l\'espace disque\&. Il vaut mieux se passer du cache
+pkgcache
+plutôt que se passer du cache
+srcpkgcache\&. Comme pour
+Dir::State, le répertoire par défaut est contenu dans
+Dir::Cache\&.
+.PP
+
+Dir::Etc
+contient l\'emplacement des fichiers de configuration,
+sourcelist
+indique l\'emplacement de la liste de sources et
+main
+est le fichier de configuration par défaut (le modifier n\'a aucun effet, à moins qu\'on ne le modifie avec le fichier de configuration indiqué par la variable
+\fBAPT_CONFIG\fR)\&.
+.PP
+
+Dir::Parts
+lit, par ordre d\'entrée, tous les fragments de configuration dans le répertoire indiqué\&. Ensuite, le fichier principal de configuration est chargé\&.
+.PP
+Les programmes binaires sont pointés par
+Dir::Bin\&. L\'emplacement des gestionnaires de méthodes est indiqué par
+Dir::Bin::Methods\ \&;
+gzip,
+Dpkg,
+apt\-get,
+dpkg\-source,
+dpkg\-buildpackage
+et
+apt\-cache
+indiquent l\'emplacement des programmes correspondants\&.
+.SH "APT ET DSELECT"
+.PP
+Quand APT est utilisé comme une méthode de
+\fBdselect\fR(8), plusieurs directives contrôlent le comportement par défaut\&. On les trouve dans la section
+DSelect\&.
+.PP
+Clean
+.RS 4
+Mode de nettoyage du cache\ \&; cette variable peut prendre l\'une des valeurs suivantes\ \&: \(Fo\ \&always\ \&\(Fc, \(Fo\ \&prompt\ \&\(Fc, \(Fo\ \&auto\ \&\(Fc, \(Fo\ \&pre\-auto\ \&\(Fc et \(Fo\ \&never\ \&\(Fc\&. \(Fo\ \&always\ \&\(Fc et \(Fo\ \&prompt\ \&\(Fc suppriment tous les paquets du cache après la mise à niveau\ \&; \(Fo\ \&prompt\ \&\(Fc (valeur par défaut) les supprime après une demande et \(Fo\ \&auto\ \&\(Fc ne supprime que les archives qui ne peuvent plus être téléchargées (remplacées, par exemple, par une nouvelle version)\&. \(Fo\ \&pre\-auto\ \&\(Fc les supprime avant de récupérer de nouveaux paquets\&.
+.RE
+.PP
+Options
+.RS 4
+Le contenu de cette variable est passé à
+\fBapt-get\fR(8)
+avec les options de la ligne de commande quand ce programme est utilisé dans la phase d\'installation\&.
+.RE
+.PP
+UpdateOptions
+.RS 4
+Le contenu de cette variable est passé à
+\fBapt-get\fR(8)
+avec les options de la ligne de commande quand ce programme est utilisé dans la phase de mise à jour\&.
+.RE
+.PP
+PromptAfterUpdate
+.RS 4
+Si cette option est \(Fo\ \&vraie\ \&\(Fc, l\'opération [U]pdate de
+\fBdselect\fR(8)
+interroge toujours l\'utilisateur avant de continuer\&. Par défaut, ce n\'est qu\'en cas d\'erreur que l\'on propose à l\'utilisateur d\'intervenir\&.
+.RE
+.SH "COMMENT APT APPELLE DPKG"
+.PP
+Plusieurs directives de configuration contrôlent la manière dont APT invoque
+\fBdpkg\fR(8)\ \&: elles figurent dans la section
+DPkg\&.
+.PP
+Options
+.RS 4
+Il s\'agit d\'une liste d\'options à passer à dpkg\&. Les options doivent être déclarées en utilisant la notation de liste et chaque élément de liste est passé comme un seul argument à
+\fBdpkg\fR(8)\&.
+.RE
+.PP
+Pre\-Invoke, Post\-Invoke
+.RS 4
+Il s\'agit d\'une liste de commandes shell à exécuter avant ou après l\'appel de
+\fBdpkg\fR(8)\&. Tout comme pour
+Options, on doit utiliser la notation de liste\&. Les commandes sont appelées dans l\'ordre, en utilisant
+\fI/bin/sh\fR\ \&: APT s\'arrête dès que l\'une d\'elles échoue\&.
+.RE
+.PP
+Pre\-Install\-Pkgs
+.RS 4
+Il s\'agit d\'une liste de commandes shell à exécuter avant d\'appeler Dpkg\&. Tout comme pour
+Options, on doit utiliser la notation de liste\&. Les commandes sont appelées dans l\'ordre, en utilisant
+\fI/bin/sh\fR\ \&: APT s\'arrête dès que l\'une d\'elles échoue\&. Sur l\'entrée standard, APT transmet aux commandes les noms de tous les fichiers \&.deb qu\'il va installer, à raison d\'un par ligne\&.
+.sp
+La deuxième version de ce protocole donne plus de renseignements\ \&: on obtient la version du protocole, la configuration de APT et les paquets, fichiers ou versions qui ont changé\&. On autorise cette version en positionnant
+DPkg::Tools::Options::cmd::Version
+à 2\&.
+cmd
+est une commande passée à
+Pre\-Install\-Pkgs\&.
+.RE
+.PP
+Run\-Directory
+.RS 4
+APT se place dans ce répertoire avant d\'appeler Dpkg\ \&; par défaut c\'est le répertoire
+\fI/\fR\&.
+.RE
+.PP
+Build\-Options
+.RS 4
+Ces options sont passées à
+\fBdpkg-buildpackage\fR(1)
+lors de la compilation des paquets\ \&; par défaut la signature est désactivée et tous les binaires sont créés\&.
+.RE
+.SH "LES OPTIONS DE DÉBOGAGE"
+.PP
+La plupart des options de la section
+debug
+n\'ont aucun intérêt pour le simple utilisateur\ \&; cependant,
+Debug::pkgProblemResolver
+affiche d\'intéressantes informations sur les décisions que prend la commande dist\-upgrade\&.
+Debug::NoLocking
+désactive le verrouillage de fichier de manière à ce que APT puisse effectuer quelques opérations sans être \(Fo\ \&root\ \&\(Fc et
+Debug::pkgDPkgPM
+affiche la ligne de commande à chaque appel de Dpkg\&.
+Debug::IdentCdrom
+désactive l\'inclusion de données de type statfs dans les ID de CDROM\&.
+Debug::Acquire::gpgv
+Débogage de la méthode gpgv\&.
+.SH "EXEMPLES"
+.PP
+Le fichier
+\fI/usr/share/doc/apt/examples/configure\-index\&.gz\fR
+contient un modèle de fichier montrant les valeurs par défaut de toutes les options possibles\&.
+.SH "FICHIERS"
+.PP
+
+\fI/etc/apt/apt\&.conf\fR
+.SH "VOIR AUSSI"
+.PP
+
+\fBapt-cache\fR(8),
+\fBapt-config\fR(8),
+\fBapt_preferences\fR(5)\&.
+.SH "BOGUES"
+.PP
+Voyez la
+\fI page concernant les bogues d\'APT\fR\&[1]\&. Si vous voulez signaler un bogue, consultez le texte
+\fI/usr/share/doc/debian/bug\-reporting\&.txt\fR
+ou utilisez la commande
+\fBreportbug\fR(1)\&.
+.SH "TRADUCTION"
+.PP
+Jérôme Marant\&. 2000\ \&; mise à jour : Philippe Batailler\&. 2005\&.
+<debian\-l10n\-french@lists\&.debian\&.org>\&.
+.SH "AUTHORS"
+.PP
+\fBJason Gunthorpe\fR
+.sp -1n
+.IP "" 4
+Auteur.
+.PP
+\fBAPT team\fR
+.sp -1n
+.IP "" 4
+Auteur.
+.SH "NOTES"
+.IP " 1." 4
+page concernant les bogues d'APT
+.RS 4
+\%http://bugs.debian.org/src:apt
+.RE

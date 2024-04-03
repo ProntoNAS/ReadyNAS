@@ -1,0 +1,151 @@
+.\"     Title: apt-secure
+.\"    Author: Jason Gunthorpe
+.\" Generator: DocBook XSL Stylesheets v1.73.2 <http://docbook.sf.net/>
+.\"      Date: 14 décembre 2003
+.\"    Manual: 
+.\"    Source: Linux
+.\"
+.TH "APT\-SECURE" "8" "14 décembre 2003" "Linux" ""
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.SH "NOM"
+apt-secure \- Certification d'archive avec APT
+.SH "DESCRIPTION"
+.PP
+Depuis sa version 0\&.6,
+\fBapt\fR
+sait vérifier la signature du fichier Release de chaque archive\&. On s\'assure ainsi que les paquets de cette archive ne peuvent pas être modifiés par quelqu\'un qui ne possède pas la clé de la signature du fichier Release\&.
+.PP
+Quand un paquet provient d\'une archive sans signature ou d\'une archive avec une signature dont apt ne possède pas la clé, ce paquet n\'est pas considéré comme fiable et son installation provoquera un avertissement\&. Pour l\'instant,
+\fBapt\-get\fR
+ne signale que les archives sans signature\ \&; les prochaines versions pourraient rendre obligatoire la vérification des sources avant tout téléchargement de paquet\&.
+.PP
+Les paquets
+\fBapt-get\fR(8),
+\fBaptitude\fR(8)
+et
+\fBsynaptic\fR(8)
+possèdent cette nouvelle fonction de certification\&.
+.SH "ARCHIVES FIABLES"
+.PP
+D\'une archive apt jusqu\'à l\'utilisateur, la confiance se construit en plusieurs étapes\&.
+\fBApt\-secure\fR
+est la dernière étape\&. Faire confiance à une archive ne signifie pas que les paquets qu\'elle contient sont exempts de code malveillant, mais signifie que vous faites confiance au responsable de l\'archive\&. C\'est ensuite au responsable de l\'archive de faire en sorte que l\'archive soit fiable\&.
+.PP
+\fBApt\-secure\fR
+n\'examine pas la signature d\'un paquet\&. Certains programmes peuvent le faire comme
+\fBdebsig\-verify\fR
+ou
+\fBdebsign\fR, qu\'on peut trouver dans les paquets debsig\-verify et devscripts\&.
+.PP
+La fiabilisation dans Debian commence quand un responsable de paquet envoie un nouveau paquet ou une nouvelle version d\'un paquet dans l\'archive\&. Cet envoi, pour être effectif, doit être signé avec la clé d\'un responsable qui se trouve dans le trousseau des responsables Debian (disponible dans le paquet debian\-keyring)\&. Les clés des responsables de paquet sont signées par d\'autres responsables, suivant des procédures préétablies pour s\'assurer de l\'identité des propriétaires de la clé\&.
+.PP
+Une fois le paquet vérifié et archivé, la signature du responsable est enlevée, une somme MD5 du paquet est calculée et mise dans le fichier Packages\&. Une somme MD5 de tous les paquets est ensuite calculée et mise dans le fichier Release\&. Ce fichier est signé par la clé de l\'archive\&. Cette clé qui est créée chaque année et distribuée par le serveur FTP se trouve aussi dans le trousseau Debian\&.
+.PP
+Un utilisateur peut consulter la signature du fichier Release, extraire la somme MD5 d\'un paquet et la comparer avec la somme du paquet qu\'il a téléchargé\&. Avant la version 0\&.6, seule la somme du paquet téléchargé était vérifiée\&. Maintenant on peut vérifier aussi la signature du fichier Release\&.
+.PP
+Cette façon de faire est différente d\'une vérification de la signature d\'un paquet\&. Elle vise à empêcher deux types d\'attaque possibles\ \&:
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'L\'attaque de type
+\(Fo\ \&homme au milieu\ \&\(Fc\&. Sans vérification de signature, quelqu\'un de malveillant peut s\'introduire au milieu du processus de téléchargement et insérer du code soit en contrôlant un élément du réseau, routeur, commutateur, etc\&. soit en détournant le trafic vers un serveur fourbe (par usurpation d\'adresses)\&.
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'L\'attaque par compromission d\'un miroir sur le réseau\&. Sans vérification de signature, quelqu\'un de malveillant peut compromettre un miroir et modifier les fichiers\&. Ainsi tous ceux qui téléchargent les paquets de ce miroir propagent du code malveillant\&.
+.RE
+.PP
+Cependant cette méthode ne garantit pas contre une compromission du serveur Debian lui\-même (qui signe les paquets) ni contre la compromission de la clé qui sert à signer les fichiers Release\&. Mais elle peut compléter la signature des paquets\&.
+.SH "CONFIGURATION"
+.PP
+Le programme qui gère la liste des clés utilisées par apt s\'appelle
+\fBapt\-key\fR\&. Il peut ajouter ou supprimer des clés\&. Cette version installe automatiquement les clés qui servent à signer l\'archive Debian et les différents répertoires de paquets\&.
+.PP
+Pour ajouter une clé, vous devez d\'abord la télécharger\&. Il vaut mieux utiliser un canal fiable pour ce téléchargement\&. Ensuite vous l\'ajoutez avec la commande
+\fBapt\-key\fR
+et vous lancez la commande
+\fBapt\-get update\fR
+pour télécharger et vérifier le fichier
+\fIRelease\&.gpg\fR
+de l\'archive que vous avez configurée\&.
+.SH "CONFIGURATION D'UNE ARCHIVE"
+.PP
+Si vous voulez signer les archives dont vous avez la responsabilité, vous devez\ \&:
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'créer un fichier Release à la racine de l\'archive, s\'il n\'existe pas déjà\&. Vous pouvez le créer avec la commande
+\fBapt\-ftparchive release\fR
+(fournie dans le paquet apt\-utils)\ \&;
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'le signer, avec la commande
+\fBgpg \-abs \-o Release\&.gpg Release\fR\ \&;
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'publier l\'empreinte de la clé\&. Ainsi les utilisateurs de votre archive connaîtront la clé qu\'ils doivent importer pour authentifier les fichiers de l\'archive\&.
+.RE
+.PP
+Chaque fois que le contenu de l\'archive change, le responsable doit refaire les deux premières étapes\&.
+.SH "VOIR AUSSI"
+.PP
+
+\fBapt.conf\fR(5),
+\fBapt-get\fR(8),\fBsources.list\fR(5),
+\fBapt-key\fR(8),
+\fBapt-ftparchive\fR(1),
+\fBdebsign\fR(1),
+\fBdebsig-verify\fR(1),
+\fBgpg\fR(1)
+.PP
+Pour des informations plus substantielles, vous pouvez consulter
+\fI l\'infrastructure debian pour la sécurité\fR\&[1]
+un chapitre du manuel Debian sur la sécurité (disponible dans le paquet harden\-doc) et le
+\fIStrong Distribution HOWTO\fR\&[2]
+par V\&. Alex Brennen\&.
+.SH "BOGUES"
+.PP
+Voyez la
+\fI page concernant les bogues d\'APT\fR\&[3]\&. Si vous voulez signaler un bogue, consultez le texte
+\fI/usr/share/doc/debian/bug\-reporting\&.txt\fR
+ou utilisez la commande
+\fBreportbug\fR(1)\&.
+.SH "AUTEUR"
+.PP
+APT a été écrit par l\'équipe APT
+<apt@packages\&.debian\&.org>\&.
+.SH "AUTEURS"
+.PP
+Cette page a été écrite à partir des travaux de Javier Fernández\-Sanguino Peña, Isaac Jones, Colin Walters, Florian Weimer et Michael Vogt\&.
+.SH "TRADUCTION"
+.PP
+Philippe Batailler\&.
+<debian\-l10n\-french@lists\&.debian\&.org>\&. 2005\&.
+.SH "AUTEUR"
+.PP
+\fBJason Gunthorpe\fR
+.sp -1n
+.IP "" 4
+Auteur.
+.SH "COPYRIGHT"
+Copyright \(co 1998-2001 Jason Gunthorpe
+.br
+.SH "NOTES"
+.IP " 1." 4
+l'infrastructure debian pour la sécurité
+.RS 4
+\%http://www.debian.org/doc/manuals/securing-debian-howto/ch7.en.html
+.RE
+.IP " 2." 4
+Strong Distribution HOWTO
+.RS 4
+\%http://www.cryptnet.net/fdp/crypto/strong_distro.html
+.RE
+.IP " 3." 4
+page concernant les bogues d'APT
+.RS 4
+\%http://bugs.debian.org/src:apt
+.RE

@@ -1,0 +1,531 @@
+.\"     Title: apt_preferences
+.\"    Author: APT team
+.\" Generator: DocBook XSL Stylesheets v1.73.2 <http://docbook.sf.net/>
+.\"      Date: 29 February 2004
+.\"    Manual: 
+.\"    Source: Linux
+.\"
+.TH "APT_PREFERENCES" "5" "29 February 2004" "Linux" ""
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.SH "NAME"
+apt_preferences \- APT 設定制御ファイル
+.SH "説明"
+.PP
+APT 設定ファイル
+\fI/etc/apt/preferences\fR
+は、 インストールするパッケージのバージョン選択を制御するのに使用します。
+.PP
+\fBsources.list\fR(5)
+ファイルに複数のディストリビューション (stable
+と
+testing
+など) が指定されていて、 パッケージに対し複数のバージョンがインストールできることがあります。 このとき APT は、利用できるバージョンごとに優先度を割り当てます。 依存関係規則を条件として、\fBapt\-get\fR
+は、 最も高い優先度を持つバージョンをインストールするよう選択します。 APT 設定ファイルは、APT がデフォルトで割り当てた、 パッケージのバージョンの優先度を上書きします。 その結果、インストールするものの選択を、ユーザが選択できるようになります。
+.PP
+\fBsources.list\fR(5)
+ファイルに複数の参照が書かれている場合、 パッケージの同じバージョンのインスタンスが複数利用できる可能性があります。 この場合、\fBapt\-get\fR
+は
+\fBsources.list\fR(5)
+ファイルの初めの方に指定されているところからダウンロードします。 APT 設定ファイルは、バージョンの選択にのみ影響し、 インスタンスの選択には影響しません。
+.SS "APT のデフォルト優先度の割り当て"
+.PP
+設定ファイルがなかったり、 設定ファイルに、特定のパッケージを割り当てるエントリがない場合、 そのバージョンの優先度は、 そのバージョンが属しているディストリビューションの優先度となります。 デフォルトで他のディストリビューションより高い優先度を持つ、 特定のディストリビューションを「ターゲットリリース」としておくのは可能です。 ターゲットリリースは、\fBapt\-get\fR
+のコマンドラインで設定したり、 APT 設定ファイル
+\fI/etc/apt/apt\&.conf\fR
+で設定したりできます。 例えば以下のようになります。
+.sp
+.RS 4
+.nf
+\fBapt\-get install \-t testing \fR\fB\fIsome\-package\fR\fR
+.fi
+.RE
+.sp
+
+.sp
+.RS 4
+.nf
+APT::Default\-Release "stable";
+.fi
+.RE
+.PP
+ターゲットリリースが指定されると、APT は以下のアルゴリズムで、 パッケージのバージョンの優先度を設定します。このように割り当てます。
+.PP
+優先度 100
+.RS 4
+(あるならば) 既にインストールされているバージョン。
+.RE
+.PP
+優先度 500
+.RS 4
+インストールされておらず、ターゲットリリースに含まれないバージョン。
+.RE
+.PP
+優先度 990
+.RS 4
+インストールされておらず、ターゲットリリースに含まれるバージョン。
+.RE
+.PP
+ターゲットリリースが指定されていなければ、 APT は単純にインストールしているパッケージのバージョンには 100 を、 インストールしていないパッケージのバージョンには 500 を割り当てます。
+.PP
+APT は、インストールするパッケージのバージョンを決定するために、 以下のルールを上から順番に適用します。
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'有効なバージョンの優先度が 1000 を越えない場合、 決してダウングレードしません。 (「ダウングレード」は、現在のパッケージのバージョンよりも、 小さいバージョンのものをインストールします。 APT のデフォルト優先度が 1000 を越えないことに注意してください。 そのような優先度は設定ファイルでのみ設定できます。 また、パッケージのダウングレードは危険であることにも注意してください)
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'最も高い優先度のバージョンをインストールします。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'同じ優先度のバージョンが複数存在する場合、 最も新しいもの (最もバージョン番号が高いもの) をインストールします。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'優先度・バージョン番号が同じものが複数存在し、 そのパッケージのメタデータが異なるか
+\-\-reinstall
+オプションが与えられている場合、 インストールされていないものをインストールします。
+.RE
+.sp
+.RE
+.PP
+よくある状況として、 あるインストールされているパッケージのバージョン (優先度 100) が、
+\fBsources.list\fR(5)
+ファイルのリストから得られるバージョン (優先度 500 か 990) よりも新しくないということがあります。この場合、
+\fBapt\-get install \fR\fB\fIsome\-package\fR\fR
+や
+\fBapt\-get upgrade\fR
+を実行するとパッケージが更新されます。
+.PP
+まれに、インストールされているパッケージのバージョンが、
+\fI他の有効なバージョンよりも\fR新しい場合があります。 この時
+\fBapt\-get install \fR\fB\fIsome\-package\fR\fR
+や
+\fBapt\-get upgrade\fR
+を実行しても、 ダウングレードしません。
+.PP
+時々、インストールしているパッケージのバージョンが、 ターゲットリリースに属するバージョンよりも新しく、 他のディストリビューションよりも古い場合があります。 そのようなパッケージに対して
+\fBapt\-get install \fR\fB\fIsome\-package\fR\fR
+や
+\fBapt\-get upgrade\fR
+を実行すると、 パッケージは更新されます。 この場合、インストールされているバージョンよりも、 少なくとも\fIひとつ\fRは、 高い優先度を持つ有効なパッケージがあるからです。
+.SS "APT 設定の効果"
+.PP
+APT 設定ファイルを使うと、 システム管理者が優先度を割り当てられるようになります。 ファイルは、空白行で区切られた、複数行からなるレコードで構成されています。 レコードは特定形式か、汎用形式のどちらかの形式をとります。
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'特定形式は、優先度 ("Pin\-Priority") を、 指定したパッケージの指定したバージョン (範囲) について割り当てます。 例えば以下のレコードは、 "5\&.8" で始まる
+\fIperl\fR
+パッケージを、 高い優先度に設定します。
+.sp
+.RS 4
+.nf
+Package: perl
+Pin: version 5\&.8*
+Pin\-Priority: 1001
+.fi
+.RE
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'汎用形式は、与えられたディストリビューションにある、 すべてのパッケージ (\fIRelease\fR
+ファイルに列挙したパッケージ) の優先度や、FQDNで指定した、 特定のインターネットサイトから取得するパッケージの優先度を割り当てます。
+.sp
+APT 設定ファイルに書かれている汎用形式のエントリは、 パッケージのグループについてのみ適用されます。 例えば以下のレコードは、ローカルサイトにある全パッケージについて、 高い優先度を割り当てます。
+.sp
+.RS 4
+.nf
+Package: *
+Pin: origin ""
+Pin\-Priority: 999
+.fi
+.RE
+.sp
+注: ここで使用しているキーワードは "origin" です。
+\fIRelease\fR
+ファイルに指定されたような、 ディストリビューションの Origin と混同しないようにしてください。
+\fIRelease\fR
+ファイルにある "Origin:" タグは、 インターネットアドレスではなく、 "Debian" や "Ximian" といった作者やベンダ名です。
+.sp
+以下のレコードは、アーカイブ名が "unstable" となっているディストリビューションに属するパッケージを、 すべて低い優先度に割り当てます。
+.sp
+.RS 4
+.nf
+Package: *
+Pin: release a=unstable
+Pin\-Priority: 50
+.fi
+.RE
+.sp
+以下のレコードは、アーカイブ名が "stable" で、 リリースバージョン番号が "3\&.0" となっているリリースに属するパッケージを、 すべて高い優先度に割り当てます。
+.sp
+.RS 4
+.nf
+Package: *
+Pin: release a=stable, v=3\&.0
+Pin\-Priority: 500
+.fi
+.RE
+.RE
+.sp
+.RE
+.SS "APT が優先度に割り込む方法"
+.PP
+
+APT 設定ファイルで割り当てた優先度 (P) は、正負の整数でなくてはなりません。 これは (おおざっぱにいうと) 以下のように解釈されます。
+.PP
+P > 1000
+.RS 4
+パッケージがダウングレードしても、このバージョンのパッケージをインストールします。
+.RE
+.PP
+990 < P <=1000
+.RS 4
+インストールされているバージョンの方が新しいことを除き、 ターゲットリリースに含まれなくても、 このバージョンのパッケージをインストールします。
+.RE
+.PP
+500 < P <=990
+.RS 4
+ターゲットリリースに属するバージョンがあったり、 インストールされているバージョンの方が新しいのでなければ、 このバージョンのパッケージをインストールします。
+.RE
+.PP
+100 < P <=500
+.RS 4
+他のディストリビューションに属するバージョンがあったり、 インストールされているバージョンの方が新しいのでなければ、 このバージョンのパッケージをインストールします。
+.RE
+.PP
+0 < P <=100
+.RS 4
+このパッケージがインストールされていない場合、 このバージョンのパッケージをインストールします。
+.RE
+.PP
+P < 0
+.RS 4
+このバージョンがインストールされないようにします。
+.RE
+.PP
+特定形式のレコードが利用可能パッケージバージョンに一致した場合、 最初のレコードが、パッケージバージョンの優先度を決定します。 失敗して、汎用形式のレコードが利用可能パッケージバージョンに一致した場合、 最初のレコードが、パッケージバージョンの優先度を決定します。
+.PP
+例えば、APT 設定ファイルの上の方に、 以下のレコードが書かれていると仮定してください。
+.sp
+.RS 4
+.nf
+Package: perl
+Pin: version 5\&.8*
+Pin\-Priority: 1001
+
+Package: *
+Pin: origin ""
+Pin\-Priority: 999
+
+Package: *
+Pin: release unstable
+Pin\-Priority: 50
+.fi
+.RE
+.PP
+すると、
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'バージョン番号が "5\&.8" で始まっていれば、
+perl
+の最新の利用可能パッケージがインストールされます。 バージョン 5\&.8* が利用可能で、バージョン 5\&.9* がインストールされている場合、
+perl
+はダウングレードされます。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'ローカルシステムで有効な、
+perl
+以外のどんなパッケージでも、 他のバージョンより (たとえターゲットリリースに属していても) 優先度が高くなります。
+.RE
+.sp
+.RS 4
+\h'-04'\(bu\h'+03'ローカルシステムにはなくても
+\fBsources.list\fR(5)
+に列挙されたサイトにあるバージョンで、
+unstable
+ディストリビューションに属しているパッケージは、 インストールするよう選択され、 既にインストールされているバージョンがない場合にのみインストールされます。
+.RE
+.sp
+.RE
+.SS "パッケージのバージョンとディストリビューションプロパティの決定"
+.PP
+\fBsources.list\fR(5)
+ファイルに列挙した場所では、 その場所で利用できるパッケージを記述した、
+\fIPackages\fR
+ファイルや
+\fIRelease\fR
+ファイルを提供します。
+.PP
+\fIPackages\fR
+ファイルは通常
+\fI\&.\&.\&./dists/\fR\fI\fIdist\-name\fR\fR\fI/\fR\fI\fIcomponent\fR\fR\fI/\fR\fI\fIarch\fR\fR
+ディレクトリにあります。 例えば、\fI\&.\&.\&./dists/stable/main/binary\-i386/Packages\fR
+です。 これは、ディレクトリにある利用可能パッケージごとに、 複数行のレコードからできています。 APT 優先度の設定は、レコードごとに以下の 2 行だけです。
+.PP
+Package: 行
+.RS 4
+パッケージ名を与えます。
+.RE
+.PP
+Version: 行
+.RS 4
+その名前のパッケージのバージョン番号を与えます。
+.RE
+.PP
+\fIRelease\fR
+ファイルは、通常
+\fI\&.\&.\&./dists/\fR\fI\fIdist\-name\fR\fR
+にあります。例えば、
+\fI\&.\&.\&./dists/stable/Release\fR,
+\fI\&.\&.\&./dists/woody/Release\fR
+です。 これは、このディレクトリ以下にある\fI全\fRパッケージに適用する、 複数行のレコード 1 つから成っています。
+\fIPackages\fR
+と違い
+\fIRelease\fR
+ファイルは、 ほとんどの行が APT 優先度の設定に関連します。
+.PP
+Archive: 行
+.RS 4
+このディレクトリツリーに属する全パッケージのアーカイブ名。 例えば、 "Archive: stable" という行は、\fIRelease\fR
+ファイルの親ディレクトリツリー以下にある全パッケージが、
+stable
+アーカイブだと指定します。 APT 設定ファイルでこの値を指定するには、以下の行が必要になります。
+.sp
+.RS 4
+.nf
+Pin: release a=stable
+.fi
+.RE
+.RE
+.PP
+Version: 行
+.RS 4
+リリースバージョン名。 例えば、このツリーのパッケージが、 GNU/Linux リリースバージョン 3\&.0 に属するとします。 通常
+testing
+ディストリビューションや
+unstable
+ディストリビューションには、 まだリリースされていないので、バージョン番号が付きません。 APT 設定ファイルでこれを指定するには、以下の行のいずれかが必要になります。
+.sp
+.RS 4
+.nf
+Pin: release v=3\&.0
+Pin: release a=stable, v=3\&.0
+Pin: release 3\&.0
+.fi
+.RE
+.RE
+.PP
+Component: 行
+.RS 4
+\fIRelease\fR
+ファイルの、 ディレクトリツリーにあるパッケージのライセンスコンポーネント名。 例えば、"Component: main" という行は、このディレクトリ以下の全ファイルが、
+main
+コンポーネント (Debian フリーソフトウェアガイドラインの元でライセンスされている) であることを表します。 APT 設定ファイルでこのコンポーネントを指定するには、以下の行が必要になります。
+.sp
+.RS 4
+.nf
+Pin: release c=main
+.fi
+.RE
+.RE
+.PP
+Origin: 行
+.RS 4
+\fIRelease\fR
+ファイルのディレクトリツリーにあるパッケージの提供者名。 ほとんど共通で、Debian
+です。 APT 設定ファイルでこの提供者を指定するには、以下の行が必要になります。
+.sp
+.RS 4
+.nf
+Pin: release o=Debian
+.fi
+.RE
+.RE
+.PP
+Label: 行
+.RS 4
+\fIRelease\fR
+ファイルのディレクトリツリーにあるパッケージのラベル名。 ほとんど共通で
+Debian
+です。 APT 設定ファイルでこのラベルを指定するには、以下の行が必要になります。
+.sp
+.RS 4
+.nf
+Pin: release l=Debian
+.fi
+.RE
+.RE
+.PP
+\fBsources.list\fR(5)
+ファイルに列挙された場所から取得した
+\fIPackages\fR
+ファイルや
+\fIRelease\fR
+ファイルはすべて、
+\fI/var/lib/apt/lists\fR
+ディレクトリや、
+\fIapt\&.conf\fR
+ファイルの
+Dir::State::Lists
+変数で指定した場所に取得されます。例えば、
+\fIdebian\&.lcs\&.mit\&.edu_debian_dists_unstable_contrib_binary\-i386_Release\fR
+ファイルは、
+debian\&.lcs\&.mit\&.edu
+から取得した、
+unstable
+ディストリビューションで、
+contrib
+コンポーネントな、
+binary\-i386
+アーキテクチャ用の
+\fIRelease\fR
+ファイルを含んでいます。
+.SS "APT 設定レコードのオプション行"
+.PP
+APT 設定ファイルのレコードごとに、 任意で
+Explanation:
+で始まる行を持てます。 これは、コメント用の場所を確保します。
+.PP
+APT 設定レコードの
+Pin\-Priority:
+行は任意です。 省略すると、Pin\-Priority: release \&.\&.\&.
+で始まる行で指示した最後の値 (少なくとも1つ) を優先度に割り当てます。
+.SH "サンプル"
+.SS "安定版を追跡"
+.PP
+以下の APT 設定ファイルは、stable
+ディストリビューションに属する全てのパッケージのバージョンに、 デフォルト (500) より高い優先度を割り当て、 他の
+Debian
+ディストリビューションのパッケージのバージョンには、 低くてインストールできないような優先度を割り当てます。
+.sp
+.RS 4
+.nf
+Explanation: Uninstall or do not install any Debian\-originated
+Explanation: package versions other than those in the stable distro
+Package: *
+Pin: release a=stable
+Pin\-Priority: 900
+
+Package: *
+Pin: release o=Debian
+Pin\-Priority: \-10
+.fi
+.RE
+.PP
+適切な
+\fBsources.list\fR(5)
+ファイルと上記の設定ファイルにより、 以下のコマンドで最新の
+stable
+バージョンにアップグレードできます。
+.sp
+.RS 4
+.nf
+apt\-get install \fIpackage\-name\fR
+apt\-get upgrade
+apt\-get dist\-upgrade
+.fi
+.RE
+.PP
+以下のコマンドで、指定したパッケージを
+testing
+ディストリビューションの最新バージョンにアップグレードします。 このパッケージは、再度このコマンドを発行しないとアップグレードされません。
+.sp
+.RS 4
+.nf
+apt\-get install \fIpackage\fR/testing
+.fi
+.RE
+.sp
+.SS "テスト版や不安定版を追跡"
+.PP
+以下の APT 設定ファイルは、testing
+ディストリビューションのパッケージのバージョンに高い優先度を割り当て、
+unstable
+ディストリビューションのパッケージのバージョンには低い優先度を割り当てます。 また他の
+Debian
+ディストリビューションのパッケージのバージョンには、 低くてインストールできないような優先度を割り当てます。
+.sp
+.RS 4
+.nf
+Package: *
+Pin: release a=testing
+Pin\-Priority: 900
+
+Package: *
+Pin: release a=unstable
+Pin\-Priority: 800
+
+Package: *
+Pin: release o=Debian
+Pin\-Priority: \-10
+.fi
+.RE
+.PP
+適切な
+\fBsources.list\fR(5)
+ファイルと上記の設定ファイルにより、 以下のコマンドで最新の
+testing
+バージョンにアップグレードできます。
+.sp
+.RS 4
+.nf
+apt\-get install \fIpackage\-name\fR
+apt\-get upgrade
+apt\-get dist\-upgrade
+.fi
+.RE
+.PP
+以下のコマンドで、指定したパッケージを
+unstable
+ディストリビューションの最新バージョンにアップグレードします。 それ以降、\fBapt\-get upgrade\fR
+は
+testing
+バージョンのパッケージが更新されていれば
+testing
+の最新版に、
+unstable
+バージョンのパッケージが更新されていれば
+unstableの最新版にアップグレードします。
+.sp
+.RS 4
+.nf
+apt\-get install \fIpackage\fR/unstable
+.fi
+.RE
+.sp
+.SH "関連項目"
+.PP
+\fBapt-get\fR(8)
+\fBapt-cache\fR(8)
+\fBapt.conf\fR(5)
+\fBsources.list\fR(5)
+.SH "バグ"
+.PP
+\fIAPT バグページ\fR\&[1]を ご覧ください。 APT のバグを報告する場合は、
+\fI/usr/share/doc/debian/bug\-reporting\&.txt\fR
+や
+\fBreportbug\fR(1)
+コマンドをご覧ください。
+.SH "訳者"
+.PP
+倉澤 望
+<nabetaro@debian\&.or\&.jp>
+(2003\-2006), Debian JP Documentation ML
+<debian\-doc@debian\&.or\&.jp>
+.SH "AUTHOR"
+.PP
+\fBAPT team\fR
+.sp -1n
+.IP "" 4
+Author.
+.SH "NOTES"
+.IP " 1." 4
+APT バグページ
+.RS 4
+\%http://bugs.debian.org/src:apt
+.RE

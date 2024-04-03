@@ -1,0 +1,532 @@
+.\"     Title: apt-ftparchive
+.\"    Author: Jason Gunthorpe
+.\" Generator: DocBook XSL Stylesheets v1.73.2 <http://docbook.sf.net/>
+.\"      Date: 29 Février 2004
+.\"    Manual: 
+.\"    Source: Linux
+.\"
+.TH "APT\-FTPARCHIVE" "1" "29 Février 2004" "Linux" ""
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.SH "NOM"
+apt-ftparchive \- Un outil pour créer des index
+.SH "SYNOPSIS"
+.HP 15
+\fBapt\-ftparchive\fR [\fB\-hvdsq\fR] [\fB\-\-md5\fR] [\fB\-\-delink\fR] [\fB\-\-readonly\fR] [\fB\-\-contents\fR] [\fB\-o=\fR\fB\fIoption\ de\ configuration\fR\fR] [\fB\-c=\fR\fB\fIfichier\fR\fR] {[packages\ \fIchemin\fR...\ [\fIoverride\fR\ [\fIpréfixe\-de\-chemin\fR]]] | [sources\ \fIchemin\fR...\ [\fIoverride\fR\ [\fIpréfixe\-de\-chemin\fR]]] | [contents\ \fIchemin\fR] | [release\ \fIchemin\fR] | [generate\ \fIfichier\-de\-configuration\fR\ \fIsection\fR...] | [clean\ \fIfichier\-de\-configuration\fR]}
+.SH "DESCRIPTION"
+.PP
+
+\fBapt\-ftparchive\fR
+est l\'outil en ligne de commande qui crée les index dont APT se sert pour accéder aux sources des distributions\&. Un index doit être créé pour un site et basé sur le contenu de ce site\&.
+.PP
+\fBapt\-ftparchive\fR
+est un ensemble comprenant le programme
+\fBdpkg-scanpackages\fR(8)
+et toutes ses fonctionnalités via la commande
+packages\ \&; il comprend aussi un générateur de fichier \(Fo\ \&Contents\ \&\(Fc, la commande
+contents, et une technique élaborée pour \(Fo\ \&scripter\ \&\(Fc le processus de création d\'une archive complète\&.
+.PP
+
+\fBApt\-ftparchive\fR
+peut utiliser lui\-même des bases de données binaires pour \(Fo\ \&cacher\ \&\(Fc le contenu d\'un fichier \&.deb\ \&; il n\'a pas besoin de programmes extérieurs, sauf
+\fBgzip\fR(1)\&. Lors d\'une exécution, il vérifie les changements dans les fichiers et crée les fichiers compressés voulus\&.
+.PP
+À moins que l\'option
+\fB\-h\fR
+ou
+\fB\-\-help\fR
+ne soit donnée, l\'une des commandes suivantes doit être présente\ \&:
+.PP
+packages
+.RS 4
+La commande
+packages
+crée un fichier \(Fo\ \&Packages\ \&\(Fc à partir d\'une arborescence\&. Elle recherche récursivement à travers le répertoire donné les fichiers \&.deb et, pour chaque fichier trouvé, envoie une entrée pour ce paquet sur la sortie standard\&. Cette commande est approximativement équivalente à
+\fBdpkg-scanpackages\fR(8)\&.
+.sp
+On peut se servir de l\'option
+\fB\-\-db\fR
+pour demander un cache binaire\&.
+.RE
+.PP
+sources
+.RS 4
+La commande
+sources
+crée un index des sources à partir d\'une arborescence\&. Elle recherche récursivement à travers le répertoire donné les fichiers \&.dsc et, pour chaque fichier trouvé, envoie une entrée pour ce paquet sur la sortie standard\&. Cette commande est approximativement équivalente à
+\fBdpkg-scansources\fR(8)\&.
+.sp
+Quand on précise un fichier \(Fo\ \&override\ \&\(Fc, c\'est un fichier source avec une extension \&.src qui est recherché\&. On peut se servir de l\'option
+\fB\-\-source\-override\fR
+pour changer de fichier source d\'\(Fo\ \&override\ \&\(Fc\&.
+.RE
+.PP
+contents
+.RS 4
+La commande
+contents
+crée un fichier \(Fo\ \&Contents\ \&\(Fc à partir d\'une arborescence\&. Elle recherche récursivement à travers le répertoire donné les fichiers \&.deb et, pour chaque fichier trouvé, lit la liste des fichiers\&. Elle trie la liste des fichiers correspondant à des paquets et l\'envoie sur la sortie standard\&. Les répertoires ne font pas partie du résultat\&. Quand un fichier appartient à plusieurs paquets, une virgule sépare les paquets\&.
+.sp
+On peut se servir de l\'option
+\fB\-\-db\fR
+pour demander un cache binaire\&.
+.RE
+.PP
+release
+.RS 4
+La commande
+release
+crée un fichier Releases à partir d\'un répertoire\&. Elle cherche récursivement dans ce répertoire les fichiers Packages, Packages\&.gz, Packages\&.bz2, Sources, Sources\&.gz, Sources\&.bz2, Release et md5sum\&.txt\&. Elle envoie alors un fichier Release sur la sortie standard avec un résumé MD5 et un résumé SHA1 pour chaque fichier\&.
+.sp
+La valeur des autres champs du fichier Release est tirée de la valeur correspondante dans
+APT::FTPArchive::Release, p\&. ex\&.
+APT::FTPArchive::Release::Origin\&. Les champs reconnus sont :
+Origin,
+Label,
+Suite,
+Version,
+Codename,
+Date,
+Architectures,
+Components,
+Description\&.
+.RE
+.PP
+generate
+.RS 4
+La commande
+generate
+est conçue pour être exécutable par le programme cron et elle crée un index en suivant le fichier de configuration donné\&. Le langage de configuration fournit un moyen souple de préciser index et répertoires aussi bien que les paramètres requis\&.
+.RE
+.PP
+clean
+.RS 4
+La commande
+clean
+range les bases de données utilisées par le fichier de configuration en supprimant les enregistrements qui ne sont plus nécessaires\&.
+.RE
+.SH "CONFIGURATION DE LA COMMANDE GENERATE"
+.PP
+La commande
+generate
+utilise un fichier de configuration pour décrire l\'archive qui va être créée\&. Le format de ce fichier est le format ISC classique utilisé par des outils ISC comme bind 8 et dhcpd\&. Le fichier
+\fBapt.conf\fR(5)
+décrit ce format\&. Il faut noter que l\'analyse de ce fichier se fait par section tandis que celle d\'\fBapt.conf\fR(5)
+se fait par arborescence\&. Cela n\'affecte que l\'usage de l\'étiquette de visée (scope tag)\&.
+.PP
+Ce fichier de configuration possède quatre sections, décrites ci\-dessous\&.
+.SS "La section Dir"
+.PP
+La section
+Dir
+définit les répertoires standards où situer les fichiers nécessaires au processus de création\&. Ces répertoires sont précédés de chemins relatifs définis dans les sections suivantes de manière à produire un chemin absolu et complet\&.
+.PP
+ArchiveDir
+.RS 4
+Indique la racine de l\'archive FTP\ \&; Pour une configuration Debian classique, c\'est le répertoire qui contient le fichier
+\fIls\-LR\fR
+et les noeuds des distributions\&.
+.RE
+.PP
+OverrideDir
+.RS 4
+Indique l\'emplacement des fichiers d\'\(Fo\ \&override\ \&\(Fc\&.
+.RE
+.PP
+CacheDir
+.RS 4
+Indique l\'emplacement des fichiers de cache\&.
+.RE
+.PP
+FileListDir
+.RS 4
+Indique l\'emplacement des fichiers contenant la liste des fichiers (si on se sert de la valeur
+FileList
+définie plus bas)\&.
+.RE
+.SS "La section Default"
+.PP
+La section
+Default
+précise les valeurs par défaut et les paramètres qui contrôlent la marche du générateur\&. Ces valeurs peuvent être annulées dans d\'autres sections (paramètrage par section)\&.
+.PP
+Packages::Compress
+.RS 4
+Indique comment sont compressés les fichiers d\'index\&. C\'est une chaîne qui contient des valeurs séparées par des espaces\ \&; elle contient au moins l\'une des valeurs suivantes\ \&: \(Fo\ \&\&.\ \&\(Fc (pas de compression), \(Fo\ \&gzip\ \&\(Fc, \(Fo\ \&bzip2\ \&\(Fc\&. Par défaut, c\'est la chaîne \(Fo\ \&\&. gzip\ \&\(Fc\&.
+.RE
+.PP
+Packages::Extensions
+.RS 4
+Indique la liste par défaut des extensions de fichier qui constituent des paquets\&. Par défaut, c\'est \(Fo\ \&\&.deb\ \&\(Fc\&.
+.RE
+.PP
+Sources::Compress
+.RS 4
+Identique à
+Packages::Compress
+mais précise comment sont compressés les fichiers sources\&.
+.RE
+.PP
+Sources::Extensions
+.RS 4
+Indique la liste par défaut des extensions de fichier qui constituent des fichiers sources\&. Par défaut, c\'est \(Fo\ \&\&.dsc\ \&\(Fc\&.
+.RE
+.PP
+Contents::Compress
+.RS 4
+Identique à
+Packages::Compress
+mais précise comment sont compressés les fichiers \(Fo\ \&Contents\ \&\(Fc\&.
+.RE
+.PP
+DeLinkLimit
+.RS 4
+Indique le nombre de kilooctets à délier (et à remplacer par des liens en dur) pour chaque exécution\&. On s\'en sert, pour chaque section, avec le paramètre
+External\-Links\&.
+.RE
+.PP
+FileMode
+.RS 4
+Indique le système de permissions des fichiers d\'index créés\&. Par défaut, c\'est le mode 0644\&. Tous les fichiers d\'index ont ce mode et le masque utilisateur (umasq) est ignoré\&.
+.RE
+.SS "La section TreeDefault"
+.PP
+On indique les valeurs par défaut particulières à la section
+Tree\&. Toutes ces variables sont des variables de substitution\ \&; les chaînes $(DIST), $(SECTION) et $(ARCH) sont remplacées par leur valeur respective\&.
+.PP
+MaxContentsChange
+.RS 4
+Indique le nombre de kilooctets de fichiers \(Fo\ \&Contents\ \&\(Fc qui sont créés chaque jour\&. Les fichiers \(Fo\ \&Contents\ \&\(Fc sont tirés au sort selon le système
+\fIround\-robin\fR
+de manière que, sur plusieurs jours, tous soient reconstruits\&.
+.RE
+.PP
+ContentsAge
+.RS 4
+Contrôle le nombre de jours pendant lequel un fichier \(Fo\ \&Contents\ \&\(Fc peut être utilisé sans actualisation\&. Quand cette limite est franchie, le \(Fo\ \&mtime\ \&\(Fc du fichier \(Fo\ \&Contents\ \&\(Fc est mis à jour\&. Cela peut arriver quand un fichier est modifié sans que cela modifie le fichier \(Fo\ \&Contents\ \&\(Fc (modification par \(Fo\ \&override\ \&\(Fc par exemple)\&. Un délai est permis dans l\'espoir que de nouveaux \(Fo\ \&\&.deb\ \&\(Fc seront installés, exigeant un nouveau \(Fo\ \&Contents\ \&\(Fc\&. Par défaut ce nombre vaut 10, l\'unité étant le jour\&.
+.RE
+.PP
+Directory
+.RS 4
+Indique la racine de l\'arborescence des \(Fo\ \&\&.deb\ \&\(Fc\&. Par défaut, c\'est
+\fI$(DIST)/$(SECTION)/binary\-$(ARCH)/\fR\&.
+.RE
+.PP
+SrcDirectory
+.RS 4
+Indique la racine de l\'arborescence des paquets source\&. Par défaut, c\'est
+\fI$(DIST)/$(SECTION)/source/\fR\&.
+.RE
+.PP
+Packages
+.RS 4
+Indique le fichier \(Fo\ \&Packages\ \&\(Fc créé\&. Par défaut, c\'est
+\fI$(DIST)/$(SECTION)/binary\-$(ARCH)/Packages\fR\&.
+.RE
+.PP
+Sources
+.RS 4
+Indique le fichier \(Fo\ \&Packages\ \&\(Fc crée\&. Par défaut, c\'est
+\fI$(DIST)/$(SECTION)/source/Sources\fR\&.
+.RE
+.PP
+InternalPrefix
+.RS 4
+Indique un préfixe de chemin\ \&; ce préfixe fait qu\'un lien symbolique sera considéré comme un lien interne plutôt que comme un lien externe\&. Par défaut, c\'est
+\fI$(DIST)/$(SECTION)/\fR\&.
+.RE
+.PP
+Contents
+.RS 4
+Indique le fichier \(Fo\ \&Contents\ \&\(Fc créé\&. Par défaut, c\'est
+\fI$(DIST)/Contents\-$(ARCH)\fR\&. Quand le paramètrage fait que différents fichiers \(Fo\ \&Packages\ \&\(Fc se réfèrent à un seul fichier \(Fo\ \&Contents\ \&\(Fc,
+\fBapt\-ftparchive\fR
+les intègre automatiquement\&.
+.RE
+.PP
+Contents::Header
+.RS 4
+Indique l\'en\-tête à préfixer au fichier \(Fo\ \&Contents\ \&\(Fc créé\&.
+.RE
+.PP
+BinCacheDB
+.RS 4
+Indique la base de données binaire servant de cache pour cette section\&. Différentes sections peuvent partager cette base de données\&.
+.RE
+.PP
+FileList
+.RS 4
+Indique qu\'au lieu de lire l\'arborescence,
+\fBapt\-ftparchive\fR
+doit lire la liste de fichiers dans le fichier donné en argument\&. Les noms relatifs sont préfixés par le répertoire de l\'archive\&.
+.RE
+.PP
+SourceFileList
+.RS 4
+Indique qu\'au lieu de lire l\'arborescence,
+\fBapt\-ftparchive\fR
+doit lire la liste de fichiers dans le fichier donné en argument\&. Les noms relatifs sont préfixés par le répertoire de l\'archive\&. On s\'en sert pour traiter les index de sources\&.
+.RE
+.SS "La section Tree"
+.PP
+La section
+Tree
+définit une arborescence debian classique avec un répertoire de base, différentes sections dans ce répertoire et différentes architectures dans chaque section\&. Le chemin exact est défini par la variable de substitution
+Directory\&.
+.PP
+La section
+Tree
+accepte une étiquette de visée (scope tag) qui détermine la variable
+$(DIST)
+et la racine de l\'arborescence (le chemin est préfixé par
+ArchiveDir)\&. C\'est par exemple\ \&:
+\fIdists/woody\fR\&.
+.PP
+Tous les paramètres définis dans la section
+TreeDefault
+peuvent s\'utiliser dans la section
+Tree
+ainsi que les trois nouvelles variables suivantes\&.
+.PP
+Quand il exécute la section
+Tree,
+\fBapt\-ftparchive\fR
+agit ainsi\ \&:
+.sp .RS 4 .nf for i in Sections do for j in Architectures do Generate for DIST=scope SECTION=i ARCH=j .fi .RE
+.PP
+Sections
+.RS 4
+C\'est une liste de sections séparées par des espaces qui appartiennent à une distribution\ \&; classiquement, on trouve
+main contrib non\-free\&.
+.RE
+.PP
+Architectures
+.RS 4
+C\'est une liste de toutes les architectures qui appartiennent à chaque section\&. L\'architecture spéciale \(Fo\ \&source\ \&\(Fc indique que l\'arborescence est une arborescence de sources\&.
+.RE
+.PP
+BinOverride
+.RS 4
+Indique le fichier binaire d\'\(Fo\ \&override\ \&\(Fc\&. Ce fichier contient des informations sur la section, la priorité et le responsable du paquet\&.
+.RE
+.PP
+SrcOverride
+.RS 4
+Indique le fichier source d\'\(Fo\ \&override\ \&\(Fc\&. Ce fichier contient des informations sur la section\&.
+.RE
+.PP
+ExtraOverride
+.RS 4
+Indique un autre fichier d\'\(Fo\ \&override\ \&\(Fc pour les binaires\&.
+.RE
+.PP
+SrcExtraOverride
+.RS 4
+Indique un autre fichier d\'\(Fo\ \&override\ \&\(Fc pour les sources\&.
+.RE
+.SS "La section BinDirectory"
+.PP
+La section
+bindirectory
+définit une arborescence binaire sans structure particulière\&. L\'étiquette de visée (scope tag) indique l\'emplacement du répertoire binaire et le paramètrage est identique à celui pour la section
+Tree
+sans substitution de variables ou au paramètrage de
+SectionArchitecture\&.
+.PP
+Packages
+.RS 4
+Indique le fichier \(Fo\ \&Packages\ \&\(Fc créé\&.
+.RE
+.PP
+Sources
+.RS 4
+Indique le fichier \(Fo\ \&Sources\ \&\(Fc créé\&. L\'un des deux fichiers,
+Packages
+ou
+Sources
+est nécessaire\&.
+.RE
+.PP
+Contents
+.RS 4
+Indique le fichier \(Fo\ \&Contents\ \&\(Fc créé\&.
+.RE
+.PP
+Binoverride
+.RS 4
+Indique le fichier d\'\(Fo\ \&override\ \&\(Fc pour les binaires\&.
+.RE
+.PP
+SrcOverride
+.RS 4
+Indique le fichier d\'\(Fo\ \&override\ \&\(Fc pour les sources\&.
+.RE
+.PP
+ExtraOverride
+.RS 4
+Indique un autre fichier d\'\(Fo\ \&override\ \&\(Fc pour les binaires\&.
+.RE
+.PP
+SrcExtraOverride
+.RS 4
+Indique un autre fichier d\'\(Fo\ \&override\ \&\(Fc pour les sources\&.
+.RE
+.PP
+BinCacheDB
+.RS 4
+Indique une base de données cache\&.
+.RE
+.PP
+PathPrefix
+.RS 4
+Ajoute un chemin à tous les chemins créés\&.
+.RE
+.PP
+FileList, SourceFileList
+.RS 4
+Indique le fichier contenant la liste des fichiers\&.
+.RE
+.SH "LE FICHIER D'\(Fo\ \&OVERRIDE\ \&\(Fc POUR LES BINAIRES."
+.PP
+Le fichier d\'\(Fo\ \&Override\ \&\(Fc est pleinement compatible avec
+\fBdpkg-scanpackages\fR(8)\&. Il contient quatre champs séparés par des espaces\&. Le premier est le nom du paquet\ \&; le deuxième est la priorité à donner à ce paquet\ \&; le troisième est sa section et le dernier champ est un champ pour changer le nom du responsable de paquet\&.
+.PP
+Le champ du responsable est de cette forme\ \&:
+.sp
+.RS 4
+.nf
+old [// oldn]* => new
+.fi
+.RE
+.sp
+ou simplement,
+.sp
+.RS 4
+.nf
+new
+.fi
+.RE
+.sp
+La première forme permet de spécifier de vieilles adresses dans une liste (le séparateur est la double barre oblique)\&. Si l\'une de ces deux formes est rencontrée, la valeur de new remplace la valeur du champ\&. La deuxième forme remplace inconditionnellement le champ\&.
+.SH "LE FICHIER D'\(Fo\ \&OVERRIDE\ \&\(Fc POUR LES SOURCES"
+.PP
+Le fichier d\'\(Fo\ \&Override\ \&\(Fc est pleinement compatible avec
+\fBdpkg-scansources\fR(8)\&. Il contient deux champs\&. Le premier est le nom du paquet source\ \&; le second, sa section\&.
+.SH "LE FICHIER SUPPLÉMENTAIRE D'\(Fo\ \&OVERRIDE\ \&\(Fc"
+.PP
+Le fichier supplémentaire d\'\(Fo\ \&Override\ \&\(Fc permet d\'ajouter ou de remplacer des étiquettes sur la sortie\&. Il possède trois colonnes\ \&: la première représente le paquet, la seconde est une étiquette et la troisième en fin de ligne est la nouvelle valeur\&.
+.SH "LES OPTIONS"
+.PP
+Toutes les options en ligne de commande peuvent être positionnées via le fichier de configuration\ \&; les descriptifs indiquent l\'option de configuration à positionner\&. En ce qui concerne les options booléennes, on peut annuler le fichier de configuration en utilisant quelque chose comme
+\fB\-f\-\fR,\fB\-\-no\-f\fR,
+\fB\-f=no\fR
+ou d\'autres variantes\&.
+.PP
+\fB\-\-md5\fR
+.RS 4
+Créer la somme de contrôle MD5\&. Cette option est activée par défaut\&. Quand elle est désactivée, les fichiers d\'index n\'ont pas les champs MD5Sum là où c\'est possible\&. Élément de configuration\ \&:
+APT::FTPArchive::MD5\&.
+.RE
+.PP
+\fB\-d\fR, \fB\-\-db\fR
+.RS 4
+Utiliser une base de données binaire pour cache\&. Cela n\'a aucun effet sur la commande generate\&. Élément de configuration\ \&:
+APT::FTPArchive::DB\&.
+.RE
+.PP
+\fB\-q\fR, \fB\-\-quiet\fR
+.RS 4
+Mode silencieux\ \&; cette commande produit une sortie destinée à l\'enregistrement dans un fichier\-journal en omettant les indicateurs de progression\&. Un plus grand nombre de \(Fo\ \&q\ \&\(Fc (2 au plus) produit un plus grand silence\&. On peut aussi utiliser
+\fB\-q=#\fR
+pour positionner le niveau de silence, et annuler le fichier de configuration\&. Élément de configuration\ \&:
+quiet\&.
+.RE
+.PP
+\fB\-\-delink\fR
+.RS 4
+Faire une déliaison\&. Si
+External\-Links
+est activé, cette option permet réellement la déliaison des fichiers\&. Par défaut, elle est activée mais elle peut être désactivée avec l\'option
+\fB\-\-no\-delink\fR\&. Élément de configuration\ \&:
+APT::FTPArchive::DeLinkAct\&.
+.RE
+.PP
+\fB\-\-contents\fR
+.RS 4
+Permettre la création d\'un fichier \(Fo\ \&Contents\ \&\(Fc\&. Quand cette option est activée et que les index sont créés sous forme de base de données binaire, la liste des fichiers est aussi extraite et conservée dans la base de données pour un usage futur\&. Avec la commande generate, cette option permet la création de fichiers \(Fo\ \&Contents\ \&\(Fc\&. Par défaut, elle est activée\&. Élément de configuration\ \&:
+APT::FTPArchive::Contents\&.
+.RE
+.PP
+\fB\-s\fR, \fB\-\-source\-override\fR
+.RS 4
+Indique le fichier d\'\(Fo\ \&override\ \&\(Fc à utiliser avec la commande
+sources\&. Élément de configuration\ \&:
+APT::FTPArchive::SourceOverride\&.
+.RE
+.PP
+\fB\-\-readonly\fR
+.RS 4
+N\'autoriser que la lecture pour les bases de données de cache\&. Élément de configuration\ \&:
+APT::FTPArchive::ReadOnlyDB\&.
+.RE
+.PP
+\fB\-h\fR, \fB\-\-help\fR
+.RS 4
+Affiche un mode d\'emploi succinct\&.
+.RE
+.PP
+\fB\-v\fR, \fB\-\-version\fR
+.RS 4
+Affiche la version du programme\&.
+.RE
+.PP
+\fB\-c\fR, \fB\-\-config\-file\fR
+.RS 4
+Fichier de configuration\ \&; indique quel fichier de configuration utiliser\&. Le programme lit le fichier de configuration par défaut, puis celui\-ci\&. Voyez
+\fBapt.conf\fR(5)
+pour la syntaxe\&.
+.RE
+.PP
+\fB\-o\fR, \fB\-\-option\fR
+.RS 4
+Donne une option de configuration\ \&; cela fixe une option de configuration arbitraire\&. La syntaxe est :
+\fB\-o Foo::Bar=bar\fR\&.
+.RE
+.SH "VOIR AUSSI"
+.PP
+\fBapt.conf\fR(5)
+.SH "DIAGNOSTICS"
+.PP
+
+\fBapt\-ftparchive\fR
+retourne zéro si tout se passe bien, le nombre décimal 100 en cas d\'erreur\&.
+.SH "BOGUES"
+.PP
+Voyez la
+\fI page concernant les bogues d\'APT\fR\&[1]\&. Si vous voulez signaler un bogue, consultez le texte
+\fI/usr/share/doc/debian/bug\-reporting\&.txt\fR
+ou utilisez la commande
+\fBreportbug\fR(1)\&.
+.SH "TRADUCTION"
+.PP
+Philippe Batailler\&.
+<debian\-l10n\-french@lists\&.debian\&.org>\&. 2005\&.
+.SH "AUTHORS"
+.PP
+\fBJason Gunthorpe\fR
+.sp -1n
+.IP "" 4
+Auteur.
+.PP
+\fBAPT team\fR
+.sp -1n
+.IP "" 4
+Auteur.
+.SH "NOTES"
+.IP " 1." 4
+page concernant les bogues d'APT
+.RS 4
+\%http://bugs.debian.org/src:apt
+.RE

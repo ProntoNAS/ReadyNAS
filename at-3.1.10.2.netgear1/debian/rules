@@ -1,0 +1,116 @@
+#! /usr/bin/make -f 
+
+#   Copyright 1994-98   joey@infodrom.north.de (Martin Schulze)
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 2 dated June, 1991.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program;  if not, write to the Free Software
+#   Foundation Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA
+SHELL=/bin/bash
+
+# The name and version of the source
+#
+source = $(shell grep "^Source: " debian/control|head -1|sed 's/Source: \(.*\)/\1/g')
+package = $(shell grep "^Package: " debian/control|head -1|sed 's/Package: \(.*\)/\1/g')
+version = $(shell grep "^$(source) " debian/changelog|head -1 |sed 's/.*(\(.*\)\-[^\-]*).*/\1/g')
+revision = $(shell grep "^$(source) " debian/changelog|head -1 |sed 's/.*([^\-]*\-\(.*\)).*/\1/g')
+
+installbin = install -g root -o root -m 755
+installdoc = install -g root -o root -m 644
+
+build:
+	-test -f config.cache || PATH=/usr/sbin:$${PATH} ./configure --prefix=/usr \
+		--with-loadavg_mx=1.5 \
+		--with-jobdir=/var/spool/cron/atjobs \
+		--with-atspool=/var/spool/cron/atspool
+	sed 's,/usr/lib/sendmail,/usr/sbin/sendmail,g' \
+		< config.h > config.h.new
+	mv -f config.h.new config.h
+	$(MAKE)
+	touch stamp-build
+
+clean: debclean
+	rm -f stamp-build
+	-$(MAKE) distclean
+	rm -rf *~ TAGS tags
+
+debclean:
+# Cleans debian binary directories to allow binary creation
+	rm -rf debian/tmp
+	rm -f debian/{files,substvars}
+
+binary-indep:
+# Nothing to be done here
+
+#find debian/tmp/usr/share/doc debian/tmp/usr/share/man -type f | xargs gzip -9
+#find debian/tmp/usr/share/man -type l | xargs rm
+#cd debian/tmp/usr/share/man/man1 && ln -s at.1.gz batch.1.gz && ln -s at.1.gz atq.1.gz && ln -s at.1.gz atrm.1.gz
+#cd debian/tmp/usr/share/man/man5 && ln -s at_allow.5.gz at_deny.5.gz && rm -f at_deny.5
+
+binary-arch: debclean
+	test -f stamp-build || $(MAKE) -f debian/rules build
+	$(installbin) -d debian/tmp/DEBIAN
+	chown -R root:root debian/tmp
+	chmod -R g-ws debian/tmp
+	$(installbin) -d debian/tmp/usr/share/doc/$(package)
+	$(installbin) debian/{postinst,postrm,prerm} debian/tmp/DEBIAN/
+	$(installdoc) debian/conffiles debian/tmp/DEBIAN/
+	$(installdoc) debian/changelog debian/tmp/usr/share/doc/$(package)/changelog.Debian
+	#
+	$(installdoc) ChangeLog debian/tmp/usr/share/doc/$(package)/changelog
+	$(installdoc) debian/copyright debian/tmp/usr/share/doc/$(package)/
+	$(installdoc) README debian/tmp/usr/share/doc/$(package)/readme.txt
+	gzip -9f debian/tmp/usr/share/doc/$(package)/{changelog{,.Debian},readme.txt}
+	#
+	$(MAKE) IROOT=`pwd`/debian/tmp mandir=/usr/share/man docdir=/usr/share/doc install
+	rm -f debian/tmp/usr/share/doc/at/{Copyright,ChangeLog,README}
+	rm -f debian/tmp/var/spool/cron/atjobs/.SEQ
+	chown daemon:daemon debian/tmp/var/spool/cron/atjobs debian/tmp/var/spool/cron/atspool
+	rm -f debian/tmp/usr/share/man/man1/{atq,atrm,batch}.1 debian/tmp/usr/share/man/man8/atrun.8
+	rm -f debian/tmp/usr/share/man/man5/at_deny.5 debian/tmp/usr/sbin/atrun
+	mv -f debian/tmp/usr/share/man/man5/at_allow.5 debian/tmp/usr/share/man/man5/at.allow.5
+	gzip -9 debian/tmp/usr/share/man/man?/*
+	(cd debian/tmp/usr/share/man/man1 && ln -s at.1.gz atq.1.gz && ln -s at.1.gz atrm.1.gz && ln -s at.1.gz batch.1.gz)
+	(cd debian/tmp/usr/share/man/man5 && ln -s at.allow.5.gz at.deny.5.gz)
+	$(installbin) -d debian/tmp/etc/init.d debian/tmp/etc/pam.d
+	$(installbin) debian/rc debian/tmp/etc/init.d/atd
+	$(installbin) debian/pam -m 644 debian/tmp/etc/pam.d/atd
+	dpkg-shlibdeps debian/tmp/usr/sbin/atd debian/tmp/usr/bin/at
+	dpkg-gencontrol -isp
+	dpkg --build debian/tmp ..
+
+binary: binary-indep binary-arch
+
+source diff:
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b' or dsc; false
+
+dsc:
+	-test -d debian/tmp && $(MAKE) -f debian/rules clean
+	if [ ! -f ../$(source)_$(version).orig.tar.gz -a -f ../orig/$(source)_$(version).orig.tar.gz ]; \
+	then \
+	  ln -s orig/$(source)_$(version).orig.tar.gz ../$(source)_$(version).orig.tar.gz; \
+	  touch /tmp/stamp-$(source)-link; \
+	fi; \
+	cd .. && dpkg-source -b $(source)-$(version)
+	if [ -f /tmp/stamp-$(source)-link ]; then \
+	  rm ../$(source)_$(version).orig.tar.gz /tmp/stamp-$(source)-link; \
+	fi
+
+checkroot:
+	$(checkdir)
+	test root = "`whoami`"
+
+dist: binary dsc
+
+.PHONY: binary binary-arch binary-indep clean checkroot
+# Local variables:
+# mode: makefile
+# End:

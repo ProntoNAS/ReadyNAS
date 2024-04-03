@@ -1,0 +1,253 @@
+.\"     Title: sources.list
+.\"    Author: Jason Gunthorpe
+.\" Generator: DocBook XSL Stylesheets v1.73.2 <http://docbook.sf.net/>
+.\"      Date: 29 February 2004
+.\"    Manual: 
+.\"    Source: Linux
+.\"
+.TH "SOURCES\&.LIST" "5" "29 February 2004" "Linux" ""
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.SH "NAME"
+sources.list \- APT 用パッケージリソースリスト
+.SH "説明"
+.PP
+このパッケージリソースリストは、 システムで使用するパッケージの保管場所を特定するのに使用されます。 今回このマニュアルページには、 Debian GNU/Linux システムで使用するパッケージシステムについてのみ記述します。 この制御ファイルは、\fI/etc/apt/sources\&.list\fR
+にあります。
+.PP
+ソースリストは複数の有効な取得元と、 様々な取得メディアをサポートしています。 ファイルには 1 行ごと取得元を列挙し、上の方にあるものから使用します。 行のフォーマットは、タイプ uri 引数
+となります。 先頭の
+タイプ
+で、
+引数
+のフォーマットを決定します。
+uri
+は Universal Resource Identifier (URI) で、 よく知られた URL のスーパーセットです。 行の残りに # を付けて、コメントにできます。
+.SH "SOURCES.LIST.D"
+.PP
+\fI/etc/apt/sources\&.list\&.d\fR
+ディレクトリに ファイル名が
+\&.list
+で終わる個別ファイルを置いておくと、 sources\&.list エントリに追加できます。フォーマットは、 通常の
+\fIsources\&.list\fR
+ファイルと同じです。
+.SH "DEB タイプと DEB-SRC タイプ"
+.PP
+deb
+タイプでは典型的な 2 段階の Debian アーカイブ (\fIdistribution/component\fR) を記述します。 よくあるケースでは、distribution
+は通常
+stable
+unstable
+testing
+のどれか、 component は、main
+contrib
+non\-free
+non\-us
+のどれかです。
+deb\-src
+タイプでは、 Debian ディストリビューションのソースコードを、
+deb
+タイプと同じ形式で記述します。
+deb\-src
+行は、 ソースインデックスを取得するのに必要です。
+.PP
+deb
+タイプと
+deb\-src
+タイプで使用する
+\fIsources\&.list\fR
+エントリのフォーマットは、以下になります。
+.sp
+.RS 4
+.nf
+deb uri distribution [component1] [component2] [\&.\&.\&.]
+.fi
+.RE
+.PP
+deb
+タイプの URI は、 APT が情報を見つけられるように、 Debian ディストリビューションの基底を指定しなければなりません。
+distribution
+には正確なパスを指定できます。 その場合 component を省略し、distribution
+はスラッシュ (/) で終わらなくてはなりません。 これは URL で指定されたアーカイブの、 特定のサブセクションのみに関心があるときに役に立ちます。
+distribution
+に正確なパスを指定しないのなら、 少なくともひとつは
+component
+を指定しなければなりません。
+.PP
+distribution
+は、
+$(ARCH)
+変数を含む場合があります。
+$(ARCH)
+変数は、システムで使用している Debian アーキテクチャ (i386, m68k, powerpc, \&.\&.\&.) に展開されます。 これにより、アーキテクチャに依存しない
+\fIsources\&.list\fR
+ファイルを使用できます。 一般的に、これは正しいパスを指定するときに気にするだけです。 そうでない場合は、APT
+は現在のアーキテクチャで URI を自動的に生成します。
+.PP
+有効な全 distribution, component の場所から、 一部が必要な場合、1 行につき 1 distribution しか指定できないため、 同じ URI の行を複数記述することになるでしょう。 APT は内部で URI リストを生成してから、並べ替えます。 そして、同じインターネットホストに対しては複数の参照をまとめます。 例えば FTP 接続後、切断してからまた同じホストに再接続するといった、 効率の悪いことをせずに、1 接続にまとめます。 この機能は、同時接続匿名ユーザ数を制限している、 混んでいる FTP サイトにアクセスするのに便利です。 APT は、帯域の狭いサイトを効率よく扱うのに、 異なるホストへは、接続を並行して行うようにもしています。
+.PP
+最優先する取得元を最初に記述するというように、 優先順に取得元を記述するのは重要です。 一般的には、スピードの速い順に並べることになる (例えば、CD\-ROM に続いてローカルネットワークのホスト、 さらに続いて彼方のインターネットホスト) でしょう。
+.PP
+例:
+.sp
+.RS 4
+.nf
+deb http://http\&.us\&.debian\&.org/debian stable main contrib non\-free
+deb http://http\&.us\&.debian\&.org/debian dists/stable\-updates/
+   
+.fi
+.RE
+.SH "URI の仕様"
+.PP
+現在認識する URI 対応は、cdrom, file, http, ftp です。
+.PP
+file
+.RS 4
+file スキームは、システム内の任意のディレクトリを、 アーカイブとして扱えるようにします。 これは NFS マウントやローカルミラーで便利です。
+.RE
+.PP
+cdrom
+.RS 4
+cdrom スキームは、APT がローカル CD\-ROM ドライブを、 メディア交換しながら使えるようにします。 取得元リストに cdrom エントリを追加するには、
+\fBapt-cdrom\fR(8)
+プログラムを使用してください。
+.RE
+.PP
+http
+.RS 4
+http スキームはアーカイブとして、HTTP サーバを指定します。 環境変数
+\fBhttp_proxy\fR
+が、 http://server:port/ と言った形で指定されていれば、
+\fBhttp_proxy\fR
+で指定した プロキシサーバを使用します。 ユーザ認証が必要な HTTP/1\&.1 プロキシの場合、 http://user:pass@server:port/ と言う形で指定してください。 この認証方法は安全ではないことに注意してください。
+.RE
+.PP
+ftp
+.RS 4
+ftp スキームは、アーカイブに FTP サーバを指定します。 APT の FTP の振る舞いは、高度に設定できます。 詳細は、\fBapt.conf\fR(5)
+のマニュアルページをご覧ください。 ftp プロキシは、
+\fBftp_proxy\fR
+環境変数で指定することにご注意ください。 この方法用に、さらにこの方法でしか使用しないのに、 http プロキシを使用することができます (http プロキシサーバは大抵 ftp urlも理解できます)。 設定ファイルで http を使用する際に、 ftp プロキシを使用するよう設定してあっても無視されます。
+.RE
+.PP
+copy
+.RS 4
+copy スキームは、file スキームと同様ですが、パッケージをその場で使用せず、 キャッシュディレクトリにコピーするところが違います。 zip ディスクを使用していて、APT でコピーを行う場合に便利です。
+.RE
+.PP
+rsh, ssh
+.RS 4
+rsh/ssh メソッドは、与えられたユーザでリモートホストに接続し、 ファイルにアクセスするのに rsh/ssh を使用します。 あらかじめ RSA キーや rhosts の配置が必要ですが、 パスワードなし認証が可能です。 リモートホストのファイルへのアクセスの際、 ファイル転送に標準の
+\fBfind\fR
+コマンドや
+\fBdd\fR
+コマンドを使用します。
+.RE
+.SH "サンプル"
+.PP
+/home/jason/debian に格納されている stable/main, stable/contrib, stable/non\-free 用のローカル (または NFS) アーカイブを使用します。
+.sp
+.RS 4
+.nf
+deb file:/home/jason/debian stable main contrib non\-free
+.fi
+.RE
+.PP
+上記同様ですが、不安定版を使用します。
+.sp
+.RS 4
+.nf
+deb file:/home/jason/debian unstable main contrib non\-free
+.fi
+.RE
+.PP
+上記のソース行
+.sp
+.RS 4
+.nf
+deb\-src file:/home/jason/debian unstable main contrib non\-free
+.fi
+.RE
+.PP
+archive\&.debian\&.org のアーカイブに HTTP アクセスし、 hamm/main のみを使用します。
+.sp
+.RS 4
+.nf
+deb http://archive\&.debian\&.org/debian\-archive hamm main
+.fi
+.RE
+.PP
+ftp\&.debian\&.org のアーカイブに FTP アクセスし、 debian ディレクトリ以下の stable/contrib のみを使用します。
+.sp
+.RS 4
+.nf
+deb ftp://ftp\&.debian\&.org/debian stable contrib
+.fi
+.RE
+.PP
+ftp\&.debian\&.org のアーカイブに FTP アクセスし、 debian ディレクトリ以下の unstable/contrib を使用します。
+\fIsources\&.list\fR
+に上記サンプルと一緒に指定された場合、 両方のリソース行に対応する FTP セッションはひとつだけになります。
+.sp
+.RS 4
+.nf
+deb ftp://ftp\&.debian\&.org/debian unstable contrib
+.fi
+.RE
+.PP
+nonus\&.debian\&.org のアーカイブに HTTP アクセスし、 debian\-non\-US ディレクトリ以下を使用します。
+.sp
+.RS 4
+.nf
+deb http://nonus\&.debian\&.org/debian\-non\-US stable/non\-US main contrib non\-free
+.fi
+.RE
+.PP
+nonus\&.debian\&.org のアーカイブに HTTP アクセスし、 debian\-non\-US ディレクトリ以下を使用します。 また、i386 マシンでは
+\fIunstable/binary\-i386\fR
+以下にあるファイル、 m68k マシンでは
+\fIunstable/binary\-m68k\fR
+以下にあるファイル、 その他サポートするアーキテクチャごとのファイルのみ使用します。 [このサンプルは変数展開の使用法の説明でしかないことに注意してください。 non\-us はこのような構造になっていません]
+.sp
+.RS 4
+.nf
+deb http://ftp\&.de\&.debian\&.org/debian\-non\-US unstable/binary\-$(ARCH)/
+.fi
+.RE
+.sp
+.SH "関連項目"
+.PP
+\fBapt-cache\fR(8)
+\fBapt.conf\fR(5)
+.SH "バグ"
+.PP
+\fIAPT バグページ\fR\&[1]を ご覧ください。 APT のバグを報告する場合は、
+\fI/usr/share/doc/debian/bug\-reporting\&.txt\fR
+や
+\fBreportbug\fR(1)
+コマンドをご覧ください。
+.SH "訳者"
+.PP
+倉澤 望
+<nabetaro@debian\&.or\&.jp>
+(2003\-2006), Debian JP Documentation ML
+<debian\-doc@debian\&.or\&.jp>
+.SH "AUTHORS"
+.PP
+\fBJason Gunthorpe\fR
+.sp -1n
+.IP "" 4
+Author.
+.PP
+\fBAPT team\fR
+.sp -1n
+.IP "" 4
+Author.
+.SH "NOTES"
+.IP " 1." 4
+APT バグページ
+.RS 4
+\%http://bugs.debian.org/src:apt
+.RE

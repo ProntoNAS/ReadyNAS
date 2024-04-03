@@ -1,0 +1,54 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 018_expat_entity_expansion.dpatch by Stefan Fritsch <sf@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad apr-util-1.2.12+dfsg~/xml/apr_xml.c apr-util-1.2.12+dfsg/xml/apr_xml.c
+--- apr-util-1.2.12+dfsg~/xml/apr_xml.c	2007-11-01 15:07:19.000000000 +0100
++++ apr-util-1.2.12+dfsg/xml/apr_xml.c	2009-06-02 19:02:28.063634350 +0200
+@@ -347,6 +347,25 @@
+     return APR_SUCCESS;
+ }
+ 
++#if XML_MAJOR_VERSION > 0
++/* XML_StopParser is present in expat 2.x */
++#define HAVE_XML_STOPPARSER
++#endif
++
++#ifdef HAVE_XML_STOPPARSER
++/* Stop the parser if an entity declaration is hit. */
++static void entity_declaration(void *userData, const XML_Char *entityName,
++                               int is_parameter_entity, const XML_Char *value,
++                               int value_length, const XML_Char *base,
++                               const XML_Char *systemId, const XML_Char *publicId,
++                               const XML_Char *notationName)
++{
++    apr_xml_parser *parser = userData;
++
++    XML_StopParser(parser->xp, XML_FALSE);
++}
++#endif
++
+ APU_DECLARE(apr_xml_parser *) apr_xml_parser_create(apr_pool_t *pool)
+ {
+     apr_xml_parser *parser = apr_pcalloc(pool, sizeof(*parser));
+@@ -372,6 +391,17 @@
+     XML_SetElementHandler(parser->xp, start_handler, end_handler);
+     XML_SetCharacterDataHandler(parser->xp, cdata_handler);
+ 
++    /* Prevent the "billion laughs" attack against expat by disabling
++     * internal entity expansion.  With 2.x, forcibly stop the parser
++     * if an entity is declared - this is safer and a more obvious
++     * failure mode.  With older versions, simply prevent expenansion
++     * of such entities. */
++#ifdef HAVE_XML_STOPPARSER
++    XML_SetEntityDeclHandler(parser->xp, entity_declaration);
++#else
++    XML_SetDefaultHandler(parser->xp, NULL);
++#endif
++
+     return parser;
+ }
+ 

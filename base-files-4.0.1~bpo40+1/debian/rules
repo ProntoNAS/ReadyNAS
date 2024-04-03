@@ -1,0 +1,69 @@
+#!/usr/bin/make -f
+
+package = base-files
+docdir = debian/tmp/usr/share/doc/$(package)
+
+OSNAME = "GNU/`uname | sed -e 's/GNU\///'`"
+ifeq ($(DEB_HOST_GNU_SYSTEM),linux)
+  OSNAME=GNU/Linux
+endif
+ifeq ($(DEB_HOST_GNU_SYSTEM),gnu)
+  OSNAME=GNU/Hurd
+endif
+
+VERSION = $(shell cat etc/debian_version)
+
+build:
+	cd debian && sed -e "s&#VERSION#&$(VERSION)&" preinst.in > preinst
+	touch build
+
+clean:
+	rm -f build debian/preinst
+	rm -f `find . -name "*~"`
+	rm -rf debian/tmp debian/files* core debian/substvars
+
+binary-arch: build
+	rm -rf debian/tmp
+	install -d debian/tmp/DEBIAN $(docdir)
+	cd debian/tmp && install -d usr/share/$(package)
+	install -p -m 644 debian/changelog debian/FAQ \
+		debian/README.FHS debian/README.base $(docdir)
+	cat debian/copyright.in | sed -e "s&#OSNAME#&$(OSNAME)&g" \
+		> $(docdir)/copyright
+	install -m 755 debian/remove-base $(docdir)
+	cd debian && install -m 755 preinst postinst tmp/DEBIAN
+	cd debian && install -m 644 conffiles tmp/DEBIAN
+	cd debian/tmp && install -d `cat ../directory-list`
+	install -p -m 644 share/* debian/tmp/usr/share/base-files
+	install -p -m 644 licenses/* debian/tmp/usr/share/common-licenses
+	ln -s GFDL-1.2 debian/tmp/usr/share/common-licenses/GFDL
+	ln -s LGPL-3 debian/tmp/usr/share/common-licenses/LGPL
+	ln -s GPL-3 debian/tmp/usr/share/common-licenses/GPL
+	install -p -m 644 etc/* debian/tmp/etc
+	rm -f debian/tmp/etc/motd
+ifeq ($(DEB_HOST_GNU_SYSTEM),gnu)
+	rmdir debian/tmp/proc
+endif
+	sed -e "s&#OSNAME#&$(OSNAME)&g" etc/motd \
+		> debian/tmp/usr/share/base-files/motd
+	sed -e "s&#OSNAME#&$(OSNAME)&g" share/info.dir \
+		> debian/tmp/usr/share/base-files/info.dir
+	sed -e "s&#OSNAME#&$(OSNAME)&g" etc/issue \
+		> debian/tmp/etc/issue
+	sed -e "s&#OSNAME#&$(OSNAME)&g" etc/issue.net \
+		> debian/tmp/etc/issue.net
+	gzip -9 $(docdir)/changelog
+	chown -R root:root debian/tmp
+	cd debian/tmp && chown root:src     usr/src
+	cd debian/tmp && chown root:staff   var/local
+	cd debian/tmp && chmod 755  `find . -type d`
+	cd debian/tmp && chmod 1777 `cat ../1777-dirs`
+	cd debian/tmp && chmod 2775 `cat ../2775-dirs`
+	dpkg-gencontrol -isp
+	dpkg --build debian/tmp ..
+
+binary-indep: build
+
+binary: binary-indep binary-arch
+
+.PHONY: binary binary-arch binary-indep clean
