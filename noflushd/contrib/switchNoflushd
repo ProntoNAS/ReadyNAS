@@ -1,0 +1,33 @@
+#!/bin/sh -e
+#
+# $Id: switchNoflushd,v 1.1.1.1 2006-09-14 22:54:14 jmaggard Exp $
+#
+# Wrapper script to switch noflushd timeouts and log the result.
+#
+# Contributed by Thomas Link <t.link@gmx.at>
+
+getNext () {
+	echo $1 | sed -e "s/\\([0-9]\\+\\).*/\\1/"
+}
+
+NOFLUSHD_DIR=/var/lib/noflushd
+
+kill -s SIGHUP `cat /var/run/noflushd.pid`
+
+DEFAULT_TIMEOUT=`cat ${NOFLUSHD_DIR}/timeout`
+STATE=`cat ${NOFLUSHD_DIR}/state`
+if [ -e ${NOFLUSHD_DIR}/history ]; then
+	HIST=`cat ${NOFLUSHD_DIR}/history`
+fi
+
+REST=`echo ${DEFAULT_TIMEOUT} | sed -e "s/^\\(${HIST},\\|.*\\)\\(.*\\)/\\2/"`
+NEW=`getNext ${REST}`
+if [ -z "${NEW}" ]; then
+	NEW=`getNext ${DEFAULT_TIMEOUT}`
+	echo ${NEW} > ${NOFLUSHD_DIR}/history
+else
+	echo ${HIST},${NEW} > ${NOFLUSHD_DIR}/history
+fi
+echo ${NEW} > ${NOFLUSHD_DIR}/state
+
+logger -t noflushd set timeout to ${NEW}

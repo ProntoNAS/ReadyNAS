@@ -1,0 +1,94 @@
+#! PERL_COMMAND -w
+
+# Copyright (c) 1999 University of Cambridge.
+# See the file NOTICE for conditions of use and distribution.
+
+# This is a perl script which extracts from an Exim log all entries
+# for all messages that have an entry that matches a given pattern.
+# If *any* entry for a particular message matches the pattern, *all*
+# entries for that message are displayed.
+
+# We buffer up information on a per-message basis. It is done this way rather
+# than reading the input twice so that the input can be a pipe.
+
+# There must be one argument, which is the pattern. Subsequent arguments
+# are the files to scan; if none, the standard input is read. If any file
+# appears to be compressed, it is passed through zcat. We can't just do this
+# for all files, because zcat chokes on non-compressed files.
+
+
+# This subroutine processes a single line (in $_) from a log file. Program
+# defensively against short lines finding their way into the log.
+
+sub do_line {
+return if length($_) < 20;
+$id = substr($_, 20, 16);
+return if $id !~ /\w{6}\-\w{6}\-\w{2}/;
+$saved{$id} = '' unless defined($saved{$id});
+
+# Save up the data for this message in case it becomes interesting later.
+
+$saved{$id} .= $_;
+
+# Are we interested in this id ?
+
+$id_list{$id} = 1 if /$pattern/io;
+
+# See if this is a completion for some message. If it is interesting,
+# print it, but in any event, throw away what was saved.
+
+if (/Completed$/)
+  {
+  delete $id_list{$id}, print "$saved{$id}\n" if $id_list{$id};
+  delete $saved{$id};
+  }
+}
+
+
+# The main program. Extract the pattern and make sure any relevant characters
+# are quoted if the -l flag is given.
+
+shift @ARGV if ($literal = ($#ARGV >= 0 && $ARGV[0] eq "-l"));
+
+die "usage: exigrep [-l] <pattern> [<log file>]...\n" if ($#ARGV < 0);
+
+$pattern = shift @ARGV;
+$pattern =~ s/\W/\\$&/g if $literal;
+
+
+# If file arguments are given, open each one and process according as it is
+# is compressed or not.
+
+if (@ARGV)
+  {
+  foreach (@ARGV)
+    {
+    my $filename = $_;
+    if ($filename =~ /\.(?:COMPRESS_SUFFIX)$/)
+      {
+      open(LOG, "ZCAT_COMMAND $filename |") ||
+        die "Unable to zcat $filename: $!\n";
+      }
+    else
+      {
+      open(LOG, "$filename") || die "Unable to open $filename: $!\n";
+      }
+    &do_line() while (<LOG>);
+    close(LOG);
+    }
+  }
+
+# If no files are named, process STDIN only
+
+else
+  {
+  &do_line() while (<STDIN>);
+  }
+
+
+# At the end of processing all the input, print any uncompleted data
+
+foreach $key (keys %id_list)
+  { print "+++ $key not completed +++\n$saved{$key}\n"; }
+
+# End of exigrep

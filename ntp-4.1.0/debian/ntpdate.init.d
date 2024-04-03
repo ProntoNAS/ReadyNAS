@@ -1,0 +1,23 @@
+#! /bin/sh
+
+test -f /usr/sbin/ntpdate || exit 0
+test -f /etc/default/ntp-servers || exit 0
+
+. /etc/default/ntp-servers
+
+test -n "$NTPSERVERS" || exit 0
+
+case "$1" in
+start|restart|force-reload)
+  echo -n "Running ntpdate to synchronize clock"
+  /usr/sbin/ntpdate -u -b -s $NTPSERVERS
+  echo "."
+  ;;
+stop)
+  ;;
+*)
+  echo "Usage: /etc/init.d/ntpdate {start|stop|restart|force-reload}"
+  exit 1
+esac
+
+exit 0

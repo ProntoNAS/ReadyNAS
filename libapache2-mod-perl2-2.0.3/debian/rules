@@ -1,0 +1,168 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+include /usr/share/quilt/quilt.make
+
+# If set to a true value then MakeMaker's prompt function will
+# always return the default without waiting for user input.
+export PERL_MM_USE_DEFAULT=1
+
+ifndef PERL
+PERL = /usr/bin/perl
+endif
+
+TMP     =$(CURDIR)/debian/tmp
+LA2MP2  =$(CURDIR)/debian/libapache2-mod-perl2
+
+# Allow disabling build optimation by setting noopt in
+# $DEB_BUILD_OPTIONS
+CFLAGS = -Wall -g
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+        CFLAGS += -O0
+else
+        CFLAGS += -O2
+endif
+
+.PHONY: build
+build: patch build-stamp
+
+build-stamp:
+	dh_testdir
+
+	# Add commands to compile the package here
+	$(PERL) Makefile.PL \
+		INSTALLDIRS=vendor \
+		MP_USE_GTOP=1 \
+		MP_TRACE=0 \
+		MP_USE_DSO=1 \
+		MP_USE_STATIC=0 \
+		MP_CCOPTS="-g -Wall -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" \
+		MP_INCLUDE_DIR=/usr/include/apache2 \
+		MP_APXS=/usr/bin/apxs2 \
+		MP_INCLUDE_DIR=/usr/include/apr-1.0
+	$(MAKE) OPTIMIZE="$(CFLAGS)" LD_RUN_PATH=""
+	LANG=C $(MAKE)
+
+	touch $@
+
+.PHONY: clean
+clean: unpatch
+	dh_testdir
+	dh_testroot
+
+	dh_clean build-stamp install-stamp
+
+	# Add commands to clean up after the build process here
+	[ ! -f Makefile ] || $(MAKE) realclean
+
+	dh_clean .mypacklist Apache-Test/Makefile.old Apache-Test/t/REPORT \
+		 Apache-Test/t/cgi-bin/cookies.pl \
+		 Apache-Test/t/cgi-bin/next_available_port.pl\
+		 ModPerl-Registry/Makefile.old t/conf/perlsection.conf \
+		 t/htdocs/perlio/test
+	[ ! -d t/htdocs/hooks ] || rm -r t/htdocs/hooks
+	[ ! -d lib/Apache ] || rm -r lib/Apache
+	[ ! -d WrapXS ] || rm -r WrapXS
+
+.PHONY: install
+install: build install-stamp
+
+install-stamp:
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+
+	$(MAKE) install DESTDIR=$(TMP) PREFIX=/usr
+
+	# As this is a architecture dependent package, we are not
+	# supposed to install stuff to /usr/share. MakeMaker creates
+	# the dirs, we delete them from the deb:
+	rmdir --ignore-fail-on-non-empty --parents $(TMP)/usr/share/perl5
+
+	touch $@
+
+.PHONY: binary-indep
+# Build architecture-independent files here.
+binary-indep: build install
+	dh_testdir
+	dh_testroot
+	dh_installexamples -i
+	dh_installdocs -i
+	dh_installchangelogs -i Changes
+	dh_install -i
+	dh_perl -i
+	dh_compress -i
+	dh_fixperms -i
+	dh_installdeb -i
+	dh_gencontrol -i
+	dh_md5sums -i
+	dh_builddeb -i
+
+.PHONY: binary-arch
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installdirs -a
+	dh_installexamples -a
+	dh_installdocs -a
+	dh_installchangelogs -a Changes
+	dh_install -a
+	mv $(LA2MP2)/usr/bin/mp2bug $(LA2MP2)/usr/share/libapache2-mod-perl2/
+	install -m755 debian/libapache2-mod-perl2.bug $(LA2MP2)/usr/share/bug/libapache2-mod-perl2
+	dh_shlibdeps -a
+	dh_strip -a
+	dh_perl -a
+	dh_compress -a
+	dh_fixperms -a
+	dh_installdeb -a
+	dh_gencontrol -a
+	dh_md5sums -a
+	dh_builddeb -a
+
+.PHONY: binaru
+binary: binary-indep binary-arch
+
+
+
+### #!/usr/bin/make -f
+### 
+### include /usr/share/cdbs/1/rules/debhelper.mk
+### include /usr/share/cdbs/1/rules/simple-patchsys.mk
+### include /usr/share/cdbs/1/class/perlmodule.mk
+### 
+### DEB_MAKE_CHECK_TARGET =
+### DEB_MAKE_BUILD_TARGET = all glue_pods
+### DEB_MAKE_INSTALL_TARGET = install_vendor PREFIX=debian/libapache2-mod-perl2/usr
+### 
+### DEB_MAKEMAKER_USER_FLAGS := MP_USE_GTOP=1 \
+### 		MP_TRACE=0 \
+### 		MP_USE_DSO=1 \
+### 		MP_USE_STATIC=0 \
+### 		MP_CCOPTS="-g -Wall" \
+### 		MP_INCLUDE_DIR=/usr/include/apache2 \
+### 		MP_APXS=/usr/bin/apxs2 \
+### 		MP_INCLUDE_DIR=/usr/include/apr-1.0
+### 
+### 		#deleted for new build
+### 		#MP_AP_PREFIX=/usr \
+### 
+### BUILDDIR = $(CURDIR)/debian/libapache2-mod-perl2
+### 
+### install/libapache2-mod-perl2::
+### 	install $(CURDIR)/src/modules/perl/mod_perl.so debian/libapache2-mod-perl2/usr/lib/apache2/modules/mod_perl.so
+### 	install -m644 $(CURDIR)/debian/perl.load debian/libapache2-mod-perl2/etc/apache2/mods-available
+### 	rm -rf $(BUILDDIR)/usr/man
+### 	rm -f $(BUILDDIR)/usr/share/man/man3/mod_perl.3pm
+### 	rm -rf $(BUILDDIR)/usr/share/perl5
+### 
+### 	# mp2bug goes into the /usr/share/bug infrastructure!
+### 	mv $(BUILDDIR)/usr/bin/mp2bug $(BUILDDIR)/usr/share/libapache2-mod-perl2/
+### 	install -m755 $(CURDIR)/debian/libapache2-mod-perl2.bug $(BUILDDIR)/usr/share/bug/
+### 	mv $(BUILDDIR)/usr/share/bug/libapache2-mod-perl2.bug $(BUILDDIR)/usr/share/bug/libapache2-mod-perl2
+### 
+### install/libapache2-mod-perl2-dev::
+### 	install -m644 $(CURDIR)/xs/*.h debian/libapache2-mod-perl2-dev/usr/include/apache2
+### 	install -m644 $(CURDIR)/src/modules/perl/*.h debian/libapache2-mod-perl2-dev/usr/include/apache2

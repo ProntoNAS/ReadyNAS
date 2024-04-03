@@ -1,0 +1,27 @@
+#! /bin/sh
+
+set -e
+
+. /usr/share/debconf/confmodule
+
+# All the alpha RAID drivers i have seen put the "unused devices:" line into
+# /proc/mdstat, and the RAID drivers in stock kernels do not.
+# A better solution would be to look into /proc/sys/dev/md, but im not sure
+# whether it's implemented in all versions.
+
+if ! grep -q '^unused devices:' /proc/mdstat &> /dev/null
+then
+
+  db_get raidtools2/nosupport || true
+
+  if [ "$RET" = "false" ]; then
+
+    echo "Failing install because new-style RAID isn't supported by the kernel"
+    exit 1
+
+  fi
+
+fi
+
+exit 0
+

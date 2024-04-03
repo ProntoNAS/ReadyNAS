@@ -1,0 +1,75 @@
+#!/bin/sh 
+
+NC="/etc/ntp.conf"
+NS="/etc/default/ntp-servers"
+
+TWEAK="no"
+
+# only do remaining stuff if we're being called to configure the package
+if [ "$1" != "configure" ]
+then
+	exit 0
+fi
+
+# make sure a couple of directories we need exist
+mkdir -p /var/log/ntpstats /var/lib/ntp 
+
+start-stop-daemon --stop --quiet --exec /usr/sbin/ntpd
+
+. /usr/share/debconf/confmodule
+
+db_get shared/ntp/update-conf
+OverwriteConfig="${RET:-true}"
+
+# only emit config files if the admin gave us permission to do so
+if test "$OverwriteConfig" = "true"
+then
+
+	# get list of servers from debconf and write shared info file
+	db_get shared/ntp/servers
+	echo "NTPSERVERS=\"$RET\"" > $NS
+
+	# if no ntp.conf file exists or it's empty, stuff a template
+
+	if [ ! -s $NC ]
+	then
+		echo "# /etc/ntp.conf, configuration for ntpd" > $NC
+		echo "" >> $NC
+		echo "# ntpd will use syslog() if logfile is not defined" >> $NC
+		echo "#logfile /var/log/ntpd" >> $NC
+		echo "" >> $NC
+		echo "driftfile /var/lib/ntp/ntp.drift" >> $NC
+		echo "statsdir /var/log/ntpstats/" >> $NC
+		echo "" >> $NC
+		echo "statistics loopstats peerstats clockstats" >> $NC
+		echo "filegen loopstats file loopstats type day enable" >> $NC
+		echo "filegen peerstats file peerstats type day enable" >> $NC
+		echo "filegen clockstats file clockstats type day enable" >> $NC
+		echo "" >> $NC
+		echo "### lines starting 'server' are auto generated," >> $NC
+		echo "### use dpkg-reconfigure to modify those lines." >> $NC
+		echo "" >> $NC
+	fi
+
+	# since ntpd does not support an include file mechanism for ntp.conf, 
+	# we have to rewrite it every time the list of servers changes.  
+	# to allow the most system admin flexibility regarding other options, 
+	# we will leave everything alone except lines starting with 'server', 
+	# and replace those with fresh lines at the end of the file derived 
+	# from debconf data
+
+	grep -v "^server" $NC > $NC.new
+
+	db_get shared/ntp/servers 
+	for i in $RET
+	do
+		echo "server $i" >> $NC.new
+	done
+
+	mv -f $NC.new $NC
+fi
+
+# all done with debconf here.
+db_stop
+
+#DEBHELPER#

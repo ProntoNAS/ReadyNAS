@@ -1,0 +1,142 @@
+#!/usr/bin/env python
+# -*- Mode: Python -*-
+# 
+# ***** BEGIN LICENSE BLOCK *****
+# Source last modified: $Id: drmsign,v 1.1.1.1 2006/03/29 16:45:39 hagi Exp $
+# 
+# Portions Copyright (c) 1995-2004 RealNetworks, Inc. All Rights Reserved.
+# 
+# The contents of this file, and the files included with this file,
+# are subject to the current version of the RealNetworks Public
+# Source License (the "RPSL") available at
+# http://www.helixcommunity.org/content/rpsl unless you have licensed
+# the file under the current version of the RealNetworks Community
+# Source License (the "RCSL") available at
+# http://www.helixcommunity.org/content/rcsl, in which case the RCSL
+# will apply. You may also obtain the license terms directly from
+# RealNetworks.  You may not use this file except in compliance with
+# the RPSL or, if you have a valid RCSL with RealNetworks applicable
+# to this file, the RCSL.  Please see the applicable RPSL or RCSL for
+# the rights, obligations and limitations governing use of the
+# contents of the file.
+# 
+# Alternatively, the contents of this file may be used under the
+# terms of the GNU General Public License Version 2 or later (the
+# "GPL") in which case the provisions of the GPL are applicable
+# instead of those above. If you wish to allow use of your version of
+# this file only under the terms of the GPL, and not to allow others
+# to use your version of this file under the terms of either the RPSL
+# or RCSL, indicate your decision by deleting the provisions above
+# and replace them with the notice and other provisions required by
+# the GPL. If you do not delete the provisions above, a recipient may
+# use your version of this file under the terms of any one of the
+# RPSL, the RCSL or the GPL.
+# 
+# This file is part of the Helix DNA Technology. RealNetworks is the
+# developer of the Original Code and owns the copyrights in the
+# portions it created.
+# 
+# This file, and the files included with this file, is distributed
+# and made available on an 'AS IS' basis, WITHOUT WARRANTY OF ANY
+# KIND, EITHER EXPRESS OR IMPLIED, AND REALNETWORKS HEREBY DISCLAIMS
+# ALL SUCH WARRANTIES, INCLUDING WITHOUT LIMITATION, ANY WARRANTIES
+# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, QUIET
+# ENJOYMENT OR NON-INFRINGEMENT.
+# 
+# Technology Compatibility Kit Test Suite(s) Location:
+#    http://www.helixcommunity.org/content/tck
+# 
+# Contributor(s):
+# 
+# ***** END LICENSE BLOCK *****
+# 
+
+import os
+import sys
+import string
+
+## bootstrap
+## CHECK ENVIRONMENT VARIABLES
+## BUILD_ROOT
+try:
+    build_root = os.environ["BUILD_ROOT"]
+except KeyError:
+    print "[ERROR] set BUILD_ROOT."
+    sys.exit(1)
+
+build_lib_dir = os.path.join(build_root, "lib")
+if not os.path.isdir(build_lib_dir):
+    print "[ERROR] invalid BUILD_ROOT."
+    sys.exit(1)
+    
+try:
+    drmsign_host = os.environ["DRMSIGN_HOST"]
+except KeyError:
+    print "[ERROR] set DRMSIGN_HOST."
+    sys.exit(1)
+
+## add Python import paths
+sys.path.insert(0, build_lib_dir)
+import signclient
+## end bootstrap
+
+def usage():
+    print "usage: drmsign <source dll path> [output dll path]"
+    sys.exit(1)
+    
+def main():
+    try:
+        component_path = sys.argv[1]
+    except IndexError:
+        usage()
+
+    try:
+        signed_component_path = sys.argv[2]
+    except IndexError:
+        signed_component_path = component_path
+
+    try:
+        if os.path.isdir(component_path):
+            ## Assume mac bundle
+            b=os.path.basename(component_path)
+            if not b:
+                b=os.path.basename(os.path.dirname(component_path))
+            b=string.split(b,".")
+            component_path = os.path.join(
+                component_path,
+                "Contents",
+                "MacOS",
+                string.join(b[:-1],".") )
+
+            ## This is ugly and should be fixed
+            signed_component_path = component_path
+                
+        component = open(component_path, "rb").read()
+    except IOError:
+        print "[ERROR]: cannot read file=\"%s\"" % (component_path)
+        sys.exit(1)
+    
+    sc = signclient.SignClient(drmsign_host, "", "")
+    result_status, result_component = sc.GetSignedComponent(component)
+
+    ## check status
+    if result_status != 0:
+        print "[ERROR]: exit status=\"%s\"" % (str(result_status))
+        sys.exit(1)
+
+    ## write signed component
+    try:
+        open(signed_component_path, "wb").write(result_component)
+    except IOError:
+        print "[ERROR]: cannot write file=\"%s\"" % (signed_component_path)
+        sys.exit(1)
+
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print "**break**"
+    

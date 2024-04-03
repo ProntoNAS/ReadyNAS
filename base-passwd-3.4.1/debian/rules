@@ -1,0 +1,66 @@
+#! /usr/bin/make -f
+
+# Debian package information
+package		= base-passwd
+docdir		= /usr/share/doc/$(package)
+tmpdir		= $(shell pwd)/debian/tmp
+
+# Other stuff
+SHELL		= /bin/bash
+
+.PHONY: all build
+all build: Makefile
+	$(MAKE) 
+
+.PHONY: clean
+clean:
+	-make mrproper
+	rm -rf debian/tmp debian/files debian/substvars
+
+Makefile: Makefile.in configure.in
+	./configure
+
+.PHONY: binary
+binary: binary-arch binary-indep
+
+.PHONY: binary-indep
+binary-indep:
+	@echo Nothing to do
+
+.PHONY: binary-arch
+binary-arch: build
+	test "`id -u`" -eq 0
+	-rm -rf debian/tmp debian/files debian/substvars
+
+	strip --strip-unneeded --remove-section=.comment \
+		--remove=section=.note update-passwd
+
+	install -d -m 755 -o root -g root debian/tmp/usr/sbin
+	install -p -m 755 -o root -g root update-passwd debian/tmp/usr/sbin/
+
+	install -d -m 755 -o root -g root debian/tmp/usr/share/man/man8
+	install -p -m 644 -o root -g root update-passwd.8 \
+		debian/tmp/usr/share/man/man8/
+	gzip -9 debian/tmp/usr/share/man/man8/*
+
+	install -d -m 755 -o root -g root debian/tmp/usr/share/base-passwd
+	install -p -m 644 -o root -g root passwd.master \
+		debian/tmp/usr/share/base-passwd/
+	install -p -m 644 -o root -g root group.master \
+		debian/tmp/usr/share/base-passwd/
+
+	install -d -m 755 -o root -g root debian/tmp$(docdir)
+	install -p -m 644 -o root -g root debian/changelog debian/tmp$(docdir)/
+	gzip -9 debian/tmp$(docdir)/*
+	install -p -m 644 -o root -g root README debian/tmp$(docdir)/
+	install -p -m 644 -o root -g root debian/copyright debian/tmp$(docdir)/
+
+	install -d -m 755 -o root -g root debian/tmp/DEBIAN
+	install -p -m 755 -o root -g root debian/preinst debian/tmp/DEBIAN/
+	install -p -m 755 -o root -g root debian/postinst debian/tmp/DEBIAN/
+	install -p -m 755 -o root -g root debian/prerm debian/tmp/DEBIAN/
+
+	dpkg-shlibdeps -dPre-Depends debian/tmp/usr/sbin/update-passwd
+	dpkg-gencontrol -isp
+	dpkg --build debian/tmp ..
+

@@ -1,0 +1,40 @@
+#! /bin/sh -e
+
+# DP: autoreconf several directories for proper mipsen libtool support
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+	for i in libf2c libjava/libltdl libobjc libstdc++-v3 zlib; do
+		(cd ${dir}/${i} ; autoreconf --force)
+	done
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+	echo unable to unpatch autoreconf.
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- libtool.m4~	2004-09-09 19:06:00.000000000 +0900
++++ libtool.m4	2004-09-09 19:10:12.000000000 +0900
+@@ -680,7 +680,7 @@
+ # This must be Linux ELF.
+ linux-gnu*)
+   case $host_cpu in
+-  alpha* | mips* | hppa* | i*86 | powerpc* | sparc* | ia64* | sh* )
++  alpha* | m32r* | mips* | hppa* | i*86 | ia64* | powerpc* | sh* | sparc* )
+     lt_cv_deplibs_check_method=pass_all ;;
+   *)
+     # glibc up to 2.1.1 does not perform some relocations on ARM

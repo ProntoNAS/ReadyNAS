@@ -1,0 +1,60 @@
+#! /bin/sh -e
+
+# DP: Set gettext's domain and textdomain to the versioned package name.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+
+--- gcc/Makefile.in~	2004-07-21 22:42:58.000000000 +0200
++++ gcc/Makefile.in	2004-07-21 22:43:37.000000000 +0200
+@@ -2311,6 +2311,7 @@
+ intl.o: intl.c $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) intl.h Makefile
+ 	$(CC) $(ALL_CFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
+ 	  -DLOCALEDIR=\"$(localedir)\" \
++	  -DPACKAGE=\"$(PACKAGE)\" \
+ 	  -c $(srcdir)/intl.c $(OUTPUT_OPTION)
+ 
+ #
+@@ -3848,7 +3848,7 @@
+ GMSGFMT = @GMSGFMT@
+ MSGMERGE = msgmerge
+ 
+-PACKAGE = @PACKAGE@
++PACKAGE = $(shell echo @PACKAGE@|sed '$(program_transform_name)')
+ CATALOGS = @CATALOGS@
+ 
+ .PHONY: build- install- build-po install-po update-po
+--- gcc/intl.c~	2004-07-21 22:42:58.000000000 +0200
++++ gcc/intl.c	2004-07-21 22:43:37.000000000 +0200
+@@ -41,8 +41,8 @@
+   setlocale (LC_ALL, "");
+ #endif
+ 
+-  (void) bindtextdomain ("gcc", LOCALEDIR);
+-  (void) textdomain ("gcc");
++  (void) bindtextdomain (PACKAGE, LOCALEDIR);
++  (void) textdomain (PACKAGE);
+ }
+ 
+ #if defined HAVE_WCHAR_H && defined HAVE_WORKING_MBSTOWCS && defined HAVE_WCSWIDTH

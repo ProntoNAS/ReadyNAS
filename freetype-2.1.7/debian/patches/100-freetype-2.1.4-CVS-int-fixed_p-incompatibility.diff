@@ -1,0 +1,742 @@
+Index: include/freetype/t1tables.h
+===================================================================
+RCS file: /cvs/freetype/freetype2/include/freetype/t1tables.h,v
+retrieving revision 1.23
+retrieving revision 1.24
+diff -u -r1.23 -r1.24
+--- freetype2~/include/freetype/t1tables.h	2002/07/11 11:26:21	1.23
++++ freetype2/include/freetype/t1tables.h	2003/05/30 09:12:46	1.24
+@@ -5,7 +5,7 @@
+ /*    Basic Type 1/Type 2 tables definitions and interface (specification  */
+ /*    only).                                                               */
+ /*                                                                         */
+-/*  Copyright 1996-2001, 2002 by                                           */
++/*  Copyright 1996-2001, 2002, 2003 by                                     */
+ /*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
+ /*                                                                         */
+ /*  This file is part of the FreeType project, and may only be used,       */
+@@ -67,10 +67,10 @@
+     FT_String*  full_name;
+     FT_String*  family_name;
+     FT_String*  weight;
+-    FT_Long     italic_angle;
+-    FT_Bool     is_fixed_pitch;
+-    FT_Short    underline_position;
+-    FT_UShort   underline_thickness;
++    FT_Fixed*   italic_angle;
++    FT_Bool*    is_fixed_pitch;
++    FT_Fixed*   underline_position;
++    FT_Fixed*   underline_thickness;
+ 
+   } PS_FontInfoRec, *PS_FontInfo;
+ 
+Index: include/freetype/internal/cfftypes.h
+===================================================================
+RCS file: /cvs/freetype/freetype2/include/freetype/internal/cfftypes.h,v
+retrieving revision 1.12
+retrieving revision 1.13
+diff -u -r1.12 -r1.13
+--- freetype2~/include/freetype/internal/cfftypes.h	2002/07/10 16:52:06	1.12
++++ freetype2/include/freetype/internal/cfftypes.h	2003/05/30 09:12:47	1.13
+@@ -5,7 +5,7 @@
+ /*    Basic OpenType/CFF type definitions and interface (specification     */
+ /*    only).                                                               */
+ /*                                                                         */
+-/*  Copyright 1996-2001, 2002 by                                           */
++/*  Copyright 1996-2001, 2002, 2003 by                                     */
+ /*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
+ /*                                                                         */
+ /*  This file is part of the FreeType project, and may only be used,       */
+@@ -96,8 +96,8 @@
+     FT_UInt    weight;
+     FT_Bool    is_fixed_pitch;
+     FT_Fixed   italic_angle;
+-    FT_Pos     underline_position;
+-    FT_Pos     underline_thickness;
++    FT_Fixed   underline_position;
++    FT_Fixed   underline_thickness;
+     FT_Int     paint_type;
+     FT_Int     charstring_type;
+     FT_Matrix  font_matrix;
+Index: include/freetype/internal/t1types.h
+===================================================================
+RCS file: /cvs/freetype/freetype2/include/freetype/internal/t1types.h,v
+retrieving revision 1.31
+retrieving revision 1.32
+diff -u -r1.31 -r1.32
+--- freetype2~/include/freetype/internal/t1types.h	2002/05/21 14:13:00	1.31
++++ freetype2/include/freetype/internal/t1types.h	2003/05/30 09:12:47	1.32
+@@ -5,7 +5,7 @@
+ /*    Basic Type1/Type2 type definitions and interface (specification      */
+ /*    only).                                                               */
+ /*                                                                         */
+-/*  Copyright 1996-2001, 2002 by                                           */
++/*  Copyright 1996-2001, 2002, 2003 by                                     */
+ /*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
+ /*                                                                         */
+ /*  This file is part of the FreeType project, and may only be used,       */
+@@ -108,14 +108,14 @@
+     FT_Byte**        charstrings;       /* array of glyph charstrings */
+     FT_Int*          charstrings_len;
+ 
+-    FT_Byte          paint_type;
++    FT_Byte*         paint_type;
+     FT_Byte          font_type;
+     FT_Matrix        font_matrix;
+     FT_Vector        font_offset;
+     FT_BBox          font_bbox;
+     FT_Long          font_id;
+ 
+-    FT_Int           stroke_width;
++    FT_Fixed*        stroke_width;
+ 
+   } T1_FontRec, *T1_Font;
+ 
+Index: src/cff/cffload.c
+===================================================================
+RCS file: /cvs/freetype/freetype2/src/cff/cffload.c,v
+retrieving revision 1.49
+retrieving revision 1.50
+diff -u -r1.49 -r1.50
+--- freetype2~/src/cff/cffload.c	2003/04/23 06:47:12	1.49
++++ freetype2/src/cff/cffload.c	2003/05/30 09:12:47	1.50
+@@ -4,7 +4,7 @@
+ /*                                                                         */
+ /*    OpenType and CFF data/program tables loader (body).                  */
+ /*                                                                         */
+-/*  Copyright 1996-2001, 2002 by                                           */
++/*  Copyright 1996-2001, 2002, 2003 by                                     */
+ /*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
+ /*                                                                         */
+ /*  This file is part of the FreeType project, and may only be used,       */
+@@ -1965,8 +1965,8 @@
+     /* set defaults */
+     FT_MEM_ZERO( top, sizeof ( *top ) );
+ 
+-    top->underline_position  = -100;
+-    top->underline_thickness = 50;
++    top->underline_position  = -100L << 16;
++    top->underline_thickness = 50L << 16;
+     top->charstring_type     = 2;
+     top->font_matrix.xx      = 0x10000L;
+     top->font_matrix.yy      = 0x10000L;
+Index: src/cff/cffobjs.c
+===================================================================
+RCS file: /cvs/freetype/freetype2/src/cff/cffobjs.c,v
+retrieving revision 1.47
+retrieving revision 1.48
+diff -u -r1.47 -r1.48
+--- freetype2~/src/cff/cffobjs.c	2002/09/27 11:09:22	1.47
++++ freetype2/src/cff/cffobjs.c	2003/05/30 09:12:47	1.48
+@@ -4,7 +4,7 @@
+ /*                                                                         */
+ /*    OpenType objects manager (body).                                     */
+ /*                                                                         */
+-/*  Copyright 1996-2001, 2002 by                                           */
++/*  Copyright 1996-2001, 2002, 2003 by                                     */
+ /*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
+ /*                                                                         */
+ /*  This file is part of the FreeType project, and may only be used,       */
+@@ -293,7 +293,7 @@
+       sfnt_format = 1;
+ 
+       /* now, the font can be either an OpenType/CFF font, or an SVG CEF */
+-      /* font in the later case; it doesn't have a `head' table          */
++      /* font; in the later case it doesn't have a `head' table          */
+       error = face->goto_table( face, TTAG_head, stream, 0 );
+       if ( !error )
+       {
+@@ -395,6 +395,9 @@
+           root->units_per_EM = dict->units_per_em;
+         else
+           root->units_per_EM = 1000;
++
++        root->underline_position  = dict->underline_position >> 16;
++        root->underline_thickness = dict->underline_thickness >> 16;
+ 
+         /* retrieve font family & style name */
+         root->family_name  = cff_index_get_name( &cff->name_index, face_index );
+Index: src/cff/cfftoken.h
+===================================================================
+RCS file: /cvs/freetype/freetype2/src/cff/cfftoken.h,v
+retrieving revision 1.6
+retrieving revision 1.7
+diff -u -r1.6 -r1.7
+--- freetype2~/src/cff/cfftoken.h	2002/03/30 16:41:09	1.6
++++ freetype2/src/cff/cfftoken.h	2003/05/30 09:12:47	1.7
+@@ -4,7 +4,7 @@
+ /*                                                                         */
+ /*    CFF token definitions (specification only).                          */
+ /*                                                                         */
+-/*  Copyright 1996-2001, 2002 by                                           */
++/*  Copyright 1996-2001, 2002, 2003 by                                     */
+ /*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
+ /*                                                                         */
+ /*  This file is part of the FreeType project, and may only be used,       */
+@@ -30,8 +30,8 @@
+   CFF_FIELD_STRING  ( 4,     weight )
+   CFF_FIELD_BOOL    ( 0x101, is_fixed_pitch )
+   CFF_FIELD_FIXED   ( 0x102, italic_angle )
+-  CFF_FIELD_NUM     ( 0x103, underline_position )
+-  CFF_FIELD_NUM     ( 0x104, underline_thickness )
++  CFF_FIELD_FIXED   ( 0x103, underline_position )
++  CFF_FIELD_FIXED   ( 0x104, underline_thickness )
+   CFF_FIELD_NUM     ( 0x105, paint_type )
+   CFF_FIELD_NUM     ( 0x106, charstring_type )
+   CFF_FIELD_CALLBACK( 0x107, font_matrix )
+Index: src/cid/cidobjs.c
+===================================================================
+RCS file: /cvs/freetype/freetype2/src/cff/cidobjs.c,v
+retrieving revision 1.55
+retrieving revision 1.56
+diff -u -r1.55 -r1.56
+--- freetype2/src/cid/cidobjs.c	2003/04/25 05:35:04	1.55
++++ freetype2/src/cid/cidobjs.c	2003/05/30 09:12:48	1.56
+@@ -221,6 +221,11 @@
+       FT_FREE( info->family_name );
+       FT_FREE( info->weight );
+ 
++      FT_FREE( info->italic_angle );
++      FT_FREE( info->underline_position );
++      FT_FREE( info->underline_thickness );
++      FT_FREE( info->is_fixed_pitch );
++
+       /* release font dictionaries */
+       FT_FREE( cid->font_dicts );
+       cid->num_dicts = 0;
+@@ -331,10 +336,12 @@
+       /* Init the face object fields */
+       /* Now set up root face fields */
+       {
+-        FT_Face  root = (FT_Face)&face->root;
++        FT_Face       root = (FT_Face)&face->root;
++        CID_FaceInfo  cid  = &face->cid;
++        PS_FontInfo   info = &cid->font_info;
+ 
+ 
+-        root->num_glyphs   = face->cid.cid_count;
++        root->num_glyphs   = cid->cid_count;
+         root->num_charmaps = 0;
+ 
+         root->face_index = face_index;
+@@ -342,17 +349,17 @@
+ 
+         root->face_flags |= FT_FACE_FLAG_HORIZONTAL;
+ 
+-        if ( face->cid.font_info.is_fixed_pitch )
++        if ( info->is_fixed_pitch && *info->is_fixed_pitch )
+           root->face_flags |= FT_FACE_FLAG_FIXED_WIDTH;
+ 
+         /* XXX: TODO: add kerning with .afm support */
+ 
+         /* get style name -- be careful, some broken fonts only */
+         /* have a /FontName dictionary entry!                   */
+-        root->family_name = face->cid.font_info.family_name;
++        root->family_name = info->family_name;
+         if ( root->family_name )
+         {
+-          char*  full   = face->cid.font_info.full_name;
++          char*  full   = info->full_name;
+           char*  family = root->family_name;
+ 
+           while ( *family && *full == *family )
+@@ -369,9 +376,9 @@
+         else
+         {
+           /* do we have a `/FontName'? */
+-          if ( face->cid.cid_font_name )
++          if ( cid->cid_font_name )
+           {
+-            root->family_name = face->cid.cid_font_name;
++            root->family_name = cid->cid_font_name;
+             root->style_name  = (char *)"Regular";
+           }
+         }
+@@ -380,10 +387,10 @@
+         root->num_fixed_sizes = 0;
+         root->available_sizes = 0;
+ 
+-        root->bbox.xMin =   face->cid.font_bbox.xMin             >> 16;
+-        root->bbox.yMin =   face->cid.font_bbox.yMin             >> 16;
+-        root->bbox.xMax = ( face->cid.font_bbox.xMax + 0xFFFFU ) >> 16;
+-        root->bbox.yMax = ( face->cid.font_bbox.yMax + 0xFFFFU ) >> 16;
++        root->bbox.xMin =   cid->font_bbox.xMin             >> 16;
++        root->bbox.yMin =   cid->font_bbox.yMin             >> 16;
++        root->bbox.xMax = ( cid->font_bbox.xMax + 0xFFFFU ) >> 16;
++        root->bbox.yMax = ( cid->font_bbox.yMax + 0xFFFFU ) >> 16;
+ 
+         if ( !root->units_per_EM )
+           root->units_per_EM  = 1000;
+@@ -393,8 +400,10 @@
+         root->height    = (FT_Short)(
+           ( ( root->ascender + root->descender ) * 12 ) / 10 );
+ 
+-        root->underline_position  = face->cid.font_info.underline_position;
+-        root->underline_thickness = face->cid.font_info.underline_thickness;
++        if ( info->underline_position )
++          root->underline_position = *info->underline_position >> 16;
++        if ( info->underline_thickness )
++          root->underline_thickness = *info->underline_thickness >> 16;
+ 
+         root->internal->max_points   = 0;
+         root->internal->max_contours = 0;
+Index: src/cid/cidtoken.h
+===================================================================
+RCS file: /cvs/freetype/freetype2/src/cid/cidtoken.h,v
+retrieving revision 1.6
+retrieving revision 1.7
+diff -u -r1.6 -r1.7
+--- freetype2~/src/cid/cidtoken.h	2002/03/30 17:08:04	1.6
++++ freetype2/src/cid/cidtoken.h	2003/05/30 09:12:48	1.7
+@@ -4,7 +4,7 @@
+ /*                                                                         */
+ /*    CID token definitions (specification only).                          */
+ /*                                                                         */
+-/*  Copyright 1996-2001, 2002 by                                           */
++/*  Copyright 1996-2001, 2002, 2003 by                                     */
+ /*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
+ /*                                                                         */
+ /*  This file is part of the FreeType project, and may only be used,       */
+@@ -39,15 +39,15 @@
+ #undef  T1CODE
+ #define T1CODE        T1_FIELD_LOCATION_FONT_INFO
+ 
+-  T1_FIELD_STRING   ( "version", version )
+-  T1_FIELD_STRING   ( "Notice", notice )
+-  T1_FIELD_STRING   ( "FullName", full_name )
+-  T1_FIELD_STRING   ( "FamilyName", family_name )
+-  T1_FIELD_STRING   ( "Weight", weight )
+-  T1_FIELD_FIXED    ( "ItalicAngle", italic_angle )
+-  T1_FIELD_TYPE_BOOL( "isFixedPitch", is_fixed_pitch )
+-  T1_FIELD_NUM      ( "UnderlinePosition", underline_position )
+-  T1_FIELD_NUM      ( "UnderlineThickness", underline_thickness )
++  T1_FIELD_STRING     ( "version", version )
++  T1_FIELD_STRING     ( "Notice", notice )
++  T1_FIELD_STRING     ( "FullName", full_name )
++  T1_FIELD_STRING     ( "FamilyName", family_name )
++  T1_FIELD_STRING     ( "Weight", weight )
++  T1_FIELD_FIXED_P    ( "ItalicAngle", italic_angle )
++  T1_FIELD_TYPE_BOOL_P( "isFixedPitch", is_fixed_pitch )
++  T1_FIELD_FIXED_P    ( "UnderlinePosition", underline_position )
++  T1_FIELD_FIXED_P    ( "UnderlineThickness", underline_thickness )
+ 
+ 
+ #undef  FT_STRUCTURE
+@@ -63,7 +63,7 @@
+   T1_FIELD_NUM  ( "lenBuildCharArray", len_buildchar )
+   T1_FIELD_FIXED( "ForceBoldThreshold", forcebold_threshold )
+   T1_FIELD_FIXED( "ExpansionFactor", expansion_factor )
+-  T1_FIELD_NUM  ( "StrokeWidth", stroke_width )
++  T1_FIELD_FIXED( "StrokeWidth", stroke_width )
+ 
+ 
+ #undef  FT_STRUCTURE
+Index: src/pshinter/pshglob.c
+===================================================================
+RCS file: /cvs/freetype/freetype2/src/pshinter/pshglob.c,v
+retrieving revision 1.22
+retrieving revision 1.23
+diff -u -r1.22 -r1.23
+--- freetype2~/src/pshinter/pshglob.c	2003/05/28 22:42:41	1.22
++++ freetype2/src/pshinter/pshglob.c	2003/05/30 09:12:49	1.23
+@@ -700,7 +700,7 @@
+   }
+ 
+ 
+-  static FT_Error
++  FT_LOCAL_DEF( FT_Error )
+   psh_globals_set_scale( PSH_Globals  globals,
+                          FT_Fixed     x_scale,
+                          FT_Fixed     y_scale,
+Index: src/pshinter/pshglob.h
+===================================================================
+RCS file: /cvs/freetype/freetype2/src/pshinter/pshglob.h,v
+retrieving revision 1.14
+retrieving revision 1.15
+diff -u -r1.14 -r1.15
+--- freetype2~/src/pshinter/pshglob.h	2003/05/28 22:42:41	1.14
++++ freetype2/src/pshinter/pshglob.h	2003/05/30 09:12:49	1.15
+@@ -167,6 +167,13 @@
+                             FT_Int         org_width );
+ #endif
+ 
++  FT_LOCAL( FT_Error )
++  psh_globals_set_scale( PSH_Globals  globals,
++                         FT_Fixed     x_scale,
++                         FT_Fixed     y_scale,
++                         FT_Fixed     x_delta,
++                         FT_Fixed     y_delta );
++
+   /* snap a stem to one or two blue zones */
+   FT_LOCAL( void )
+   psh_blues_snap_stem( PSH_Blues      blues,
+Index: src/type1/t1objs.c
+===================================================================
+RCS file: /cvs/freetype/freetype2/src/type1/t1objs.c,v
+retrieving revision 1.77
+retrieving revision 1.78
+diff -u -r1.77 -r1.78
+--- freetype2~/src/type1/t1objs.c	2003/04/25 05:35:04	1.77
++++ freetype2/src/type1/t1objs.c	2003/05/30 09:12:49	1.78
+@@ -211,6 +211,11 @@
+         FT_FREE( info->full_name );
+         FT_FREE( info->family_name );
+         FT_FREE( info->weight );
++
++        FT_FREE( info->italic_angle );
++        FT_FREE( info->underline_position );
++        FT_FREE( info->underline_thickness );
++        FT_FREE( info->is_fixed_pitch );
+       }
+ 
+       /* release top dictionary */
+@@ -229,6 +234,9 @@
+       FT_FREE( type1->encoding.char_name );
+       FT_FREE( type1->font_name );
+ 
++      FT_FREE( type1->paint_type );
++      FT_FREE( type1->stroke_width );
++
+ #ifndef T1_CONFIG_OPTION_NO_AFM
+       /* release afm data if present */
+       if ( face->afm_data )
+@@ -275,9 +283,11 @@
+                 FT_Int         num_params,
+                 FT_Parameter*  params )
+   {
+-    FT_Error          error;
+-    PSNames_Service   psnames;
+-    PSAux_Service     psaux;
++    FT_Error         error;
++    PSNames_Service  psnames;
++    PSAux_Service    psaux;
++    T1_Font          type1 = &face->type1;
++    PS_FontInfo      info = &type1->font_info;
+ 
+     FT_UNUSED( num_params );
+     FT_UNUSED( params );
+@@ -323,14 +333,14 @@
+       FT_Face  root = (FT_Face)&face->root;
+ 
+ 
+-      root->num_glyphs = face->type1.num_glyphs;
++      root->num_glyphs = type1->num_glyphs;
+       root->face_index = face_index;
+ 
+       root->face_flags = FT_FACE_FLAG_SCALABLE;
+       root->face_flags |= FT_FACE_FLAG_HORIZONTAL;
+       root->face_flags |= FT_FACE_FLAG_GLYPH_NAMES;
+ 
+-      if ( face->type1.font_info.is_fixed_pitch )
++      if ( info->is_fixed_pitch && *info->is_fixed_pitch )
+         root->face_flags |= FT_FACE_FLAG_FIXED_WIDTH;
+ 
+       if ( face->blend )
+@@ -340,12 +350,12 @@
+ 
+       /* get style name -- be careful, some broken fonts only */
+       /* have a `/FontName' dictionary entry!                 */
+-      root->family_name = face->type1.font_info.family_name;
++      root->family_name = info->family_name;
+       /* assume "Regular" style if we don't know better */
+       root->style_name = (char *)"Regular";
+       if ( root->family_name )
+       {
+-        char*  full   = face->type1.font_info.full_name;
++        char*  full   = info->full_name;
+         char*  family = root->family_name;
+ 
+ 
+@@ -366,18 +376,18 @@
+       else
+       {
+         /* do we have a `/FontName'? */
+-        if ( face->type1.font_name )
++        if ( type1->font_name )
+-          root->family_name = face->type1.font_name;
++          root->family_name = type1->font_name;
+       }
+ 
+       /* compute style flags */
+       root->style_flags = 0;
+-      if ( face->type1.font_info.italic_angle )
++      if ( info->italic_angle && *info->italic_angle )
+         root->style_flags |= FT_STYLE_FLAG_ITALIC;
+-      if ( face->type1.font_info.weight )
++      if ( info->weight )
+       {
+-        if ( !ft_strcmp( face->type1.font_info.weight, "Bold"  ) ||
+-             !ft_strcmp( face->type1.font_info.weight, "Black" ) )
++        if ( !ft_strcmp( info->weight, "Bold"  ) ||
++             !ft_strcmp( info->weight, "Black" ) )
+           root->style_flags |= FT_STYLE_FLAG_BOLD;
+       }
+ 
+@@ -388,10 +398,10 @@
+       root->num_fixed_sizes = 0;
+       root->available_sizes = 0;
+ 
+-      root->bbox.xMin =   face->type1.font_bbox.xMin             >> 16;
+-      root->bbox.yMin =   face->type1.font_bbox.yMin             >> 16;
+-      root->bbox.xMax = ( face->type1.font_bbox.xMax + 0xFFFFU ) >> 16;
+-      root->bbox.yMax = ( face->type1.font_bbox.yMax + 0xFFFFU ) >> 16;
++      root->bbox.xMin =   type1->font_bbox.xMin             >> 16;
++      root->bbox.yMin =   type1->font_bbox.yMin             >> 16;
++      root->bbox.xMax = ( type1->font_bbox.xMax + 0xFFFFU ) >> 16;
++      root->bbox.yMax = ( type1->font_bbox.yMax + 0xFFFFU ) >> 16;
+ 
+       /* Set units_per_EM if we didn't set it in parse_font_matrix. */
+       if ( !root->units_per_EM )
+@@ -420,8 +430,10 @@
+ 
+       root->max_advance_height = root->height;
+ 
+-      root->underline_position  = face->type1.font_info.underline_position;
+-      root->underline_thickness = face->type1.font_info.underline_thickness;
++      if ( info->underline_position )
++        root->underline_position  = *info->underline_position >> 16;
++      if ( info->underline_thickness )
++        root->underline_thickness = *info->underline_thickness >> 16;
+ 
+       root->internal->max_points   = 0;
+       root->internal->max_contours = 0;
+@@ -451,7 +463,7 @@
+         charmap.platform_id = 7;
+         clazz               = NULL;
+ 
+-        switch ( face->type1.encoding_type )
++        switch ( type1->encoding_type )
+         {
+         case T1_ENCODING_TYPE_STANDARD:
+           charmap.encoding    = FT_ENCODING_ADOBE_STANDARD;
+Index: src/type1/t1tokens.h
+===================================================================
+RCS file: /cvs/freetype/freetype2/src/type1/t1tokens.h,v
+retrieving revision 1.16
+retrieving revision 1.17
+diff -u -r1.16 -r1.17
+--- freetype2~/src/type1/t1tokens.h	2002/07/11 11:26:21	1.16
++++ freetype2/src/type1/t1tokens.h	2003/05/30 09:12:49	1.17
+@@ -4,7 +4,7 @@
+ /*                                                                         */
+ /*    Type 1 tokenizer (specification).                                    */
+ /*                                                                         */
+-/*  Copyright 1996-2001, 2002 by                                           */
++/*  Copyright 1996-2001, 2002, 2003 by                                     */
+ /*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
+ /*                                                                         */
+ /*  This file is part of the FreeType project, and may only be used,       */
+@@ -21,16 +21,17 @@
+ #undef  T1CODE
+ #define T1CODE        T1_FIELD_LOCATION_FONT_INFO
+ 
+-  T1_FIELD_STRING   ( "version", version )
+-  T1_FIELD_STRING   ( "Notice", notice )
+-  T1_FIELD_STRING   ( "FullName", full_name )
+-  T1_FIELD_STRING   ( "FamilyName", family_name )
+-  T1_FIELD_STRING   ( "Weight", weight )
+-
+-  T1_FIELD_NUM      ( "ItalicAngle", italic_angle )
+-  T1_FIELD_TYPE_BOOL( "isFixedPitch", is_fixed_pitch )
+-  T1_FIELD_NUM      ( "UnderlinePosition", underline_position )
+-  T1_FIELD_NUM      ( "UnderlineThickness", underline_thickness )
++  T1_FIELD_STRING     ( "version", version )
++  T1_FIELD_STRING     ( "Notice", notice )
++  T1_FIELD_STRING     ( "FullName", full_name )
++  T1_FIELD_STRING     ( "FamilyName", family_name )
++  T1_FIELD_STRING     ( "Weight", weight )
++
++  /* we use pointers to detect modifications made by synthetic fonts */
++  T1_FIELD_FIXED_P    ( "ItalicAngle", italic_angle )
++  T1_FIELD_TYPE_BOOL_P( "isFixedPitch", is_fixed_pitch )
++  T1_FIELD_FIXED_P    ( "UnderlinePosition", underline_position )
++  T1_FIELD_FIXED_P    ( "UnderlineThickness", underline_thickness )
+ 
+ 
+ #undef  FT_STRUCTURE
+@@ -65,9 +66,9 @@
+ #undef  T1CODE
+ #define T1CODE        T1_FIELD_LOCATION_FONT_DICT
+ 
+-  T1_FIELD_NUM( "PaintType", paint_type )
+-  T1_FIELD_NUM( "FontType", font_type )
+-  T1_FIELD_NUM( "StrokeWidth", stroke_width )
++  T1_FIELD_NUM_P  ( "PaintType", paint_type )
++  T1_FIELD_NUM    ( "FontType", font_type )
++  T1_FIELD_FIXED_P( "StrokeWidth", stroke_width )
+ 
+ #undef  FT_STRUCTURE
+ #define FT_STRUCTURE  FT_BBox
+Index: src/type42/t42objs.c
+===================================================================
+RCS file: /cvs/freetype/freetype2/src/type42/t42objs.c,v
+retrieving revision 1.13
+retrieving revision 1.14
+diff -u -r1.13 -r1.14
+--- freetype2~/src/type42/t42objs.c	2003/04/25 05:35:04	1.13
++++ freetype2/src/type42/t42objs.c	2003/05/30 09:12:50	1.14
+@@ -149,10 +149,12 @@
+                  FT_Int         num_params,
+                  FT_Parameter*  params )
+   {
+-    FT_Error          error;
+-    PSNames_Service   psnames;
+-    PSAux_Service     psaux;
+-    FT_Face           root    = (FT_Face)&face->root;
++    FT_Error         error;
++    PSNames_Service  psnames;
++    PSAux_Service    psaux;
++    FT_Face          root  = (FT_Face)&face->root;
++    T1_Font          type1 = &face->type1;
++    PS_FontInfo      info  = &type1->font_info;
+ 
+     FT_UNUSED( num_params );
+     FT_UNUSED( params );
+@@ -193,7 +195,7 @@
+     /* Init the face object fields */
+     /* Now set up root face fields */
+ 
+-    root->num_glyphs   = face->type1.num_glyphs;
++    root->num_glyphs   = type1->num_glyphs;
+     root->num_charmaps = 0;
+     root->face_index   = face_index;
+ 
+@@ -201,17 +203,17 @@
+     root->face_flags |= FT_FACE_FLAG_HORIZONTAL;
+     root->face_flags |= FT_FACE_FLAG_GLYPH_NAMES;
+ 
+-    if ( face->type1.font_info.is_fixed_pitch )
++    if ( info->is_fixed_pitch && *info->is_fixed_pitch )
+       root->face_flags |= FT_FACE_FLAG_FIXED_WIDTH;
+ 
+     /* XXX: TODO -- add kerning with .afm support */
+ 
+     /* get style name -- be careful, some broken fonts only */
+     /* have a `/FontName' dictionary entry!                 */
+-    root->family_name = face->type1.font_info.family_name;
++    root->family_name = info->family_name;
+     if ( root->family_name )
+     {
+-      char*  full   = face->type1.font_info.full_name;
++      char*  full   = info->full_name;
+       char*  family = root->family_name;
+ 
+ 
+@@ -234,9 +236,9 @@
+     else
+     {
+       /* do we have a `/FontName'? */
+-      if ( face->type1.font_name )
++      if ( type1->font_name )
+       {
+-        root->family_name = face->type1.font_name;
++        root->family_name = type1->font_name;
+         root->style_name  = (char *)"Regular";
+       }
+     }
+@@ -268,15 +270,17 @@
+     root->max_advance_width  = face->ttf_face->max_advance_width;
+     root->max_advance_height = face->ttf_face->max_advance_height;
+ 
+-    root->underline_position  = face->type1.font_info.underline_position;
+-    root->underline_thickness = face->type1.font_info.underline_thickness;
++    if ( info->underline_position )
++      root->underline_position  = *info->underline_position >> 16;
++    if ( info->underline_thickness )
++      root->underline_thickness = *info->underline_thickness >> 16;
+ 
+     root->internal->max_points   = 0;
+     root->internal->max_contours = 0;
+ 
+     /* compute style flags */
+     root->style_flags = 0;
+-    if ( face->type1.font_info.italic_angle )
++    if ( info->italic_angle && *info->italic_angle )
+       root->style_flags |= FT_STYLE_FLAG_ITALIC;
+ 
+     if ( face->ttf_face->style_flags & FT_STYLE_FLAG_BOLD )
+@@ -306,7 +310,7 @@
+         charmap.platform_id = 7;
+         clazz               = NULL;
+ 
+-        switch ( face->type1.encoding_type )
++        switch ( type1->encoding_type )
+         {
+         case T1_ENCODING_TYPE_STANDARD:
+           charmap.encoding    = FT_ENCODING_ADOBE_STANDARD;
+@@ -376,6 +380,11 @@
+       FT_FREE( info->family_name );
+       FT_FREE( info->weight );
+ 
++      FT_FREE( info->italic_angle );
++      FT_FREE( info->underline_position );
++      FT_FREE( info->underline_thickness );
++      FT_FREE( info->is_fixed_pitch );
++
+       /* release top dictionary */
+       FT_FREE( type1->charstrings_len );
+       FT_FREE( type1->charstrings );
+@@ -387,6 +396,9 @@
+       FT_FREE( type1->encoding.char_index );
+       FT_FREE( type1->encoding.char_name );
+       FT_FREE( type1->font_name );
++
++      FT_FREE( type1->paint_type );
++      FT_FREE( type1->stroke_width );
+ 
+       FT_FREE( face->ttf_data );
+ 
+Index: src/type42/t42parse.c
+===================================================================
+RCS file: /cvs/freetype/freetype2/src/type42/t42parse.c,v
+retrieving revision 1.6
+retrieving revision 1.7
+diff -u -r1.6 -r1.7
+--- freetype2~/src/type42/t42parse.c	2002/07/28 05:05:24	1.6
++++ freetype2/src/type42/t42parse.c	2003/05/30 09:12:50	1.7
+@@ -4,7 +4,7 @@
+ /*                                                                         */
+ /*    Type 42 font parser (body).                                          */
+ /*                                                                         */
+-/*  Copyright 2002 by Roberto Alameda.                                     */
++/*  Copyright 2002, 2003 by Roberto Alameda.                               */
+ /*                                                                         */
+ /*  This file is part of the FreeType project, and may only be used,       */
+ /*  modified, and distributed under the terms of the FreeType project      */
+@@ -65,24 +65,24 @@
+ #undef  T1CODE
+ #define T1CODE        T1_FIELD_LOCATION_FONT_INFO
+ 
+-    T1_FIELD_STRING   ( "version",            version )
+-    T1_FIELD_STRING   ( "Notice",             notice )
+-    T1_FIELD_STRING   ( "FullName",           full_name )
+-    T1_FIELD_STRING   ( "FamilyName",         family_name )
+-    T1_FIELD_STRING   ( "Weight",             weight )
+-    T1_FIELD_NUM      ( "ItalicAngle",        italic_angle )
+-    T1_FIELD_TYPE_BOOL( "isFixedPitch",       is_fixed_pitch )
+-    T1_FIELD_NUM      ( "UnderlinePosition",  underline_position )
+-    T1_FIELD_NUM      ( "UnderlineThickness", underline_thickness )
++    T1_FIELD_STRING     ( "version",            version )
++    T1_FIELD_STRING     ( "Notice",             notice )
++    T1_FIELD_STRING     ( "FullName",           full_name )
++    T1_FIELD_STRING     ( "FamilyName",         family_name )
++    T1_FIELD_STRING     ( "Weight",             weight )
++    T1_FIELD_FIXED_P    ( "ItalicAngle",        italic_angle )
++    T1_FIELD_TYPE_BOOL_P( "isFixedPitch",       is_fixed_pitch )
++    T1_FIELD_FIXED_P    ( "UnderlinePosition",  underline_position )
++    T1_FIELD_FIXED_P    ( "UnderlineThickness", underline_thickness )
+ 
+ #undef  FT_STRUCTURE
+ #define FT_STRUCTURE  T1_FontRec
+ #undef  T1CODE
+ #define T1CODE        T1_FIELD_LOCATION_FONT_DICT
+ 
+-    T1_FIELD_NUM( "PaintType",   paint_type )
+-    T1_FIELD_NUM( "FontType",    font_type )
+-    T1_FIELD_NUM( "StrokeWidth", stroke_width )
++    T1_FIELD_NUM_P  ( "PaintType",   paint_type )
++    T1_FIELD_NUM    ( "FontType",    font_type )
++    T1_FIELD_FIXED_P( "StrokeWidth", stroke_width )
+ 
+     T1_FIELD_CALLBACK( "FontName",    t42_parse_font_name )
+     T1_FIELD_CALLBACK( "FontBBox",    t42_parse_font_bbox )

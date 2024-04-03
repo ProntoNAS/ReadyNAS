@@ -1,0 +1,157 @@
+cupsys for Debian
+----------------------
+
+This package contains the Common UNIX Printing System(tm), or CUPS(tm) 
+for short.  CUPS is a new printing system for Unix that acts as a
+substitute for System V or BSD printing systems; it supports a more
+comprehensive driver model, more protocols, and Web administration,
+among other things.  Internally, CUPS uses the new Internet Printing
+Protocol (IPP) described in RFCs 2565 through 2569.
+
+The terms "CUPS" and "Common UNIX Printing System" are trademarks of
+Easy Software Products, the author of the system.  This package is a
+derivative of the CUPS system, modified for Debian and possibly
+containing modifications and fixes that are not present in the
+standard CUPS package.  For a comprehensive list of changes from the
+original source, see the diff file from the source package.  For more
+information about the legal stuff surrounding this package, see the
+Debian copyright file or the CUPS Web site (www.cups.org).
+
+After installation, CUPS is pretty close to being ready to go.  The
+last step is to add administrative access; the "lpadmin" group has
+been created and granted administrative rights to CUPS.  You may need
+to add users to this group in order to add printers, modify settings,
+etc.
+
+The printers can be added with either the lpadmin program or the web 
+interface, which is located at http://localhost:631/admin by default.
+
+Important Security Notes
+------------------------
+
+ - By default, cupsys is configured to only allow connections to
+   printers from localhost, effectively disabling network printing.
+   The previous default was to allow anyone to connect to printers
+   from any location - definitely not a smart move.  You can change
+   these defaults by editing /etc/cups/cupsd.conf; the access controls
+   are at the end of the file.  Be sure you only allow access from the
+   locations you trust, or require authentication.
+
+ - CUPS used to support a file backend that was handled internally by
+   cupsd.  This was only intended to be used for testing filters, and
+   not in production use, as it can be a security risk and will drop
+   jobs under certain circumstances.  In keeping with that, the file
+   "backend" has been renamed to "test", and the lpadmin command no
+   longer rewrites bare path URIs (either to "file:" or "test:").  If
+   you need a backend that dumps a completed job to a file on the
+   filesystem, you should write a separate backend and put it in
+   /usr/lib/cups/backend.  See the CUPS documentation for information
+   on how to do this.
+
+Drivers
+-------
+
+The CUPS software includes generic drivers for several brands of
+printers.  At the moment, this includes HP LaserJets and DeskJets,
+various Epson and Okidata printers, and Dymo label printers.
+
+There are also other packages containing CUPS printer drivers.  If any
+of those were written explicitly for your printer, chances are that it
+will support your printer better than the generic drivers that ship
+with CUPS.
+
+PostScript printers often ship with PPD files supplied by the printer
+manufacturer.  Any valid PPD for a PostScript printer is a valid CUPS
+driver.  To enable them for use with CUPS, copy the PPDs into
+/usr/share/cups/model; they should then be available for use with
+lpadmin -m and the Web interface for adding printers.
+
+If you find a CUPS driver that isn't packaged for Debian and you'd
+like it to be, you can contact me and let me know where the driver is,
+and I'll get to it as soon as I can.
+
+Or, you can package them yourself.  See below for details.
+
+Packaging
+---------
+
+There are six packages provided by CUPS: the server, the
+GhostScript-based PostScript translator included with CUPS, the
+primary command-line client programs, the BSD client and server
+compatibility programs, and the library and development packages.
+
+The CUPS BSD commands and cups-lpd daemon are separated into their own
+package (cupsys-bsd); the hope is to make it possible to run CUPS and
+some other BSD-style printing system (such as lpr) side-by-side for
+testing purposes.  If you encounter any trouble doing this, file a
+bug.  It's known that CUPS conflicts with LPRng, since LPRng provides
+some System V printing commands as well; this problem will (hopefully)
+be dealt with in time.
+
+Add-ons for CUPS (such as drivers, backends, clients, etc.) should
+depend on the proper packages.  If your package is CUPS-specific, you
+should name it so it can be easily identified as a CUPS package, with
+names such as:
+
+  cupsys-driver-foo	(for a driver for Foo printers)
+  cupsys-backend-bar	(for a backend to print to Bar printers)
+  cupsys-client-baz	(for a client module to hook Baz into CUPS)
+
+Integration with Samba
+----------------------
+
+It is possible to configure Samba to share CUPS printers to Microsoft
+clients.  There are two ways to do this:
+
+1.  Configure Samba to use System V printing.  This can be done by
+adding the following information to Samba's smb.conf
+(/etc/samba/smb.conf on Debian):
+
+[global]
+  printing = sysv
+  printcap name = lpstat
+
+[printers]
+  lpq command = /usr/bin/lpstat %p
+  lprm command = /usr/bin/cancel %p-%j
+  print command = /usr/bin/lp -d%p -oraw %s ; /bin/rm -f %s
+
+This method will require installation of the cupsys-client package.
+
+2.  Recent versions of Samba have direct CUPS support.  Check the
+Samba documentation for the status of this support in Debian's
+packages.  If this is present, you can configure Samba as follows:
+
+[global]
+  printing = cups
+  printcap name = cups
+
+For more tips on integration with Samba, check out the man page for
+cupsaddsmb, which is part of the cupsys-client package.
+
+Miscellaneous Tips
+------------------
+
+ - CUPS has support for browsing, which uses broadcast traffic to
+   auto-discover other CUPS servers and printers and make them
+   available to clients.  This is turned off in the default
+   configuration.  If it is turned on, it may trigger demand dialers
+   and increase traffic on the network.  To help prevent this, set the
+   BrowseAddress parameter to only advertise CUPS printers on specific
+   interfaces.  As a potentially more robust option, CUPS also
+   supports SLP (Service Location Protocol).
+
+ - You may encounter some problems using the "enable" command under
+   bash, as "enable" is a builtin there.  As a workaround, I've
+   created the "cupsenable" command, which acts exactly as "enable"
+   does.  There are also "cupsdisable", "cupsaccept", and "cupsreject"
+   commands for consistency.
+
+ - There is an online database with PPDs for lots of different
+   printers at http://www.linuxprinting.org/.  These will often
+   require the "cupsomatic" utility; this can be found in the
+   foomatic-bin package.
+
+Enjoy!
+
+ -- Jeff Licquia <licquia@debian.org>

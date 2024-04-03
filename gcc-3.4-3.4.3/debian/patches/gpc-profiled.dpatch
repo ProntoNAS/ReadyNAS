@@ -1,0 +1,53 @@
+#! /bin/sh -e
+
+# DP: Do not build the gpc runtime using -fprofile-generate/-use.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+
+--- gcc/p/rts/Makefile.in~	2004-05-16 17:27:49.000000000 +0200
++++ gcc/p/rts/Makefile.in	2004-05-16 18:24:47.000000000 +0200
+@@ -33,6 +33,7 @@
+ CC=@CC@
+ PC=`echo $(CC) | $(GCC2GPC)`
+ CFLAGS=-O2
++override CFLAGS := $(shell echo $(CFLAGS) | sed 's/-fprofile[a-z-]*//')
+ PFLAGS=
+ AR=@AR@
+ AR_FLAGS=rc
+
+--- gcc/p/Make-lang.in~	2004-05-16 17:27:49.000000000 +0200
++++ gcc/p/Make-lang.in	2004-05-16 18:43:14.000000000 +0200
+@@ -1180,6 +1180,10 @@
+ 	$(srcdir)/p/script/mkdir-p stage4/p/rts
+ 	-mv $(GPCSTAGESTUFF) stage4/p
+ 	-mv $(RTSSTAGESTUFF) stage4/p/rts
++pascal.stageprofile: stageprofile-start
++	-mv p/*$(objext) stageprofile/p
++pascal.stagefeedback: stageprofile-start
++	-mv p/*$(objext) stagefeedback/p
+ 
+ # Maintenance hooks:
+ 

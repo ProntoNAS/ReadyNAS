@@ -1,0 +1,66 @@
+--- proftpd-a/contrib/mod_dynmasq.c	2009-03-30 22:11:22.000000000 +0000
++++ proftpd-b/contrib/mod_dynmasq.c	2009-12-09 23:48:29.000000000 +0000
+@@ -33,6 +33,7 @@
+ #if 1 //JM: Set the initial timer to 15 seconds, and stay that way we get our first successful lookup.
+ #include <netinet/in.h>
+ #include <arpa/nameser.h>
++#include <arpa/inet.h>
+ #include <resolv.h>
+ #define INITIAL_TIMER 15
+ #endif
+@@ -70,6 +71,10 @@
+ 
+ static int dynmasq_update_cb(CALLBACK_FRAME) {
+   server_rec *s;
++  struct addrinfo hints, *result = NULL;
++  struct sockaddr_in *ipv4;
++  static char buf[INET_ADDRSTRLEN];
++  int ret;
+ 
+   /* Clear the netaddr cache.  Sadly, this is required in order for any
+    * updates to be discovered this way.
+@@ -86,6 +91,28 @@
+       FALSE);
+ 
+     if (c) {
++      memset(&hints, 0, sizeof(struct addrinfo));
++      hints.ai_family = AF_INET;
++      ret = getaddrinfo((const char *) c->argv[1], NULL, &hints, &result);
++      if (ret) {
++        pr_log_pri(PR_LOG_NOTICE, MOD_DYNMASQ_VERSION
++          ": unable to resolve '%s', keep previous address: %s",
++          (const char *) c->argv[1], gai_strerror(ret));
++        return 1;
++      }
++      if (!result) {
++        pr_log_pri(PR_LOG_NOTICE, MOD_DYNMASQ_VERSION
++          ": unable to resolve '%s', keep previous address",
++          (const char *) c->argv[1]);
++        return 1;
++      }
++      ipv4 = (struct sockaddr_in *) result->ai_addr;
++      if (!inet_ntop(AF_INET, &ipv4->sin_addr, buf, sizeof(buf)) ||
++          !strcmp(pr_netaddr_get_ipstr(c->argv[0]), inet_ntop(AF_INET, &ipv4->sin_addr, buf, sizeof(buf))))
++      {
++        goto unchanged;
++      }
++
+       pr_netaddr_t *na = pr_netaddr_get_addr(s->pool, c->argv[1], NULL);
+ 
+       if (na) {
+@@ -113,6 +140,7 @@
+           dynmasq_timer_id = pr_timer_add(dynmasq_timer_interval, -1,
+             &dynmasq_module, dynmasq_update_cb, "dynmasq address update");
+         } else
++unchanged:
+           pr_log_debug(DEBUG2, MOD_DYNMASQ_VERSION
+             ": MasqueradeAddress '%s' has not changed addresses",
+             (const char *) c->argv[1]);
+@@ -121,6 +149,7 @@
+         pr_log_pri(PR_LOG_NOTICE, MOD_DYNMASQ_VERSION
+           ": unable to resolve '%s', keep previous address",
+           (const char *) c->argv[1]);
++      freeaddrinfo(result);
+     }
+   }
+ 

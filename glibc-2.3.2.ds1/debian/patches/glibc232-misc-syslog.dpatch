@@ -1,0 +1,54 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: Fix vsyslog unneeded free() under memory shortage.
+# DP: Related bugs: #249559: vsyslog fails
+# DP: Dpatch author: GOTO Masanori  <gotom@debian.org>
+# DP: Patch author: Jakub Jelinek  <jakub@redhat.com>
+# DP: Upstream status: In CVS
+# DP: Status Details: 
+# DP: Date: 2004-05-23
+
+PATCHLEVEL=0
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p$PATCHLEVEL < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p$PATCHLEVEL < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+Index: misc/syslog.c
+===================================================================
+RCS file: /cvs/glibc/libc/misc/syslog.c,v
+retrieving revision 1.40
+retrieving revision 1.41
+diff -u -r1.40 -r1.41
+--- misc/syslog.c	25 Sep 2003 15:32:44 -0000	1.40
++++ misc/syslog.c	16 Apr 2004 20:02:32 -0000	1.41
+@@ -237,7 +237,7 @@
+ 		    v->iov_len = 1;
+ 		  }
+ 
+-		__libc_cleanup_push (free, buf);
++		__libc_cleanup_push (free, buf == failbuf ? NULL : buf);
+ 
+ 		/* writev is a cancellation point.  */
+ 		(void)__writev(STDERR_FILENO, iov, v - iov + 1);
+@@ -305,7 +305,8 @@
+ 	__libc_cleanup_pop (0);
+ 	__libc_lock_unlock (syslog_lock);
+ 
+-	free (buf);
++	if (buf != failbuf)
++		free (buf);
+ }
+ libc_hidden_def (vsyslog)
+ 

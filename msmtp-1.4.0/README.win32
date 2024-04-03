@@ -1,0 +1,62 @@
+Since version 0.7.2, msmtp can be compiled to a native Win32 application
+using MinGW (http://www.mingw.org/).
+
+
+Differences between the UNIX and Windows versions
+=================================================
+
+- System configuration file ("msmtprc.txt"):
+  The system configuration directory on Windows is your common application 
+  data directory. The name of this directory depends on your user name and/or
+  your Windows version and language. It is obtained from the registry:
+  HKEY_LOCAL_MACHINE, 
+  "Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders", 
+  "Common AppData"
+
+- User configuration file ("msmtprc.txt"):
+  The home directory on Windows is your local application data directory.
+  The name of this directory depends on your user name and/or your Windows
+  version and language. It is obtained from the registry:
+  HKEY_CURRENT_USER, 
+  "Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders", 
+  "AppData"
+
+- User configuration file security checks are not done, because I do not know
+  how to do this on Win32. Patches are welcome.
+
+- msmtp will not try to read a password from stdin if none is given in the
+  configuration file. This is because Win32 has no getpass() function. Patches
+  are welcome.
+ 
+- The connect timeout setting has no effect. This is because I do not know how
+  to do this on Win32. See src/net.c, function net_connect() for __MINGW32__.
+  Patches are welcome.
+
+- A .netrc file is not supported. This has no technical reason; it's just that
+  the Windows world normally does not use .netrc files. If you want it, please
+  send a mail.
+
+
+Compiling the source
+====================
+
+You need:
+- MinGW with MSYS installed.
+
+You may want:
+- Either GnuTLS or OpenSSL. 
+  If you link against DLLs, make sure you copy them to a directory where 
+  Windows can find them when you run msmtp.
+
+Run configure with arguments similar to
+./configure CPPFLAGS="-I/path/to/openssl/outinc" \
+	LDFLAGS="-L/path/to/openssl-dlls"
+	--prefix=/c/msmtp
+or
+./configure CPPFLAGS="-I/path/to/gnutls/include" \
+	LDFLAGS="-L/path/to/gnutls/lib"
+	--prefix=/c/msmtp
+
+IMPORTANT NOTE: Use --disable-win32-ipv6 to disable IPv6 support and build
+binaries that run on any Windows version. By default, IPv6 is enabled, and the
+resulting binaries will only work on Windows XP and newer!

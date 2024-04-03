@@ -1,0 +1,53 @@
+--- a/libatalk/dsi/dsi_opensess.c	Mon Jul 18 06:36:17 2011
++++ b/libatalk/dsi/dsi_opensess.c	Thu Jul 21 00:40:38 2011
+@@ -37,10 +37,12 @@ void dsi_opensession(DSI *dsi)
+   int offs;
+ 
+   dsi_init_buffer(dsi);
++#if !HAVE_SENDFILE_WRITE
+   if (setnonblock(dsi->socket, 1) < 0) {
+       LOG(log_error, logtype_dsi, "dsi_opensession: setnonblock: %s", strerror(errno));
+       AFP_PANIC("setnonblock error");
+   }
++#endif
+ 
+   /* parse options */
+   while (i < dsi->cmdlen) {
+--- a/libatalk/adouble/ad_sendfile.c	Sat Oct  9 01:17:52 2010
++++ b/libatalk/adouble/ad_sendfile.c	Tue Oct 12 22:08:57 2010
+@@ -139,6 +139,26 @@ int ad_readfile_init(const struct adoubl
+ 
+ /* ------------------------ */
+ #ifdef HAVE_SENDFILE_WRITE
++
++static ssize_t my_sendfile(int tofd, int fromfd, off_t *offset, size_t count)
++{
++  size_t total = count;
++  ssize_t nwritten;
++
++  while (total) {
++    do {
++      nwritten = sys_sendfile(tofd, fromfd, offset, total);
++    } while (nwritten == -1 && (errno == EINTR || errno == EAGAIN));
++    if (nwritten == -1)
++      return -1;
++    if (nwritten == 0)
++      return -1; /* I think we're at EOF here... */
++    total -= nwritten;
++  }
++
++  return count;
++}
++
+ /* read from a socket and write to an adouble file */
+ ssize_t ad_writefile(struct adouble *ad, const int eid, 
+ 		     const int sock, off_t off, const int end,
+@@ -150,7 +170,7 @@ ssize_t ad_writefile(struct adouble *ad,
+ 
+   fd = ad_readfile_init(ad, eid, &off, end);
+   lseek(fd, off, SEEK_SET);
+-  if ((cc = sys_sendfile(fd, sock, &off, len)) < 0)
++  if ((cc = my_sendfile(fd, sock, &off, len)) < 0)
+     return -1;
+ 
+   if ((eid != ADEID_DFORK) && (off > ad_getentrylen(ad, eid))) 

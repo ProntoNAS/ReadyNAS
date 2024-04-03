@@ -1,0 +1,21 @@
+#!/bin/sh -e
+
+# If the user has removed the config file, respect this sign of dementia
+# -- only create on package install.
+
+if [ -z "$2" ] || dpkg --compare-versions "$2" lt 0.76-17
+then
+	for configfile in common-auth common-account common-session  \
+	    common-password
+	do
+		if [ ! -f /etc/pam.d/$configfile ] || \
+		    fgrep -q `md5sum /etc/pam.d/$configfile` \
+		    /usr/share/pam/$configfile.md5sums 2>/dev/null
+		then
+			cp /usr/share/pam/$configfile /etc/pam.d/
+		fi
+	done
+	    rm -f /etc/pam.d/other.pre-upgrade 2>/dev/null || true
+fi
+
+#DEBHELPER#

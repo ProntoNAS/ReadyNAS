@@ -1,0 +1,646 @@
+#! /usr/bin/perl
+###############################################################################
+#
+#  Install-MIME:  Install programs into "/etc/mailcap", resolve conflicts,
+#				  auto-uninstall, make dinner, and wash dishes.
+#
+#  Written by Brian White <bcwhite@pobox.com>.
+#
+#  This program has been placed in the public domain.  Do whatever you wish
+#  with it, though I'd appreciate it if my name stayed on it as the original
+#  author.
+#
+###############################################################################
+#
+#  Options:
+#
+#	--install					Install the entries for specified package
+#	--remove					Remove all entries for specified package
+#
+#	--package=<pkg-name>		Name of installing package
+#
+#	--content=<content-type>	Content-Type for specified programs
+#	--test=<conditional>		Condition to test if line is valid
+#	--needsterminal=<t/f>		Do these programs need a terminal
+#	--copiousoutput=<t/f>		Do these programs generate extra output
+#
+#	--description=<string>		Text description for this content-type
+#	--textualnewlines=<t/f>		Convert newline to CRLF before encoding
+#	--x11-bitmap=<file>			Pathname to X icon bitmap representing type
+#	--nametemplate=<string>		Template indicating files of this type
+#	--comment=<string>			Comment to display to user at priority list
+#
+#	--view=<program-string>		Command line for viewing this type
+#	--compose=<program-string>	Command line for composing this type
+#	--composetyped=<program>	Command line for composing specified type
+#	--edit=<program-string>		Command line for editing this type
+#	--print=<program-string>	Command line for printing this type
+#
+#	--quiet						Avoid unnecessary output
+#	--noparmcheck				Don't abort upon detecting a bad parameter
+#
+###############################################################################
+
+
+
+#
+# Program Constants
+#
+$debug=0;
+$mimedb="/var/lib/mime/mime-db";
+$mailcap="/etc/mailcap";
+$compat="/var/lib/mime/mime-support-compat";
+$action{view}			= "view";
+$action{compose}		= "compose";
+$action{composetyped}	= "compose";
+$action{edit}			= "edit";
+$action{print}			= "print";
+$action{"x11-bitmap"}	= "x11-bitmap";
+
+
+
+###############################################################################
+
+
+
+#
+# Subrutine to 'uniq' a sorted list
+#
+sub uniq {
+	local($last) = "";
+	local(@new)  = ();
+	foreach $val (@_) {
+		if ($val ne $last) {
+			$last = $val;
+			push(@new,$val);
+		}
+	}
+	return @new;
+}
+
+
+#
+# Subroutine to output a string and move to next column
+#
+sub OutputColumn {
+	my($string,$size) = @_;
+	my $i;
+
+#	$string = substr($string,0,$size-1);
+	print $string, " " x ($size - length($string));
+}
+
+
+
+#
+# Subroutine to reformat text for the screen
+#
+sub Reformat {
+	my($string,$size) = @_;
+	my(@letters,$index,$count,$length);
+	$size = 80 unless $size;
+
+	@letters = split(//,$string);
+	$length  = @letters;
+
+	$index = 0;
+	$count = 0;
+	while ($index < $length) {
+		$count = $size - 1;
+		if ($count < $length - $index) {
+			$count-- while (@letters[$index + $count] ne ' ');
+		}
+		print substr($string,$index,$count) . "\n";
+		$index += $count + 1;
+	}
+}
+
+
+
+#
+# Subroutine to work around netscape's test bug
+#
+sub TestHack {
+	my($test) = @_;
+	my $file = $test;
+
+	$file =~ s/!=/ne/g;
+	$file =~ s/=/eq/g;
+	$file =~ s/&&/and/g;
+	$file =~ s/\|\|/or/g;
+	$file =~ s/\W+//g;
+
+	$file = "/var/lib/mime/tests/".lc($file);
+
+	unless (-x $file) {
+		open(TESTFILE,">$file") || die "$0: could not write '$file' -- $!\n";
+		print TESTFILE '#! /bin/sh',"\n";
+		print TESTFILE $test,"\n";
+		print TESTFILE 'exit $?',"\n";
+		close(TESTFILE);
+		chmod 0755,$file;
+	}
+
+	return $file;
+}
+
+
+
+###############################################################################
+
+
+
+#
+# Subroutine to give help for "order"
+#
+sub OrderHelp {
+	print <<_END_;
+
+Because many packages can be installed that are capable of performing actions
+on the same types of files, it is necessary to specify your preference here.
+Entries with smaller numbers will be tried first.  If they have "test"
+conditions that will not allow them to work in a given case, the next
+alternative will be tried.  This will continue until a valid entry is found or
+all possibilities have been exausted.
+
+For example: Two common ways of view GIF pictures are with the "xv" and the
+"xloadimage" programs.  If the "xv" package were installed and the "xloadimage"
+package was being installed, you might see something like the following:
+
+    New action 'view' for MIME type 'image/gif' ("gif picture format")...
+    -->     package=xloadimage  view=xloadimage -view -quiet %s
+
+    1)      package=xv          view=xv %s
+
+    Place at what priority? (1-2, help) -->
+
+Selecting "1" would place "xloadimage" as the top priority to be tried before
+the "xv" program.  Selecting "2" would place it after "xv".
+
+_END_
+
+	print "Press <RETURN> to continue: ";
+	my $enter = <STDIN>;
+	print "\n";
+}
+
+
+
+###############################################################################
+
+
+
+#
+# Subroutine to change type information
+#
+sub Change {
+	my($content,$field,$value) = @_;
+
+	if ($D{$content} =~ m/$field=(.*?)\t/) {
+		print "Resolving redefined '$field'...\n" if $debug;
+		return if ($1 eq $value);
+
+#		print "\nThis package recommends changing the value of '$field'\n";
+#		print "in the 'mailcap' file.\n\n";
+#		print "  old:  $1\n";
+#		print "  new:  $value\n\n";
+#		print "Do you wish to accept the new value? [y] ";
+#		my $resp = <STDIN>;
+#		print "\n";
+#
+#		return if ($resp =~ m/n/i);
+	}
+
+	$D{$content}  =~ s|$field=.*?\t||g;
+	$D{$content} .= "$field=$value\t";
+}
+
+
+
+#
+# Subroutine to choose an ordering
+#
+sub Order {
+	my($content,$command,$package,$value,$index) = @_;
+	my $action = $action{$command};
+	my @list = split(/\t/,$O{"$content,$action"});
+	my $size = @list;
+	my @lines;
+	my $i,$pkg,$idx,$other,$resp;
+
+	unless ($size) {
+		$O{"$content,$action"} .= "$package($index)\t";
+		print "- Added new action '$action' for MIME type '$content'\n" unless $A{quiet};
+		return;
+	}
+
+	$max = ($size>9 ? 9 : $size) + 1;
+
+	do {
+		my $desc="";
+		$desc=" ($A{description})" if $A{description};
+		print "\nNew action '$action' for MIME type '$content'$desc...\n";
+		print "-->\tpackage=$package\t$value\n";
+		Reformat("Note: $A{comment}") if $A{comment};
+		print "\n";
+		for ($i=1; $i < $max; $i++) {
+			($pkg,$idx) = ($list[$i-1] =~ m/(.*?)\((\d+)\)/);
+			$other =  $P{$pkg};
+			@lines =  split(/\n/,$other);
+			$other =  $lines[$idx];
+			$other =~ s|content=.*?\t||;
+			$other =~ s|action=.*?\t||;
+			print "$i)\t$other\n";
+		}
+		print "\nPlace at what priority (1-$max, help)? [1] ";
+		$resp = <STDIN>;
+		print "\n";
+		chomp($resp);
+		if ($resp =~ m/^h$/ || $resp =~ m/^help$/) {
+			OrderHelp();
+		} elsif ($resp eq "") {
+			$resp = 1;
+		}
+		$resp = int($resp);
+	} while ($resp < 1 || $resp > $max);
+
+	$O{"$content,$action"} = "";
+	for ($i=1; $i <= $size; $i++) {
+		$O{"$content,$action"} .= "$package($index)\t" if ($i == $resp);
+		$O{"$content,$action"} .= "$list[$i-1]\t";
+	}
+	$O{"$content,$action"} .= "$package($index)\t" if ($i == $resp);
+}
+
+
+
+#
+# Subroutine to insert an ability for a package
+#
+sub Insert {
+	my($pkg,$typ,$act,$prg,$tst,$flg) = @_;
+	my $value = "$act=$prg";
+	my $flags;
+	my $index;
+	my @list;
+
+	die "$0: semicolons are not allowed in commands -- use || or &&\n" if $prg=~m/;/ || $tst=~m/;/;
+
+	$value .= "; test=$tst" if $tst;
+	$value .= "; $flg" if $flg;
+
+	if ($P{$pkg} =~ m/package=\Q$pkg\E\tcontent=\Q$typ\E\t\Q$value\E\n/) {
+		print "- Ignoring already installed content '$typ' with value '$value'\n" if $debug;
+		return;
+	}
+
+	my(@index)= ($P{$pkg} =~ m/\n/g);
+	$index    = @index;
+	$P{$pkg} .= "package=$pkg\tcontent=$typ\t$value\n";
+
+	print "Adding new action '$act' for package '$pkg' at index #$index\n" if $debug;
+	Order($typ,$act,$pkg,$value,$index);
+}
+
+
+
+#
+# Subroutine to generate mailcap entries
+#
+sub GenMailcap {
+	my($path) = @_;
+	my(@list);
+	my(@content);
+	my($action);
+
+	@list = %O;
+	while (@list) {
+		my($idx) = shift @list;
+		my($val) = shift @list;
+		my($content,$action) = ($idx =~ m/^(.*),(.*)$/);
+		push @content,$content;
+	}
+	@content = uniq(sort(@content));
+
+	foreach $content (@content) {
+		my $flags;
+		if ($D{$content} =~ m/description=(.*?)\t/)		{ $flags .= "; description=$1";		}
+		if ($D{$content} =~ m/textualnewlines=(.*?)\t/)	{ $flags .= "; textualnewlines=1";	}
+		if ($D{$content} =~ m/nametemplate=(.*?)\t/)	{ $flags .= "; nametemplate=$1";	}
+
+		if ($O{"$content,x11-bitmap"} =~ m/(.*?)\((\d+)\)\t/) {
+			$P{$1} =~ m/x11-bitmap=(.*?)\n/s;
+			$flags .= "; x11-bitmap=$1";
+		}
+
+		print "* * * Printing content '$content'... ($flags)\n" if $debug;
+		foreach $action ("view","compose","edit","print") {
+			print "  * * Printing action '$action'...\n" if $debug;
+			my $order = $O{"$content,$action"};
+			my $prior = 5;
+			foreach (split(/\t/,$order)) {
+				my($pkg,$idx) = m/(.*?)\((\d+)\)/;
+				my @values = split(/\n/,$P{$pkg});
+				my $value  = $values[$idx];
+				$value =~ s|package=.*?\tcontent=.*?\t||;
+#				print "    * Fixing test for package '$_'... ($value)\n" if $debug;
+#				$value =~ s/test=(.*?)(;|$)/"test=".TestHack($1).$2/e;	# Hack to fix Netscape's test bug
+				print "    * Printing package '$_'... ($value)\n" if $debug;
+				if ($value =~ /^view=/) {
+					$value =~ s|view=||;
+					print $path "$content; $value$flags; priority=$prior\n";
+				} else {
+					print $path "$content; echo \"No viewer for type '$content'\"; $value$flags; priority=$prior\n";
+				}
+				$prior--;
+				$prior = 0 if ($prior < 0);
+			}
+		}
+	}
+}
+
+
+
+###############################################################################
+
+
+
+#
+# "Remove" subroutine
+#
+sub Remove {
+	my $pkg = $A{package};
+	my @list;
+
+	@list = %O;
+	while (@list) {
+		my $order = shift @list;
+		my $names = shift @list;
+
+		$O{$order} =~ s|$pkg\(\d+\)\t||g;
+		unless ($O{$order}) {
+			my($content,$action) = ($order =~ m/(.*),(.*)/);
+			print "- There is now nothing as '$2' for MIME type '$1'\n" unless $A{quiet};
+		}
+	}
+
+	undef $P{$pkg};
+	$changed=1;
+}
+
+
+
+#
+# "Install" subroutine
+#
+sub Install {
+	my @list = %A;
+	while (@list) {
+		my $arg = shift @list;
+		my $val = shift @list;
+
+		if ($arg =~ m/^(description|textualnewlines|nametemplate)$/ && $val) {
+			Change($A{content},$arg,$val);
+		}
+	}
+
+	Insert($A{package},$A{content},"x11-bitmap",$A{"x11-bitmap"}) if $A{"x11-bitmap"};
+
+	my $flags = "";
+	$flags .= "; needsterminal"		if $A{needsterminal}	=~ m/[Tt]/;
+	$flags .= "; copiousoutput"		if $A{copiousoutput}	=~ m/[Tt]/;
+	$flags .= "; textualnewlines"	if $A{textualnewlines}	=~ m/[Tt]/;
+	$flags  =~s|^; ||;
+
+	@list = %A;
+	while (@list) {
+		my $arg = shift @list;
+		my $val = shift @list;
+
+		if ($arg =~ m/^(view|compose|composetyped|edit|print)$/ && $val) {
+			die "Error: action '$arg' ($val) cannot be backgrounded within mailcap\n" if $val=~m/\&\s*$/;
+			Insert($A{package},$A{content},$arg,$val,$A{test},$flags);
+			$changed=1;
+		}
+	}
+}
+
+
+
+#
+# "List" subroutine
+#
+sub List {
+	my @list = %O;
+
+	while (@list) {
+		my $order = shift @list;
+		my $value = shift @list;
+		my($content,$action) = ($order =~ m/(.*),(.*)/);
+
+		next if $A{content} && $content !~ m/^$A{content}/;
+		next if $A{package} && $value !~ m/$A{package}\(/;
+
+		print "\n$content: ";
+		$D{$content} =~ m/description=(.*?)\t/;
+		print " \"$1\"" if $1;
+		print " ($action)\n";
+
+		foreach (split(/\t/,$value)) {
+			my($package,$index) = (m/(.*)\((\d+)\)/);
+			my @pkgdata = split(/\n/,$P{$package});
+			next if $A{package} && $A{package} ne $package;
+
+			OutputColumn($package,20);
+
+#			print "\nExtracting from line: $pkgdata[$index]\n" if $debug;
+			my($command) = ($pkgdata[$index] =~ m/$action.*?=([^;]*)/);
+			my($test)    = ($pkgdata[$index] =~ m/(test=[^\t]*)/);
+			OutputColumn($command,40);
+			print " $test\n";
+		}
+	}
+
+	print "\n";
+}
+
+
+
+###############################################################################
+
+
+
+#
+# Initialization
+#
+print STDOUT ""; $| = 1;	# No 'autoflush' because perl may not be configured
+
+
+
+#
+# Valid parameters
+#
+$A{install}			= -1;
+$A{remove}			= -1;
+$A{list}			= -1;
+$A{package}			= '@';
+$A{content}			= '@';
+$A{comment}			= '@';
+$A{test}			= '@';
+$A{needsterminal}	= '@';
+$A{copiousoutput}	= '@';
+$A{description}		= '@';
+$A{textualnewlines}	= '@';
+$A{"x11-bitmap"}	= '@';
+$A{nametemplate}	= '@';
+$A{view}			= '@';
+$A{compose}			= '@';
+$A{composetyped}	= '@';
+$A{edit}			= '@';
+$A{print}			= '@';
+$A{quiet}			= -1;
+$A{noparmcheck}		= -1;
+
+
+
+#
+# Look for parameter parsing flags (i.e. "--noparmcheck")
+#
+$strictparms = 1;
+foreach (@ARGV) {
+	/^--noparmcheck$/	and $strictparms = 0;
+}
+#print "($0: parameter checking disabled)\n" unless $strictparms;
+
+
+#
+# Parameter parsing
+#
+foreach (@ARGV) {
+	my($p,$v);
+
+	s/[\n\t ]+/ /g;
+
+	if (/^--(.*?)=(.*)$/) {
+		$p=$1; $v=$2;
+	} elsif (/^--([^=]*)$/) {
+		$p=$1; $v=1;
+	} else {
+		die "$0: bad parameter '$_'\n" if $strictparms;
+		$p=$_; $v=1;
+	}
+	die "$0: unknown option '--$p'\n" if !$A{$p} and $strictparms;
+	die "$0: redefined option '--$p'\n" if ($A{$p} && $A{$p} ne '@' && $A{$p} != -1);
+
+	print "Setting '$p' = '$v'\n" if $debug;
+	$A{$p} = $v;
+}
+
+
+#
+# Don't use this program any more
+#
+print STDERR "Warning: 'install-mime' is obsolete -- use 'update-mime' instead (see man page)\n" if $strictparms;
+
+
+#
+# Remove any undefined parameters and do simple sanity check
+#
+@list = %A;
+while (@list) {
+	my($parm) = shift @list;
+	my($valu) = shift @list;
+	undef $A{$parm} if $valu == -1;
+	undef $A{$parm} if $valu eq '@';
+	die "$0: missing mandatory option '--$parm'\n" if $valu eq '*';
+}
+
+die "$0: '--install' and '--remove' are mutually exclusive options\n" if $A{install} && $A{remove};
+die "$0: install requires '--package' and '--content'\n" if $A{install} && (! $A{package} || ! $A{content});
+die "$0: remove requires '--package'\n" if $A{remove} && ! $A{package};
+die "$0: no action given!\n" unless $A{install} || $A{remove} || $A{list};
+die "$0: content-type must be explicit (no '*' allowed)\n" if $A{content} =~ m/\*/;
+
+print "$0: (warning) content-type '$A{content}' is not 'type/subtype'\n" if $A{content} && $A{content} !~ m|^[^/]+/[^/]+$|;
+
+$A{content} = lc($A{content}) if $A{content};
+
+
+#
+# Load database
+#
+if (-f $mimedb) {
+	open(PATH,"<$mimedb") || die "$0: could not read database '$mimedb' -- $!\n";
+	while (<PATH>) {
+		if (m/^content=(.*?)\taction=(.*?)\t(.*)\n$/) {
+			my($idx) = "$1,$2";
+			die "$0: database corruption! (multiple 'content=$1, action=$2' lines)\n" if $O{$idx};
+			$O{$idx}  = $3;
+		} elsif (m/^content=(.*?)\t(.*)\n$/) {
+			die "$0: database corruption! (multiple 'content=$1;<data>' lines)\n" if $D{$1};
+			$D{$1} = $2;
+		} elsif (m/^package=(.*?)\t/) {
+			$P{$1} .= $_;
+		} else {
+			chop;
+			die "$0: database corruption! (unknown line '$_')\n";
+		}
+	}
+	close PATH;
+}
+
+
+
+#
+# Do actions specified by user
+#
+$changed=0;
+Remove	if $A{remove};
+Install	if $A{install};
+List	if $A{list};
+
+exit 0 unless $changed;	# stop here if no changes were made
+
+
+#
+# Generate new mailcap file if necessary
+#
+open(PATH,">$compat") || die "$0: could not write '$compat' -- $!\n";
+GenMailcap(PATH);
+close PATH;
+
+
+#
+# Write data back to the database
+#
+open (PATH,">$mimedb") || die "$0: could not write database '$mimedb' -- $!\n";
+
+@list = %O;
+while (@list) {
+	my $idx = shift @list;
+	my $val = shift @list;
+	$idx =~ m/(.*?),(.*)/;
+	print PATH "content=$1\taction=$action{$2}\t$val\n" if $val;
+}
+
+@list = %D;
+while (@list) {
+	my $idx = shift @list;
+	my $val = shift @list;
+	print PATH "content=$idx\t$val\n";
+}
+
+@list = %P;
+while (@list) {
+	my $idx = shift @list;
+	my $val = shift @list;
+	print PATH $val;
+}
+
+close PATH;
+
+
+#
+# Run new 'update-mime' program
+#
+exec "/usr/sbin/update-mime";

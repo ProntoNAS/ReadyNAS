@@ -1,0 +1,87 @@
+Index: Linux-PAM/doc/modules/pam_wheel.sgml
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/doc/modules/pam_wheel.sgml,v
+retrieving revision 1.4
+diff -u -r1.4 pam_wheel.sgml
+--- Linux-PAM/doc/modules/pam_wheel.sgml	15 Sep 2002 20:44:05 -0000	1.4
++++ Linux-PAM/doc/modules/pam_wheel.sgml	15 Oct 2002 14:39:24 -0000
+@@ -48,7 +48,6 @@
+ 
+ <tag><bf>Recognized arguments:</bf></tag>
+ <tt/debug/;
+-<tt/use_uid/;
+ <tt/trust/;
+ <tt/deny/;
+ <tt/group=XXXX/
+@@ -68,13 +67,6 @@
+ <item>
+ <tt/debug/ -
+ Supply more debugging information to <tt/syslog(3)/.
+-
+-<item>
+-<tt/use_uid/ -
+-This option modifies the behavior of the module by using the current
+-<tt/uid/ of the process and not the <tt/getlogin(3)/ name of the user.
+-This option is useful for being able to jump from one account to
+-another, for example with 'su'.
+ 
+ <item>
+ <tt/trust/ -
+Index: Linux-PAM/modules/pam_wheel/pam_wheel.c
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/modules/pam_wheel/pam_wheel.c,v
+retrieving revision 1.1.1.2
+diff -u -r1.1.1.2 pam_wheel.c
+--- Linux-PAM/modules/pam_wheel/pam_wheel.c	15 Sep 2002 20:09:04 -0000	1.1.1.2
++++ Linux-PAM/modules/pam_wheel/pam_wheel.c	15 Oct 2002 14:39:24 -0000
+@@ -71,9 +71,8 @@
+ /* argument parsing */
+ 
+ #define PAM_DEBUG_ARG       0x0001
+-#define PAM_USE_UID_ARG     0x0002
+-#define PAM_TRUST_ARG       0x0004
+-#define PAM_DENY_ARG        0x0010  
++#define PAM_TRUST_ARG       0x0002
++#define PAM_DENY_ARG        0x0004
+ 
+ static int _pam_parse(int argc, const char **argv, char *use_group,
+ 		      size_t group_length)
+@@ -89,8 +88,7 @@
+ 
+           if (!strcmp(*argv,"debug"))
+                ctrl |= PAM_DEBUG_ARG;
+-          else if (!strcmp(*argv,"use_uid"))
+-               ctrl |= PAM_USE_UID_ARG;
++          else if (!strcmp(*argv,"use_uid")); /* ignored for compat. */
+           else if (!strcmp(*argv,"trust"))
+                ctrl |= PAM_TRUST_ARG;
+           else if (!strcmp(*argv,"deny"))
+@@ -151,22 +149,13 @@
+         return PAM_IGNORE;
+      }
+      
+-     if (ctrl & PAM_USE_UID_ARG) {
+-         tpwd = getpwuid(getuid());
+-         if (!tpwd) {
+-            if (ctrl & PAM_DEBUG_ARG)
+-                _pam_log(LOG_NOTICE,"who is running me ?!");
+-            return PAM_SERVICE_ERR;
+-         }
+-         fromsu = tpwd->pw_name;
+-     } else {
+-         fromsu = getlogin();
+-         if (!fromsu) {
+-             if (ctrl & PAM_DEBUG_ARG)
+-                _pam_log(LOG_NOTICE,"who is running me ?!");
+-             return PAM_SERVICE_ERR;
+-         }
++     tpwd = getpwuid(getuid());
++     if (!tpwd) {
++        if (ctrl & PAM_DEBUG_ARG)
++            _pam_log(LOG_NOTICE,"who is running me ?!");
++        return PAM_SERVICE_ERR;
+      }
++     fromsu = tpwd->pw_name;
+      
+      if (!use_group[0]) {
+ 	 if ((grp = getgrnam("wheel")) == NULL) {

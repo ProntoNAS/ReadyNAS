@@ -1,0 +1,148 @@
+#!/usr/bin/make -f
+
+# Comment this to turn off verbose mode.
+export DH_VERBOSE=1
+# This is the debhelper compatability version to use.
+export DH_COMPAT=3
+
+build: build-stamp
+build-stamp:
+	dh_testdir
+
+	# keep the build process from re-running autoconf and friends
+	touch aclocal.m4 configure config.h.in 
+	find . -name Makefile.in -exec touch {} \;
+
+	# build refclock version first, and move the daemon out of the way
+	./configure --prefix=/usr \
+		--enable-all-clocks --enable-parse-clocks --enable-SHM \
+		--disable-debugging 
+	touch stamp-h.in
+	make 
+	mv ntpd/ntpd ntpd/ntpd-refclock
+
+	# clean up enough from the first build to make the second one work
+	make clean
+	rm -f config.status
+
+	# build simple version, which will become the default installed
+	./configure --prefix=/usr \
+		--disable-all-clocks --disable-parse-clocks --disable-debugging
+	touch stamp-h.in
+	make 
+
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp install-stamp
+	make distclean || exit 0
+	rm -f ntpdate/version.c ntpq/version.c ntpd/ntpd-refclock
+	dh_clean
+
+install: install-stamp
+install-stamp: build-stamp
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	$(MAKE) install \
+		bindir=`pwd`/debian/ntp/usr/sbin \
+		prefix=`pwd`/debian/ntp/usr
+
+	# move the user-space programs from /usr/sbin to /usr/bin
+	for file in ntpq ntpdc ntptrace; do \
+		mv debian/ntp/usr/sbin/$$file debian/ntp/usr/bin/$$file; \
+	done
+
+	# move the daemons to their packages
+	mv debian/ntp/usr/sbin/ntpd debian/ntp-simple/usr/sbin/ntpd
+	mv ntpd/ntpd-refclock debian/ntp-refclock/usr/sbin/ntpd
+
+	install -o root -g root -m 0755 scripts/ntpsweep \
+		debian/ntp/usr/bin/ntpsweep
+	install -o root -g root -m 0644 debian/ntpsweep.1 \
+		debian/ntp/usr/share/man/man1/ntpsweep.1
+	# hand-craft the manpages since they're all worthless creations...
+	install -o root -g root -m 0644 debian/ntpdate.1 \
+		debian/ntpdate/usr/share/man/man1/ntpdate.1
+	install -o root -g root -m 0644 debian/useless.1 \
+		debian/ntpdate/usr/share/man/man1/ntptimeset.1
+	install -o root -g root -m 0644 debian/ntpd.1 \
+		debian/ntp-simple/usr/share/man/man1/ntpd.1
+	install -o root -g root -m 0644 debian/ntpd.1 \
+		debian/ntp-refclock/usr/share/man/man1/ntpd.1
+	install -o root -g root -m 0644 debian/useless.1 \
+		debian/ntp/usr/share/man/man1/ntpdc.1
+	gzip -9 debian/ntp/usr/share/man/man1/ntpdc.1
+	(cd debian/ntp/usr/share/man/man1 ; \
+		ln ntpdc.1.gz ntpq.1.gz ;\
+		ln ntpdc.1.gz ntptime.1.gz ;\
+		ln ntpdc.1.gz ntptrace.1.gz ;\
+		ln ntpdc.1.gz tickadj.1.gz )
+	dh_movefiles --sourcedir=debian/ntp
+	touch install-stamp
+
+# Build architecture-independent files here.
+binary-indep: build install
+#	dh_testversion
+	dh_testdir -i
+	dh_testroot -i
+	dh_installdocs -i html
+	rm -f debian/ntp-doc/usr/share/doc/ntp-doc/html/hints/solaris*
+	rm -f debian/ntp-doc/usr/share/doc/ntp-doc/html/htmlprimer.htm
+	dh_installexamples -i
+	dh_installmenu -i
+#	dh_installemacsen -i
+#	dh_installinit -i
+	dh_installcron -i
+	dh_installdebconf -i
+#	dh_installmanpages -i ansi2knr.1
+#	dh_undocumented
+	dh_installchangelogs -i
+	gzip -9 debian/ntp-doc/usr/share/doc/ntp-doc/changelog.Debian
+	dh_fixperms -i
+	dh_suidregister -i
+	dh_installdeb -i
+	dh_gencontrol -i
+	dh_md5sums -i
+	dh_builddeb -i
+
+# Build architecture-dependent files here.
+binary-arch: build install
+#	dh_testversion
+	dh_testdir -a
+	dh_testroot -a
+	dh_installdocs -a
+	dh_installexamples -a
+	dh_installmenu -a
+#	dh_installemacsen -a
+	dh_installdebconf -a
+	dh_installinit -pntp-simple --update-rcd-params="defaults 23" \
+		--init-script=ntp
+	dh_installinit -pntp-refclock --update-rcd-params="defaults 23" \
+		--init-script=ntp
+	dh_installinit -pntpdate --update-rcd-params="start 51 S ." \
+		--init-script=ntpdate
+	dh_installcron -a
+#	dh_installmanpages -a ansi2knr.1
+#	dh_undocumented
+	dh_installchangelogs -a ChangeLog
+	dh_strip -a
+	dh_compress -a
+	dh_fixperms -a
+	dh_suidregister -a
+	dh_installdeb -a
+	dh_shlibdeps -a
+	dh_gencontrol -a
+#	dh_makeshlibs -a
+	dh_md5sums -a
+	dh_builddeb -a
+
+source diff:                                                                  
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary

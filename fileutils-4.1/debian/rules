@@ -1,0 +1,99 @@
+#!/usr/bin/make -f
+# Build rules for GNU fileutils (4.0)
+# Based heavily on Ian Jackson's sample rules file for GNU hello
+# Copyright 1994,1995 by Ian Jackson.
+# I hereby give you perpetual unlimited permission to copy,
+# modify and relicense this file, provided that you do not remove
+# my name from the file itself.  (I assert my moral right of
+# paternity under the Copyright, Designs and Patents Act 1988.)
+
+package=fileutils
+d=debian/tmp
+b=builddir
+
+CFLAGS = "-O2 -I. -g"
+LDFLAGS =
+
+DEB_BUILD_ARCH := $(shell dpkg-architecture -qDEB_BUILD_ARCH)
+DEB_HOST_GNU_SYSTEM := $(shell dpkg-architecture -qDEB_HOST_GNU_SYSTEM)
+DEB_HOST_GNU_TYPE := $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_SYSTEM := $(shell dpkg-architecture -qDEB_BUILD_GNU_SYSTEM)
+DEB_BUILD_GNU_TYPE := $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+configure-flags = 
+
+BIN_PROGS = chgrp chmod chown cp dd df dir ln ls mkdir mknod mv rm rmdir vdir \
+	sync touch
+
+build: build-stamp
+build-stamp: configure-stamp
+	$(MAKE) -C $(b)
+	touch build-stamp
+
+configure-stamp:
+	dh_testdir src/ls.c
+	mkdir -p $(b)/man || true
+	cd $(b) && CFLAGS=$(CFLAGS) LDFLAGS=$(LDFLAGS) \
+		../configure --build=$(DEB_BUILD_GNU_TYPE) \
+		--host=$(DEB_HOST_GNU_TYPE) --prefix=/usr \
+		--infodir=/usr/share/info \
+		--mandir=/usr/share/man  -v $(configure-flags)
+	cp GNUmakefile $(b)
+	cp man/GNUmakefile $(b)/man
+	touch configure-stamp
+
+clean:
+	dh_testdir
+	rm -f build-stamp configure-stamp
+	rm -rf $(b)
+	find -name '*.gmo' -print0 | xargs -0 rm -f
+	find man -name '*.1*' -print0 | xargs -0 rm -f
+	rm -f po/fileutils.pot po/cat-id-tbl.c
+	rm -f src/dircolors.h
+	dh_clean
+
+binary-indep:   build-stamp
+	dh_testdir
+
+binary-arch:    build-stamp
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+
+	dh_installdirs -p$(package) bin
+	$(MAKE) CFLAGS=$(CFLAGS) LDFLAGS=$(LDFLAGS) \
+		-C $(b) prefix=`pwd`/$(d)/usr \
+		infodir=`pwd`/$(d)/usr/share/info \
+		mandir=`pwd`/$(d)/usr/share/man install check
+
+	: # move certain programs needed in single-user to /bin
+	for f in $(BIN_PROGS); do \
+		mv $(d)/usr/bin/$$f $(d)/bin/$$f; \
+	done
+ifneq ($(DEB_HOST_GNU_SYSTEM),gnu)
+	ln -s /bin/touch $(d)/usr/bin
+endif
+
+	dh_installdocs debian/color-ls
+	dh_installdocs NEWS
+	dh_installchangelogs ChangeLog
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+# Below here is fairly generic really
+
+binary:         binary-indep binary-arch
+
+source diff:
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+.PHONY: binary binary-arch binary-indep clean
+
+
+

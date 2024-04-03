@@ -1,0 +1,82 @@
+#! /bin/sh -e
+
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch $pdir -f --no-backup-if-mismatch -p1 < $0;;
+    -unpatch) patch $pdir -f --no-backup-if-mismatch -R -p1 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# DP: eliminate build warning on s390
+
+From: Chet Ramey <chet@nike.ins.cwru.edu>
+To: Gerhard Tonn <GerhardTonn@swol.de>
+Cc: chet@po.cwru.edu, doko@debian.org
+Subject: Debian Bash bug #160731
+Date: Thu, 26 Sep 2002 14:04:56 -0400
+
+Try this patch, and see what happens.  It should eliminate the warning,
+at least.  Your line numbers will vary.
+
+Chet
+
+*** ../bash-2.05b/parse.y	Tue May 21 11:57:30 2002
+--- ./parse.y	Thu Sep 26 12:08:19 2002
+***************
+*** 4525,4529 ****
+  set_line_mbstate ()
+  {
+!   int i, previ, len;
+    mbstate_t mbs, prevs;
+    size_t mbclen;
+--- 4534,4538 ----
+  set_line_mbstate ()
+  {
+!   int i, previ, len, c;
+    mbstate_t mbs, prevs;
+    size_t mbclen;
+***************
+*** 4540,4544 ****
+        mbs = prevs;
+  
+!       if (shell_input_line[i] == EOF)
+  	{
+  	  int j;
+--- 4549,4554 ----
+        mbs = prevs;
+  
+!       c = shell_input_line[i];
+!       if (c == EOF)
+  	{
+  	  int j;
+***************
+*** 4564,4568 ****
+        else
+  	{
+! 	  /* mbrlen doesn't return any other values */
+  	}
+  
+--- 4574,4582 ----
+        else
+  	{
+! 	  /* XXX - what to do if mbrlen returns 0? (null wide character) */
+! 	  int j;
+! 	  for (j = i; j < len; j++)
+! 	    shell_input_line_property[j] = 1;
+! 	  break;
+  	}
+  
+
+-- 
+``The lyf so short, the craft so long to lerne.'' - Chaucer
+( ``Discere est Dolere'' -- chet )
+
+Chet Ramey, ITS, CWRU    chet@po.CWRU.Edu    http://cnswww.cns.cwru.edu/~chet/

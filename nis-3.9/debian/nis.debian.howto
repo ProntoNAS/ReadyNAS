@@ -1,0 +1,296 @@
+
+0. INTRODUCTION.
+
+  This HOWTO describes:
+
+  1.  How to setup a NIS client-only system
+  2.  How to specify what resources to use for NIS
+  3.  How to setup a NIS master server
+  4.  Shadow passwords
+  5.  How to setup a NIS slave server
+
+
+1. HOW TO SETUP A LOCAL NIS CLIENT
+
+  1.1 install the netbase, portmap and nis packages
+
+  1.2 The installation procedure will ask for your NIS domainname. This
+      is just a name which describes the group of systems that use NIS, it
+      is not a hostname. It is stored in the config file /etc/defaultdomain,
+      in case you ever want to change it. Unlike DNS hostnames and
+      domainnames, the NIS domainname is case-sensitive!
+
+  1.3 If your NIS server is not "local" to your network, you will have to do
+      some finetuning. The ypbind process has a configuration file called
+      /etc/yp.conf. You can hardcode a NIS server there - for more info
+      see the manual page for ypbind(8).
+
+      *NOTE NOTE NOTE* - if you put a servername in /etc/yp.conf, make
+      sure the server is also in /etc/hosts, or put it in in dotted-quad
+      notation (12.34.56.78). Otherwise if your system boots and the
+      network is not yet up or DNS isn't reachable, ypserv cannot resolve
+      the servers in /etc/yp.conf and will hang!
+
+  1.4 Start NIS by typing:
+
+       /etc/init.d/nis stop
+       /etc/init.d/nis start
+
+
+2. HOW TO SPECIFY WHAT RESOURCES TO USE FOR NIS:
+
+  2.1 FOR LIBC6:
+
+      Check your /etc/nsswitch.conf file and make sure that the entries for
+      passwd, group, shadow and netgroup look like this:
+
+      passwd:   compat
+      group:    compat
+      shadow:   compat
+      netgroup: nis
+
+      At this moment, libc6 has some troubles with reading netgroup data
+      from files. So do not use "db" or "files" in the entry for netgroup,
+      all netgroup lookups have to go through the NIS server.
+
+  2.2 USERS: Add the following line to /etc/passwd on your NIS
+      clients (at the end of the file):
+
+      +::::::
+
+      You can also use the + and - characters to include/exclude or change
+      users.  If you want to exclude the user guest just add -guest to your
+      /etc/passwd file.  You want to use a different shell (e.g. ksh) for
+      the user "linux"?  No problem, just add "+linux::::::/bin/ksh"
+      (without the quotes) to your /etc/passwd.  Fields that you don't want
+      to change have to be left empty.
+
+      For example, to only allow login-access to miquels,dth and ed, but to
+      have the account data of all other users available:
+
+      +miquels::::::
+      +ed::::::
+      +dth::::::
+      +:*::::::/etc/NoShell
+
+      Note that in Linux you can also override the password field, as we did
+      in this example.
+
+      If you are using shadow passwords and export a "shadow" map from
+      your NIS server, you also want to put the following in /etc/shadow
+      (again at the end of the file):
+
+      +::::::::
+
+      If you want to override the password field and you're using shadow
+      passwords do it in /etc/shadow, not in /etc/passwd ofcourse.
+
+  2.3 GROUPS: Add the following line to /etc/group (at the end):
+
+      +:::
+
+  2.4 HOSTS:
+
+      Normally you should not do host lookups through NIS, use DNS for that.
+      If you really must use NIS for it, here's how to do it.
+
+  2.4.1 For libc5 applications:
+
+        If you want to use the NIS host maps of your NIS server you
+        have to change your /etc/host.conf file. You just have to add the
+        word "nis" to the "order" line. A sample host.conf file could look
+        like this:
+
+        order hosts,nis
+        multi on
+
+  2.4.2 For libc6 applications:
+
+        Edit /etc/nsswitch.conf and change the hosts entry:
+
+        hosts:  files nis
+
+3. HOW TO SETUP A MASTER NIS SERVER:
+
+  3.1 Install the nis package. You'll also need other packages such
+      as portmapper, but the debian dependancy system will take care
+      of that automatically.
+
+  3.2 Make sure that _all_ systems you are going to use as a NIS server,
+      master or slave, have all other systems in the /etc/hosts file.
+      The FQDN (Fully Qualified Domain Name) should be the first hostname
+      after every IP address, followed by just the hostname (without the
+      domainname). For example:
+
+        192.168.88.10	troi.cistron.nl	troi
+
+      On the NIS server the NIS hosts file (which is usually just /etc/hosts)
+      should also have this setup. This is because NIS does not use DNS.
+
+  3.3 set your NIS domain in the /etc/defaultdomain file. The NIS domain
+      is just a name which describes the group of systems that use NIS, it
+      is not a hostname. It is common practice to use your DNS domainname
+      for this.
+
+      Many people say this is a security risk, as by knowing your
+      domainname it is possible to query your NIS server remotely and
+      download all your NIS maps. Do not try to prevent this by choosing
+      an obscure domainname. Just setup your /etc/ypserv.securenets and/
+      or your /etc/ypserv.conf properly so that your NIS server cannot
+      be accessed outside of your local network at all.
+
+  3.4 set ypserv to master (NISSERVER=master) in /etc/default/nis
+
+      Note that earlier versions of the Debian NIS package kept this
+      setting in the /etc/init.d/nis script - if you upgraded from a
+      version before 3.9 you might still have the old script and you
+      need to edit that script instead. Alternatively copy the
+      new /etc/init.d/nis.dpkg-new script to /etc/init.d/nis.
+
+  3.5 As mentioned above, add your local network number to the file
+      /etc/ypserv.securenets.  You don't _have_ to do this: the default
+      is to allow everybody to access your NIS server. It is however
+      *strongly* recommended.
+
+      For added security you might also want to edit the /etc/ypserv.conf
+      file to mangle the password file for some clients (do not do this
+      if you have non-debian slave servers in your network!)
+
+  3.6 Start the server by typing:
+
+      /etc/init.d/nis stop
+      /etc/init.d/nis start
+
+     This will start the server (ypserv) and the password daemon (yppasswdd).
+
+  3.7 Setup the server.
+
+     You do this by typing "/usr/lib/yp/ypinit -m". Before doing this,
+     however, check that you have an /etc/networks file. The Makefile
+     in /var/yp expects this, to build a "networks" NIS map. If you
+     don't have one (new potato installs come without one) just use
+     the command "touch /etc/networks" to create an empty one.
+
+     If you want to restrict access to your NIS server, you'll have to setup
+     the NIS server as a client as well by running ypbind and adding the
+     plus-entries to /etc/passwd _halfway_ the password file. The library
+     functions will ignore all normal entries after the first NIS entry, and
+     will get the rest of the info through NIS. This way the NIS access rules
+     are maintained. example:
+
+     root:x:0:0:root:/root:/bin/bash
+     daemon:*:1:1:daemon:/usr/sbin:
+     bin:*:2:2:bin:/bin:
+     sys:*:3:3:sys:/dev:
+     sync:*:4:100:sync:/bin:/bin/sync
+     games:*:5:100:games:/usr/games:
+     man:*:6:100:man:/var/catman:
+     lp:*:7:7:lp:/var/spool/lpd:
+     mail:*:8:8:mail:/var/spool/mail:
+     news:*:9:9:news:/var/spool/news:
+     uucp:*:10:50:uucp:/var/spool/uucp:
+     nobody:*:65534:65534:noone at all,,,,:/dev/null:
+     +miquels::::::
+     +:*:::::/etc/NoShell
+     [ All normal users AFTER this line! ]
+     tester:*:299:10:Just a test account:/tmp:
+     miquels:1234567890123:101:10:Miquel van Smoorenburg:/home/miquels:/bin/zsh
+
+    The user tester will exist, but have a shell of /etc/NoShell. miquels
+    will have normal access.
+
+    Alternatively, you could edit the /var/yp/Makefile file and set NIS to
+    use another source password file by pointing the YPPWDDIR variable at the
+    top of the Makefile to another directory than /etc. On big systems, the
+    NIS password and group files are often stored in /var/yp/ypfiles/. If
+    you do this the normal tools to administrate the password file such as
+    "passwd", "chfn", "adduser" will not work anymore and you will need
+    special homemade tools for this.
+
+    However yppasswd, ypchsh and ypchfn will work ofcourse, provided you
+    run the yppasswdd with the -D option to point it to the location of the
+    NIS password and shadow file. In version 3.9 and up of the Debian package,
+    you can set this in the /etc/default/nis configuration file - the name
+    of the variable is YPPWDDIR, just like in /var/yp/Makefile.
+
+    The Debian version of these utilities - and the yppasswdd daemon -
+    have a non-standard extension. "Root" can - using the root password -
+    change other people's passwords, finger info and shell. If you edit
+    the NIS password file manually or you use the standard /etc/passwd
+    file, remember that after every change in one of the NIS source files
+    you'll have to run "make" in the /var/yp directory to update the
+    NIS maps. It would be reasonable to do this nightly from cron to be
+    sure the NIS maps are kept up-to-date.
+
+4. SHADOW PASSWORDS
+
+   The Linux libc5 does not support shadow NIS maps. If you are dependant
+   on libc5 applications, do not use shadow NIS maps. Instead you can use
+   the method below:
+
+  4.1 SHADOW-LIKE SECURITY
+
+      You can provide shadow-like security by "mangling"
+      the password for NIS lookups of pasword-file entries. Read the manpage
+      for "ypserv.conf" and read the comments in the sample /etc/ypserv.conf.
+
+  4.2 REAL SHADOW SUPPORT
+
+      Libc6 has real shadow support for NIS builtin. It works like you would
+      expect; export the shadow map from the NIS server and just use it.
+      The shadow map should be built with the "-s" (secure) option to
+      makedbm. This is automatic in all modern /var/yp/Makefile files.
+
+      Note that if you use the shadow password file you need to add
+      "plus" entries (as in 2.2) to both /etc/passwd and /etc/shadow.
+      Make sure you use the correct format; the passwd and shadow files
+      have different fields.
+
+      On the master server you need to edit the /var/yp/Makefile to
+      include the shadow file in the "all:" target. If you're using the
+      sample /var/yp/Makefile, you can just remove the comment sign
+      in the "networks # shadow publickey ... " line and put it just
+      after the "shadow" word instead of just before it.
+
+5. HOW TO SETUP A NIS SLAVE SERVER
+
+  5.1 First setup your system as a working NIS client (see 1.)
+
+  5.2 Follow the steps 3.1 .. 3.5 as described in above, but at step 3.4
+      set ypserv to slave (NISSERVER=slave) in the /etc/default/nis file.
+
+  5.3 Tell your master NIS server it has a slave. First you have to adjust
+      the NIS Makefile *on the master* so that all future updates get
+      distributed to the slave(s) automatically. Set the NOPUSH variable
+      in /var/yp/Makefile to "false" like this:
+
+       NOPUSH="false"
+
+      (Don't you just hate double negatives ..) Now tell the master about
+      its slaves by running "/usr/lib/yp/ypinit -m". Enter the names of the
+      slave servers. The maps will get rebuilt, but not pushed to the slaves
+      just yet.
+
+  5.4 Start the slave and initialize it by entering:
+
+      /etc/init.d/nis stop
+      /etc/init.d/nis start
+      /usr/lib/yp/ypinit -s <name_of_your_master_nis_server_here>
+
+      The slave server will transfer the maps from the master.
+
+  5.5 You might want to put the following script fragment into
+      /etc/cron.d/nis *on the slave*, and make /etc/cron.d/nis
+      executable (chmod 755 /etc/cron.d/nis) :
+
+      20 *    * * *    root  /usr/lib/yp/ypxfr_1perhour >/dev/null 2>&1
+      40 6    * * *    root  /usr/lib/yp/ypxfr_1perday  >/dev/null 2>&1
+      55 6,18 * * *    root  /usr/lib/yp/ypxfr_2perday  >/dev/null 2>&1
+
+      This will ensure that most NIS maps are kept up-to-date, even if an
+      update is missed because the slave was down at the time the update was
+      done on the master.
+
+
+          nis.debian.howto  3.9-3  21-Jun-2001  miquels@cistron.nl
+

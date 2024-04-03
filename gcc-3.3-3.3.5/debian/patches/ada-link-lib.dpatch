@@ -1,0 +1,81 @@
+#! /bin/sh -e
+
+# DP: - Install the shared Ada libraries as '.so.1', not '.so' to conform
+# DP:   to the Debian policy.
+# DP: - Don't include a runtime link path (-rpath), when linking binaries.
+# DP: - Change the soname from libgnat-3.15.so.1 to libgnat-3.3.so.1.
+# DP: - Build the shared libraries on hppa-linux.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p1 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p1 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- src/gcc/ada/Makefile.in~	Fri Apr  5 19:03:14 2002
++++ src/gcc/ada/Makefile.in	Sun Feb 15 16:30:14 2002
+@@ -133,7 +133,7 @@
+ objext = .o
+ exeext =
+ arext  = .a
+-soext  = .so
++soext  = .so.1
+ shext  =
+ 
+ HOST_CC=$(CC)
+@@ -750,6 +750,11 @@
+   LIBRARY_VERSION := $(strip $(shell grep Library_Version $(fsrcpfx)gnatvsn.ads | sed -e 's/.*GNAT Lib v\(.*\)[ "].*/\1/'))
+ endif
+ 
++ifeq ($(strip $(filter-out hppa% unknown linux gnu,$(targ))),)
++  GNATLIB_SHARED = gnatlib-shared-dual
++  LIBRARY_VERSION := $(strip $(shell grep Library_Version $(fsrcpfx)gnatvsn.ads | sed -e 's/.*GNAT Lib v\(.*\)[ "].*/\1/'))
++endif
++
+ ifeq ($(strip $(filter-out hppa% hp hpux10%,$(targ))),)
+   LIBGNAT_TARGET_PAIRS = \
+   a-excpol.adb<4wexcpol.adb \
+--- src/gcc/ada/link.c~	Tue Oct  2 16:18:39 2001
++++ src/gcc/ada/link.c	Fri Apr  5 20:35:19 2002
+@@ -158,10 +158,10 @@
+ 
+ #elif defined (linux)
+ const char *object_file_option = "";
+-const char *run_path_option = "-Wl,-rpath,";
+-char shared_libgnat_default = STATIC;
++const char *run_path_option = "";
++char shared_libgnat_default = SHARED;
+ int link_max = 2147483647;
+-unsigned char objlist_file_supported = 0;
++unsigned char objlist_file_supported = 1;
+ unsigned char using_gnu_linker = 0;
+ const char *object_library_extension = ".a";
+
+--- src/gcc/ada/gnatvsn.ads~	2003-08-12 07:46:15.000000000 +0200
++++ src/gcc/ada/gnatvsn.ads	2004-02-15 02:05:34.000000000 +0100
+@@ -62,7 +62,7 @@
+    --  value should never be decreased in the future, but it would be
+    --  OK to increase it if absolutely necessary.
+ 
+-   Library_Version : constant String := "GNAT Lib v3.15";
++   Library_Version : constant String := "GNAT Lib v3.3";
+    --  Library version. This value must be updated whenever any change to the
+    --  compiler affects the library formats in such a way as to obsolete
+    --  previously compiled library modules.

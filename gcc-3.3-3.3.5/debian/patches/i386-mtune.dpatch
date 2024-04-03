@@ -1,0 +1,76 @@
+#! /bin/sh -e
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p3 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p3 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+# DP: 2004-07-08  Paolo Bonzini  <bonzini@gnu.org>
+# DP:             Jakub Jelinek  <jakub@redhat.com>
+# DP: 
+# DP: 	* config/i386/i386.c (override_options): Enable
+# DP: 	SSE prefetches with -mtune, as long as we are
+# DP: 	compiling for i686 or higher.  All i686 processors
+# DP: 	accept SSE prefetches as NOPS, some i586's don't.
+
+2004-07-08  Jakub Jelinek  <jakub@redhat.com>
+
+	* gcc.mist-tests/i386-prefetch.exp (PREFETCH_SSE): Change all
+	-march=i386 into -march=i686.  Add -march=i686 -mtune=x and
+	-march=x for pentium3, pentium3m, pentium-m, pentium4m,
+	prescott and c3-2.
+	(PREFETCH_3DNOW): Add -march=c3.
+
+diff -ur a/gcc-3.3-3.3.4/src/gcc/config/i386/i386.c b/gcc-3.3-3.3.4/src/gcc/config/i386/i386.c
+--- a/gcc-3.3-3.3.4/src/gcc/config/i386/i386.c	2004-05-18 06:07:52.000000000 +0100
++++ b/gcc-3.3-3.3.4/src/gcc/config/i386/i386.c	2004-08-11 00:44:40.000000000 +0100
+@@ -1,5 +1,5 @@
+ /* Subroutines used for code generation on IA-32.
+-   Copyright (C) 1988, 1992, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
++   Copyright (C) 1988, 1992, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2004,
+    2002, 2003, 2004 Free Software Foundation, Inc.
+ 
+ This file is part of GNU CC.
+@@ -1136,7 +1136,7 @@
+ 	ix86_cpu = processor_alias_table[i].processor;
+ 	break;
+       }
+-  if (processor_alias_table[i].flags & PTA_PREFETCH_SSE)
++  if (TARGET_CMOVE && (processor_alias_table[i].flags & PTA_PREFETCH_SSE))
+     x86_prefetch_sse = true;
+   if (i == pta_size)
+     error ("bad value (%s) for -mcpu= switch", ix86_cpu_string);
+diff -ur a/gcc-3.3-3.3.4/src/gcc/testsuite/gcc.misc-tests/i386-prefetch.exp b/gcc-3.3-3.3.4/src/gcc/testsuite/gcc.misc-tests/i386-prefetch.exp
+--- a/gcc-3.3-3.3.4/src/gcc/testsuite/gcc.misc-tests/i386-prefetch.exp	2002-01-17 22:37:04.000000000 +0000
++++ b/gcc-3.3-3.3.4/src/gcc/testsuite/gcc.misc-tests/i386-prefetch.exp	2004-08-11 00:11:57.000000000 +0100
+@@ -44,10 +44,10 @@
+ # instructions as nops.
+ 
+ set PREFETCH_SSE [list \
+-	{ -mcpu=pentium3 } \
+-	{ -mcpu=pentium4 } \
+-	{ -mcpu=athlon } \
+-	{ -mcpu=athlon-4 } \
++	{ -march=i686 -mcpu=pentium3 } \
++	{ -march=i686 -mcpu=pentium4 } \
++	{ -march=i686 -mcpu=athlon } \
++	{ -march=i686 -mcpu=athlon-4 } \
+ 	{ -march=pentium3 } \
+ 	{ -march=pentium4 } ]
+ 

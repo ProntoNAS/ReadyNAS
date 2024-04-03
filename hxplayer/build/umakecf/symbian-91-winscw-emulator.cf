@@ -1,0 +1,129 @@
+# -*- python -*-
+#
+# ***** BEGIN LICENSE BLOCK *****
+# Version: RCSL 1.0/RPSL 1.0
+# 
+# Portions Copyright (c) 1995-2004 RealNetworks, Inc. All Rights Reserved.
+# 
+# The contents of this file, and the files included with this file, are
+# subject to the current version of the RealNetworks Public Source License
+# Version 1.0 (the "RPSL") available at
+# http://www.helixcommunity.org/content/rpsl unless you have licensed
+# the file under the RealNetworks Community Source License Version 1.0
+# (the "RCSL") available at http://www.helixcommunity.org/content/rcsl,
+# in which case the RCSL will apply. You may also obtain the license terms
+# directly from RealNetworks.  You may not use this file except in
+# compliance with the RPSL or, if you have a valid RCSL with RealNetworks
+# applicable to this file, the RCSL.  Please see the applicable RPSL or
+# RCSL for the rights, obligations and limitations governing use of the
+# contents of the file.
+# 
+# This file is part of the Helix DNA Technology. RealNetworks is the
+# developer of the Original Code and owns the copyrights in the portions
+# it created.
+# 
+# This file, and the files included with this file, is distributed and made
+# available on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
+# EXPRESS OR IMPLIED, AND REALNETWORKS HEREBY DISCLAIMS ALL SUCH WARRANTIES,
+# INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY, FITNESS
+# FOR A PARTICULAR PURPOSE, QUIET NJOYMENT OR NON-INFRINGEMENT.
+# 
+# Technology Compatibility Kit Test Suite(s) Location:
+#    http://www.helixcommunity.org/content/tck
+# 
+# Contributor(s):
+# 
+# ***** END LICENSE BLOCK *****
+# 
+"""Building with the symbian 9.1 sdk for the winscw emulator on win-i386 """
+
+## Read in generic symbian config file.
+exec_config_file('symbian-91.cf')
+exec_config_file('symbian-emulator-winscw.cf')
+
+class PlatformDependentUtils:
+    def __init__(self):
+        self.uid1 = 0
+        self.uid2 = 0
+        self.uid3 = 0
+
+    def SetUIDs(self, uid1, uid2, uid3 ):
+        self.uid1 = uid1
+        self.uid2 = uid2
+        self.uid3 = uid3
+
+    def write_uid_file(self):
+        # first uid (what kind of binary image)
+        KDynamicLibraryUid  = 0x10000079
+        KExecutableImageUid = 0x1000007a
+
+        # second uid (what kind of dll or exe)
+        KUidApp             = 0x100039ce
+        KUidRecognizer      = 0x10003a19
+
+        # third uid = implementation uid
+
+        #
+        # for symbian, target_type is 'exe' for .app and .mdl and .mmf (misleading)
+        #
+        imageType = "unknown"
+        if( project.target_type == "dll" ):
+            imageType = "dll"
+
+        elif ( project.target_type == "exe" ):
+            # We have no longer make-app as dll 
+            if (project.BuildOption('make-mdl') or project.BuildOption('make-mmf')):
+                imageType = "dll"
+            else:
+                imageType = "exe"
+
+        if( self.uid1 == 0 ):
+            # set to default value for target type
+            if (imageType == "exe"):
+                self.uid1 = KExecutableImageUid
+            elif (imageType == "dll"):
+                self.uid1 = KDynamicLibraryUid
+                
+        if( self.uid2 == 0 ):
+            # set to default value for specific type of target
+            if (project.BuildOption('make-app')):
+                # app
+                self.uid2 = KUidApp
+            elif (project.BuildOption('make-mdl')):
+                # recognizer
+                self.uid2 = KUidRecognizer
+
+        uidpath = '%s.uid.cpp' %( project.target_name)
+
+        fil = open(uidpath, 'w')
+        fil.write('//Umake generated UID file.\n')
+        fil.write('#include <e32cmn.h>\n')
+        fil.write('#pragma data_seg(".SYMBIAN")\n')
+        #      __EMULATOR_IMAGE_HEADER2(aUid0,aUid1,aUid2,    aPriority           ,aCap0,      aCap1,    aSid,  aVid,          aVer,  aFlags)	
+        tmp = '__EMULATOR_IMAGE_HEADER2(0x%x, 0x%x, 0x%x, EPriorityForeground, 0x000ffffeu, 0x00000000u, 0x%x, 0x00000000u, 0x00010000, 0)\n' % (self.uid1,
+                                            self.uid2, self.uid3, self.uid3)   
+        fil.write(tmp)
+        fil.write('#pragma data_seg()\n')
+        fil.close()
+
+        project.AddSources(uidpath)
+
+    def create_mbm_file(self, mbmpath, headerpath, options, option, imagelist, iconlist):
+        i = 0
+        bitmaps = [] 
+        for image in iconlist:
+            bitmaps.append("%s%s " % (options[i], image) )
+            i = i + 1
+        for image in imagelist:
+            bitmaps.append("%s%s " % (option, image))
+
+        cmd = "bmconv /h%s %s %s" % (headerpath, mbmpath, string.join(bitmaps))
+        (status, output) = shell.run(cmd)
+        print output
+
+        if status:
+            raise "*** mbm generation failed (%s) ***" % status
+
+
+## Create a global instance to use.
+project.PlatformDependentUtil = PlatformDependentUtils()

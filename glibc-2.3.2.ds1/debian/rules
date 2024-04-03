@@ -1,0 +1,167 @@
+#! /usr/bin/make -f
+# -*- makefile -*-
+# debian/rules file for GNU libc.
+# Copyright 1998, 1999 by Joel Klecker <espy@debian.org>
+# Copyright 2000 Ben Collins <bcollins@debian.org>
+# Copyright 2003 Jeff Bailey <jbailey@debian.org>
+# This Makefile is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+
+# What are the phases to building glibc?
+
+# Unpack main tarball
+# Do any necessary overlays
+# Apply patches
+# Determine how many builds there are to do.  For Each build:
+
+#  Create build directory
+#  Configure
+#  Build
+#  Test as desired
+#  Install to package directories
+
+# Run debian magic to build packages.
+
+# Things you may need to customise:
+
+# These are done as absolute paths so that in the case of filesystem size
+# limitations, they can be overridden and spread all over.
+build-tree := build-tree
+stamp := $(CURDIR)/stamp-dir/
+DUMMY := $(shell mkdir -p $(stamp))
+
+# The minimum package version with which these packages are compatible.
+shlib_dep_ver = 2.3.2.ds1-21
+shlib_dep = $(libc) (>= $(shlib_dep_ver))
+
+# Beyond here you shouldn't need to customise anything:
+
+SHELL                 ?= =/bin/sh -e
+DEB_HOST_ARCH         ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+DEB_HOST_GNU_CPU      ?= $(shell dpkg-architecture -qDEB_HOST_GNU_CPU)
+DEB_HOST_GNU_TYPE     ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_HOST_GNU_SYSTEM   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_SYSTEM)
+DEB_BUILD_ARCH        ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH)
+DEB_BUILD_GNU_CPU     ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_CPU)
+DEB_BUILD_GNU_TYPE    ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_BUILD_GNU_SYSTEM  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_SYSTEM)
+
+DEB_HOST_GNU_CPU_ALT  ?=
+DEB_HOST_GNU_TYPE_ALT ?=
+
+DEB_SOURCE_PACKAGE := $(strip $(shell egrep '^Source: ' debian/control | cut -f 2 -d ':'))
+
+DEB_VERSION := $(shell dpkg-parsechangelog | egrep '^Version:' | cut -f 2 -d ' ')
+
+DEB_TARBALL ?= $(shell ls glibc-[0-9]*.[0-9]*.[0-9]*.tar.*)
+
+DEB_SRCDIR ?= $(shell ls -d $(build-tree)/glibc-*)
+DEB_BUILDDIR ?= $(build-tree)/$(DEB_HOST_ARCH)-$(curpass)
+
+# The kernel uses different CPU appreviations (uname output) than the GNU
+# tools do (config.sub).  Map them.
+KERNEL_HOST_CPU := $(subst powerpc,ppc,$(DEB_HOST_GNU_CPU))
+
+# How many makes to run at once?
+NJOBS = 1
+
+# Default setup
+GLIBC_PASSES ?= libc
+
+prefix=/usr
+bindir=$(prefix)/bin
+datadir=$(prefix)/share
+includedir=$(prefix)/include
+infodir=$(prefix)/share/info
+libdir=$(prefix)/lib
+docdir=$(prefix)/share/doc
+mandir=$(prefix)/share/man
+sbindir=$(prefix)/sbin
+libexecdir=$(prefix)/lib
+
+BUILD_CC = gcc-3.3
+
+# Set CC for cross-compiling
+ifneq ($(DEB_HOST_ARCH),$(DEB_BUILD_ARCH))
+CC     = $(DEB_HOST_GNU_TYPE)-gcc
+else
+CC     = $(BUILD_CC)
+endif
+
+BUILD_CFLAGS = -O2 -g
+HOST_CFLAGS = -pipe -O2 -fstrict-aliasing -g $(call xx,extra_cflags)
+
+configure_target := $(DEB_HOST_GNU_TYPE)
+
+# Normally we'll just use this for --build.  If the architecture requires
+# that build daemons be able to run a particular optimized library, then
+# they can set the --build to match --host for that optimized build.
+# Among other things this lets tests run.
+configure_build := $(DEB_BUILD_GNU_TYPE)
+
+ifneq ($(NO_LOG),yes)
+log_build   = $(CURDIR)/log-build-$(call xx,configure_target)-$(curpass)
+log_test    = $(CURDIR)/log-test-$(call xx,configure_target)-$(curpass)
+else
+log_build   := /dev/tty
+log_test    := /dev/tty
+endif
+
+# Which build pass are we on?
+curpass = $(filter-out %_,$(subst _,_ ,$@))
+
+DEB_ARCH_REGULAR_PACKAGES = $(libc) $(libc)-dev $(libc)-dbg $(libc)-prof $(libc)-pic
+DEB_INDEP_REGULAR_PACKAGES = glibc-doc locales
+DEB_UDEB_PACKAGES = $(libc)-udeb libnss-dns-udeb libnss-files-udeb
+
+# Generic kernel version check
+define kernel_check
+(if [ $(CURRENT_KERNEL_VERSION) -lt $(1) ]; then \
+  false; \
+fi)
+endef
+
+# Pull in all the per-arch magic!
+
+-include debian/sysdeps/$(DEB_HOST_GNU_SYSTEM).mk
+-include debian/sysdeps/$(DEB_HOST_ARCH).mk
+
+include debian/sysdeps/depflags.mk
+
+# Don't run dh_strip on this package
+NOSTRIP_$(libc)-dbg = 1
+
+ifeq ($(threads),yes)
+DEB_ARCH_REGULAR_PACKAGES += nscd
+endif
+
+# And now the rules...
+include debian/rules.d/*.mk
+
+clean:: debhelper-clean
+	rm -rf $(patsubst %,debian/tmp-%,$(GLIBC_PASSES))
+	rm -rf $(build-tree)
+	rm -rf $(stamp)
+	rm -f log-*
+	rm -rf debian/include
+
+# Required Debian targets
+binary-indep: build testroot debian/control $(build-tree) \
+	$(patsubst %,$(stamp)install_%,$(GLIBC_PASSES)) \
+	$(patsubst %,$(stamp)binaryinst_%,$(DEB_INDEP_REGULAR_PACKAGES))
+# NOTE: Putting install_ stamps before binaryinst_ stamps in the list is the
+# wrong way to represent dependencies.  Fix this.
+binary-arch: build testroot debian/control $(build-tree) \
+	$(patsubst %,$(stamp)install_%,$(GLIBC_PASSES)) \
+	$(patsubst %,$(stamp)binaryinst_%,$(DEB_ARCH_REGULAR_PACKAGES)) \
+	$(patsubst %,$(stamp)binaryinst_%,$(DEB_UDEB_PACKAGES))
+
+binary: binary-indep binary-arch
+
+build:	$(patsubst %,$(stamp)build_%,$(GLIBC_PASSES)) \
+	$(patsubst %,$(stamp)check_%,$(GLIBC_PASSES))
+
+testroot:
+	dh_testroot

@@ -1,0 +1,115 @@
+#! /bin/sh
+#
+# postinst	NIS suite postinst script.
+#		configures the nis stuff.
+#
+# Version:	nis.postinst  3.9  28-Jun-2001  miquels
+#
+
+# Install the defaults file if needed, and update the NISSERVER
+# setting if the preinst left a settings file behind.
+install_defaults () {
+	[ ! -s /etc/default/nis ] || return 0
+	NISSERVER=false
+	if [ -f /etc/default/nis.settings ]
+	then
+		. /etc/default/nis.settings
+	fi
+	sed -e 's/^\(NISSERVER\)=.*$/\1='"$NISSERVER/" \
+		< /usr/share/doc/nis/examples/nis.default > /etc/default/nis
+	rm -f /etc/default/nis.settings
+}
+
+# Source debconf library.
+. /usr/share/debconf/confmodule
+db_version 2.0 || { echo "nis.config: need DebConf 2.0 or later"; exit 1; }
+
+set -e
+umask 022
+
+case "$1" in
+	configure)
+		;;
+	abort-upgrade|abort-remove|abort-deconfigure)
+		#
+		#	Oops - restart NIS anyway.
+		#
+		/etc/init.d/nis start
+		exit 0
+		;;
+	*)
+		exit 0
+		;;
+esac
+
+# Compatibility symlinks into /usr/doc
+if [ -d /usr/doc -a ! -e /usr/doc/nis \
+	-a -d /usr/share/doc/nis ]
+then
+	ln -sf ../share/doc/nis /usr/doc/nis
+fi
+
+cd /etc/init.d
+chmod 755 nis
+install_defaults
+
+# Ask for the NIS domainname if needed.
+set +e
+nisdomain=`cat /etc/defaultdomain 2>/dev/null`
+set -e
+if [ "$nisdomain" = "" ]
+then
+	fqdn=`hostname --fqdn`
+	domain=${fqdn#*.}
+	db_reset nis/domain
+	db_set nis/domain "$domain"
+	db_input high nis/domain || true
+	db_go || true
+	db_get nis/domain
+	if [ "$RET" != "" ]
+	then
+		echo $RET > /etc/defaultdomain
+	fi
+fi
+
+# Update the links for nis.
+if [ -L /etc/rc2.d/S30nis ]
+then
+	rm -f /etc/rc?.d/[SK]30nis
+fi
+update-rc.d nis defaults 19 >/dev/null 2>&1
+
+# See if NIS is configured.
+set +e
+plus=`grep ^+ /etc/passwd`
+nss=`egrep '^passwd.*(nis|compat)' /etc/nsswitch.conf 2>/dev/null`
+set -e
+niscfg=0
+
+case "$nss" in
+	*nis*)
+		niscfg=1
+		;;
+	*compat*)
+		if [ "$plus" != "" ]
+		then
+			niscfg=1
+		fi
+		;;
+esac
+
+if [ "$niscfg"  = 0 ]
+then
+	db_reset nis/not-yet-configured
+	db_text high nis/not-yet-configured || true
+	db_go || true
+fi
+
+# And start the service.
+if [ "$2" != "" -a "$2" != "<>" ] && dpkg --compare-versions "$2" le 3.9-1
+then
+	killall ypbind >/dev/null 2>&1 || true
+fi
+/etc/init.d/nis restart
+
+exit 0

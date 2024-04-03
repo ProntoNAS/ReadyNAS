@@ -1,0 +1,32 @@
+commit f22bfcb02ec4651726ce8ada0355e70fb0667121
+Author: Sergey Vlasov <vsu@altlinux.ru>
+Date:   Wed Jan 3 18:13:06 2007 +0300
+
+    modprobe: Fix format string bug in do_command()
+    
+    gcc produces the following warning on x86_64:
+    
+    modprobe.c:786: warning: field precision should have type 'int', but argument 3 has type 'long int'
+    
+    This bug is currently harmless on x86_64, because parameters are
+    passed in registers, but could cause misbehavior on other 64-bit
+    platforms.
+    
+    Signed-off-by: Sergey Vlasov <vsu@altlinux.ru>
+---
+ modprobe.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/modprobe.c b/modprobe.c
+index e704015..4d4af93 100644
+--- a/modprobe.c
++++ b/modprobe.c
+@@ -782,7 +782,7 @@ static void do_command(const char *modname,
+ 	while ((p = strstr(replaced_cmd, "$CMDLINE_OPTS")) != NULL) {
+ 		char *new;
+ 		asprintf(&new, "%.*s%s%s",
+-			 p - replaced_cmd, replaced_cmd, cmdline_opts,
++			 (int)(p - replaced_cmd), replaced_cmd, cmdline_opts,
+ 			 p + strlen("$CMDLINE_OPTS"));
+ 		NOFAIL(new);
+ 		free(replaced_cmd);

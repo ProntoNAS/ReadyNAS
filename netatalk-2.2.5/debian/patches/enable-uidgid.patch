@@ -1,0 +1,90 @@
+diff -uNr netatalk-2.1.1/etc/afpd/quota.c netatalk-2.1.1.ntgr/etc/afpd/quota.c
+--- netatalk-2.1.1/etc/afpd/quota.c	2010-04-29 09:17:50.000000000 +0000
++++ netatalk-2.1.1.ntgr/etc/afpd/quota.c	2010-05-26 22:06:16.000000000 +0000
+@@ -586,6 +589,7 @@
+     }
+ #endif
+ 
++#if 0 // Disable to make uidgid work
+ #ifdef TRU64
+     /* Digital UNIX: Two forms of specifying an NFS filesystem are possible,
+        either 'hostname:path' or 'path@hostname' (Ultrix heritage) */
+@@ -623,6 +627,9 @@
+     return vol->v_nfs ? getnfsquota(vol, uuid, bsize, dq) :
+            getfsquota(vol, uuid, dq);
+ #endif /* TRU64 */
++#else // Disable to make uidgid work
++    return getfsquota(vol, uuid, dq);
++#endif // 0
+ }
+ 
+ static int overquota( struct dqblk *dqblk)
+diff -uNr netatalk-2.1.1/etc/afpd/uid.c netatalk-2.1.1.ntgr/etc/afpd/uid.c
+--- netatalk-2.1.1/etc/afpd/uid.c	2010-04-29 09:17:50.000000000 +0000
++++ netatalk-2.1.1.ntgr/etc/afpd/uid.c	2010-05-26 21:55:39.000000000 +0000
+@@ -40,7 +40,7 @@
+ void restore_uidgid ( pair )
+ uidgidset *pair;
+ {
+-    uid_t uid
++    uid_t uid;
+     gid_t gid;   
+     
+     uid = geteuid ();
+@@ -74,7 +74,7 @@
+     uid = user_to_uid ( (this_volume)->v_forceuid);
+     gid = group_to_gid ( (this_volume)->v_forcegid);
+ 
+-    if ((!uid || uid == geteuid()) && (!gid || gid == getegid()))
++    if ((uid < 0 || uid == geteuid()) && (gid < 0 || gid == getegid()))
+        return;
+ 
+     if ( seteuid(0) < 0) {
+@@ -84,13 +84,13 @@
+     }
+ 
+     /* check to see if we have to switch groups */
+-    if ( gid ) {
++    if ( gid >= 0 ) {
+         if ( setegid ( gid ) < 0 )
+             LOG(log_error, logtype_afpd, "set_uidgid: unable to setegid '%s': %s",
+                 (this_volume)->v_forcegid, strerror(errno) );
+     } /* end of checking for (this_volume)->v_forcegid */
+ 
+-    if ( uid) {
++    if ( uid >= 0 ) {
+         if ( seteuid ( uid ) < 0 )
+             LOG(log_error, logtype_afpd, "set_uidgid: unable to seteuid '%s': %s",
+                 (this_volume)->v_forceuid, strerror(errno) );
+@@ -107,13 +107,13 @@
+     struct passwd *this_passwd;
+ 
+     /* check for anything */
+-    if ( !username || strlen ( username ) < 1 ) return 0;
++    if ( !username || strlen ( username ) < 1 ) return -1;
+ 
+     /* grab the /etc/passwd record relating to username */
+     this_passwd = getpwnam ( username );
+ 
+     /* return false if there is no structure returned */
+-    if (this_passwd == NULL) return 0;
++    if (this_passwd == NULL) return -1;
+ 
+     /* return proper uid */
+     return this_passwd->pw_uid;
+@@ -126,13 +126,13 @@
+     struct group *this_group;
+ 
+     /* check for anything */
+-    if ( !group || strlen ( group ) < 1 ) return 0;
++    if ( !group || strlen ( group ) < 1 ) return -1;
+ 
+     /* grab the /etc/groups record relating to group */
+     this_group = getgrnam ( group );
+ 
+     /* return false if there is no structure returned */
+-    if (this_group == NULL) return 0;
++    if (this_group == NULL) return -1;
+ 
+     /* return proper gid */
+     return this_group->gr_gid;

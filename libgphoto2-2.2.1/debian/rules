@@ -1,0 +1,120 @@
+#!/usr/bin/make -f
+# Sample debian/rules that uses debhelper.
+# GNU copyright 1997 to 1999 by Joey Hess.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+DEB_HOST_ARCH_OS ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+ifeq ($(DEB_HOST_ARCH_OS),)
+  DEB_HOST_ARCH_OS := $(subst -gnu,,$(shell dpkg-architecture -qDEB_HOST_GNU_SYSTEM))
+  ifeq ($(DEB_HOST_ARCH_OS),gnu)
+      DEB_HOST_ARCH_OS := hurd
+  endif
+endif
+
+major=2
+
+CFLAGS = -g
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+    CFLAGS += -O0
+else
+    CFLAGS += -O2
+endif
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+    INSTALL_PROGRAM += -s
+endif
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	CFLAGS="$(CFLAGS)" ./configure --prefix=/usr --sysconfdir=/etc --mandir=\$${prefix}/share/man --with-drivers=all --disable-serial
+	touch configure-stamp
+
+build: build-stamp
+build-stamp: configure-stamp 
+	dh_testdir
+	$(MAKE) all-local  # necessary to get headers into gphoto2/
+	$(MAKE)
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp configure-stamp
+	-$(MAKE) distclean
+	rm -f config.log config.status confdefs.h
+	rm -f libgphoto2_port/config.log libgphoto2_port/config.status
+	-rm -rf `pwd`/debian/tmp `pwd`/debian/libgphoto2 `pwd`/debian/libgphoto2-dev
+	rm -f debian/libgphoto2-2.files
+	rm -f po/stamp-po po/*.gmo
+
+	sed -e "s/@linux-gnu@/`type-handling any linux-gnu`/g" < debian/control.in > debian/control
+
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+ifeq ($(DEB_HOST_ARCH_OS), linux)
+	sed -e "s/^@linux-gnu@ //g" \
+	< debian/libgphoto2-2.files.in > debian/libgphoto2-2.files
+else
+	grep -v "^@linux-gnu@" \
+	< debian/libgphoto2-2.files.in > debian/libgphoto2-2.files
+endif
+
+	export LIBRARY_PATH=`pwd`/debian/tmp/usr/lib; $(MAKE) install prefix=`pwd`/debian/tmp/usr
+
+	# remove upstream 0-byte files to make lintian happy
+	-find debian/tmp/ -size 0 -exec rm '{}' ';'
+
+	# Ok the GPL is already on the target system
+	rm debian/tmp/usr/share/doc/libgphoto2/COPYING
+
+	dh_movefiles
+
+	mv debian/libgphoto2-$(major)/usr/share/doc/libgphoto2 \
+		debian/libgphoto2-$(major)/usr/share/doc/libgphoto2-$(major)
+	mv debian/libgphoto2-port0/usr/share/doc/libgphoto2_port \
+		debian/libgphoto2-port0/usr/share/doc/libgphoto2-port0
+	install -D debian/check_ptp_camera debian/libgphoto2-$(major)/lib/udev/check_ptp_camera
+
+	# install hotplug script
+	install -m 755 -D debian/hotplug debian/libgphoto2-$(major)/etc/hotplug/usb/libgphoto2
+
+	-find debian/tmp -type d | sort -r | xargs rmdir 2>&1 > /dev/null
+	# debian/tmp should be empty here : if not fail:
+	test ! -d debian/tmp
+
+binary-indep: build install
+# We have nothing to do by default.
+
+binary-arch: build install
+	dh_testdir -a
+	dh_testroot -a
+	dh_installdocs doc/DAEMON
+	dh_installchangelogs ChangeLog
+	dh_link -a
+	dh_strip -a
+	dh_compress -a
+	dh_fixperms -a --exclude usbcam
+	dh_makeshlibs -a -V
+	dh_installdeb
+	dh_shlibdeps -ldebian/libgphoto2-$(major)/usr/lib/:debian/libgphoto2-port0/usr/lib/
+	dh_gencontrol -plibgphoto2-$(major)-dev
+	dh_gencontrol -plibgphoto2-port0
+ifeq (linux,$(DEB_HOST_ARCH_OS))
+	dh_gencontrol -plibgphoto2-$(major) -- -Vudev-hotplug="udev | hotplug"
+else
+	dh_gencontrol -plibgphoto2-$(major)
+endif
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure

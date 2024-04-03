@@ -1,0 +1,107 @@
+#!/usr/bin/make -f
+
+config_options := --disable-shared --without-libcrack --mandir=/usr/share/man
+#	--build=$(DEB_BUILD_GNU_TYPE) --host=$(DEB_HOST_GNU_TYPE)
+
+DEB_HOST_GNU_SYSTEM := $(shell dpkg-architecture -qDEB_HOST_GNU_SYSTEM)
+
+ifneq ($(DEB_HOST_GNU_SYSTEM),gnu)
+  config_options += --with-libpam
+endif
+
+export DH_COMPAT=3
+
+build:
+	dh_testdir
+	aclocal-1.7
+	autoconf
+	automake-1.7
+	./configure $(config_options)
+	$(MAKE)
+	touch build
+
+install: build
+	dh_testdir
+	dh_testroot
+	rm -rf debian/tmp
+	mkdir debian/tmp
+	$(MAKE) DESTDIR=$$(pwd)/debian/tmp install
+	touch install 
+
+clean:
+	$(checkdir)
+	-$(MAKE) distclean
+	dh_clean
+	rm -rf debian/tmp debian/login debian/passwd
+	rm -f build install debian/*~ debian/substvars # debian/files*
+
+binary-indep:
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_movefiles
+	ln -sf vipw debian/passwd/usr/sbin/vigr
+	ln -sf cppw debian/passwd/usr/sbin/cpgr
+	ln -sf newgrp debian/login/usr/bin/sg
+	mv debian/passwd/usr/share/man/man5/limits.5 debian/passwd/usr/share/man/man5/limits.conf.5
+	install -c -m 444 man/dpasswd.8 debian/passwd/usr/share/man/man8
+	install -c -m 444 man/ja/dpasswd.8 debian/passwd/usr/share/man/ja/man8
+	install -c -m 444 man/pl/dpasswd.8 debian/passwd/usr/share/man/pl/man8
+	install -c -m 444 man/fr/dpasswd.8 debian/passwd/usr/share/man/fr/man8
+	install -c -m 444 man/shadowconfig.8 debian/passwd/usr/share/man/man8
+	install -c -m 444 man/ja/shadowconfig.8 debian/passwd/usr/share/man/ja/man8
+	install -c -m 444 man/pl/shadowconfig.8 debian/passwd/usr/share/man/pl/man8
+	install -c -m 444 man/fr/shadowconfig.8 debian/passwd/usr/share/man/fr/man8
+	install -d debian/login/etc/pam.d
+	install -c -m 444 debian/pam.d/login debian/login/etc/pam.d/login
+	install -c -m 444 debian/pam.d/su debian/login/etc/pam.d/su
+	install -d debian/passwd/etc/pam.d
+	install -c -m 444 debian/pam.d/chfn debian/passwd/etc/pam.d/chfn
+	install -c -m 444 debian/pam.d/chsh debian/passwd/etc/pam.d/chsh
+	install -c -m 444 debian/pam.d/passwd debian/passwd/etc/pam.d/passwd
+	install -c -m 444 debian/login.defs debian/login/etc/login.defs
+	install -c -m 444 debian/securetty.$(DEB_HOST_GNU_SYSTEM) debian/login/etc/securetty
+	install -d debian/passwd/usr/share/passwd
+	install -c -m 444 debian/shells debian/passwd/usr/share/passwd/shells
+	install -d debian/passwd/sbin
+	install -c -m 555 debian/shadowconfig.sh debian/passwd/sbin/shadowconfig
+	install -c -m 555 debian/add-shell.sh debian/passwd/usr/sbin/add-shell
+	install -c -m 555 debian/remove-shell.sh debian/passwd/usr/sbin/remove-shell
+	dh_installdocs
+	dh_installexamples
+	dh_compress
+	dh_installchangelogs
+	dh_fixperms
+	chmod u+s debian/passwd/usr/bin/chfn
+	chmod u+s debian/passwd/usr/bin/chsh
+	chmod u+s debian/passwd/usr/bin/gpasswd
+	chmod u+s debian/passwd/usr/bin/passwd
+	chmod u+s debian/login/bin/login
+	chmod u+s debian/login/bin/su
+	chmod u+s debian/login/usr/bin/newgrp
+	chgrp shadow debian/passwd/usr/bin/chage
+	chgrp shadow debian/passwd/usr/bin/expiry
+	chmod g+s debian/passwd/usr/bin/chage
+	chmod g+s debian/passwd/usr/bin/expiry
+	dh_strip
+	dh_compress
+	dh_shlibdeps
+	dh_installdebconf
+ifneq ($(DEB_HOST_GNU_SYSTEM),gnu)
+	echo "loginpam=login (>= 970502-1), libpam-modules (>= 0.72-5)" >> debian/passwd.substvars
+endif
+	dh_installdeb
+	dh_gencontrol -ppasswd
+ifneq ($(DEB_HOST_GNU_SYSTEM),gnu)
+	dh_gencontrol -plogin
+endif
+	dh_md5sums
+	dh_builddeb -ppasswd
+ifneq ($(DEB_HOST_GNU_SYSTEM),gnu)
+	dh_builddeb -plogin
+endif
+
+binary: binary-indep binary-arch
+
+.PHONY: clean checkroot binary-indep binary-arch

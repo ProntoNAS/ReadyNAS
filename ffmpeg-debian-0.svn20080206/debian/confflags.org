@@ -1,0 +1,138 @@
+# -*- mode: makefile -*-
+#
+# build a static version on every architecture
+# shared is generic, i.e. without arch specific opcodes
+FLAVORS := static shared
+
+export DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+export DEB_HOST_ARCH      ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+
+# the other flavors always build dynamic versions
+ifeq      ($(DEB_HOST_ARCH),i386)
+FLAVORS += cmov
+else ifeq ($(DEB_HOST_ARCH),powerpc)
+FLAVORS += altivec
+else ifeq ($(DEB_HOST_ARCH),sparc)
+FLAVORS += vis
+endif
+
+# Comment out the following lines for LGPL versions of the libraries
+gpl_confflags := --enable-gpl
+gpl_confflags += --enable-libfaad
+gpl_confflags += --enable-pp
+gpl_confflags += --enable-swscaler
+gpl_confflags += --enable-x11grab
+
+# Common configuration flags
+confflags := $(gpl_confflags)
+confflags += --prefix=/usr
+confflags += --enable-libgsm
+confflags += --enable-libtheora
+confflags += --enable-libvorbis
+confflags += --enable-pthreads
+confflags += --disable-strip
+
+# Enable IEEE 1394 (FireWire) support on Linux only
+ifneq (,$(findstring linux,$(DEB_HOST_GNU_TYPE)))
+  confflags += --enable-libdc1394
+  lib1394-dev = libraw1394-dev, libdc1394-22-dev
+else
+  lib1394-dev =
+endif
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+  CFLAGS :=
+# Various parts of ffmpeg (and swscale) FTBFS when compiling with -fPIC
+# and with mmx code enabled.
+  confflags += --disable-optimizations
+  confflags += --disable-mmx
+else
+  CFLAGS :=
+endif
+
+# Support for additional external codecs
+ifneq (,$(findstring externalcodecs,$(DEB_BUILD_OPTIONS)))
+# Uncomment the following lines to allow the use of nonfree code,
+# the resulting packages will be unredistributable!
+# weak-build-deps += libamrnb-dev
+# confflags += --enable-nonfree --enable-libamr-nb
+# weak-build-deps += libamrwb-dev
+# confflags += --enable-nonfree --enable-libamr-wb
+  weak-build-deps += libmp3lame-dev | liblame-dev
+  confflags += --enable-libmp3lame
+  weak-build-deps += libfaac-dev
+  confflags += --enable-libfaac
+  weak-build-deps += libxvidcore-dev | libxvidcore4-dev
+  confflags += --enable-gpl --enable-libxvid
+  weak-build-deps += libx264-dev
+  confflags += --enable-gpl --enable-libx264
+  $(warning Make sure these packages are installed: $(weak-build-deps))
+endif
+
+# Disable architecture-specific optimizations for default shared build
+nooptflags += --disable-armv5te --disable-armv6
+nooptflags += --disable-altivec
+nooptflags += --disable-vis
+
+# Configuration flags for the static libraries
+static_build_confflags := $(confflags)
+static_build_confflags += --disable-ffmpeg
+static_build_confflags += --disable-vhook
+static_build_confflags += --disable-ffserver
+static_build_confflags += --disable-ffplay
+
+# Configuration flags for the non-optimized shared libraries
+shared_build_confflags := $(confflags)
+# amd64 has no problems with optimized shared libs. i386 and arm do.
+ifneq      ($(DEB_HOST_ARCH),amd64)
+shared_build_confflags += $(nooptflags)
+endif
+shared_build_confflags += --enable-shared
+shared_build_confflags += --disable-static
+
+## i386 architecture specific
+# Configuration flags for the optimized shared libraries
+cmov_build_confflags := $(confflags)
+cmov_build_confflags += $(nooptflags)
+cmov_build_confflags += --shlibdir=/usr/lib/i686/cmov
+cmov_build_confflags += --cpu='i686'
+cmov_build_confflags += --enable-shared
+cmov_build_confflags += --disable-static
+cmov_build_confflags += --disable-ffmpeg
+cmov_build_confflags += --disable-ffplay
+
+## powerpc architecture specific
+# Configuration flags for the optimized shared libraries
+altivec_build_confflags := $(confflags)
+altivec_build_confflags += --shlibdir=/usr/lib/altivec
+altivec_build_confflags += --cpu='g4'
+altivec_build_confflags += --enable-shared
+altivec_build_confflags += --disable-static
+altivec_build_confflags += --extra-cflags="-fPIC -DPIC"
+altivec_build_confflags += --enable-altivec
+altivec_build_confflags += --disable-ffmpeg
+altivec_build_confflags += --disable-ffplay
+
+## sparc architecture specific
+# Configuration flags for the optimized shared libraries
+vis_build_confflags := $(confflags)
+vis_build_confflags += --shlibdir=/usr/lib/v9
+vis_build_confflags += --cpu='sparc64'
+vis_build_confflags += --enable-shared
+vis_build_confflags += --disable-static
+vis_build_confflags += --extra-cflags="-fPIC -DPIC"
+vis_build_confflags += --disable-ffmpeg
+vis_build_confflags += --disable-ffplay
+
+# Support multiple makes at once (taken from the qemu package)
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+  NJOBS := $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+else
+  NJOBS := 1
+endif
+
+# Additional documentation for PowerPC
+ifneq (,$(findstring powerpc,$(DEB_BUILD_GNU_TYPE)))
+  extradoc = doc/ffmpeg_powerpc_performance_evaluation_howto.txt
+endif

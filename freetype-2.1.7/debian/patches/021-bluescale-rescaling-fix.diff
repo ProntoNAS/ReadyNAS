@@ -1,0 +1,53 @@
+Date: Fri, 14 Mar 2003 11:16:31 -0500
+From: David Chester <davidchester@gmx.net>
+Subject: [Devel] new fixes
+To: devel@freetype.org
+
+Hello.
+
+Would the following be possible for 2.1.4?  Without this patch, the bluescale 
+code isn't really doing very much.  
+
+I've sent a message about this problem before, so please excuse me if you are 
+already aware, and waiting for 2.1.5; however, if it is perhaps an oversight, 
+it would be nice if these changes could make it in for 2.1.4. The difference 
+between the rendering with and without this patch can be seen especially with 
+ftview and Times New Roman sizes 14 and 20.
+
+Thanks very much.
+David Chester
+
+diff -ru ../ft-clean/src/autohint/ahhint.c ./src/autohint/ahhint.c
+--- ../ft-clean/src/autohint/ahhint.c   2003-02-18 17:36:04.000000000 -0500
++++ ./src/autohint/ahhint.c     2003-03-14 10:28:40.000000000 -0500
+@@ -1680,12 +1680,12 @@
+         {
+          /* adjust y_scale
+           */
+-          y_scale = FT_MulDiv( y_scale, fitted, scaled );
++          face->size->metrics.y_scale = FT_MulDiv( y_scale, fitted, scaled );
+
+          /* adust x_scale
+           */
+           if ( fitted < scaled )
+-            x_scale -= x_scale/50;  /* x_scale*0.98 with integers */
++            face->size->metrics.x_scale -= x_scale/50;  /* x_scale*0.98 */
+         }
+       }
+     }
+@@ -1695,7 +1695,9 @@
+     /* need to rescale the global metrics                               */
+     if ( face_globals->x_scale != x_scale ||
+          face_globals->y_scale != y_scale )
+-      ah_hinter_scale_globals( hinter, x_scale, y_scale );
++      ah_hinter_scale_globals( hinter,
++                               face->size->metrics.x_scale,
++                               face->size->metrics.y_scale );
+
+     ah_loader_rewind( hinter->loader );
+
+
+_______________________________________________
+Devel mailing list
+Devel@freetype.org
+http://www.freetype.org/mailman/listinfo/devel

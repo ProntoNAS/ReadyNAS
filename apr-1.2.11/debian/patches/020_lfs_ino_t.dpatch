@@ -1,0 +1,29 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 020_lfs_ino_t.dpatch by <peter@p12n.org>
+##
+## DP: Use 'unsigned long' instead of 'ino_t'.  We do this for LFS
+## DP: purposes - specifically, so that an app (such as php4) can
+## DP: define _FILE_OFFSET_BITS=64 without affecting the apr ABI.
+## DP:
+## DP: See also debian/ino_t_test.c, which we use to verify that
+## DP: it is safe to do this.
+
+@DPATCH@
+Index: include/apr_file_info.h
+--- a/include/apr_file_info.h
++++ b/include/apr_file_info.h
+@@ -134,7 +134,13 @@
+ typedef apr_uint32_t              apr_dev_t;
+ #else
+ /** The inode of the file. */
+-typedef ino_t                     apr_ino_t;
++/* NOTE: this should be ino_t, except that in that case the ABI changes
++ * if you compile an app with LFS defines. */
++#if defined(__alpha__) || defined(__FreeBSD_kernel__)
++typedef unsigned int              apr_ino_t;
++#else
++typedef unsigned long int         apr_ino_t;
++#endif
+ /**
+  * Structure for determining the device the file is on.
+  */

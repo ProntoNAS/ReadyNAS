@@ -1,0 +1,105 @@
+#!/usr/bin/make -f
+
+# Setup
+CFLAGS := -g -O2 -Wall
+
+# the dbs rules
+TAR_DIR := db-2.7.7
+include debian/scripts/dbs-build.mk
+DB2_DIR := $(SOURCE_DIR)/db2
+
+# dpkg-arch rules
+ifeq (,$(DEB_BUILD_GNU_TYPE))
+  include debian/scripts/dpkg-arch.mk
+endif
+
+export DH_COMPAT=2
+
+config_options := --prefix=/usr --enable-cxx --enable-compat185 --enable-dump185
+
+build: $(STAMP_DIR)/build
+$(STAMP_DIR)/build: $(STAMP_DIR)/configure
+	dh_testdir
+	$(MAKE) -C $(BUILD_TREE)/build_unix
+	$(MAKE) -C $(DB2_DIR)
+	touch $(STAMP_DIR)/build
+
+$(BUILD_TREE)/dist/configure: $(BUILD_TREE)/dist/configure.in
+	chmod -R u+w $(BUILD_TREE)
+	cd $(BUILD_TREE)/dist && autoconf
+
+configure: $(STAMP_DIR)/configure
+$(STAMP_DIR)/configure: $(STAMP_DIR)/patch $(BUILD_TREE)/dist/configure
+	dh_testdir
+	cd $(BUILD_TREE)/build_unix && CFLAGS="$(CFLAGS)" \
+		../dist/configure $(config_options) \
+		--build=$(DEB_BUILD_GNU_TYPE) --host=$(DEB_HOST_GNU_TYPE)
+	touch $(STAMP_DIR)/configure
+
+clean:
+	dh_testdir
+	rm -rf $(STAMP_DIR) $(SOURCE_DIR)
+	perl debian/scripts/dh_split clean
+	dh_clean
+
+install: build $(dh_mak_deps)
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	cd $(BUILD_TREE)/build_unix && $(MAKE) DESTDIR="$(shell pwd)/debian/tmp" \
+		install
+	
+	install -m644 $(DB2_DIR)/libdb.so.3 debian/tmp/lib/libdb.so.3
+	
+	install -d -m755 debian/libdb2-dbg/usr/lib/debug
+	cp -a debian/tmp/lib/libdb2.so.2* debian/libdb2-dbg/usr/lib/debug
+	cp -a debian/tmp/usr/lib/libdb2*.a debian/libdb2-dbg/usr/lib/debug
+	cp -a debian/tmp/usr/lib/libdb2++.so.2* debian/libdb2-dbg/usr/lib/debug
+
+	dh_movefiles
+
+binary-indep: build install $(dh_mak_deps)
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs -i
+	dh_installexamples -i $(BUILD_TREE)/examples $(BUILD_TREE)/examples_cxx
+	TERM=vt100 COLUMNS=80 lynx -dump $(BUILD_TREE)/docs/ref/program/thread.html \
+		> debian/db2-doc/usr/share/doc/db2-doc/README.thread
+	TERM=vt100 COLUMNS=80 lynx -dump $(BUILD_TREE)/docs/ref/env/region.html \
+		> debian/db2-doc/usr/share/doc/db2-doc/README.nfs
+	ps2ascii $(BUILD_TREE)/docs/packages/hash_usenix.ps > \
+		debian/db2-doc/usr/share/doc/db2-doc/hash_usenix.txt
+	ps2ascii $(BUILD_TREE)/docs/packages/libtp_usenix.ps > \
+		debian/db2-doc/usr/share/doc/db2-doc/libtp_usenix.txt
+	install -d -m755 debian/db2-doc/usr/share/doc/db2-doc/html
+	cp -ap $(BUILD_TREE)/docs/* \
+		debian/db2-doc/usr/share/doc/db2-doc/html
+	find debian/db2-doc -name tags -type l | xargs rm -f
+	dh_installdocs -i
+	dh_installdeb -i
+	dh_compress -i
+	dh_fixperms -i
+	dh_md5sums -i
+	dh_gencontrol -i
+	dh_builddeb -i
+
+binary-arch: build install $(dh_mak_deps)
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs -a debian/local/ChangeLog
+	dh_installman -plibdb2-util debian/local/db_*.1
+	ln -s db_dump.1.gz debian/libdb2-util/usr/share/man/man1/db_dump185.1.gz
+	dh_installdocs -a
+	dh_undocumented -a
+	dh_installdeb -a
+	dh_strip -plibdb2 -plibdb2++ -plibdb2-dev -plibdb2++-dev
+	dh_compress -a
+	dh_fixperms -a
+	dh_md5sums -a
+	dh_shlibdeps -a
+	dh_gencontrol -a
+	dh_builddeb -a
+
+binary: binary-indep binary-arch

@@ -1,0 +1,124 @@
+#! /bin/sh -e
+
+# DP: Backport of PR18508 to the gcc-3.3 branch
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+2004-11-16  H.J. Lu  <hongjiu.lu@intel.com>
+
+	PR other/18508
+	* config/alpha/t-osf4 (SHLIB_LINK): Use `.backup' as the suffix
+	to back up the existing shared library.
+	* config/arm/t-netbsd (SHLIB_LINK): Likewise.
+	* config/pa/t-hpux-shlib (SHLIB_LINK): Likewise.
+	* config/sh/t-linux (SHLIB_LINK): Likewise.
+	* config/t-libunwind-elf (SHLIBUNWIND_LINK): Likewise.
+	* config/t-slibgcc-elf-ver (SHLIB_LINK): Likewise.
+	* config/t-slibgcc-sld (SHLIB_LINK): Likewise.
+
+diff -urN gcc.old/config/alpha/t-osf4 gcc/config/alpha/t-osf4
+--- gcc.old/config/alpha/t-osf4	2004-12-10 14:37:33.000000000 +0100
++++ gcc/config/alpha/t-osf4	2004-12-10 15:02:55.000000000 +0100
+@@ -15,7 +15,7 @@
+ 	-o $(SHLIB_NAME) @multilib_flags@ $(SHLIB_OBJS) -lc && \
+ 	rm -f $(SHLIB_SONAME) && \
+ 	if [ -f $(SHLIB_NAME) ]; then \
+-	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).`basename $(STAGE_PREFIX)`; \
++	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).backup; \
+ 	else true; fi && \
+ 	mv $(SHLIB_NAME).tmp $(SHLIB_NAME) && \
+ 	$(LN_S) $(SHLIB_NAME) $(SHLIB_SONAME)
+diff -urN gcc.old/config/arm/t-netbsd gcc/config/arm/t-netbsd
+--- gcc.old/config/arm/t-netbsd	2004-12-10 14:31:15.000000000 +0100
++++ gcc/config/arm/t-netbsd	2004-12-10 15:02:55.000000000 +0100
+@@ -14,7 +14,7 @@
+ 	-o $(SHLIB_NAME).tmp @multilib_flags@ $(SHLIB_OBJS) -lc && \
+ 	rm -f $(SHLIB_SONAME) && \
+ 	if [ -f $(SHLIB_NAME) ]; then \
+-	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).`basename $(STAGE_PREFIX)`; \
++	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).backup; \
+ 	else true; fi && \
+ 	mv $(SHLIB_NAME).tmp $(SHLIB_NAME) && \
+ 	$(LN_S) $(SHLIB_NAME) $(SHLIB_SONAME)
+diff -urN gcc.old/config/pa/t-hpux-shlib gcc/config/pa/t-hpux-shlib
+--- gcc.old/config/pa/t-hpux-shlib	2004-12-10 14:31:15.000000000 +0100
++++ gcc/config/pa/t-hpux-shlib	2004-12-10 15:03:51.000000000 +0100
+@@ -8,7 +8,7 @@
+ 	-o $(SHLIB_NAME).tmp @multilib_flags@ $(SHLIB_OBJS) -lc && \
+         rm -f $(SHLIB_SONAME) && \
+ 	if [ -f $(SHLIB_NAME) ]; then \
+-	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).`basename $(STAGE_PREFIX)`; \
++	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).backup; \
+ 	else true; fi && \
+ 	mv $(SHLIB_NAME).tmp $(SHLIB_NAME) && \
+         $(LN_S) $(SHLIB_NAME) $(SHLIB_SONAME)
+diff -urN gcc.old/config/sh/t-linux gcc/config/sh/t-linux
+--- gcc.old/config/sh/t-linux	2004-12-10 14:31:15.000000000 +0100
++++ gcc/config/sh/t-linux	2004-12-10 15:03:51.000000000 +0100
+@@ -28,7 +28,7 @@
+ 	-o $(SHLIB_NAME).tmp @multilib_flags@ $(SHLIB_OBJS) $(SHLIB_LC) && \
+ 	rm -f $(SHLIB_SOLINK) && \
+ 	if [ -f $(SHLIB_NAME) ]; then \
+-	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).`basename $(STAGE_PREFIX)`; \
++	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).backup; \
+ 	else true; fi && \
+ 	mv $(SHLIB_NAME).tmp $(SHLIB_NAME) && \
+ 	(echo "/* GNU ld script"; \
+diff -urN gcc.old/config/t-libunwind-elf gcc/config/t-libunwind-elf
+--- gcc.old/config/t-libunwind-elf	2004-12-10 14:31:15.000000000 +0100
++++ gcc/config/t-libunwind-elf	2004-12-10 15:03:51.000000000 +0100
+@@ -14,8 +14,7 @@
+ 	@multilib_flags@ $(SHLIB_OBJS) -lc && \
+ 	rm -f $(SHLIB_SOLINK) && \
+ 	if [ -f $(SHLIBUNWIND_NAME) ]; then \
+-	  mv -f $(SHLIBUNWIND_NAME) \
+-	     $(SHLIBUNWIND_NAME).`basename $(STAGE_PREFIX)`; \
++	  mv -f $(SHLIBUNWIND_NAME) $(SHLIBUNWIND_NAME).backup; \
+ 	else true; fi && \
+ 	mv $(SHLIBUNWIND_NAME).tmp $(SHLIBUNWIND_NAME) && \
+ 	$(LN_S) $(SHLIBUNWIND_NAME) $(SHLIB_SOLINK)
+diff -urN gcc.old/config/t-slibgcc-elf-ver gcc/config/t-slibgcc-elf-ver
+--- gcc.old/config/t-slibgcc-elf-ver	2004-12-10 14:31:18.000000000 +0100
++++ gcc/config/t-slibgcc-elf-ver	2004-12-10 15:03:54.000000000 +0100
+@@ -16,7 +16,7 @@
+ 	-o $(SHLIB_NAME).tmp @multilib_flags@ $(SHLIB_OBJS) $(SHLIB_LC) && \
+ 	rm -f $(SHLIB_SOLINK) && \
+ 	if [ -f $(SHLIB_NAME) ]; then \
+-	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).`basename $(STAGE_PREFIX)`; \
++	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).backup; \
+ 	else true; fi && \
+ 	mv $(SHLIB_NAME).tmp $(SHLIB_NAME) && \
+ 	$(LN_S) $(SHLIB_NAME) $(SHLIB_SOLINK)
+diff -urN gcc.old/config/t-slibgcc-sld gcc/config/t-slibgcc-sld
+--- gcc.old/config/t-slibgcc-sld	2004-12-10 14:31:18.000000000 +0100
++++ gcc/config/t-slibgcc-sld	2004-12-10 15:03:54.000000000 +0100
+@@ -14,7 +14,7 @@
+ 	@multilib_flags@ $(SHLIB_OBJS) -lc && \
+ 	rm -f $(SHLIB_SOLINK) && \
+ 	if [ -f $(SHLIB_NAME) ]; then \
+-	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).`basename $(STAGE_PREFIX)`; \
++	  mv -f $(SHLIB_NAME) $(SHLIB_NAME).backup; \
+ 	else true; fi && \
+ 	mv $(SHLIB_NAME).tmp $(SHLIB_NAME) && \
+ 	$(LN_S) $(SHLIB_NAME) $(SHLIB_SOLINK)

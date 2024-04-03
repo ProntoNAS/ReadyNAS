@@ -1,0 +1,41 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: There is a typo in clock_settime which causes
+# DP:    any and every call to clock_settime to terminate with EINVAL.
+# DP: Related bugs: #304668: calls to clock_settime() fail with "invalid argument" error always
+# DP: Dpatch author: Khalid Aziz <khalid.aziz@hp.com>
+# DP: Patch author: 
+# DP: Upstream status: In CVS
+# DP: Status Details: 
+# DP: Date: 2005-04-13
+
+PATCHLEVEL=1
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p$PATCHLEVEL < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p$PATCHLEVEL < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+--- glibc-2.3.2/sysdeps/unix/clock_settime.c	2005-04-13 10:51:46.299187007 -0600
++++ glibc-2.3.2-settime_fix/sysdeps/unix/clock_settime.c	2005-04-13 10:51:32.786491860 -0600
+@@ -64,8 +64,8 @@ clock_settime (clockid_t clock_id, const
+ 	retval = settimeofday (&tv, NULL);				      \
+       } while (0)
+ 
+-#ifdef SYSDEP_GETTIME
+-      SYSDEP_GETTIME;
++#ifdef SYSDEP_SETTIME
++      SYSDEP_SETTIME;
+ #endif
+ 
+ #ifndef HANDLED_REALTIME

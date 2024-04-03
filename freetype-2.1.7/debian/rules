@@ -1,0 +1,333 @@
+#!/usr/bin/make -f
+#
+# This is free software; see the GNU General Public Licence
+# version 2 or later for copying conditions.  There is NO warranty.
+#
+# Currently maintained by Anthony Fok <foka@debian.org>
+# for Debian GNU/Linux.
+
+SHELL = /bin/bash
+
+# FreeType sets its -Wall in XX_CFLAGS 
+CFLAGS = -g
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2 -fno-strict-aliasing
+endif
+
+UPACKAGE = $(shell dh_listpackages | grep -- -udeb$$)
+VERSION = $(shell dpkg-parsechangelog | grep ^Version: | cut -d ' ' -f 2)
+ARCH = $(shell dpkg --print-architecture)
+UFILENAME = $(UPACKAGE)_$(VERSION)_$(ARCH).udeb
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# This is the debhelper compatibility version to use.
+export DH_COMPAT=4
+
+# This has to be exported to make some magic below work.
+export DH_OPTIONS
+
+srcpkg = freetype2
+
+# Remember to update the following for each release.
+# ver := $(shell ( head -1 | sed -e 's/^.*(\(.\+\)-.*).*/\1/' ) < debian/changelog)
+ver := 2.1.7
+# Just in case the versions are different
+freetype_ver := $(ver)
+ftdocs_ver   := $(ver)
+ft2demos_ver := $(ver)
+dependency = $(libpkg) (>= 2.1.5-1)
+
+freetype_u := freetype-$(freetype_ver)
+ftdocs_u   := ftdocs-$(ftdocs_ver)
+ftdocs_d   := freetype-$(ftdocs_ver)
+ft2demos_u := ft2demos-$(ft2demos_ver)
+
+libpkg := libfreetype6
+devpkg := $(libpkg)-dev
+docpkg := $(libpkg)-doc
+demospkg := freetype2-demos
+udebpkg := libfreetype6-udeb
+docdir := usr/share/doc
+patchdir := $(CURDIR)/debian/patches
+
+# These files are general documentation and should go into the lib package.
+libdoc = FTL.txt GPL.txt license.txt CHANGES PATENTS TODO
+
+TMP = $(CURDIR)/debian/tmp
+
+build: build-stamp
+build-stamp:
+	dh_testdir
+
+	# Unpack upstream tarballs
+	@for i in $(freetype_u) $(ftdocs_u) $(ft2demos_u); do \
+	    if [ -f $$i.tar.bz2 ]; then \
+		echo "Unpacking $$i.tar.bz2 ..."; \
+		tar -x --bzip2 -f $$i.tar.bz2; \
+	    elif [ -f $$i.tar.gz ]; then \
+		echo "Unpacking $$i.tar.gz ..."; \
+		tar -x --gzip -f $$i.tar.gz; \
+	    else \
+		echo "Error!  $$i.tar.{bz2,gz} not found!"; \
+		exit 1; \
+	    fi \
+	done
+
+	###############################################################
+	#
+	# CVS snapshots
+
+#	# CVS updates as of 2004-xx-xx (after VER-2-1-7)
+#	patch -p1 -d $(freetype_u) \
+#	    -i $(patchdir)/001-freetype-2.1.4+cvs20030818.diff
+#	patch -p1 -d $(ft2demos_u) \
+#	    -i $(patchdir)/002-ft2demos-2.1.4+cvs20030703.diff
+
+	###############################################################
+	#
+	# Fixes in CVS (or will soon be in CVS)
+
+	# patch -p1 -d $(freetype_u) \
+	#       -i $(patchdir)/502-freetype-2.1.5-type1-crash.diff
+
+	###############################################################
+	#
+	# Other patches
+
+	# Use half of maximum horiAdvance when appropriate (e.g. ASCII)
+	patch -p0 -i $(patchdir)/004-freetype-2.1.7-ttgload-monospace-halfwidth.diff
+
+	# face->num_glyphs may be less than the assigned codepoints from cmap
+	patch -p0 -i $(patchdir)/005-ft2demos-2.1.7-ftbench.diff
+
+	# Turn on CJK font specific autohinting, written by Akito Hirai
+	# and recommended by Firefly.
+	# http://www.kde.gr.jp/~akito/patch/download.html
+	patch -p0 -i $(patchdir)/012-freetype-2.1.7-autohint-cjkfonts-20031130.diff
+
+	# Turn on bytecode interpreter, but use unpatented hinting
+	# and forces its use.  Many thanks to Graham Asher for this great
+	# feature to circumvent bad Apple's patent.  :-p
+	patch -p0 -i $(patchdir)/030-bytecode-interpreter.diff
+	#patch -p0 -i $(patchdir)/031-compile-unpatented-hinting.diff
+	#patch -p0 -i $(patchdir)/032-force-unpatented-hinting.diff
+
+	# No, we do not want rpath on Debian; reversing YAMANO-UCHI Hidetoshi's
+	# 2003-06-13 change.  (Anthony Fok, 2003-08-28)
+	patch -p1 -d $(ft2demos_u) \
+	    -i $(patchdir)/070-ft2demos-2.1.7-no-rpath.diff
+
+	# Needed to fix gpdf.
+	patch -p1 -d $(freetype_u) -i $(patchdir)/t1load-eexec.diff
+
+	# Too much jaggies?  Not sure, let's disable this for now...
+	#patch -p0 -i $(patchdir)/200-freetype-2.1.4-smooth-usegamma-20030519.diff
+	# Akito Hirai's enhancement of CJK font autohinting
+	# Doesn't apply cleanly to 2.1.4+cvs20030601; David did some
+	#   optimization of the autohinting code.
+	#patch -p0 -i $(patchdir)/012-freetype-2.1.4-autohint-cjk-20030416.diff
+
+	# David Chester suggested that we comment out the "custom fix"
+	# in kerning code
+	#	patch -p0 -i $(patchdir)/007-freetype-2.1.3-kerning.diff
+
+	# David Chester's autohinter patches
+#	patch -p0 -d $(freetype_u) \
+#		-i $(patchdir)/021-bluescale-rescaling-fix.diff
+#	patch -p0 -d $(freetype_u) \
+#		-i $(patchdir)/022-psh-bluescale.diff
+
+	# More rounding fixes from Artur Zaprzala
+#	patch -p1 -d $(freetype_u) \
+#		-i $(patchdir)/040-ftobjs-more-rounding.diff
+
+	# Doesn't work; FT_Set_Char_Size() does not know load_flags
+#	patch -p1 -d $(freetype_u) \
+#		-i $(patchdir)/050-autohint-rounding.diff
+
+	# Reverting to the algorithm with rounding
+#	patch -p1 -d $(freetype_u) \
+#		-i $(patchdir)/050-more-rounding.diff
+
+	# fix for backwards compat with woody (#251473)
+	patch -p0 -i $(patchdir)/080-freetype-2.1.7-backwards-compat.diff
+
+	# backport of normalization fix (#259875)
+	patch -p0 -i $(patchdir)/090-freetype-2.1.7-normalize-fix.diff
+
+	# don't segfault on zero width BDF glyphs (#302269)
+	patch -p0 -i $(patchdir)/300-bdflib-zero-width-glyphs.diff
+
+	# don't segfault on BDF glyphs with encodings above 65536 (#305413)
+	patch -p0 -i $(patchdir)/300-bdflib-large-encodings.diff
+
+	# Fix integer underflows (CVE-2006-0747)
+	patch -p0 -i $(patchdir)/400-CVE-2006-0747_integer-underflows.diff
+
+	# Fix null pointer dereference (CVE-2006-0747)
+	patch -p0 -i $(patchdir)/400-CVE-2006-0747_nullpointer-deref.diff
+
+	# Fix integer overflows (CVE-2006-1861)
+	patch -p0 -i $(patchdir)/400-CVE-2006-1861_integer-overflows.diff
+
+	# Fix integer overflows (CVE-2006-2493)
+	patch -p0 -i $(patchdir)/400-CVE-2006-2493_integer-overflows.diff
+
+	# Fix further integer overflows (CVE-2006-3467)
+	patch -p0 -i $(patchdir)/500-CVE-2006-3467_pcf-strlen.diff
+
+	# Another integer overflow bug (CVE-2007-2754)
+	patch -p1 -d $(freetype_u) -i $(patchdir)/500-CVE-2007-2754_ttgload.diff
+
+	cd $(freetype_u) && ./configure --prefix=/usr CFLAGS=\"$(CFLAGS)\"
+#	cd $(freetype_u) && ./configure --prefix=/usr
+	$(MAKE) -C $(freetype_u)
+
+	$(MAKE) -C $(ft2demos_u) TOP_DIR=../$(freetype_u) X11_PATH=/usr/X11R6
+
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp
+	rm -rf $(freetype_u) $(ft2demos_u) $(ftdocs_d)
+	dh_clean
+
+install: DH_OPTIONS=
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	$(MAKE) -C $(freetype_u) DESTDIR=$(TMP) install
+
+	dh_movefiles
+	@if [ "`find debian/tmp ! -type d`" ]; then \
+	    echo "Error!  Not all files are moved out of debian/tmp!"; \
+	    echo "Please fix your debian/*.files."; \
+	    exit 1; \
+	fi
+
+	dh_installdirs -p$(demospkg)/usr/bin
+	$(freetype_u)/builds/unix/libtool --mode=install \
+	    cp -av `find $(ft2demos_u)/bin -type f -perm -a=x -maxdepth 1` \
+		$(CURDIR)/debian/$(demospkg)/usr/bin/
+
+	cp -a $(freetype_u)/objs/.libs/*so.* $(CURDIR)/debian/$(udebpkg)/usr/lib
+
+# Build architecture-independent files here.
+# Pass -i to all debhelper commands in this target to reduce clutter.
+binary-indep: DH_OPTIONS=-i
+binary-indep:
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+# Pass -a to all debhelper commands in this target to reduce clutter.
+binary-arch: DH_OPTIONS=-a
+binary-arch: build $(libpkg) $(devpkg) $(demospkg) $(udebpkg)
+
+$(libpkg): DH_OPTIONS=-p$(libpkg)
+$(libpkg): build install
+	dh_testdir
+	dh_testroot
+	dh_installdirs
+	dh_installdocs $(addprefix $(freetype_u)/docs/,$(libdoc)) \
+		$(freetype_u)/src/autohint/CatharonLicense.txt \
+		$(ftdocs_d)/docs/ft2faq.html
+	ln -sf ../../common-licenses/GPL debian/$(libpkg)/$(docdir)/$(libpkg)/GPL.txt
+	mkdir debian/$(libpkg)/$(docdir)/$(libpkg)/pcf
+	cp -a $(freetype_u)/src/pcf/readme debian/$(libpkg)/$(docdir)/$(libpkg)/pcf/
+	dh_installexamples
+#	dh_installmenu
+#	dh_undocumented
+	dh_installchangelogs -k $(freetype_u)/ChangeLog
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+	dh_strip
+endif
+	dh_link
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs -V '$(dependency)'
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+$(devpkg): DH_OPTIONS=-p$(devpkg)
+$(devpkg): build install
+	dh_testdir
+	dh_testroot
+	dh_installdirs $(docdir)/$(libpkg)
+	ln -s $(libpkg) debian/$(devpkg)/$(docdir)/$(devpkg)
+	dh_installdocs -Xreference/README -Xreference/.cvsignore \
+		$(ftdocs_d)/docs/* $(freetype_u)/docs/*
+	cd debian/$(devpkg)/usr/share/doc/$(devpkg)/ \
+		&& rm -f $(libdoc) BUILD ft2faq.html
+#	dh_installexamples
+#	dh_installchangelogs
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+	dh_strip
+endif
+	dh_link
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+$(demospkg): DH_OPTIONS=-p$(demospkg)
+$(demospkg): build install
+	dh_testdir
+	dh_testroot
+	dh_installdirs $(docdir)/$(libpkg)
+	ln -s $(libpkg) debian/$(demospkg)/$(docdir)/$(demospkg)
+#	dh_installdocs
+#	dh_installexamples
+#	dh_installmenu
+#	dh_installmanpages
+#	dh_undocumented
+#	dh_installchangelogs
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+	dh_strip
+endif
+	dh_link
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	# To be safe, make ft2demos depend on the same version of libfreetype6
+	dh_shlibdeps -l debian/$(libpkg)/usr/lib --dpkg-shlibdeps-params=-O \
+		| sed -e 's/$(dependency)/$(libpkg) (= $(VERSION))/' \
+		> debian/$(demospkg).substvars
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+$(udebpkg): DH_OPTIONS=-p$(udebpkg)
+$(udebpkg): build install
+	dh_testdir
+	dh_testroot
+	dh_installdirs
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+	dh_strip
+endif
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol -- -fdebian/files~
+	dpkg-distaddfile $(UFILENAME) debian-installer extra
+	dh_builddeb --filename=$(UFILENAME)
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary \
+	$(libpkg) $(devpkg) install

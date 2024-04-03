@@ -1,0 +1,129 @@
+#!/bin/sh
+# post install script for the Debian GNU/Linux netbase package
+
+set -e
+
+if [ ! -e /usr/share/debconf/confmodule ]; then
+	echo "netbase requires debconf to install."
+	exit 1
+fi
+
+if [ "$1" = "configure" ]; then
+    . /usr/share/debconf/confmodule
+fi
+
+if [ "$1" = "configure" -a "$2" ] && dpkg --compare-versions $2 lt 3.11-2; then
+    if /usr/bin/rpcinfo -u localhost portmapper >/dev/null 2>&1; then
+        # portmapper's still running. stop it.
+
+        if [ -x /bin/fuser ]; then
+            PID=`/bin/fuser -n tcp sunrpc | sed 's/^.*: *//'`
+        fi
+
+        if [ "$PID" ]; then
+            if [ ! -f /var/run/portmap.upgrade-state ]; then
+                echo >&2 "Remembering old rpc services..."
+                pmap_dump >/var/run/portmap.upgrade-state
+            fi
+            echo >&2 -n "Killing portmapper"
+            kill $PID
+            echo >&2 "."
+        fi
+    fi
+fi
+
+if [ "$1" = "configure" ]; then
+    # Get answers to questions
+    db_get netbase/ipv6-hosts;         ADD_IPV6_HOSTS="$RET"
+
+    db_get netbase/spoofprot/pre-2.2-ip;         LOCAL_IPS="$RET"
+    db_get netbase/spoofprot/pre-2.2-interfaces; LOCAL_IFACES="$RET"
+   
+    # Apply answers where applicable
+    if [ -f /etc/hosts ] && ! grep "ip6-localhost" /etc/hosts >/dev/null; then
+        if [ "$ADD_IPV6_HOSTS" = "true" ]; then 
+            echo -n "Adding IPv6 hostnames..."
+            cat >>/etc/hosts <<EOF
+
+# The following lines are desirable for IPv6 capable hosts
+# (added automatically by netbase upgrade)
+
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+ff02::3 ip6-allhosts
+EOF
+            echo "done."
+        fi
+    fi
+
+    if [ ! -e /etc/network/spoof-protect ]; then
+        cat >/etc/network/spoof-protect <<EOF
+# default spoof protection configuration
+#
+# this is only necessary for pre-2.2 kernels.
+# (it can be determined automatically under 2.2.x)
+
+EOF
+        echo >>/etc/network/spoof-protect "LOCAL_IPS=\"$LOCAL_IPS\""
+        echo >>/etc/network/spoof-protect "LOCAL_IFACES=\"$LOCAL_IFACES\""
+        chmod 644 /etc/network/spoof-protect
+    fi
+
+    if [ "$2" ] && dpkg --compare-versions "$2" lt "3.17-1"; then
+        if [ -e /etc/init.d/network ]; then
+            cat >> /etc/init.d/network << EOF
+
+# (added automatically by netbase upgrade)
+#
+# In new Debian installations, this file is deprecated in favour of
+# the ifup/ifdown commands (invoked from /etc/init.d/networking), which
+# can be configured from the file /etc/network/interfaces.
+#
+# If you are receiving SIOCADDRT errors, they can be avoided by adding
+# a netmask and interface to your "route add -net" lines. eg,
+#      route add -net 127.0.0.0
+# becomes:
+#      route add -net 127.0.0.0 netmask 255.0.0.0 lo
+#
+# Alternatively, these lines can simply be deleted if you don't use 2.0.x 
+# series kernels.
+EOF
+        fi
+    fi
+
+    if [ -e /etc/init.d/netbase ]; then
+        mv /etc/init.d/netbase /etc/init.d/netbase.old
+    fi
+
+    if [ "$2" ] && dpkg --compare-versions "$2" lt "3.18-1"; then
+        # only do this for people who were running unstable
+        if dpkg --compare-versions "$2" ge 3.16-1; then
+	    echo >&2 "BUGFIX: Resetting runlevels at which /etc/init.d/networking is run."
+            update-rc.d -f networking remove >/dev/null 2>&1
+	fi
+    fi
+
+    if [ $2 ] && dpkg --compare-versions $2 lt 3.18-1; then
+        update-rc.d -f netbase remove >/dev/null 2>&1
+    fi
+
+    update-rc.d networking start 40 S . start 35 0 6 . >/dev/null
+fi
+
+#DEBHELPER#
+
+# shouldn't be necessary? but without it the postinst just hangs on dpkg -i :(
+#
+# do i have to do this right at the end, or can i do it earlier, for that
+# matter?
+#
+# i may be meant to redirect 3>&1 or something equally weird here :-/
+# maybe this isn't necessary anymore (since there shouldn't be any daemons
+# in this postinst anymore), but who knows?
+#
+if [ "$1" = "configure" ]; then
+    db_stop 
+fi

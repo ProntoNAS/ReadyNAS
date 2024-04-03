@@ -1,0 +1,113 @@
+==================================================================
+
+From: Neil Brown <neilb@cse.unsw.edu.au>
+To: Miquel van Smoorenburg <miquels@cistron.nl>,
+        Thorsten Kukuk <kukuk@suse.de>
+Date: Tue, 9 Oct 2001 12:06:13 +1000 (EST)
+Message-ID: <15298.23445.266776.894970@notabene.cse.unsw.edu.au>
+Subject: Problem with ypbind-mt 1.8 (including in debian package nis-3.9-4.1)
+
+hi,
+ I would like to report a problem with ypbind-mt.
+ The symptom is that we quite often get the error:
+    YPBIND_PROC: domain not bound
+
+ from clients.  It affects a tiny percentage of lookups, but when you
+ have hundreds of machines doing thousands of lookups...
+
+ We particularly notice it in mail from various cron scripts.
+
+ The problem is that when ypbind does a speed test of the available
+ servers, as it does every 15 minutes, it temporarily sets the domain
+ to "not bound" (domainlist[i].active == -1).
+ This does not get set back until the first reply.
+ If an YPBINDPROC_DOMAIN request comes in at this time,
+ it find_domain will fail to do anything useful and so ypbind will
+ return "domain not bound" to the client.
+
+ This is quite easy to reproduce by waiting for the 15 minutes tick to
+ happen (check the date stamp on /var/yp/binding/* and add 15 minutes)
+ and run
+   while : ; do ypwhich ; done
+ just before, until just after, the 15 minutes.
+
+ I have created the following hack which addresses the problem in a
+ minimally intrusive, but not very elegant way.
+ It simply arranges that if ypbind is busy doing a speed test, then it
+ simply does not reply to YPBINDPROC_DOMAIN requests.  The client will
+ retry in a few seconds.
+ With the new ypbind running, the above while loop, instead of
+ reporting an error, pauses for 5 seconds and then continues.
+
+NeilBrown
+
+==================================================================
+
+Date: Tue, 9 Oct 2001 21:04:43 +0200
+From: Thorsten Kukuk <kukuk@suse.de>
+To: Neil Brown <neilb@cse.unsw.edu.au>
+Cc: Miquel van Smoorenburg <miquels@cistron.nl>
+Subject: Re: Problem with ypbind-mt 1.8 (including in debian package nis-3.9-4.1)
+Message-ID: <20011009210443.A24531@suse.de>
+References: <15298.23445.266776.894970@notabene.cse.unsw.edu.au>
+
+The fix is more simple. The first part solves a problem with a
+missing lock, the important part are the 2 lines I removed at the
+end of the patch. The patch is nearly a month old and very good
+tested, I only didn't had the time to release ypbind-mt 1.9 yet.
+
+  Thorsten
+
+--- src/serv_list.c
++++ src/serv_list.c     2001/08/14 12:57:21
+@@ -204,6 +205,8 @@
+                    ping_all (&domainlist[i]);
+                  pthread_mutex_unlock (&search_lock);
+                  ++second;
++                 /* Get the read lock again for next run. */
++                 pthread_rdwr_rlock_np (&domainlock);
+                  continue;
+                }
+              else
+@@ -1000,16 +1014,19 @@
+                     changes :-( */
+                  pthread_rdwr_runlock_np (&domainlock);
+                  pthread_rdwr_wlock_np (&domainlock);
++                 /* We can destroy the client_handle since we are the
++                    only thread who uses it. */
+                  clnt_destroy (domainlist[i].client_handle);
+                  domainlist[i].client_handle = NULL;
+                  if (domainlist[i].active == -2)
+                    {
++                     /* We can give this free, server does not answer any
++                        longer. */
++                     domainlist[i].active = -1;
+                      if (domainlist[i].ypset.host != NULL)
+                        free (domainlist[i].ypset.host);
+                      domainlist[i].ypset.host = NULL;
+                    }
+-                 domainlist[i].active = -1;
+-                 close_bindingfile (domain);
+                  /* And give the write lock away, search a new host and get
+                     the read lock again */
+                  pthread_rdwr_wunlock_np (&domainlock);
+
+
+==================================================================
+
+Date: Tue, 9 Oct 2001 21:06:36 +0200
+From: Thorsten Kukuk <kukuk@suse.de>
+To: Miquel van Smoorenburg <miquels@cistron.nl>
+Cc: Neil Brown <neilb@cse.unsw.edu.au>
+Subject: Re: Problem with ypbind-mt 1.8 (including in debian package
+nis-3.9-4.1)
+
+On Tue, Oct 09, Miquel van Smoorenburg wrote:
+> Is it possible that this 'sticks'? I also have seen ypbind completely
+> giving up after some time, only killing it and restarting it would help.
+
+This could be the result of the missing lock.
+
+==================================================================
+
+

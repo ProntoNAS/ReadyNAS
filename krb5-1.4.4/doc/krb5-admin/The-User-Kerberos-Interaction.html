@@ -1,0 +1,76 @@
+<html lang="en">
+<head>
+<title>Kerberos V5 System Administrator's Guide</title>
+<meta http-equiv="Content-Type" content="text/html">
+<meta name="description" content="Kerberos V5 System Administrator's Guide">
+<meta name="generator" content="makeinfo 4.5">
+<link href="http://www.gnu.org/software/texinfo/" rel="generator-home">
+</head>
+<body>
+<div class="node">
+<p>
+Node:<a name="The%20User%2fKerberos%20Interaction">The User/Kerberos Interaction</a>,
+Next:<a rel="next" accesskey="n" href="Definitions.html#Definitions">Definitions</a>,
+Previous:<a rel="previous" accesskey="p" href="Network-Services-and-the-Master-Database.html#Network%20Services%20and%20the%20Master%20Database">Network Services and the Master Database</a>,
+Up:<a rel="up" accesskey="u" href="How-Kerberos-Works.html#How%20Kerberos%20Works">How Kerberos Works</a>
+<hr><br>
+</div>
+
+<h3 class="section">The User/Kerberos Interaction</h3>
+
+<p>Suppose that you walk up to a host intending to login to it, and then
+<code>rlogin</code> to the machine <code>laughter</code>.  Here's what happens:
+
+     <ol type=1 start=1>
+<li>You login to the workstation and use the <code>kinit</code> command to get a
+ticket-granting ticket.  This command prompts you for your Kerberos
+password.  (On systems running the Kerberos V5 <code>login</code> program,
+this may be done as part of the login process, not requiring the user to
+run a separate program.)
+
+          <ol type=A start=1>
+<li>The <code>kinit</code> command sends your request to the Kerberos master
+server machine.  The server software looks for your principal name's
+entry in the Kerberos database.
+
+          <li>If this entry exists, the Kerberos server creates and returns a
+ticket-granting ticket and the key which allows you to use it, encrypted
+by your password.  If <code>kinit</code> can decrypt the Kerberos reply using
+the password you provide, it stores this ticket in a credentials cache
+on your local machine for later use.  The name of the credentials cache
+can be specified in the <code>KRB5CCNAME</code> environment variable.  If this
+variable is not set, the name of the file will be
+<code>/tmp/krb5cc_&lt;uid&gt;</code>, where &lt;uid&gt; is your UNIX user-id, represented
+in decimal format.
+          </ol>
+
+     <li>Now you use the <code>rlogin</code> client to access the machine
+<code>laughter</code>.
+
+     <pre class="example">          host% <b>rlogin laughter</b>
+          </pre>
+
+          <ol type=A start=1>
+<li>The <code>rlogin</code> client checks your ticket file to see if you have a
+ticket for the <code>host</code> service for <code>laughter</code>.  You don't, so
+<code>rlogin</code> uses the credential cache's ticket-granting ticket to make
+a request to the master server's ticket-granting service.
+
+          <li>This ticket-granting service receives the request for a ticket for
+<code>host/laughter.mit.edu</code>, and looks in the master
+database for an entry for <code>host/laughter.mit.edu</code>. 
+If the entry exists, the ticket-granting service issues you a ticket for
+that service.  That ticket is also cached in your credentials cache.
+
+          <li>The <code>rlogin</code> client now sends that ticket to the <code>laughter</code>
+<code>klogind</code> service program.  The service program checks the ticket
+by using its own service key.  If the ticket is valid, it now knows your
+identity.  If you are allowed to login to <code>laughter</code> (because your
+username matches one in /etc/passwd, or your Kerberos principal is in
+the appropriate <code>.k5login</code> file), <code>klogind</code> will let you
+login.
+          </ol>
+     </ol>
+
+</body></html>
+

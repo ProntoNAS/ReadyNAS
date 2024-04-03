@@ -1,0 +1,115 @@
+Library to help mapping id's, mainly for NFSv4.
+
+When NFSv4 is using AUTH_GSS (which currently only supports Kerberos v5), the
+NFSv4 server mapping functions MUST use secure communications.
+
+We provide two sets of mapping functions, configured using /etc/idmapd.conf
+
+Excerpt from /etc/idmapd.conf:
+---------------------
+#
+# One of
+#   nsswitch (getpwXXX routines, all names must be in default domain)
+#   umich_ldap (ldap schema, also capable of handling multiple domains)
+[Translation]
+
+Method = umich_ldap
+
+[UMICH_SCHEMA]
+
+LDAP_server = 141.211.133.100
+LDAP_base = dc=arbitrary,dc=domain,dc=org
+NFSv4_name_attr = NFSv4Name
+NFSv4_group_attr = NFSv4Name
+GSS_principal_attr = GSSAuthName
+
+nsswitch
+------
+
+The default set is called nsswitch. The nsswitch functions use the get password
+file entry functions getpwname(), getpwid(), and the get group file entry
+functions getgrnam(), getgrgid(). The nsswitch functions can therefore be
+configured by the /etc/nss_switch.conf passwd data base stanza. If secure
+communications are required (AUTH_GSS), the passwd data base stanza can contain
+the 'file' entry because the rpc.idmapd and rpc.svcgssd run as root, and/or the
+'ldap' entry if the ldap service is configured to use SASL in /etc/ldap.conf.
+The 'nis' entry is NOT recommended, it does not have a secure communications
+mode.
+
+
+umich_ldap
+------------
+The second set of mapping functions is a new experimental set called umich_ldap
+in the idmapd.conf example above.  This set of translation functions are
+designed to service remote users, allowing remote users to set and get ACLs as
+well as map GSS principals to id's. The functions are LDAP based, and the ldap
+search filters look for attribute names set by idmapd.conf [UMICH_SCHEMA]
+NFSv4_name_attr, NFSv4_group_attr, and GSS_principal_attr.
+
+It is assumed that the LDAP server will index these attributes, and that these
+attributes will be associated with the nss.schema posixAccount uidNumber and
+gidNumber.  We expect that the uidNumber and gidNumber attribute will be
+configurable via the idmapd.conf file soon.
+
+NFSv4_name_attr holds an NFSv4 name of the form user@domain, where the domain
+portion of the name is a valid NFSv4 domain name. There is a one-to-one
+mapping between the NFSv4_name_attr name and a UID.
+
+NFSv4_group_attr holds an NFSv4 name of the form group@domain, where the domain
+portion of the name is a valid NFSv4 domain name. There is a one-to-one
+mapping between the NFSv4_group_attr name and a GID.
+
+GSS_principal_attr holds a GSS security mechanism specific context principal
+name. For Kerberos v5, it is a Kerberos principal <service/>principal@REALM.
+For SPKM3, it is a PKI DN such as "/C=US/ST=Michigan/O=University of Michigan/OU=UMICH Kerberos Certification Authority/CN=andros/USERID=andros/Email=andros@UMICH.EDU".  There is a many-to-one relationship between the GSS_principal_attr
+name and a UID plus GID.
+
+We have defined LDAP object classes for our experimental NFSv4 id mapping.
+We made the attribute names configurable so that other sites could still use
+the TR_UMICH_LDAP translation functions with different LDAP attribute names.
+
+We use the same attribute name, NFSv4Name for the NFSv4_name_attr and the
+NFSv4_group_attr. For local users and remote users that we wish to give
+a local machine account, we add the NFSv4Name attribute and the GSSAuthName
+attribute to the existing inetorgPerson and posixAccount schema.
+For remote users that we do not wish to give a local machine account,
+we use the NFSv4RemotePerson object to contain the NFSv4Name, uidNumber,
+gidNumber, and GSSAuthName.
+
+nfsv4.schema
+------------
+attributetype ( 1.3.6.1.4.1.250.1.61
+        NAME ( 'NFSv4Name')
+        DESC 'NFS version 4 Name'
+        EQUALITY caseIgnoreIA5Match
+        SYNTAX 1.3.6.1.4.1.1466.115.121.1.26
+        SINGLE-VALUE)
+
+attributetype ( 1.3.6.1.4.1.250.1.62
+        NAME ( 'GSSAuthName')
+        DESC 'RPCSEC GSS authenticated user name'
+        EQUALITY caseIgnoreIA5Match
+        SYNTAX 1.3.6.1.4.1.1466.115.121.1.26)
+
+#
+# minimal information for NFSv4 access. used when local filesystem
+# access is not permitted (nsswitch ldap calls fail), or when
+# inetorgPerson is too much info.
+#
+objectclass ( 1.3.6.1.4.1.250.1.60 NAME 'NFSv4RemotePerson'
+        DESC 'NFS version4 person from remote NFSv4 Domain'
+        SUP top STRUCTURAL
+        MUST ( uidNumber $ gidNumber $ NFSv4Name )
+        MAY ( cn $ GSSAuthName $ description) )
+
+#
+# minimal information for NFSv4 access. used when local filesystem
+# access is not permitted (nsswitch ldap calls fail), or when
+# inetorgPerson is too much info.
+#
+objectclass ( 1.3.6.1.4.1.250.1.63 NAME 'NFSv4RemoteGroup'
+        DESC 'NFS version4 group from remote NFSv4 Domain'
+        SUP top STRUCTURAL
+        MUST ( gidNumber $ NFSv4Name )
+        MAY ( cn $ memberUid $ description) )
+

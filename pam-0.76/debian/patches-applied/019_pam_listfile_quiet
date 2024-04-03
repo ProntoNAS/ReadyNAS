@@ -1,0 +1,128 @@
+Index: Linux-PAM/modules/pam_listfile/pam_listfile.c
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/modules/pam_listfile/pam_listfile.c,v
+retrieving revision 1.4
+diff -u -r1.4 pam_listfile.c
+--- Linux-PAM/modules/pam_listfile/pam_listfile.c	15 Sep 2002 20:18:00 -0000	1.4
++++ Linux-PAM/modules/pam_listfile/pam_listfile.c	21 Sep 2002 18:19:35 -0000
+@@ -39,6 +39,8 @@
+ #include <security/pam_modules.h>
+ #include <security/_pam_macros.h>
+ 
++static int quiet = 0;
++
+ /* some syslogging */
+ 
+ #define LOCAL_LOG_PREFIX "PAM-listfile: "
+@@ -199,7 +201,9 @@
+ 		    apply_type=APPLY_TYPE_USER;
+ 		    strncpy(apply_val,myval,sizeof(apply_val)-1);
+ 		}
+-	    } else {
++	    } else if(!strcmp(mybuf,"quiet")) {
++		quiet = 1;
++    	    } else {
+ 		_pam_log(LOG_ERR,LOCAL_LOG_PREFIX "Unknown option: %s",mybuf);
+ 		return onerr;
+ 	    }
+@@ -340,7 +344,8 @@
+ 	     ifname, citem, citemp, sense);
+ #endif
+     if(lstat(ifname,&fileinfo)) {
+-	_pam_log(LOG_ERR,LOCAL_LOG_PREFIX "Couldn't open %s",ifname);
++	if (!quiet)
++	    _pam_log(LOG_ERR,LOCAL_LOG_PREFIX "Couldn't open %s",ifname);
+ 	return onerr;
+     }
+ 
+@@ -348,15 +353,16 @@
+        || !S_ISREG(fileinfo.st_mode)) {
+ 	/* If the file is world writable or is not a
+ 	   normal file, return error */
+-	_pam_log(LOG_ERR,LOCAL_LOG_PREFIX 
+-		 "%s is either world writable or not a normal file",
+-		 ifname);
++	if (!quiet)
++	    _pam_log(LOG_ERR,LOCAL_LOG_PREFIX 
++		     "%s is either world writable or not a normal file",
++		     ifname);
+ 	return PAM_AUTH_ERR;
+     }
+ 
+     inf = fopen(ifname,"r");
+     if(inf == NULL) { /* Check that we opened it successfully */
+-	if (onerr == PAM_SERVICE_ERR) {
++	if (onerr == PAM_SERVICE_ERR && !quiet) {
+ 	    /* Only report if it's an error... */
+ 	    _pam_log(LOG_ERR,LOCAL_LOG_PREFIX  "Error opening %s", ifname);
+ 	}
+@@ -407,8 +413,9 @@
+ #endif
+ 	(void) pam_get_item(pamh, PAM_SERVICE, (const void **)&service);
+ 	(void) pam_get_user(pamh, &user_name, NULL);
+-	_pam_log(LOG_ALERT,LOCAL_LOG_PREFIX "Refused user %s for service %s",
+-		 user_name, service);
++	if (!quiet)
++	    _pam_log(LOG_ALERT,LOCAL_LOG_PREFIX "Refused user %s for service %s",
++		     user_name, service);
+ 	return PAM_AUTH_ERR;
+     }
+ }
+Index: debian/patches-applied/019_pam_listfile_quiet
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/debian/patches-applied/019_pam_listfile_quiet,v
+retrieving revision 1.1
+diff -u -r1.1 019_pam_listfile_quiet
+--- debian/patches-applied/019_pam_listfile_quiet	25 May 2002 21:25:35 -0000	1.1
++++ debian/patches-applied/019_pam_listfile_quiet	21 Sep 2002 18:22:14 -0000
+@@ -1,10 +1,10 @@
+ Index: Linux-PAM/modules/pam_listfile/pam_listfile.c
+ ===================================================================
+ RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/modules/pam_listfile/pam_listfile.c,v
+-retrieving revision 1.2
+-diff -u -r1.2 pam_listfile.c
+---- Linux-PAM/modules/pam_listfile/pam_listfile.c	25 May 2002 19:35:22 -0000	1.2
+-+++ Linux-PAM/modules/pam_listfile/pam_listfile.c	25 May 2002 21:19:19 -0000
++retrieving revision 1.4
++diff -u -r1.4 pam_listfile.c
++--- Linux-PAM/modules/pam_listfile/pam_listfile.c	15 Sep 2002 20:18:00 -0000	1.4
+++++ Linux-PAM/modules/pam_listfile/pam_listfile.c	21 Sep 2002 18:19:35 -0000
+ @@ -39,6 +39,8 @@
+  #include <security/pam_modules.h>
+  #include <security/_pam_macros.h>
+@@ -14,7 +14,7 @@
+  /* some syslogging */
+  
+  #define LOCAL_LOG_PREFIX "PAM-listfile: "
+-@@ -202,7 +204,9 @@
++@@ -199,7 +201,9 @@
+  		    apply_type=APPLY_TYPE_USER;
+  		    strncpy(apply_val,myval,sizeof(apply_val)-1);
+  		}
+@@ -25,7 +25,7 @@
+  		_pam_log(LOG_ERR,LOCAL_LOG_PREFIX "Unknown option: %s",mybuf);
+  		return onerr;
+  	    }
+-@@ -333,7 +337,8 @@
++@@ -340,7 +344,8 @@
+  	     ifname, citem, citemp, sense);
+  #endif
+      if(lstat(ifname,&fileinfo)) {
+@@ -35,7 +35,7 @@
+  	return onerr;
+      }
+  
+-@@ -341,15 +346,16 @@
++@@ -348,15 +353,16 @@
+         || !S_ISREG(fileinfo.st_mode)) {
+  	/* If the file is world writable or is not a
+  	   normal file, return error */
+@@ -56,7 +56,7 @@
+  	    /* Only report if it's an error... */
+  	    _pam_log(LOG_ERR,LOCAL_LOG_PREFIX  "Error opening %s", ifname);
+  	}
+-@@ -400,8 +406,9 @@
++@@ -407,8 +413,9 @@
+  #endif
+  	(void) pam_get_item(pamh, PAM_SERVICE, (const void **)&service);
+  	(void) pam_get_user(pamh, &user_name, NULL);

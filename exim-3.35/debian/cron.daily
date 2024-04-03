@@ -1,0 +1,26 @@
+#!/bin/sh
+
+# Only do anything if exim is actually installed
+if [ ! -x /usr/sbin/exim ]; then
+  exit 0
+fi
+
+# Uncomment the following lines to get daily e-mail reports
+#if [ -x /usr/sbin/eximstats ]; then
+#  eximstats </var/log/exim/mainlog \
+#                    | mail postmaster -s"$(hostname) Daily email activity report"
+#fi
+
+# Cycle logs
+if [ -x /usr/bin/savelog ]; then
+  for i in mainlog rejectlog paniclog; do
+    if [ -s /var/log/exim/$i ]; then
+      savelog -p -c 10 /var/log/exim/$i >/dev/null
+    fi
+  done
+fi
+
+if [ -x /usr/sbin/exim_tidydb ]; then
+  exim_tidydb /var/spool/exim retry >/dev/null
+  exim_tidydb /var/spool/exim wait-remote_smtp >/dev/null
+fi

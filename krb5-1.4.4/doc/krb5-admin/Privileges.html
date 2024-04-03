@@ -1,0 +1,134 @@
+<html lang="en">
+<head>
+<title>Kerberos V5 System Administrator's Guide</title>
+<meta http-equiv="Content-Type" content="text/html">
+<meta name="description" content="Kerberos V5 System Administrator's Guide">
+<meta name="generator" content="makeinfo 4.5">
+<link href="http://www.gnu.org/software/texinfo/" rel="generator-home">
+</head>
+<body>
+<div class="node">
+<p>
+Node:<a name="Privileges">Privileges</a>,
+Next:<a rel="next" accesskey="n" href="Adding-or-Modifying-Principals.html#Adding%20or%20Modifying%20Principals">Adding or Modifying Principals</a>,
+Previous:<a rel="previous" accesskey="p" href="Retrieving-Information-About-a-Principal.html#Retrieving%20Information%20About%20a%20Principal">Retrieving Information About a Principal</a>,
+Up:<a rel="up" accesskey="u" href="Principals.html#Principals">Principals</a>
+<hr><br>
+</div>
+
+<h4 class="subsection">Privileges</h4>
+
+<p>Administrative privileges for the Kerberos database are stored in the
+file <code>kadm5.acl</code>.
+
+<p>The format of the file is:
+
+<pre class="smallexample">     Kerberos_principal      permissions     [target_principal]	[restrictions]
+     </pre>
+
+<p>The Kerberos principal (and optional target principal) can include the
+"<b>*</b>" wildcard, so if you want any principal with the instance
+"admin" to have full permissions on the database, you could use the
+principal "<code>*/admin@REALM</code>" where "REALM" is your Kerberos
+realm.  <code>target_principal</code> can also include backreferences to
+<code>Kerberos_principal</code>, in which "<b>*</b><i>number</i><b></b>" matches the
+component <i>number</i> in the <code>Kerberos_principal</code>.
+
+<p>Note:  a common use of an <i>admin</i> instance is so you can grant
+separate permissions (such as administrator access to the Kerberos
+database) to a separate Kerberos principal.  For example, the user
+<code>joeadmin</code> might have a principal for his administrative
+use, called <code>joeadmin/admin</code>.  This way,
+<code>joeadmin</code> would obtain <code>joeadmin/admin</code>
+tickets only when he actually needs to use those permissions.
+
+<p>The permissions are represented by single letters; UPPER-CASE letters
+represent negative permissions.  The permissions are:
+
+     <dl>
+<dt><b>a</b>
+     <dd>allows the addition of principals or policies in the database. 
+<dt><b>A</b>
+     <dd>disallows the addition of principals or policies in the database. 
+<dt><b>d</b>
+     <dd>allows the deletion of principals or policies in the database. 
+<dt><b>D</b>
+     <dd>disallows the deletion of principals or policies in the database. 
+<dt><b>m</b>
+     <dd>allows the modification of principals or policies in the database. 
+<dt><b>M</b>
+     <dd>disallows the modification of principals or policies in the database. 
+<dt><b>c</b>
+     <dd>allows the changing of passwords for principals in the database. 
+<dt><b>C</b>
+     <dd>disallows the changing of passwords for principals in the database. 
+<dt><b>i</b>
+     <dd>allows inquiries to the database. 
+<dt><b>I</b>
+     <dd>disallows inquiries to the database. 
+<dt><b>l</b>
+     <dd>allows the listing of principals or policies in the database. 
+<dt><b>L</b>
+     <dd>disallows the listing of principals or policies in the database. 
+<dt><b>s</b>
+     <dd>allows the explicit setting of the key for a principal
+<dt><b>S</b>
+     <dd>disallows the explicit setting of the key for a principal
+<dt><b>*</b>
+     <dd>All privileges (admcil). 
+<dt><b>x</b>
+     <dd>All privileges (admcil); identical to "*". 
+</dl>
+
+<p>The restrictions are a string of flags.  Allowed restrictions are:
+
+     <dl>
+<dt><b>[+ -]</b><i>flagname</i><b></b>
+     <dd>flag is forced to indicated value.  The permissible flags are the same
+as the <code>+</code> and <code>-</code> flags for the <code>kadmin addprinc</code> and
+<code>modprinc</code> commands. 
+<dt><b>-clearpolicy</b>
+     <dd>policy is forced to clear
+<dt><b>-policy </b><i>pol</i><b></b>
+     <dd>policy is forced to be <i>pol</i>
+<dt><b>expire </b><i>time</i><b></b>
+     <dd><dt><b>pwexpire </b><i>time</i><b></b>
+     <dd><dt><b>maxlife </b><i>time</i><b></b>
+     <dd><dt><b>maxrenewlife </b><i>time</i><b></b>
+     <dd>associated value will be forced to MIN(<i>time</i>, requested value)
+</dl>
+
+<p>The above flags act as restrictions on any add or modify operation
+which is allowed due to that ACL line.
+
+<p>Here is an example of a <code>kadm5.acl</code> file.  Note that order is
+important; permissions are determined by the first matching entry.
+
+<pre class="smallexample">     */admin@ATHENA.MIT.EDU  *
+     joeadmin@ATHENA.MIT.EDU  ADMCIL
+     joeadmin/*@ATHENA.MIT.EDU il */root@ATHENA.MIT.EDU
+     *@ATHENA.MIT.EDU cil *1/admin@ATHENA.MIT.EDU
+     */*@ATHENA.MIT.EDU  i
+     */admin@EXAMPLE.COM * -maxlife 9h -postdateable
+     </pre>
+
+<p>In the above file, any principal in the
+ATHENA.MIT.EDU realm with an <code>admin</code> instance has all
+administrative privileges.  The user <code>joeadmin</code>
+has all permissions with his <code>admin</code> instance,
+<code>joeadmin/admin@ATHENA.MIT.EDU</code> (matches the first
+line).  He has no permissions at all with his <code>null</code> instance,
+<code>joeadmin@ATHENA.MIT.EDU</code> (matches the second line). 
+His root instance has <i>inquire</i> and <i>list</i> permissions with any
+other principal that has the instance <code>root</code>.  Any principal
+in ATHENA.MIT.EDU can inquire, list, or change the password of
+their <code>admin</code> instance, but not any other <code>admin</code> instance. 
+Any principal in the realm <code>ATHENA.MIT.EDU</code> (except for
+<code>joeadmin@ATHENA.MIT.EDU</code>, as mentioned above) has
+<i>inquire</i> privileges.  Finally, any principal with an admin instance
+in EXAMPLE.COM has all permissions, but any principal that they
+create or modify will not be able to get postdateable tickets or tickets
+with a life of longer than 9 hours.
+
+</body></html>
+

@@ -1,0 +1,45 @@
+#! /bin/sh -e
+
+# DP: gcc prototector patch: http://www.trl.ibm.com/projects/security/ssp/
+
+# the basename of the protector tarball. the tarball is searched in the
+# top level package directory. If it's not found, a uuencoded tarball
+# is searched in debian/patches.
+
+pbase=protector-3.3.2-2
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+
+case "$1" in
+    -patch)
+	rm -rf protector
+	mkdir protector
+	(
+	    cd protector;
+	    if [ -f ../$pbase.tar.gz ]; then
+		tar xfz ../$pbase.tar.gz
+	    else
+		uudecode ../debian/patches/protector.uue;
+		tar xfz $pbase.tar.gz
+	    fi
+	)
+	cp -p protector/protector.[ch] ${dir}gcc/.
+        patch $pdir -f --no-backup-if-mismatch -p0 < protector/protector.dif
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < protector/protector.dif
+	rm -f ${dir}gcc/protector.[ch]
+	rm -rf protector
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0

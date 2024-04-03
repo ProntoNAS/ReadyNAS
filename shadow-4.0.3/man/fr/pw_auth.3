@@ -1,0 +1,136 @@
+.\" This file was generated with po4a. Translate the source file.
+.\" 
+.\"$Id: pw_auth.3 6 2005-03-20 15:34:28Z bubulle $
+.\" Copyright 1992 - 1993, Julianne Frances Haugh
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\" 3. Neither the name of Julianne F. Haugh nor the names of its contributors
+.\"    may be used to endorse or promote products derived from this software
+.\"    without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY JULIE HAUGH AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL JULIE HAUGH OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.TH PWAUTH 3   
+.SH NOM
+pwauth \- routines d'authentification définies par l'administrateur
+.SH SYNTAX
+\fB#include <pwauth.h>\fP
+.PP
+\fBint pw_auth (char\fP \fI*commande\fP, \fBchar\fP \fI*utilisateur\fP, \fBint\fP 
+\fIraison\fP, \fBchar\fP \fI*input)\fP\fB;\fP
+.SH DESCRIPTION
+\fBpw_auth\fP invoque les fonctions définies par l'administrateur pour un 
+utilisateur donné.
+.PP
+\fIcommande\fP est le nom du programme d'authentification, qui est récupéré 
+dans les informations du fichier de mots de passe concernant 
+l'utilisateur. Cette chaîne contient le nom d'un ou plusieurs fichiers 
+exécutables séparés par des «\ ;\ ». Chacun des programmes sera exécuté dans 
+l'ordre donné. Les arguments de la ligne de commande sont donnés pour 
+chacune des raisons listées ci\-dessous.
+.PP
+\fIutilisateur\fP est le nom de l'utilisateur à authentifier, comme dans le 
+fichier \fI/etc/passwd\fP. Les entrées des utilisateurs sont indexées par nom 
+d'utilisateur. Ceci permet d'avoir des identifiants (numériques) non unique, 
+et d'avoir, pour les différents noms d'utilisateur associés à un 
+identifiant, des informations ou un programme d'authentification différents.
+.PP
+Chacune des raisons d'authentification possibles est gérée d'une façon 
+particulière. Sauf si le contraire est mentionné, les descripteurs de 
+fichier standards 0, 1 et 2 sont disponibles pour communiquer avec 
+l'utilisateur. L'identifiant réel de l'utilisateur peut être utilisé pour 
+déterminer l'identité de l'utilisateur demandant son authentification. Les 
+raisons possibles sont\ :
+.IP \fBPW_SU\fP 1i
+Réalise une authentification pour l'identifiant réel de l'utilisateur actuel 
+avant d'utiliser l'utilisateur nommé comme l'identifiant réel. Le programme 
+d'authentification sera appelé avec une option \fB\-s\fP, suivie du nom 
+d'utilisateur.
+.IP \fBPW_LOGIN\fP 1i
+Réalise une authentification pour l'utilisateur nommé, avant de créer une 
+session de connexion «\ login session\ ». Le programme d'authentification 
+sera appelé avec une option \fB\-k\fP, suivie par le nom d'utilisateur.
+.IP \fBPW_ADD\fP 1i
+Créé une nouvelle entrée pour l'utilisateur nommé. Ceci permet à un 
+programme d'authentification d'initialiser l'espace de stockage pour un 
+nouvel utilisateur. Le programme d'authentification sera appelé avec une 
+option \fB\-a\fP, suivie du nom d'utilisateur.
+.IP \fBPW_CHANGE\fP 1i
+Modifie une entrée pour l'utilisateur nommé. Ceci permet à un programme 
+d'authentification de modifier les informations d'authentification pour un 
+utilisateur existant. Le programme d'authentification sera appelé avec une 
+option \fB\-c\fP, suivie par le nom d'utilisateur.
+.IP \fBPW_DELETE\fP 1i
+Supprime les informations d'authentification pour l'utilisateur nommé. Ceci 
+permet à un programme d'authentification de récupérer l'espace de stockage 
+d'un utilisateur qui n'est plus authentifié grâce au programme 
+d'authentification. Le programme d'authentification sera appelé avec une 
+option \fB\-d\fP suivie du nom d'utilisateur.
+.IP \fBPW_TELNET\fP 1i
+Authentifie un utilisateur qui est connecté au système par la commande 
+\fBtelnet\fP. Le programme d'authentification sera appelé avec une option \fB\-t\fP 
+suivie par le nom d'utilisateur.
+.IP \fBPW_RLOGIN\fP 1i
+Authentifie un utilisateur qui est connecté au système par la commande 
+\fBrlogin\fP. Le programme d'authentification sera appelé avec une option \fB\-r\fP 
+suivie par le nom d'utilisateur.
+.IP \fBPW_FTP\fP 1i
+Authentifie un utilisateur qui est connecté au système par la commande 
+\fBftp\fP. Le programme d'authentification sera appelé avec une option \fB\-f\fP 
+suivie par le nom d'utilisateur. Les descripteurs de fichier standards ne 
+sont pas disponibles pour communiquer avec l'utilisateur. Le descripteur de 
+fichier de l'entrée standard sera connecté au processus parent, et les deux 
+descripteurs de fichier de sortie seront connectés à \fI/dev/null\fP. La 
+fonction \fBpw_auth\fP utilisera un pipe («\ tuyau\ ») pour transmettre une 
+seule ligne de données au programme d'authentification en utilisant le 
+descripteur de fichier 0.
+.IP \fBPW_REXEC\fP 1i
+Authentifie un utilisateur qui est connecté au système par la commande 
+\fBrexec\fP. Le programme d'authentification sera appelé avec une option \fB\-x\fP 
+suivie par le nom d'utilisateur. Les descripteurs de fichier standard ne 
+sont pas disponibles pour communiquer avec l'utilisateur. Le descripteur de 
+fichier de l'entrée standard sera connecté au processus parent, et les deux 
+descripteurs de fichier de sortie seront connectés à \fI/dev/null\fP. La 
+fonction \fBpw_auth\fP utilisera un pipe («\ tuyau\ ») pour transmettre une 
+seule ligne de données au programme d'authentification en utilisant le 
+descripteur de fichier 0.
+.PP
+Le dernier argument correspond aux données d'authentification qui sont 
+utilisées pour les raisons \fBPW_FTP\fP et \fBPW_REXEC\fP. Il est traité comme une 
+simple ligne de texte, qui est transmise par un pipe au programme 
+d'authentification. Quand la raison est \fBPW_CHANGE\fP, la valeur d'\fIinput\fP 
+est la valeur précédente du nom de l'utilisateur si ce nom est en train 
+d'être changé.
+.SH AVERTISSEMENTS
+Cette fonction ne créée pas la session. Elle indique uniquement si 
+l'utilisateur doit être autorisé à créer cette session.
+.PP
+Les options réseau ne sont toujours pas testées à ce jour.
+.SH DIAGNOSTICS
+La fonction \fBpw_auth\fP retourne 0 si le programme d'authentification a 
+quitté avec une valeur de retour de 0, et une valeur non nulle sinon.
+.SH "VOIR AUSSI"
+\fBlogin\fP(1), \fBpasswd\fP(1), \fBsu\fP(1), \fBuseradd\fP(8), \fBuserdel\fP(8), 
+\fBusermod\fP(8)
+.SH AUTEUR
+Julianne Frances Haugh <jockgrrl@ix.netcom.com>
+.SH TRADUCTION
+Nicolas FRANÇOIS, 2004.
+Veuillez signaler toute erreur à <\fIdebian\-l10\-french@lists.debian.org\fR>.

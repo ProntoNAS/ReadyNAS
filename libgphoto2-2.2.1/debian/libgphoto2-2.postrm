@@ -1,0 +1,38 @@
+#! /bin/sh
+
+PACKAGE="libgphoto2"
+
+set -e
+
+case "$1" in
+    remove|purge)
+	rm -f /etc/hotplug/usb/$PACKAGE.usermap
+	rm -f /etc/udev/$PACKAGE.rules
+	rm -f /etc/udev/libgphoto2_generic-ptp_support.rules
+	rm -f /etc/udev/rules.d/025_$PACKAGE.rules || /bin/true
+	rm -f /etc/udev/rules.d/020_libgphoto2_generic-ptp_support.rules
+	rm -f /usr/share/hal/fdi/information/20thirdparty/$PACKAGE.fdi || /bin/true
+	rm -f /usr/share/hal/fdi/information/10freedesktop/10-camera-$PACKAGE.fdi || /bin/true
+	rm -f /usr/share/hal/fdi/information/10freedesktop/10-camera-$PACKAGE-device.fdi || /bin/true
+	rm -f /usr/share/hal/fdi/preprobe/10osvendor/20-$PACKAGE.fdi || /bin/true
+
+	if [ -x /etc/init.d/udev ]; then
+	  if [ -x "`which invoke-rc.d 2>/dev/null`" ]; then
+	    invoke-rc.d udev reload || /bin/true
+	  else
+	    /etc/init.d/udev reload || /bin/true
+	  fi
+	fi
+
+	;;
+    disappear|upgrade|failed-upgrade|abort-install|abort-upgrade)
+	;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+esac
+
+#DEBHELPER#
+
+exit 0

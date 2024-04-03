@@ -1,0 +1,86 @@
+Potentially useful things to know about the Debian NTP packages...
+
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+A list of Public NTP Time Servers is available on the web at
+
+	http://www.eecis.udel.edu/~mills/ntp/servers.htm
+
+Please make sure to read *and follow* the Rules of Engagement there, please!
+
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+The ntp-simple, ntp-refclock, and ntpdate packages all share a common config
+file for listing servers at /etc/default/ntp-servers.  There is debconf 
+support in those packages for setting a list of servers.  In the case of
+ntpdate, any changes made to that file manually or through the debconf
+interface will take effect the next time /etc/init.d/ntpdate runs.  
+
+If you want to manually set up /etc/default/ntp-servers, it needs to have a
+single line like 
+
+	NTPSERVERS="server_one server_two etc" 
+
+listing one or more space-separated servers.  Any other content in the file
+will currently be ignored.
+
+For the daemon packages, it's more complicated, because the /etc/ntp.conf file
+does not support an include file syntax.  There is, therefore, a debconf
+variable to indicate whether the package maintainer scripts should re-create
+/etc/ntp.conf each time the data changes.  I'm not really happy about how that
+works right now, and there's at least one bug open against the packages about
+it, so I'm investigating Manoj's ucf package as a potential way of doing a
+better job handling changes in /etc/ntp.conf.  Stay tuned.
+
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Several people have reported that ntpd fails on SMP boxes unless the "Enhanced
+Real-Time Clock" support is enabled in the kernel.  This is known to be 
+essential on SMP Alpha systems, and is believed to also be necessary on SMP
+Intel systems.
+
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+By default, ntpd will log via syslog().  Since Debian does not have a LOG_NTP
+facility defined, the daemon will use LOG_DAEMON, leading to ntpd log entries
+going to /var/log/daemon.log.  If you define a logfile location in 
+/etc/ntp.conf, the daemon will do direct filesystem writes to the specified
+file, avoiding syslog().  Previous Debian packages did this, with the side
+effect that they had to ship a weekly cron job that stopped the daemon, 
+rotated the log, then restarted the daemon.  This is moderately evil for 
+high-stratum NTP servers, where ntpd should be allowed to run more or less
+forever.  To handle both modes of logging, the cron.weekly script is still 
+provided to rotate /var/log/ntpd if present, but it will not cycle the daemon 
+if syslog is in use.  By default, new installations of this package will use 
+syslog.
+
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+NTP and hwclock issues:  hwclock (from the util-linux package) is normally
+called on startup and shutdown. You must ensure that hwclock --adjust is never
+called (make sure it is disabled in /etc/init.d/hwclock.sh) in a host which
+has ntpd active.  You should allow hwclock --systohc to be called on shutdown
+unless you are running the NANO kernel patch, because the kernel does not 
+fully update the RTC time, and it could be off by a multiple of 30 minutes in
+the next boot if hwclock --systohc is never called by the shutdown sequence.
+See the hwclock README files in the util-linux documentation for more 
+information.
+
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+If you want to configure a machine to use its own processor clock as a
+reference, so that for example you can get a set of other machines to sync to
+it even if the cluster of machines isn't synced to anything else, then you 
+need to make sure to use a less-attractive stratum... just in case the cluster
+someday mingles time with the real world.  An example of how to do this is
+to configure the "authoritative" machine's ntp.conf like so:
+
+	server 127.127.1.1
+	fudge 127.127.1.1 stratum 10
+
+Then, have the other machines peer with each other to some extent, and peer
+(maybe using 'server' instead of 'peer') with the authoritative server, and 
+they'll all go to stratum 11 sync'ed to this machine eventually... and if you
+ever get a better source of time, everything will latch onto it instead.
+
+ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -1,0 +1,88 @@
+#!/usr/bin/make -f
+
+package = diff
+docdir = debian/tmp/usr/share/doc/$(package)
+
+CC = gcc
+CFLAGS = -O2 -Wall
+INSTALL_PROGRAM = install
+
+ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+  CFLAGS += -g
+endif
+
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+  INSTALL_PROGRAM += -s
+endif
+
+build:
+	$(checkdir)
+	./configure --prefix=/usr
+	$(MAKE) CC="$(CC)" CFLAGS="$(CFLAGS)"
+	touch build
+
+clean:
+	$(checkdir)
+	-rm -f build
+	-$(MAKE) distclean
+	-rm -f `find . -name "*~"`
+	-rm -rf debian/tmp debian/files* core debian/substvars
+
+binary-indep: checkroot build
+	$(checkdir)
+	-rm -rf debian/tmp
+	install -d debian/tmp/DEBIAN $(docdir)-doc \
+		debian/tmp/usr/share/doc-base
+	install -m 644 debian/$(package)-doc debian/tmp/usr/share/doc-base
+	cd debian && install -m 755 $(package)-doc.postinst tmp/DEBIAN/postinst
+	cd debian && install -m 755 $(package)-doc.prerm    tmp/DEBIAN/prerm
+	texi2html -split_chapter $(package).texi
+	mv *.html $(docdir)-doc
+	ln -s $(package)_toc.html $(docdir)-doc/index.html
+	cp -p debian/copyright $(docdir)-doc
+	cp -p ChangeLog $(docdir)-doc/changelog
+	cp -p debian/changelog $(docdir)-doc/changelog.Debian
+	cd $(docdir)-doc && gzip -9 changelog changelog.Debian
+	sh debian/mk-symlinks $(package)-doc
+	dpkg-gencontrol -isp -p$(package)-doc
+	cd debian/tmp && md5sum `find * -type f ! -regex "DEBIAN/.*"` >DEBIAN/md5sums
+	chown -R root.root debian/tmp
+	chmod -R u+w,go=rX debian/tmp
+	dpkg --build debian/tmp ..
+
+binary-arch: checkroot build
+	$(checkdir)
+	-rm -rf debian/tmp
+	install -d debian/tmp/DEBIAN $(docdir)
+	cd debian/tmp && install -d usr/bin usr/share/man/man1
+	$(MAKE) install prefix=`pwd`/debian/tmp/usr \
+		INSTALL_PROGRAM="$(INSTALL_PROGRAM)"
+	mv debian/tmp/usr/info debian/tmp/usr/share
+	cd debian && install -m 755 preinst postinst prerm tmp/DEBIAN
+	cp -p NEWS debian/copyright $(docdir)
+	cp -p ChangeLog $(docdir)/changelog
+	cp -p debian/changelog $(docdir)/changelog.Debian
+	cd debian && install -m 644 diff.1 sdiff.1 diff3.1 cmp.1 \
+		../debian/tmp/usr/share/man/man1
+	cd $(docdir) && gzip -9 changelog changelog.Debian
+	gzip -r9 debian/tmp/usr/share/man
+	gzip -9 debian/tmp/usr/share/info/*
+	dpkg-shlibdeps debian/tmp/usr/bin/*
+	sh debian/mk-symlinks $(package)
+	dpkg-gencontrol -isp -p$(package)
+	cd debian/tmp && md5sum `find * -type f ! -regex "DEBIAN/.*"` >DEBIAN/md5sums
+	chown -R root.root debian/tmp
+	chmod -R u+w,go=rX debian/tmp
+	dpkg --build debian/tmp ..
+
+define checkdir
+	test -f $(package).c -a -f debian/rules
+endef
+
+binary: binary-indep binary-arch
+
+checkroot:
+	$(checkdir)
+	test root = "`whoami`"
+
+.PHONY: binary binary-arch binary-indep clean checkroot

@@ -1,0 +1,259 @@
+dnl Process this file with autoconf to produce a configure script. -*-m4-*-
+AC_INIT(src/stty.c)
+AM_CONFIG_HEADER(config.h)
+AC_PREREQ(2.13)               dnl Minimum Autoconf version required.
+AC_CANONICAL_HOST
+
+AM_INIT_AUTOMAKE([sh-utils], [2.0.11])
+
+ALL_LINGUAS="cs da de el es et fr gl it ja nl no pl pt pt_BR sl ru sk sv zh"
+
+jm_PERL
+
+AC_PROG_CC
+AC_PROG_CPP
+AC_PROG_GCC_TRADITIONAL
+AC_PROG_RANLIB
+AC_AIX
+AC_MINIX
+
+AC_CHECK_FUNCS(uname,
+	OPTIONAL_BIN_PROGS="$OPTIONAL_BIN_PROGS uname" MAN="$MAN uname.1")
+AC_CHECK_FUNCS(chroot,
+	OPTIONAL_BIN_PROGS="$OPTIONAL_BIN_PROGS chroot" MAN="$MAN chroot.1")
+AC_CHECK_FUNCS(gethostid,
+	OPTIONAL_BIN_PROGS="$OPTIONAL_BIN_PROGS hostid" MAN="$MAN hostid.1")
+
+jm_CHECK_ALL_TYPES
+
+jm_MACROS
+
+AC_MSG_CHECKING(whether localtime caches TZ)
+AC_CACHE_VAL(utils_cv_localtime_cache,
+[if test x$ac_cv_func_tzset = xyes; then
+AC_TRY_RUN([#include <time.h>
+#if STDC_HEADERS
+# include <stdlib.h>
+#endif
+extern char **environ;
+unset_TZ ()
+{
+  char **from, **to;
+  for (to = from = environ; (*to = *from); from++)
+    if (! (to[0][0] == 'T' && to[0][1] == 'Z' && to[0][2] == '='))
+      to++;
+}
+main()
+{
+  time_t now = time ((time_t *) 0);
+  int hour_GMT0, hour_unset;
+  if (putenv ("TZ=GMT0") != 0)
+    exit (1);
+  hour_GMT0 = localtime (&now)->tm_hour;
+  unset_TZ ();
+  hour_unset = localtime (&now)->tm_hour;
+  if (putenv ("TZ=PST8") != 0)
+    exit (1);
+  if (localtime (&now)->tm_hour == hour_GMT0)
+    exit (1);
+  unset_TZ ();
+  if (localtime (&now)->tm_hour != hour_unset)
+    exit (1);
+  exit (0);
+}], utils_cv_localtime_cache=no, utils_cv_localtime_cache=yes,
+[# If we have tzset, assume the worst when cross-compiling.
+utils_cv_localtime_cache=yes])
+else
+	# If we lack tzset, report that localtime does not cache TZ,
+	# since we can't invalidate the cache if we don't have tzset.
+	utils_cv_localtime_cache=no
+fi])dnl
+AC_MSG_RESULT($utils_cv_localtime_cache)
+if test $utils_cv_localtime_cache = yes; then
+  AC_DEFINE(LOCALTIME_CACHE, 1, [FIXME])
+fi
+
+# SCO-ODT-3.0 is reported to need -los to link programs using initgroups
+AC_CHECK_FUNCS(initgroups)
+if test $ac_cv_func_initgroups = no; then
+  AC_CHECK_LIB(os, initgroups)
+fi
+
+AC_CHECK_FUNCS(syslog)
+if test $ac_cv_func_syslog = no; then
+  # syslog is not in the default libraries.  See if it's in some other.
+  for lib in bsd socket inet; do
+    AC_CHECK_LIB($lib, syslog, [AC_DEFINE(HAVE_SYSLOG, 1, [FIXME])
+      LIBS="$LIBS -l$lib"; break])
+  done
+fi
+
+AC_MSG_CHECKING(for 3-argument setpriority function)
+AC_CACHE_VAL(utils_cv_func_setpriority,
+[AC_TRY_LINK([#include <sys/time.h>
+#include <sys/resource.h>],
+[setpriority(0, 0, 0);],
+utils_cv_func_setpriority=yes, utils_cv_func_setpriority=no)])
+AC_MSG_RESULT($utils_cv_func_setpriority)
+if test $utils_cv_func_setpriority = yes; then
+  OPTIONAL_BIN_PROGS="$OPTIONAL_BIN_PROGS nice"
+  OPTIONAL_BIN_ZCRIPTS="$OPTIONAL_BIN_ZCRIPTS nohup"
+  MAN="$MAN nice.1 nohup.1"
+else
+  AC_MSG_CHECKING(for nice function)
+  AC_CACHE_VAL(utils_cv_func_nice,
+  [AC_TRY_LINK([], nice();,
+  utils_cv_func_nice=yes, utils_cv_func_nice=no)])
+  AC_MSG_RESULT($utils_cv_func_nice)
+  if test $utils_cv_func_nice = yes; then
+    AC_DEFINE(NICE_PRIORITY, 1, [FIXME])
+    OPTIONAL_BIN_PROGS="$OPTIONAL_BIN_PROGS nice"
+    OPTIONAL_BIN_ZCRIPTS="$OPTIONAL_BIN_ZCRIPTS nohup"
+    MAN="$MAN nice.1 nohup.1"
+  fi
+fi
+
+AC_DEFUN(jm_DUMMY_1,
+[
+  AC_REQUIRE([jm_PREREQ_READUTMP])
+  if test $ac_cv_header_utmp_h = yes || test $ac_cv_header_utmpx_h = yes; then
+    OPTIONAL_BIN_PROGS="$OPTIONAL_BIN_PROGS pinky users who"
+    MAN="$MAN pinky.1 users.1 who.1"
+  fi
+])
+jm_DUMMY_1
+
+AC_MSG_CHECKING(ut_host in struct utmp)
+AC_CACHE_VAL(su_cv_func_ut_host_in_utmp,
+[AC_TRY_LINK([#include <sys/types.h>
+#include <utmp.h>], [struct utmp ut; ut.ut_host;],
+su_cv_func_ut_host_in_utmp=yes, su_cv_func_ut_host_in_utmp=no)])
+AC_MSG_RESULT($su_cv_func_ut_host_in_utmp)
+if test $su_cv_func_ut_host_in_utmp = yes; then
+  have_ut_host=1
+  AC_DEFINE(HAVE_UT_HOST, 1, [FIXME])
+fi
+
+if test -z "$have_ut_host"; then
+  AC_MSG_CHECKING(ut_host in struct utmpx)
+  AC_CACHE_VAL(su_cv_func_ut_host_in_utmpx,
+  [AC_TRY_LINK([#include <sys/types.h>
+#include <utmpx.h>], [struct utmpx ut; ut.ut_host;],
+  su_cv_func_ut_host_in_utmpx=yes, su_cv_func_ut_host_in_utmpx=no)])
+  AC_MSG_RESULT($su_cv_func_ut_host_in_utmpx)
+  if test $su_cv_func_ut_host_in_utmpx = yes; then
+    AC_DEFINE(HAVE_UTMPX_H, 1, [FIXME])
+    AC_DEFINE(HAVE_UT_HOST, 1, [FIXME])
+  fi
+fi
+
+AC_DEFUN(jm_BOOT_TIME,
+[
+ AC_CACHE_CHECK([whether we can get the system boot time],
+		su_cv_have_boot_time,
+  [
+   AC_REQUIRE([jm_PREREQ_READUTMP])
+   if test $ac_cv_header_utmp_h = yes || test $ac_cv_header_utmpx_h = yes; then
+    AC_EGREP_CPP(yes,
+      [#ifdef HAVE_UTMPX_H
+#include <utmpx.h>
+#else
+#include <utmp.h>
+#endif
+#ifdef BOOT_TIME
+yes
+#endif
+      ], su_cv_have_boot_time=yes, su_cv_have_boot_time=no)
+   else
+     su_cv_have_boot_time=no
+   fi
+  ])
+  test "$su_cv_have_boot_time" = yes &&
+    OPTIONAL_BIN_PROGS="$OPTIONAL_BIN_PROGS uptime"
+])
+jm_BOOT_TIME
+
+AM_SYS_POSIX_TERMIOS
+jm_HEADER_TIOCGWINSZ_NEEDS_SYS_IOCTL
+
+if test $am_cv_sys_posix_termios = yes; then
+  OPTIONAL_BIN_PROGS="$OPTIONAL_BIN_PROGS stty" MAN="$MAN stty.1"
+
+  AC_MSG_CHECKING(whether termios.h needs _XOPEN_SOURCE)
+  AC_CACHE_VAL(su_cv_sys_termios_needs_xopen_source,
+  [AC_EGREP_CPP(yes, [#include <termios.h>
+#ifdef IUCLC
+yes
+#endif], su_cv_sys_termios_needs_xopen_source=no,
+   AC_EGREP_CPP(yes, [#define _XOPEN_SOURCE
+#include <termios.h>
+#ifdef IUCLC
+yes
+#endif], su_cv_sys_termios_needs_xopen_source=yes,
+   su_cv_sys_termios_needs_xopen_source=no))])
+  AC_MSG_RESULT($su_cv_sys_termios_needs_xopen_source)
+  test $su_cv_sys_termios_needs_xopen_source = yes &&
+    AC_DEFINE(TERMIOS_NEEDS_XOPEN_SOURCE, 1, [FIXME])
+
+  AC_MSG_CHECKING(c_line in struct termios)
+  AC_CACHE_VAL(su_cv_sys_c_line_in_termios,
+  [AC_TRY_LINK([#if TERMIOS_NEEDS_XOPEN_SOURCE
+#define _XOPEN_SOURCE
+#endif
+#include <sys/types.h>
+#include <termios.h>],
+	      [struct termios t; t.c_line;],
+	      su_cv_sys_c_line_in_termios=yes,
+	      su_cv_sys_c_line_in_termios=no)])
+  AC_MSG_RESULT($su_cv_sys_c_line_in_termios)
+  test $su_cv_sys_c_line_in_termios = yes && AC_DEFINE(HAVE_C_LINE, 1, [FIXME])
+fi
+
+jm_WINSIZE_IN_PTEM
+jm_HEADER_TIOCGWINSZ_IN_TERMIOS_H
+if test $jm_cv_sys_tiocgwinsz_needs_termios_h = no && \
+   test $jm_cv_sys_tiocgwinsz_needs_sys_ioctl_h = no; then
+  AC_MSG_CHECKING(TIOCGWINSZ in sys/pty.h)
+  AC_CACHE_VAL(su_cv_sys_tiocgwinsz_in_sys_pty_h,
+  [AC_TRY_LINK([#include <sys/types.h>
+#ifdef WINSIZE_IN_PTEM
+# include <sys/stream.h>
+# include <sys/ptem.h>
+#endif
+#include <sys/ioctl.h>
+#include <sys/tty.h>
+#include <sys/pty.h>],
+	      [int x = TIOCGWINSZ;],
+	      su_cv_sys_tiocgwinsz_in_sys_pty_h=yes,
+	      su_cv_sys_tiocgwinsz_in_sys_pty_h=no)])
+  AC_MSG_RESULT($su_cv_sys_tiocgwinsz_in_sys_pty_h)
+
+  test $su_cv_sys_tiocgwinsz_in_sys_pty_h = yes \
+      && AC_DEFINE(GWINSZ_IN_SYS_PTY, 1,
+                   [Define if your system defines TIOCGWINSZ in sys/pty.h.])
+fi
+
+jm_LIB_CHECK
+
+AM_GNU_GETTEXT
+
+# This is necessary so that .o files in LIBOBJS are also built via
+# the ANSI2KNR-filtering rules.
+LIBOBJS=`echo $LIBOBJS|sed 's/\.o /\$U.o /g;s/\.o$/\$U.o/'`
+
+AC_OUTPUT([Makefile
+	   doc/Makefile
+	   intl/Makefile
+	   lib/Makefile
+	   man/Makefile
+	   m4/Makefile
+	   po/Makefile.in
+	   src/Makefile
+	   tests/Makefile
+	   tests/basename/Makefile
+	   tests/date/Makefile
+	   tests/factor/Makefile
+	   tests/seq/Makefile
+	   tests/stty/Makefile
+	   tests/test/Makefile
+	  ])

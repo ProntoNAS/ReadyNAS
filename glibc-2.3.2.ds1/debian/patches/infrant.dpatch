@@ -1,0 +1,3102 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Work around some hardware multiply/divide bugs
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p1 < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p1 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/addmul_1.S glibc-2.3.2/sysdeps/sparc/sparc32/addmul_1.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/addmul_1.S	Sat Jul  7 12:21:29 2001
++++ glibc-2.3.2/sysdeps/sparc/sparc32/addmul_1.S	Thu Mar  1 18:24:39 2007
+@@ -1,20 +1,20 @@
+-! SPARC __mpn_addmul_1 -- Multiply a limb vector with a limb and add
+-! the result to a second limb vector.
+-!
+-! Copyright (C) 1992, 1993, 1994, 1997 Free Software Foundation, Inc.
+-!
++! SPARC v8 __mpn_addmul_1 -- Multiply a limb vector with a limb and
++! add the result to a second limb vector.
++
++! Copyright (C) 1992, 1993, 1994, 1995 Free Software Foundation, Inc.
++
+ ! This file is part of the GNU MP Library.
+-!
++
+ ! The GNU MP Library is free software; you can redistribute it and/or modify
+ ! it under the terms of the GNU Lesser General Public License as published by
+ ! the Free Software Foundation; either version 2.1 of the License, or (at your
+ ! option) any later version.
+-!
++
+ ! The GNU MP Library is distributed in the hope that it will be useful, but
+ ! WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ ! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public
+ ! License for more details.
+-!
++
+ ! You should have received a copy of the GNU Lesser General Public License
+ ! along with the GNU MP Library; see the file COPYING.LIB.  If not, write to
+ ! the Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston,
+@@ -22,126 +22,98 @@
+ 
+ 
+ ! INPUT PARAMETERS
+-! RES_PTR	o0
+-! S1_PTR	o1
+-! SIZE		o2
+-! S2_LIMB	o3
++! res_ptr	o0
++! s1_ptr	o1
++! size		o2
++! s2_limb	o3
+ 
+ #include <sysdep.h>
+ 
+ ENTRY(__mpn_addmul_1)
+-	! Make S1_PTR and RES_PTR point at the end of their blocks
+-	! and put (- 4 x SIZE) in index/loop counter.
+-	sll	%o2,2,%o2
+-	add	%o0,%o2,%o4	! RES_PTR in o4 since o0 is retval
+-	add	%o1,%o2,%o1
+-	sub	%g0,%o2,%o2
+-
+-	cmp	%o3,0xfff
+-	bgu	LOC(large)
+-	nop
+-
+-	ld	[%o1+%o2],%o5
+-	mov	0,%o0
+-	b	LOC(0)
+-	 add	%o4,-4,%o4
+-LOC(loop0):
+-	addcc	%o5,%g1,%g1
+-	ld	[%o1+%o2],%o5
+-	addx	%o0,%g0,%o0
+-	st	%g1,[%o4+%o2]
+-LOC(0):	wr	%g0,%o3,%y
+-	sra	%o5,31,%g2
+-	and	%o3,%g2,%g2
+-	andcc	%g1,0,%g1
+-	mulscc	%g1,%o5,%g1
+- 	mulscc	%g1,%o5,%g1
+- 	mulscc	%g1,%o5,%g1
+- 	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,0,%g1
+-	sra	%g1,20,%g4
+-	sll	%g1,12,%g1
+- 	rd	%y,%g3
+-	srl	%g3,20,%g3
+-	or	%g1,%g3,%g1
+-
+-	addcc	%g1,%o0,%g1
+-	addx	%g2,%g4,%o0	! add sign-compensation and cy to hi limb
+-	addcc	%o2,4,%o2	! loop counter
+-	bne	LOC(loop0)
+-	 ld	[%o4+%o2],%o5
+-
+-	addcc	%o5,%g1,%g1
+-	addx	%o0,%g0,%o0
+-	retl
+-	st	%g1,[%o4+%o2]
+-
++	ld	[%o1+0],%o4	! 1
++	sll	%o2,4,%g1
++	orcc	%g0,%g0,%g2
++	mov	%o7,%g4			! Save return address register
++	and	%g1,(4-1)<<4,%g1
++1:	call	2f
++	 add	%o7,3f-1b,%g3
++2:	jmp	%g3+%g1
++	 mov	%g4,%o7			! Restore return address register
++
++	.align	4
++3:
++LOC(00):
++	add	%o0,-4,%o0
++	b	LOC(loop00)		/* 4, 8, 12, ... */
++	 add	%o1,-4,%o1
++	nop
++LOC(01):
++	b	LOC(loop01)		/* 1, 5, 9, ... */
++	 nop
++	nop
++	nop
++LOC(10):
++	add	%o0,-12,%o0	/* 2, 6, 10, ... */
++	b	LOC(loop10)
++	 add	%o1,4,%o1
++	nop
++LOC(11):
++	add	%o0,-8,%o0	/* 3, 7, 11, ... */
++	b	LOC(loop11)
++	 add	%o1,-8,%o1
++	nop
+ 
+-LOC(large):
+-	ld	[%o1+%o2],%o5
+-	mov	0,%o0
+-	sra	%o3,31,%g4	! g4 = mask of ones iff S2_LIMB < 0
+-	b	LOC(1)
+-	 add	%o4,-4,%o4
+ LOC(loop):
+-	addcc	%o5,%g3,%g3
+-	ld	[%o1+%o2],%o5
+-	addx	%o0,%g0,%o0
+-	st	%g3,[%o4+%o2]
+-LOC(1):	wr	%g0,%o5,%y
+-	and	%o5,%g4,%g2
+-	andcc	%g0,%g0,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%g0,%g1
+-	rd	%y,%g3
+-	addcc	%g3,%o0,%g3
+-	addx	%g2,%g1,%o0
+-	addcc	%o2,4,%o2
+-	bne	LOC(loop)
+-	 ld	[%o4+%o2],%o5
+-
+-	addcc	%o5,%g3,%g3
+-	addx	%o0,%g0,%o0
++	addcc	%g3,%g2,%g3	! 1
++	ld	[%o1+4],%o4	! 2
++	rd	%y,%g2		! 1
++	addx	%g0,%g2,%g2
++	ld	[%o0+0],%g1	! 2
++	addcc	%g1,%g3,%g3
++	st	%g3,[%o0+0]	! 1
++LOC(loop00):
++	umul	%o4,%o3,%g3	! 2
++	ld	[%o0+4],%g1	! 2
++	addxcc	%g3,%g2,%g3	! 2
++	ld	[%o1+8],%o4	! 3
++	rd	%y,%g2		! 2
++	addx	%g0,%g2,%g2
++	nop
++	addcc	%g1,%g3,%g3
++	st	%g3,[%o0+4]	! 2
++LOC(loop11):
++	umul	%o4,%o3,%g3	! 3
++	addxcc	%g3,%g2,%g3	! 3
++	ld	[%o1+12],%o4	! 4
++	rd	%y,%g2		! 3
++	add	%o1,16,%o1
++	addx	%g0,%g2,%g2
++	ld	[%o0+8],%g1	! 2
++	addcc	%g1,%g3,%g3
++	st	%g3,[%o0+8]	! 3
++LOC(loop10):
++	umul	%o4,%o3,%g3	! 4
++	addxcc	%g3,%g2,%g3	! 4
++	ld	[%o1+0],%o4	! 1
++	rd	%y,%g2		! 4
++	addx	%g0,%g2,%g2
++	ld	[%o0+12],%g1	! 2
++	addcc	%g1,%g3,%g3
++	st	%g3,[%o0+12]	! 4
++	add	%o0,16,%o0
++	addx	%g0,%g2,%g2
++LOC(loop01):
++	addcc	%o2,-4,%o2
++	bg	LOC(loop)
++	 umul	%o4,%o3,%g3	! 1
++
++	addcc	%g3,%g2,%g3	! 4
++	rd	%y,%g2		! 4
++	addx	%g0,%g2,%g2
++	ld	[%o0+0],%g1	! 2
++	addcc	%g1,%g3,%g3
++	st	%g3,[%o0+0]	! 4
+ 	retl
+-	st	%g3,[%o4+%o2]
++	 addx	%g0,%g2,%o0
+ 
+ END(__mpn_addmul_1)
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/dl-machine.h glibc-2.3.2/sysdeps/sparc/sparc32/dl-machine.h
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/dl-machine.h	Thu Mar  1 16:48:05 2007
++++ glibc-2.3.2/sysdeps/sparc/sparc32/dl-machine.h	Thu Mar  1 18:16:05 2007
+@@ -157,16 +157,28 @@
+       plt[1] = OPCODE_CALL | ((rfunc - (Elf32_Addr) &plt[1]) >> 2);
+       plt[2] = OPCODE_NOP;	/* Fill call delay slot.  */
+       plt[3] = (Elf32_Addr) l;
++
++#if 1 // Infrant: We need to flush here
++      __asm __volatile ("flush %0" : : "r"(plt));
++      __asm __volatile ("flush %0+8" : : "r"(plt));
++#endif
++
+       if (__builtin_expect (l->l_info[VALIDX(DT_GNU_PRELINKED)] != NULL, 0)
+ 	  || __builtin_expect (l->l_info [VALIDX (DT_GNU_LIBLISTSZ)] != NULL, 0))
+ 	{
+ 	  /* Need to reinitialize .plt to undo prelinking.  */
++#if 0 // Infrant: Don't let glibc decide if he should flush
+ 	  int do_flush;
++#else
++	  const int do_flush = 1;
++#endif
+ 	  Elf32_Rela *rela = (Elf32_Rela *) D_PTR (l, l_info[DT_JMPREL]);
+ 	  Elf32_Rela *relaend
+ 	    = (Elf32_Rela *) ((char *) rela
+ 			      + l->l_info[DT_PLTRELSZ]->d_un.d_val);
++#if 0 // Infrant: Don't let glibc decide if he should flush
+ 	  do_flush = GL(dl_hwcap) & HWCAP_SPARC_FLUSH;
++#endif
+ 
+ 	  /* prelink must ensure there are no R_SPARC_NONE relocs left
+ 	     in .rela.plt.  */
+@@ -353,7 +365,11 @@
+ #ifndef RTLD_BOOTSTRAP
+   /* Note that we don't mask the hwcap here, as the flush is essential to
+      functionality on those cpu's that implement it.  */
++# if 0 // Infrant: Don't let glibc decide whether or not to flush
+   int do_flush = GL(dl_hwcap) & HWCAP_SPARC_FLUSH;
++# else
++  const int do_flush = 1;
++#endif
+ #else
+   /* Unfortunately, this is necessary, so that we can ensure
+      ld.so will not execute corrupt PLT entry instructions. */
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/dotmul.S glibc-2.3.2/sysdeps/sparc/sparc32/dotmul.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/dotmul.S	Sun Aug 24 03:47:43 1997
++++ glibc-2.3.2/sysdeps/sparc/sparc32/dotmul.S	Thu Mar  1 18:24:39 2007
+@@ -1,127 +1,17 @@
+ /*
+- * Signed multiply, from Appendix E of the Sparc Version 8
+- * Architecture Manual.
+- */
+-
+-/*
+- * Returns %o0 * %o1 in %o1%o0 (i.e., %o1 holds the upper 32 bits of
+- * the 64-bit product).
+- *
+- * This code optimizes short (less than 13-bit) multiplies.
++ * Sparc v8 has multiply.
+  */
+ 
+ #include <sysdep.h>
+ 
+-
+ ENTRY(.mul)
+-	mov	%o0, %y		! multiplier -> Y
+-	andncc	%o0, 0xfff, %g0	! test bits 12..31
+-	be	LOC(mul_shortway)	! if zero, can do it the short way
+-	andcc	%g0, %g0, %o4	! zero the partial product and clear N and V
+-
+-	/*
+-	 * Long multiply.  32 steps, followed by a final shift step.
+-	 */
+-	mulscc	%o4, %o1, %o4	! 1
+-	mulscc	%o4, %o1, %o4	! 2
+-	mulscc	%o4, %o1, %o4	! 3
+-	mulscc	%o4, %o1, %o4	! 4
+-	mulscc	%o4, %o1, %o4	! 5
+-	mulscc	%o4, %o1, %o4	! 6
+-	mulscc	%o4, %o1, %o4	! 7
+-	mulscc	%o4, %o1, %o4	! 8
+-	mulscc	%o4, %o1, %o4	! 9
+-	mulscc	%o4, %o1, %o4	! 10
+-	mulscc	%o4, %o1, %o4	! 11
+-	mulscc	%o4, %o1, %o4	! 12
+-	mulscc	%o4, %o1, %o4	! 13
+-	mulscc	%o4, %o1, %o4	! 14
+-	mulscc	%o4, %o1, %o4	! 15
+-	mulscc	%o4, %o1, %o4	! 16
+-	mulscc	%o4, %o1, %o4	! 17
+-	mulscc	%o4, %o1, %o4	! 18
+-	mulscc	%o4, %o1, %o4	! 19
+-	mulscc	%o4, %o1, %o4	! 20
+-	mulscc	%o4, %o1, %o4	! 21
+-	mulscc	%o4, %o1, %o4	! 22
+-	mulscc	%o4, %o1, %o4	! 23
+-	mulscc	%o4, %o1, %o4	! 24
+-	mulscc	%o4, %o1, %o4	! 25
+-	mulscc	%o4, %o1, %o4	! 26
+-	mulscc	%o4, %o1, %o4	! 27
+-	mulscc	%o4, %o1, %o4	! 28
+-	mulscc	%o4, %o1, %o4	! 29
+-	mulscc	%o4, %o1, %o4	! 30
+-	mulscc	%o4, %o1, %o4	! 31
+-	mulscc	%o4, %o1, %o4	! 32
+-	mulscc	%o4, %g0, %o4	! final shift
+ 
+-	! If %o0 was negative, the result is
+-	!	(%o0 * %o1) + (%o1 << 32))
+-	! We fix that here.
+-
+-#if 0
+-	tst	%o0
+-	bge	1f
+-	rd	%y, %o0
+-
+-	! %o0 was indeed negative; fix upper 32 bits of result by subtracting 
+-	! %o1 (i.e., return %o4 - %o1 in %o1).
+-	retl
+-	sub	%o4, %o1, %o1
+-
+-1:
+-	retl
+-	mov	%o4, %o1
+-#else
+-	/* Faster code adapted from tege@sics.se's code for umul.S.  */
+-	sra	%o0, 31, %o2	! make mask from sign bit
+-	and	%o1, %o2, %o2	! %o2 = 0 or %o1, depending on sign of %o0
+-	rd	%y, %o0		! get lower half of product
+-	retl
+-	sub	%o4, %o2, %o1	! subtract compensation 
+-				!  and put upper half in place
++#if 1 // Infrant: Handle unique hardware multiply instruction
++	nop
++	nop
+ #endif
+-
+-LOC(mul_shortway):
+-	/*
+-	 * Short multiply.  12 steps, followed by a final shift step.
+-	 * The resulting bits are off by 12 and (32-12) = 20 bit positions,
+-	 * but there is no problem with %o0 being negative (unlike above).
+-	 */
+-	mulscc	%o4, %o1, %o4	! 1
+-	mulscc	%o4, %o1, %o4	! 2
+-	mulscc	%o4, %o1, %o4	! 3
+-	mulscc	%o4, %o1, %o4	! 4
+-	mulscc	%o4, %o1, %o4	! 5
+-	mulscc	%o4, %o1, %o4	! 6
+-	mulscc	%o4, %o1, %o4	! 7
+-	mulscc	%o4, %o1, %o4	! 8
+-	mulscc	%o4, %o1, %o4	! 9
+-	mulscc	%o4, %o1, %o4	! 10
+-	mulscc	%o4, %o1, %o4	! 11
+-	mulscc	%o4, %o1, %o4	! 12
+-	mulscc	%o4, %g0, %o4	! final shift
+-
+-	/*
+-	 *  %o4 has 20 of the bits that should be in the low part of the
+-	 * result; %y has the bottom 12 (as %y's top 12).  That is:
+-	 *
+-	 *	  %o4		    %y
+-	 * +----------------+----------------+
+-	 * | -12- |   -20-  | -12- |   -20-  |
+-	 * +------(---------+------)---------+
+-	 *  --hi-- ----low-part----
+-	 *
+-	 * The upper 12 bits of %o4 should be sign-extended to form the
+-	 * high part of the product (i.e., highpart = %o4 >> 20).
+-	 */
+-
+-	rd	%y, %o5
+-	sll	%o4, 12, %o0	! shift middle bits left 12
+-	srl	%o5, 20, %o5	! shift low bits right 20, zero fill at left
+-	or	%o5, %o0, %o0	! construct low part of result
++	smul	%o0, %o1, %o0
+ 	retl
+-	sra	%o4, 20, %o1	! ... and extract high part of result
++	 rd	%y, %o1
+ 
+ END(.mul)
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/mul_1.S glibc-2.3.2/sysdeps/sparc/sparc32/mul_1.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/mul_1.S	Sat Jul  7 12:21:29 2001
++++ glibc-2.3.2/sysdeps/sparc/sparc32/mul_1.S	Thu Mar  1 18:24:39 2007
+@@ -1,20 +1,20 @@
+-! SPARC __mpn_mul_1 -- Multiply a limb vector with a limb and store
+-! the result in a second limb vector.
+-!
+-! Copyright (C) 1992, 1993, 1994, 1997 Free Software Foundation, Inc.
+-!
++! SPARC v8 __mpn_mul_1 -- Multiply a limb vector with a single limb and
++! store the product in a second limb vector.
++
++! Copyright (C) 1992, 1994, 1995 Free Software Foundation, Inc.
++
+ ! This file is part of the GNU MP Library.
+-!
++
+ ! The GNU MP Library is free software; you can redistribute it and/or modify
+ ! it under the terms of the GNU Lesser General Public License as published by
+ ! the Free Software Foundation; either version 2.1 of the License, or (at your
+ ! option) any later version.
+-!
++
+ ! The GNU MP Library is distributed in the hope that it will be useful, but
+ ! WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ ! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public
+ ! License for more details.
+-!
++
+ ! You should have received a copy of the GNU Lesser General Public License
+ ! along with the GNU MP Library; see the file COPYING.LIB.  If not, write to
+ ! the Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston,
+@@ -22,178 +22,82 @@
+ 
+ 
+ ! INPUT PARAMETERS
+-! RES_PTR	o0
+-! S1_PTR	o1
+-! SIZE		o2
+-! S2_LIMB	o3
+-
+-! ADD CODE FOR SMALL MULTIPLIERS!
+-!1:	ld
+-!	st
+-!
+-!2:	ld	,a
+-!	addxcc	a,a,x
+-!	st	x,
+-!
+-!3_unrolled:
+-!	ld	,a
+-!	addxcc	a,a,x1		! 2a + cy
+-!	addx	%g0,%g0,x2
+-!	addcc	a,x1,x		! 3a + c
+-!	st	x,
+-!
+-!	ld	,a
+-!	addxcc	a,a,y1
+-!	addx	%g0,%g0,y2
+-!	addcc	a,y1,x
+-!	st	x,
+-!
+-!4_unrolled:
+-!	ld	,a
+-!	srl	a,2,x1		! 4a
+-!	addxcc	y2,x1,x
+-!	sll	a,30,x2
+-!	st	x,
+-!
+-!	ld	,a
+-!	srl	a,2,y1
+-!	addxcc	x2,y1,y
+-!	sll	a,30,y2
+-!	st	x,
+-!
+-!5_unrolled:
+-!	ld	,a
+-!	srl	a,2,x1		! 4a
+-!	addxcc	a,x1,x		! 5a + c
+-!	sll	a,30,x2
+-!	addx	%g0,x2,x2
+-!	st	x,
+-!
+-!	ld	,a
+-!	srl	a,2,y1
+-!	addxcc	a,y1,x
+-!	sll	a,30,y2
+-!	addx	%g0,y2,y2
+-!	st	x,
+-!
+-!8_unrolled:
+-!	ld	,a
+-!	srl	a,3,x1		! 8a
+-!	addxcc	y2,x1,x
+-!	sll	a,29,x2
+-!	st	x,
+-!
+-!	ld	,a
+-!	srl	a,3,y1
+-!	addxcc	x2,y1,y
+-!	sll	a,29,y2
+-!	st	x,
++! res_ptr	o0
++! s1_ptr	o1
++! size		o2
++! s2_limb	o3
+ 
+ #include <sysdep.h>
+ 
+ ENTRY(__mpn_mul_1)
+-	! Make S1_PTR and RES_PTR point at the end of their blocks
+-	! and put (- 4 x SIZE) in index/loop counter.
+-	sll	%o2,2,%o2
+-	add	%o0,%o2,%o4	! RES_PTR in o4 since o0 is retval
+-	add	%o1,%o2,%o1
+-	sub	%g0,%o2,%o2
+-
+-	cmp	%o3,0xfff
+-	bgu	LOC(large)
++	sll	%o2,4,%g1
++	mov	%o7,%g4			! Save return address register
++	and	%g1,(4-1)<<4,%g1
++1:	call	2f
++	 add	%o7,3f-1b,%g3
++2:	mov	%g4,%o7			! Restore return address register
++	jmp	%g3+%g1
++	 ld	[%o1+0],%o4	! 1
++
++	.align	4
++3:
++LOC(00):
++	add	%o0,-4,%o0
++	add	%o1,-4,%o1
++	b	LOC(loop00)		/* 4, 8, 12, ... */
++	 orcc	%g0,%g0,%g2
++LOC(01):
++	b	LOC(loop01)		/* 1, 5, 9, ... */
++	 orcc	%g0,%g0,%g2
+ 	nop
++	nop
++LOC(10):
++	add	%o0,-12,%o0	/* 2, 6, 10, ... */
++	add	%o1,4,%o1
++	b	LOC(loop10)
++	 orcc	%g0,%g0,%g2
++	nop
++LOC(11):
++	add	%o0,-8,%o0	/* 3, 7, 11, ... */
++	add	%o1,-8,%o1
++	b	LOC(loop11)
++	 orcc	%g0,%g0,%g2
+ 
+-	ld	[%o1+%o2],%o5
+-	mov	0,%o0
+-	b	LOC(0)
+-	 add	%o4,-4,%o4
+-LOC(loop0):
+-	st	%g1,[%o4+%o2]
+-LOC(0):	wr	%g0,%o3,%y
+-	sra	%o5,31,%g2
+-	and	%o3,%g2,%g2
+-	andcc	%g1,0,%g1
+-	mulscc	%g1,%o5,%g1
+- 	mulscc	%g1,%o5,%g1
+- 	mulscc	%g1,%o5,%g1
+- 	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,0,%g1
+-	sra	%g1,20,%g4
+-	sll	%g1,12,%g1
+- 	rd	%y,%g3
+-	srl	%g3,20,%g3
+-	or	%g1,%g3,%g1
+-
+-	addcc	%g1,%o0,%g1
+-	addx	%g2,%g4,%o0	! add sign-compensation and cy to hi limb
+-	addcc	%o2,4,%o2	! loop counter
+-	bne,a	LOC(loop0)
+-	 ld	[%o1+%o2],%o5
+-
+-	retl
+-	st	%g1,[%o4+%o2]
+-
+-
+-LOC(large):
+-	ld	[%o1+%o2],%o5
+-	mov	0,%o0
+-	sra	%o3,31,%g4	! g4 = mask of ones iff S2_LIMB < 0
+-	b	LOC(1)
+-	 add	%o4,-4,%o4
+ LOC(loop):
+-	st	%g3,[%o4+%o2]
+-LOC(1):	wr	%g0,%o5,%y
+-	and	%o5,%g4,%g2	! g2 = S1_LIMB iff S2_LIMB < 0, else 0
+-	andcc	%g0,%g0,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%g0,%g1
+-	rd	%y,%g3
+-	addcc	%g3,%o0,%g3
+-	addx	%g2,%g1,%o0	! add sign-compensation and cy to hi limb
+-	addcc	%o2,4,%o2	! loop counter
+-	bne,a	LOC(loop)
+-	 ld	[%o1+%o2],%o5
+-
++	addcc	%g3,%g2,%g3	! 1
++	ld	[%o1+4],%o4	! 2
++	st	%g3,[%o0+0]	! 1
++	rd	%y,%g2		! 1
++LOC(loop00):
++	umul	%o4,%o3,%g3	! 2
++	addxcc	%g3,%g2,%g3	! 2
++	ld	[%o1+8],%o4	! 3
++	st	%g3,[%o0+4]	! 2
++	rd	%y,%g2		! 2
++LOC(loop11):
++	umul	%o4,%o3,%g3	! 3
++	addxcc	%g3,%g2,%g3	! 3
++	ld	[%o1+12],%o4	! 4
++	add	%o1,16,%o1
++	st	%g3,[%o0+8]	! 3
++	rd	%y,%g2		! 3
++LOC(loop10):
++	umul	%o4,%o3,%g3	! 4
++	addxcc	%g3,%g2,%g3	! 4
++	ld	[%o1+0],%o4	! 1
++	st	%g3,[%o0+12]	! 4
++	add	%o0,16,%o0
++	rd	%y,%g2		! 4
++	addx	%g0,%g2,%g2
++LOC(loop01):
++	addcc	%o2,-4,%o2
++	bg	LOC(loop)
++	 umul	%o4,%o3,%g3	! 1
++
++	addcc	%g3,%g2,%g3	! 4
++	st	%g3,[%o0+0]	! 4
++	rd	%y,%g2		! 4
+ 	retl
+-	st	%g3,[%o4+%o2]
++	 addx	%g0,%g2,%o0
+ 
+ END(__mpn_mul_1)
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/rem.S glibc-2.3.2/sysdeps/sparc/sparc32/rem.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/rem.S	Sun Aug 24 03:47:43 1997
++++ glibc-2.3.2/sysdeps/sparc/sparc32/rem.S	Thu Mar  1 18:24:39 2007
+@@ -1,363 +1,52 @@
+-   /* This file is generated from divrem.m4; DO NOT EDIT! */
+ /*
+- * Division and remainder, from Appendix E of the Sparc Version 8
+- * Architecture Manual, with fixes from Gordon Irlam.
++ * Sparc v8 has divide.
+  */
+ 
+-/*
+- * Input: dividend and divisor in %o0 and %o1 respectively.
+- *
+- * m4 parameters:
+- *  .rem	name of function to generate
+- *  rem		rem=div => %o0 / %o1; rem=rem => %o0 % %o1
+- *  true		true=true => signed; true=false => unsigned
+- *
+- * Algorithm parameters:
+- *  N		how many bits per iteration we try to get (4)
+- *  WORDSIZE	total number of bits (32)
+- *
+- * Derived constants:
+- *  TOPBITS	number of bits in the top decade of a number
+- *
+- * Important variables:
+- *  Q		the partial quotient under development (initially 0)
+- *  R		the remainder so far, initially the dividend
+- *  ITER	number of main division loop iterations required;
+- *		equal to ceil(log2(quotient) / N).  Note that this
+- *		is the log base (2^N) of the quotient.
+- *  V		the current comparand, initially divisor*2^(ITER*N-1)
+- *
+- * Cost:
+- *  Current estimate for non-large dividend is
+- *	ceil(log2(quotient) / N) * (10 + 7N/2) + C
+- *  A large dividend is one greater than 2^(31-TOPBITS) and takes a
+- *  different path, as the upper bits of the quotient must be developed
+- *  one bit at a time.
+- */
+-
+-
+-
+ #include <sysdep.h>
+-#include <sys/trap.h>
+ 
+ ENTRY(.rem)
+-	! compute sign of result; if neither is negative, no problem
+-	orcc	%o1, %o0, %g0	! either negative?
+-	bge	2f			! no, go do the divide
+-	mov	%o0, %g3		! sign of remainder matches %o0
+-	tst	%o1
+-	bge	1f
+-	tst	%o0
+-	! %o1 is definitely negative; %o0 might also be negative
+-	bge	2f			! if %o0 not negative...
+-	sub	%g0, %o1, %o1	! in any case, make %o1 nonneg
+-1:	! %o0 is negative, %o1 is nonnegative
+-	sub	%g0, %o0, %o0	! make %o0 nonnegative
+-2:
+-
+-	! Ready to divide.  Compute size of quotient; scale comparand.
+-	orcc	%o1, %g0, %o5
+-	bne	1f
+-	mov	%o0, %o3
+-
+-		! Divide by zero trap.  If it returns, return 0 (about as
+-		! wrong as possible, but that is what SunOS does...).
+-		ta	ST_DIV0
+-		retl
+-		clr	%o0
+-
+-1:
+-	cmp	%o3, %o5			! if %o1 exceeds %o0, done
+-	blu	LOC(got_result)		! (and algorithm fails otherwise)
+-	clr	%o2
+-	sethi	%hi(1 << (32 - 4 - 1)), %g1
+-	cmp	%o3, %g1
+-	blu	LOC(not_really_big)
+-	clr	%o4
+-
+-	! Here the dividend is >= 2**(31-N) or so.  We must be careful here,
+-	! as our usual N-at-a-shot divide step will cause overflow and havoc.
+-	! The number of bits in the result here is N*ITER+SC, where SC <= N.
+-	! Compute ITER in an unorthodox manner: know we need to shift V into
+-	! the top decade: so do not even bother to compare to R.
+-	1:
+-		cmp	%o5, %g1
+-		bgeu	3f
+-		mov	1, %g2
+-		sll	%o5, 4, %o5
+-		b	1b
+-		add	%o4, 1, %o4
+-
+-	! Now compute %g2.
+-	2:	addcc	%o5, %o5, %o5
+-		bcc	LOC(not_too_big)
+-		add	%g2, 1, %g2
+-
+-		! We get here if the %o1 overflowed while shifting.
+-		! This means that %o3 has the high-order bit set.
+-		! Restore %o5 and subtract from %o3.
+-		sll	%g1, 4, %g1	! high order bit
+-		srl	%o5, 1, %o5		! rest of %o5
+-		add	%o5, %g1, %o5
+-		b	LOC(do_single_div)
+-		sub	%g2, 1, %g2
+-
+-	LOC(not_too_big):
+-	3:	cmp	%o5, %o3
+-		blu	2b
+-		nop
+-		be	LOC(do_single_div)
+-		nop
+-	/* NB: these are commented out in the V8-Sparc manual as well */
+-	/* (I do not understand this) */
+-	! %o5 > %o3: went too far: back up 1 step
+-	!	srl	%o5, 1, %o5
+-	!	dec	%g2
+-	! do single-bit divide steps
+-	!
+-	! We have to be careful here.  We know that %o3 >= %o5, so we can do the
+-	! first divide step without thinking.  BUT, the others are conditional,
+-	! and are only done if %o3 >= 0.  Because both %o3 and %o5 may have the high-
+-	! order bit set in the first step, just falling into the regular
+-	! division loop will mess up the first time around.
+-	! So we unroll slightly...
+-	LOC(do_single_div):
+-		subcc	%g2, 1, %g2
+-		bl	LOC(end_regular_divide)
+-		nop
+-		sub	%o3, %o5, %o3
+-		mov	1, %o2
+-		b	LOC(end_single_divloop)
+-		nop
+-	LOC(single_divloop):
+-		sll	%o2, 1, %o2
+-		bl	1f
+-		srl	%o5, 1, %o5
+-		! %o3 >= 0
+-		sub	%o3, %o5, %o3
+-		b	2f
+-		add	%o2, 1, %o2
+-	1:	! %o3 < 0
+-		add	%o3, %o5, %o3
+-		sub	%o2, 1, %o2
+-	2:
+-	LOC(end_single_divloop):
+-		subcc	%g2, 1, %g2
+-		bge	LOC(single_divloop)
+-		tst	%o3
+-		b,a	LOC(end_regular_divide)
+-
+-LOC(not_really_big):
+-1:
+-	sll	%o5, 4, %o5
+-	cmp	%o5, %o3
+-	bleu	1b
+-	addcc	%o4, 1, %o4
+-	be	LOC(got_result)
+-	sub	%o4, 1, %o4
+-
+-	tst	%o3	! set up for initial iteration
+-LOC(divloop):
+-	sll	%o2, 4, %o2
+-		! depth 1, accumulated bits 0
+-	bl	LOC(1.16)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 2, accumulated bits 1
+-	bl	LOC(2.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits 3
+-	bl	LOC(3.19)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 7
+-	bl	LOC(4.23)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (7*2+1), %o2
+-	
+-LOC(4.23):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (7*2-1), %o2
+-	
+-	
+-LOC(3.19):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 5
+-	bl	LOC(4.21)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (5*2+1), %o2
+-	
+-LOC(4.21):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (5*2-1), %o2
+-	
+-	
+-	
+-LOC(2.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits 1
+-	bl	LOC(3.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 3
+-	bl	LOC(4.19)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (3*2+1), %o2
+-	
+-LOC(4.19):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (3*2-1), %o2
+-	
+-	
+-LOC(3.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 1
+-	bl	LOC(4.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (1*2+1), %o2
+-	
+-LOC(4.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (1*2-1), %o2
+-	
+-	
+-	
+-	
+-LOC(1.16):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 2, accumulated bits -1
+-	bl	LOC(2.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits -1
+-	bl	LOC(3.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -1
+-	bl	LOC(4.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-1*2+1), %o2
+-	
+-LOC(4.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-1*2-1), %o2
+-	
+-	
+-LOC(3.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -3
+-	bl	LOC(4.13)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-3*2+1), %o2
+-	
+-LOC(4.13):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-3*2-1), %o2
+-	
+-	
+-	
+-LOC(2.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits -3
+-	bl	LOC(3.13)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -5
+-	bl	LOC(4.11)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-5*2+1), %o2
+-	
+-LOC(4.11):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-5*2-1), %o2
+-	
+-	
+-LOC(3.13):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -7
+-	bl	LOC(4.9)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-7*2+1), %o2
+-	
+-LOC(4.9):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-7*2-1), %o2
+-	
+-	
+-	
+-	
+-	9:
+-LOC(end_regular_divide):
+-	subcc	%o4, 1, %o4
+-	bge	LOC(divloop)
+-	tst	%o3
+-	bl,a	LOC(got_result)
+-	! non-restoring fixup here (one instruction only!)
+-	add	%o3, %o1, %o3
++#if 1 // Infrant: Handle unique hardware divide instruction
++	cmp	%o0, 0
++	bl,a	2f
++	 neg	%o0, %o0
++#endif
++	sra	%o0, 31, %o2
++	wr	%o2, 0, %y
++	nop
++	nop
++	nop
++	sdivcc	%o0, %o1, %o2
++	bvs,a	1f
++	 xnor	%o2, %g0, %o2
++1:	smul	%o2, %o1, %o2
++	retl
++	 sub	%o0, %o2, %o0
+ 
++#if 1 // Infrant: Handle unique hardware divide instruction
++2:
++	cmp	%o1, 0
++	bl	3f
++	 wr	%g0, 0, %y
++
++	! neg%pos
++	nop
++	nop
++	nop
++	udiv	%o0, %o1, %o2
++	umul	%o2, %o1, %o2
++	retl
++	 sub	%o2, %o0, %o0
+ 
+-LOC(got_result):
+-	! check to see if answer should be < 0
+-	tst	%g3
+-	bl,a	1f
+-	sub %g0, %o3, %o3
+-1:
++3:
++	! neg%neg
++	neg	%o1, %o1
++	nop				! dont delete these two nops
++	nop
++	udiv	%o0, %o1, %o2
++	umul	%o2, %o1, %o2
++	sub	%o0, %o2, %o0
+ 	retl
+-	mov %o3, %o0
++	 neg	%o0, %o0
++#endif
+ 
+ END(.rem)
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/sdiv.S glibc-2.3.2/sysdeps/sparc/sparc32/sdiv.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/sdiv.S	Sun Aug 24 03:47:44 1997
++++ glibc-2.3.2/sysdeps/sparc/sparc32/sdiv.S	Thu Mar  1 18:24:39 2007
+@@ -1,363 +1,45 @@
+-   /* This file is generated from divrem.m4; DO NOT EDIT! */
+ /*
+- * Division and remainder, from Appendix E of the Sparc Version 8
+- * Architecture Manual, with fixes from Gordon Irlam.
++ * Sparc v8 has divide.
+  */
+ 
+-/*
+- * Input: dividend and divisor in %o0 and %o1 respectively.
+- *
+- * m4 parameters:
+- *  .div	name of function to generate
+- *  div		div=div => %o0 / %o1; div=rem => %o0 % %o1
+- *  true		true=true => signed; true=false => unsigned
+- *
+- * Algorithm parameters:
+- *  N		how many bits per iteration we try to get (4)
+- *  WORDSIZE	total number of bits (32)
+- *
+- * Derived constants:
+- *  TOPBITS	number of bits in the top decade of a number
+- *
+- * Important variables:
+- *  Q		the partial quotient under development (initially 0)
+- *  R		the remainder so far, initially the dividend
+- *  ITER	number of main division loop iterations required;
+- *		equal to ceil(log2(quotient) / N).  Note that this
+- *		is the log base (2^N) of the quotient.
+- *  V		the current comparand, initially divisor*2^(ITER*N-1)
+- *
+- * Cost:
+- *  Current estimate for non-large dividend is
+- *	ceil(log2(quotient) / N) * (10 + 7N/2) + C
+- *  A large dividend is one greater than 2^(31-TOPBITS) and takes a
+- *  different path, as the upper bits of the quotient must be developed
+- *  one bit at a time.
+- */
+-
+-
+-
+ #include <sysdep.h>
+-#include <sys/trap.h>
+ 
+ ENTRY(.div)
+-	! compute sign of result; if neither is negative, no problem
+-	orcc	%o1, %o0, %g0	! either negative?
+-	bge	2f			! no, go do the divide
+-	xor	%o1, %o0, %g3	! compute sign in any case
+-	tst	%o1
+-	bge	1f
+-	tst	%o0
+-	! %o1 is definitely negative; %o0 might also be negative
+-	bge	2f			! if %o0 not negative...
+-	sub	%g0, %o1, %o1	! in any case, make %o1 nonneg
+-1:	! %o0 is negative, %o1 is nonnegative
+-	sub	%g0, %o0, %o0	! make %o0 nonnegative
+-2:
+-
+-	! Ready to divide.  Compute size of quotient; scale comparand.
+-	orcc	%o1, %g0, %o5
+-	bne	1f
+-	mov	%o0, %o3
+-
+-		! Divide by zero trap.  If it returns, return 0 (about as
+-		! wrong as possible, but that is what SunOS does...).
+-		ta	ST_DIV0
+-		retl
+-		clr	%o0
+-
+-1:
+-	cmp	%o3, %o5			! if %o1 exceeds %o0, done
+-	blu	LOC(got_result)		! (and algorithm fails otherwise)
+-	clr	%o2
+-	sethi	%hi(1 << (32 - 4 - 1)), %g1
+-	cmp	%o3, %g1
+-	blu	LOC(not_really_big)
+-	clr	%o4
+-
+-	! Here the dividend is >= 2**(31-N) or so.  We must be careful here,
+-	! as our usual N-at-a-shot divide step will cause overflow and havoc.
+-	! The number of bits in the result here is N*ITER+SC, where SC <= N.
+-	! Compute ITER in an unorthodox manner: know we need to shift V into
+-	! the top decade: so do not even bother to compare to R.
+-	1:
+-		cmp	%o5, %g1
+-		bgeu	3f
+-		mov	1, %g2
+-		sll	%o5, 4, %o5
+-		b	1b
+-		add	%o4, 1, %o4
+-
+-	! Now compute %g2.
+-	2:	addcc	%o5, %o5, %o5
+-		bcc	LOC(not_too_big)
+-		add	%g2, 1, %g2
+-
+-		! We get here if the %o1 overflowed while shifting.
+-		! This means that %o3 has the high-order bit set.
+-		! Restore %o5 and subtract from %o3.
+-		sll	%g1, 4, %g1	! high order bit
+-		srl	%o5, 1, %o5		! rest of %o5
+-		add	%o5, %g1, %o5
+-		b	LOC(do_single_div)
+-		sub	%g2, 1, %g2
+-
+-	LOC(not_too_big):
+-	3:	cmp	%o5, %o3
+-		blu	2b
+-		nop
+-		be	LOC(do_single_div)
+-		nop
+-	/* NB: these are commented out in the V8-Sparc manual as well */
+-	/* (I do not understand this) */
+-	! %o5 > %o3: went too far: back up 1 step
+-	!	srl	%o5, 1, %o5
+-	!	dec	%g2
+-	! do single-bit divide steps
+-	!
+-	! We have to be careful here.  We know that %o3 >= %o5, so we can do the
+-	! first divide step without thinking.  BUT, the others are conditional,
+-	! and are only done if %o3 >= 0.  Because both %o3 and %o5 may have the high-
+-	! order bit set in the first step, just falling into the regular
+-	! division loop will mess up the first time around.
+-	! So we unroll slightly...
+-	LOC(do_single_div):
+-		subcc	%g2, 1, %g2
+-		bl	LOC(end_regular_divide)
+-		nop
+-		sub	%o3, %o5, %o3
+-		mov	1, %o2
+-		b	LOC(end_single_divloop)
+-		nop
+-	LOC(single_divloop):
+-		sll	%o2, 1, %o2
+-		bl	1f
+-		srl	%o5, 1, %o5
+-		! %o3 >= 0
+-		sub	%o3, %o5, %o3
+-		b	2f
+-		add	%o2, 1, %o2
+-	1:	! %o3 < 0
+-		add	%o3, %o5, %o3
+-		sub	%o2, 1, %o2
+-	2:
+-	LOC(end_single_divloop):
+-		subcc	%g2, 1, %g2
+-		bge	LOC(single_divloop)
+-		tst	%o3
+-		b,a	LOC(end_regular_divide)
+-
+-LOC(not_really_big):
+-1:
+-	sll	%o5, 4, %o5
+-	cmp	%o5, %o3
+-	bleu	1b
+-	addcc	%o4, 1, %o4
+-	be	LOC(got_result)
+-	sub	%o4, 1, %o4
+-
+-	tst	%o3	! set up for initial iteration
+-LOC(divloop):
+-	sll	%o2, 4, %o2
+-		! depth 1, accumulated bits 0
+-	bl	LOC(1.16)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 2, accumulated bits 1
+-	bl	LOC(2.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits 3
+-	bl	LOC(3.19)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 7
+-	bl	LOC(4.23)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (7*2+1), %o2
+-	
+-LOC(4.23):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (7*2-1), %o2
+-	
+-	
+-LOC(3.19):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 5
+-	bl	LOC(4.21)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (5*2+1), %o2
+-	
+-LOC(4.21):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (5*2-1), %o2
+-	
+-	
+-	
+-LOC(2.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits 1
+-	bl	LOC(3.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 3
+-	bl	LOC(4.19)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (3*2+1), %o2
+-	
+-LOC(4.19):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (3*2-1), %o2
+-	
+-	
+-LOC(3.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 1
+-	bl	LOC(4.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (1*2+1), %o2
+-	
+-LOC(4.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (1*2-1), %o2
+-	
+-	
+-	
+-	
+-LOC(1.16):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 2, accumulated bits -1
+-	bl	LOC(2.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits -1
+-	bl	LOC(3.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -1
+-	bl	LOC(4.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-1*2+1), %o2
+-	
+-LOC(4.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-1*2-1), %o2
+-	
+-	
+-LOC(3.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -3
+-	bl	LOC(4.13)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-3*2+1), %o2
+-	
+-LOC(4.13):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-3*2-1), %o2
+-	
+-	
+-	
+-LOC(2.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits -3
+-	bl	LOC(3.13)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -5
+-	bl	LOC(4.11)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-5*2+1), %o2
+-	
+-LOC(4.11):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-5*2-1), %o2
+-	
+-	
+-LOC(3.13):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -7
+-	bl	LOC(4.9)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-7*2+1), %o2
+-	
+-LOC(4.9):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-7*2-1), %o2
+-	
+-	
+-	
+-	
+-	9:
+-LOC(end_regular_divide):
+-	subcc	%o4, 1, %o4
+-	bge	LOC(divloop)
+-	tst	%o3
+-	bl,a	LOC(got_result)
+-	! non-restoring fixup here (one instruction only!)
+-	sub	%o2, 1, %o2
+ 
++#if 1 // Infrant: Handle unique hardware divide instruction
++	cmp	%o0, 0
++	bl,a	2f
++	 sub	%g0, %o0, %o0
++#endif
++	sra	%o0, 31, %o2
++	wr	%o2, 0, %y
++	nop
++	nop
++	nop
++	sdivcc	%o0, %o1, %o0
++	bvs,a	1f
++	 xnor	%o0, %g0, %o0
++1:	retl
++	 nop
++#if 1 // Infrant: Handle unique hardware divide instruction
++2:
++	cmp	%o1, %g0
++	bl	3f
++	wr	%g0, 0x0, %y
++	nop
++	nop
++	nop
++	udiv %o0, %o1, %o0
++	retl
++	 sub %g0, %o0, %o0
+ 
+-LOC(got_result):
+-	! check to see if answer should be < 0
+-	tst	%g3
+-	bl,a	1f
+-	sub %g0, %o2, %o2
+-1:
++3:
++	sub %g0, %o1, %o1
++	nop
++	nop
++	udiv %o0, %o1, %o0
+ 	retl
+-	mov %o2, %o0
++	 sub %g0, %o1, %o1
++#endif
+ 
+ END(.div)
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/Makefile glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/Makefile
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/Makefile	Mon Jul 26 20:55:14 1999
++++ glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/Makefile	Thu Mar  1 15:12:26 2007
+@@ -1 +1 @@
+-sysdep-CFLAGS += -mcpu=v8
++sysdep-CFLAGS += -mcpu=v7
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/dotmul.S glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/dotmul.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/dotmul.S	Sun Aug 24 03:50:32 1997
++++ glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/dotmul.S	Thu Mar  1 18:20:27 2007
+@@ -6,6 +6,10 @@
+ 
+ ENTRY(.mul)
+ 
++#if 1 // Infrant: Handle unique hardware multiply instruction
++	nop
++	nop
++#endif
+ 	smul	%o0, %o1, %o0
+ 	retl
+ 	 rd	%y, %o1
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/rem.S glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/rem.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/rem.S	Tue Mar 30 20:59:16 1999
++++ glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/rem.S	Thu Mar  1 18:23:00 2007
+@@ -5,7 +5,11 @@
+ #include <sysdep.h>
+ 
+ ENTRY(.rem)
+-
++#if 1 // Infrant: Handle unique hardware divide instruction
++	cmp	%o0, 0
++	bl,a	2f
++	 neg	%o0, %o0
++#endif
+ 	sra	%o0, 31, %o2
+ 	wr	%o2, 0, %y
+ 	nop
+@@ -17,5 +21,32 @@
+ 1:	smul	%o2, %o1, %o2
+ 	retl
+ 	 sub	%o0, %o2, %o0
++
++#if 1 // Infrant: Handle unique hardware divide instruction
++2:
++	cmp	%o1, 0
++	bl	3f
++	 wr	%g0, 0, %y
++
++	! neg%pos
++	nop
++	nop
++	nop
++	udiv	%o0, %o1, %o2
++	umul	%o2, %o1, %o2
++	retl
++	 sub	%o2, %o0, %o0
++
++3:
++	! neg%neg
++	neg	%o1, %o1
++	nop				! dont delete these two nops
++	nop
++	udiv	%o0, %o1, %o2
++	umul	%o2, %o1, %o2
++	sub	%o0, %o2, %o0
++	retl
++	 neg	%o0, %o0
++#endif
+ 
+ END(.rem)
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/sdiv.S glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/sdiv.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/sdiv.S	Tue Mar 30 20:59:16 1999
++++ glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/sdiv.S	Thu Mar  1 18:23:21 2007
+@@ -6,6 +6,11 @@
+ 
+ ENTRY(.div)
+ 
++#if 1 // Infrant: Handle unique hardware divide instruction
++	cmp	%o0, 0
++	bl,a	2f
++	 sub	%g0, %o0, %o0
++#endif
+ 	sra	%o0, 31, %o2
+ 	wr	%o2, 0, %y
+ 	nop
+@@ -16,5 +21,25 @@
+ 	 xnor	%o0, %g0, %o0
+ 1:	retl
+ 	 nop
++#if 1 // Infrant: Handle unique hardware divide instruction
++2:
++	cmp	%o1, %g0
++	bl	3f
++	wr	%g0, 0x0, %y
++	nop
++	nop
++	nop
++	udiv %o0, %o1, %o0
++	retl
++	 sub %g0, %o0, %o0
++
++3:
++	sub %g0, %o1, %o1
++	nop
++	nop
++	udiv %o0, %o1, %o0
++	retl
++	 sub %g0, %o1, %o1
++#endif
+ 
+ END(.div)
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/submul_1.S glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/submul_1.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/submul_1.S	Sat Jul  7 12:21:29 2001
++++ glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/submul_1.S	Thu Mar  1 18:22:43 2007
+@@ -40,6 +40,10 @@
+ LOC(loop):
+ 	ld	[%o1+%o2],%o4
+ 	ld	[%g1+%o2],%g2
++#if 1 // Infrant: Handle unique hardware multiply instruction
++	nop
++	nop
++#endif
+ 	umul	%o4,%o3,%o5
+ 	rd	%y,%g3
+ 	addcc	%o5,%o0,%o5
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/umul.S glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/umul.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/sparcv8/umul.S	Sun Aug 24 03:50:32 1997
++++ glibc-2.3.2/sysdeps/sparc/sparc32/sparcv8/umul.S	Thu Mar  1 18:24:05 2007
+@@ -6,6 +6,10 @@
+ 
+ ENTRY(.umul)
+ 
++#if 1 // Infrant: Handle unique hardware multiply instruction
++	nop
++	nop
++#endif
+ 	umul	%o0, %o1, %o0
+ 	retl
+ 	 rd	%y, %o1
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/submul_1.S glibc-2.3.2/sysdeps/sparc/sparc32/submul_1.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/submul_1.S	Sat Jul  7 12:21:29 2001
++++ glibc-2.3.2/sysdeps/sparc/sparc32/submul_1.S	Thu Mar  1 18:24:39 2007
+@@ -1,20 +1,20 @@
+-! SPARC __mpn_submul_1 -- Multiply a limb vector with a limb and subtract
+-! the result from a second limb vector.
+-!
+-! Copyright (C) 1992, 1993, 1994, 1997 Free Software Foundation, Inc.
+-!
++! SPARC v8 __mpn_submul_1 -- Multiply a limb vector with a limb and
++! subtract the result from a second limb vector.
++
++! Copyright (C) 1992, 1993, 1994 Free Software Foundation, Inc.
++
+ ! This file is part of the GNU MP Library.
+-!
++
+ ! The GNU MP Library is free software; you can redistribute it and/or modify
+ ! it under the terms of the GNU Lesser General Public License as published by
+ ! the Free Software Foundation; either version 2.1 of the License, or (at your
+ ! option) any later version.
+-!
++
+ ! The GNU MP Library is distributed in the hope that it will be useful, but
+ ! WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ ! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public
+ ! License for more details.
+-!
++
+ ! You should have received a copy of the GNU Lesser General Public License
+ ! along with the GNU MP Library; see the file COPYING.LIB.  If not, write to
+ ! the Free Software Foundation, Inc., 59 Temple Place - Suite 330, Boston,
+@@ -22,126 +22,41 @@
+ 
+ 
+ ! INPUT PARAMETERS
+-! RES_PTR	o0
+-! S1_PTR	o1
+-! SIZE		o2
+-! S2_LIMB	o3
++! res_ptr	o0
++! s1_ptr	o1
++! size		o2
++! s2_limb	o3
+ 
+ #include <sysdep.h>
+ 
+ ENTRY(__mpn_submul_1)
+-	! Make S1_PTR and RES_PTR point at the end of their blocks
+-	! and put (- 4 x SIZE) in index/loop counter.
+-	sll	%o2,2,%o2
+-	add	%o0,%o2,%o4	! RES_PTR in o4 since o0 is retval
+-	add	%o1,%o2,%o1
+-	sub	%g0,%o2,%o2
+-
+-	cmp	%o3,0xfff
+-	bgu	LOC(large)
+-	nop
++	sub	%g0,%o2,%o2		! negate ...
++	sll	%o2,2,%o2		! ... and scale size
++	sub	%o1,%o2,%o1		! o1 is offset s1_ptr
++	sub	%o0,%o2,%g1		! g1 is offset res_ptr
+ 
+-	ld	[%o1+%o2],%o5
+-	mov	0,%o0
+-	b	LOC(0)
+-	 add	%o4,-4,%o4
+-LOC(loop0):
+-	subcc	%o5,%g1,%g1
+-	ld	[%o1+%o2],%o5
+-	addx	%o0,%g0,%o0
+-	st	%g1,[%o4+%o2]
+-LOC(0):	wr	%g0,%o3,%y
+-	sra	%o5,31,%g2
+-	and	%o3,%g2,%g2
+-	andcc	%g1,0,%g1
+-	mulscc	%g1,%o5,%g1
+- 	mulscc	%g1,%o5,%g1
+- 	mulscc	%g1,%o5,%g1
+- 	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,%o5,%g1
+-	mulscc	%g1,0,%g1
+-	sra	%g1,20,%g4
+-	sll	%g1,12,%g1
+- 	rd	%y,%g3
+-	srl	%g3,20,%g3
+-	or	%g1,%g3,%g1
+-
+-	addcc	%g1,%o0,%g1
+-	addx	%g2,%g4,%o0	! add sign-compensation and cy to hi limb
+-	addcc	%o2,4,%o2	! loop counter
+-	bne	LOC(loop0)
+-	 ld	[%o4+%o2],%o5
++	mov	0,%o0			! clear cy_limb
+ 
+-	subcc	%o5,%g1,%g1
+-	addx	%o0,%g0,%o0
+-	retl
+-	st	%g1,[%o4+%o2]
+-
+-
+-LOC(large):
+-	ld	[%o1+%o2],%o5
+-	mov	0,%o0
+-	sra	%o3,31,%g4	! g4 = mask of ones iff S2_LIMB < 0
+-	b	LOC(1)
+-	 add	%o4,-4,%o4
+ LOC(loop):
+-	subcc	%o5,%g3,%g3
+-	ld	[%o1+%o2],%o5
+-	addx	%o0,%g0,%o0
+-	st	%g3,[%o4+%o2]
+-LOC(1):	wr	%g0,%o5,%y
+-	and	%o5,%g4,%g2
+-	andcc	%g0,%g0,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%o3,%g1
+-	mulscc	%g1,%g0,%g1
++	ld	[%o1+%o2],%o4
++	ld	[%g1+%o2],%g2
++#if 1 // Infrant: Handle unique hardware multiply instruction
++	nop
++	nop
++#endif
++	umul	%o4,%o3,%o5
+ 	rd	%y,%g3
+-	addcc	%g3,%o0,%g3
+-	addx	%g2,%g1,%o0
++	addcc	%o5,%o0,%o5
++	addx	%g3,0,%o0
++	subcc	%g2,%o5,%g2
++	addx	%o0,0,%o0
++	st	%g2,[%g1+%o2]
++
+ 	addcc	%o2,4,%o2
+ 	bne	LOC(loop)
+-	 ld	[%o4+%o2],%o5
++	 nop
+ 
+-	subcc	%o5,%g3,%g3
+-	addx	%o0,%g0,%o0
+ 	retl
+-	st	%g3,[%o4+%o2]
++	 nop
+ 
+ END(__mpn_submul_1)
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/udiv.S glibc-2.3.2/sysdeps/sparc/sparc32/udiv.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/udiv.S	Sun Aug 24 03:47:44 1997
++++ glibc-2.3.2/sysdeps/sparc/sparc32/udiv.S	Thu Mar  1 18:24:39 2007
+@@ -1,346 +1,15 @@
+-   /* This file is generated from divrem.m4; DO NOT EDIT! */
+ /*
+- * Division and remainder, from Appendix E of the Sparc Version 8
+- * Architecture Manual, with fixes from Gordon Irlam.
++ * Sparc v8 has divide.
+  */
+ 
+-/*
+- * Input: dividend and divisor in %o0 and %o1 respectively.
+- *
+- * m4 parameters:
+- *  .udiv	name of function to generate
+- *  div		div=div => %o0 / %o1; div=rem => %o0 % %o1
+- *  false		false=true => signed; false=false => unsigned
+- *
+- * Algorithm parameters:
+- *  N		how many bits per iteration we try to get (4)
+- *  WORDSIZE	total number of bits (32)
+- *
+- * Derived constants:
+- *  TOPBITS	number of bits in the top decade of a number
+- *
+- * Important variables:
+- *  Q		the partial quotient under development (initially 0)
+- *  R		the remainder so far, initially the dividend
+- *  ITER	number of main division loop iterations required;
+- *		equal to ceil(log2(quotient) / N).  Note that this
+- *		is the log base (2^N) of the quotient.
+- *  V		the current comparand, initially divisor*2^(ITER*N-1)
+- *
+- * Cost:
+- *  Current estimate for non-large dividend is
+- *	ceil(log2(quotient) / N) * (10 + 7N/2) + C
+- *  A large dividend is one greater than 2^(31-TOPBITS) and takes a
+- *  different path, as the upper bits of the quotient must be developed
+- *  one bit at a time.
+- */
+-
+-
+-
+ #include <sysdep.h>
+-#include <sys/trap.h>
+ 
+ ENTRY(.udiv)
+ 
+-	! Ready to divide.  Compute size of quotient; scale comparand.
+-	orcc	%o1, %g0, %o5
+-	bne	1f
+-	mov	%o0, %o3
+-
+-		! Divide by zero trap.  If it returns, return 0 (about as
+-		! wrong as possible, but that is what SunOS does...).
+-		ta	ST_DIV0
+-		retl
+-		clr	%o0
+-
+-1:
+-	cmp	%o3, %o5			! if %o1 exceeds %o0, done
+-	blu	LOC(got_result)		! (and algorithm fails otherwise)
+-	clr	%o2
+-	sethi	%hi(1 << (32 - 4 - 1)), %g1
+-	cmp	%o3, %g1
+-	blu	LOC(not_really_big)
+-	clr	%o4
+-
+-	! Here the dividend is >= 2**(31-N) or so.  We must be careful here,
+-	! as our usual N-at-a-shot divide step will cause overflow and havoc.
+-	! The number of bits in the result here is N*ITER+SC, where SC <= N.
+-	! Compute ITER in an unorthodox manner: know we need to shift V into
+-	! the top decade: so do not even bother to compare to R.
+-	1:
+-		cmp	%o5, %g1
+-		bgeu	3f
+-		mov	1, %g2
+-		sll	%o5, 4, %o5
+-		b	1b
+-		add	%o4, 1, %o4
+-
+-	! Now compute %g2.
+-	2:	addcc	%o5, %o5, %o5
+-		bcc	LOC(not_too_big)
+-		add	%g2, 1, %g2
+-
+-		! We get here if the %o1 overflowed while shifting.
+-		! This means that %o3 has the high-order bit set.
+-		! Restore %o5 and subtract from %o3.
+-		sll	%g1, 4, %g1	! high order bit
+-		srl	%o5, 1, %o5		! rest of %o5
+-		add	%o5, %g1, %o5
+-		b	LOC(do_single_div)
+-		sub	%g2, 1, %g2
+-
+-	LOC(not_too_big):
+-	3:	cmp	%o5, %o3
+-		blu	2b
+-		nop
+-		be	LOC(do_single_div)
+-		nop
+-	/* NB: these are commented out in the V8-Sparc manual as well */
+-	/* (I do not understand this) */
+-	! %o5 > %o3: went too far: back up 1 step
+-	!	srl	%o5, 1, %o5
+-	!	dec	%g2
+-	! do single-bit divide steps
+-	!
+-	! We have to be careful here.  We know that %o3 >= %o5, so we can do the
+-	! first divide step without thinking.  BUT, the others are conditional,
+-	! and are only done if %o3 >= 0.  Because both %o3 and %o5 may have the high-
+-	! order bit set in the first step, just falling into the regular
+-	! division loop will mess up the first time around.
+-	! So we unroll slightly...
+-	LOC(do_single_div):
+-		subcc	%g2, 1, %g2
+-		bl	LOC(end_regular_divide)
+-		nop
+-		sub	%o3, %o5, %o3
+-		mov	1, %o2
+-		b	LOC(end_single_divloop)
+-		nop
+-	LOC(single_divloop):
+-		sll	%o2, 1, %o2
+-		bl	1f
+-		srl	%o5, 1, %o5
+-		! %o3 >= 0
+-		sub	%o3, %o5, %o3
+-		b	2f
+-		add	%o2, 1, %o2
+-	1:	! %o3 < 0
+-		add	%o3, %o5, %o3
+-		sub	%o2, 1, %o2
+-	2:
+-	LOC(end_single_divloop):
+-		subcc	%g2, 1, %g2
+-		bge	LOC(single_divloop)
+-		tst	%o3
+-		b,a	LOC(end_regular_divide)
+-
+-LOC(not_really_big):
+-1:
+-	sll	%o5, 4, %o5
+-	cmp	%o5, %o3
+-	bleu	1b
+-	addcc	%o4, 1, %o4
+-	be	LOC(got_result)
+-	sub	%o4, 1, %o4
+-
+-	tst	%o3	! set up for initial iteration
+-LOC(divloop):
+-	sll	%o2, 4, %o2
+-		! depth 1, accumulated bits 0
+-	bl	LOC(1.16)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 2, accumulated bits 1
+-	bl	LOC(2.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits 3
+-	bl	LOC(3.19)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 7
+-	bl	LOC(4.23)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (7*2+1), %o2
+-	
+-LOC(4.23):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (7*2-1), %o2
+-	
+-	
+-LOC(3.19):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 5
+-	bl	LOC(4.21)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (5*2+1), %o2
+-	
+-LOC(4.21):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (5*2-1), %o2
+-	
+-	
+-	
+-LOC(2.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits 1
+-	bl	LOC(3.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 3
+-	bl	LOC(4.19)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (3*2+1), %o2
+-	
+-LOC(4.19):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (3*2-1), %o2
+-	
+-	
+-LOC(3.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 1
+-	bl	LOC(4.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (1*2+1), %o2
+-	
+-LOC(4.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (1*2-1), %o2
+-	
+-	
+-	
+-	
+-LOC(1.16):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 2, accumulated bits -1
+-	bl	LOC(2.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits -1
+-	bl	LOC(3.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -1
+-	bl	LOC(4.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-1*2+1), %o2
+-	
+-LOC(4.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-1*2-1), %o2
+-	
+-	
+-LOC(3.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -3
+-	bl	LOC(4.13)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-3*2+1), %o2
+-	
+-LOC(4.13):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-3*2-1), %o2
+-	
+-	
+-	
+-LOC(2.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits -3
+-	bl	LOC(3.13)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -5
+-	bl	LOC(4.11)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-5*2+1), %o2
+-	
+-LOC(4.11):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-5*2-1), %o2
+-	
+-	
+-LOC(3.13):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -7
+-	bl	LOC(4.9)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-7*2+1), %o2
+-	
+-LOC(4.9):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-7*2-1), %o2
+-	
+-	
+-	
+-	
+-	9:
+-LOC(end_regular_divide):
+-	subcc	%o4, 1, %o4
+-	bge	LOC(divloop)
+-	tst	%o3
+-	bl,a	LOC(got_result)
+-	! non-restoring fixup here (one instruction only!)
+-	sub	%o2, 1, %o2
+-
+-
+-LOC(got_result):
+-
++	wr	%g0, 0, %y
++	nop
++	nop
+ 	retl
+-	mov %o2, %o0
++	 udiv	%o0, %o1, %o0
+ 
+ END(.udiv)
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/udiv_qrnnd.S glibc-2.3.2/sysdeps/sparc/sparc32/udiv_qrnnd.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/udiv_qrnnd.S	Sat Jul  7 12:21:29 2001
++++ glibc-2.3.2/sysdeps/sparc/sparc32/udiv_qrnnd.S	Thu Mar  1 18:24:39 2007
+@@ -1,168 +1,215 @@
+ ! SPARC  __udiv_qrnnd division support, used from longlong.h.
+-!
+-! Copyright (C) 1993, 1994, 1997 Free Software Foundation, Inc.
+-!
++
++! Copyright (C) 1993, 1994 Free Software Foundation, Inc.
++
+ ! This file is part of the GNU MP Library.
+-!
++
+ ! The GNU MP Library is free software; you can redistribute it and/or modify
+ ! it under the terms of the GNU Lesser General Public License as published by
+ ! the Free Software Foundation; either version 2.1 of the License, or (at your
+ ! option) any later version.
+-!
++
+ ! The GNU MP Library is distributed in the hope that it will be useful, but
+ ! WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ ! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public
+ ! License for more details.
+-!
++
+ ! You should have received a copy of the GNU Lesser General Public License
+ ! along with the GNU MP Library; see the file COPYING.LIB.  If not, write to
+ ! the Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+-!
+-! Added PIC support - May/96, Miguel de Icaza
+-!
++
++
+ ! INPUT PARAMETERS
+-! rem_ptr	i0
+-! n1		i1
+-! n0		i2
+-! d		i3
+-
+-#include <sysdep.h>
+-#undef ret	/* Kludge for glibc */
+-
+-#ifdef PIC
+-	.text
+-#else
+-	.section .rodata,#alloc
+-#endif
+-	.align	8
+-
+-	.type two_to_32,@object
+-	.size two_to_32,8
+-two_to_32:
+-	.double	0r4294967296
+-
+-	.type two_to_31,@object
+-	.size two_to_31,8
+-two_to_31:
+-	.double	0r2147483648
++! rem_ptr	o0
++! n1		o1
++! n0		o2
++! d		o3
++
++#include "sysdep.h"
+ 
+-	.text
+ ENTRY(__udiv_qrnnd)
+-	!#PROLOGUE# 0
+-	save	%sp,-104,%sp
+-	!#PROLOGUE# 1
+-	st	%i1,[%fp-8]
+-	ld	[%fp-8],%f10
+-#ifdef PIC
+-LOC(base):
+-	call	1f
+-	fitod	%f10,%f4
+-1:	ldd	[%o7-(LOC(base)-two_to_32)],%f8
+-#else
+-	sethi	%hi(two_to_32),%o7
+-	fitod	%f10,%f4
+-	ldd	[%o7+%lo(two_to_32)],%f8
+-#endif
+-	cmp	%i1,0
+-	bge	LOC(248)
+-	mov	%i0,%i5
+-	faddd	%f4,%f8,%f4
+-LOC(248):
+-	st	%i2,[%fp-8]
+-	ld	[%fp-8],%f10
+-	fmuld	%f4,%f8,%f6
+-	cmp	%i2,0
+-	bge	LOC(249)
+-	fitod	%f10,%f2
+-	faddd	%f2,%f8,%f2
+-LOC(249):
+-	st	%i3,[%fp-8]
+-	faddd	%f6,%f2,%f2
+-	ld	[%fp-8],%f10
+-	cmp	%i3,0
+-	bge	LOC(250)
+-	fitod	%f10,%f4
+-	faddd	%f4,%f8,%f4
+-LOC(250):
+-	fdivd	%f2,%f4,%f2
+-#ifdef PIC
+-	ldd	[%o7-(LOC(base)-two_to_31)],%f4
+-#else
+-	sethi	%hi(two_to_31),%o7
+-	ldd	[%o7+%lo(two_to_31)],%f4
+-#endif
+-	fcmped	%f2,%f4
+-	nop
+-	fbge,a	LOC(251)
+-	fsubd	%f2,%f4,%f2
+-	fdtoi	%f2,%f2
+-	st	%f2,[%fp-8]
+-	b	LOC(252)
+-	ld	[%fp-8],%i4
+-LOC(251):
+-	fdtoi	%f2,%f2
+-	st	%f2,[%fp-8]
+-	ld	[%fp-8],%i4
+-	sethi	%hi(-2147483648),%g2
+-	xor	%i4,%g2,%i4
+-LOC(252):
+-	wr	%g0,%i4,%y
+-	sra	%i3,31,%g2
+-	and	%i4,%g2,%g2
+-	andcc	%g0,0,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,%i3,%g1
+-	mulscc	%g1,0,%g1
+-	add	%g1,%g2,%i0
+-	rd	%y,%g3
+-	subcc	%i2,%g3,%o7
+-	subxcc	%i1,%i0,%g0
+-	be	LOC(253)
+-	cmp	%o7,%i3
+-
+-	add	%i4,-1,%i0
+-	add	%o7,%i3,%o7
+-	st	%o7,[%i5]
+-	ret
+-	restore
+-LOC(253):
+-	blu	LOC(246)
+-	mov	%i4,%i0
+-	add	%i4,1,%i0
+-	sub	%o7,%i3,%o7
+-LOC(246):
+-	st	%o7,[%i5]
+-	ret
+-	restore
++	tst	%o3
++	bneg	LOC(largedivisor)
++	mov	8,%g1
++
++	b	LOC(p1)
++	addxcc	%o2,%o2,%o2
++
++LOC(plop):
++	bcc	LOC(n1)
++	addxcc	%o2,%o2,%o2
++LOC(p1):
++	addx	%o1,%o1,%o1
++	subcc	%o1,%o3,%o4
++	bcc	LOC(n2)
++	addxcc	%o2,%o2,%o2
++LOC(p2):
++	addx	%o1,%o1,%o1
++	subcc	%o1,%o3,%o4
++	bcc	LOC(n3)
++	addxcc	%o2,%o2,%o2
++LOC(p3):
++	addx	%o1,%o1,%o1
++	subcc	%o1,%o3,%o4
++	bcc	LOC(n4)
++	addxcc	%o2,%o2,%o2
++LOC(p4):
++	addx	%o1,%o1,%o1
++	addcc	%g1,-1,%g1
++	bne	LOC(plop)
++	subcc	%o1,%o3,%o4
++	bcc	LOC(n5)
++	addxcc	%o2,%o2,%o2
++LOC(p5):
++	st	%o1,[%o0]
++	retl
++	xnor	%g0,%o2,%o0
++
++LOC(nlop):
++	bcc	LOC(p1)
++	addxcc	%o2,%o2,%o2
++LOC(n1):
++	addx	%o4,%o4,%o4
++	subcc	%o4,%o3,%o1
++	bcc	LOC(p2)
++	addxcc	%o2,%o2,%o2
++LOC(n2):
++	addx	%o4,%o4,%o4
++	subcc	%o4,%o3,%o1
++	bcc	LOC(p3)
++	addxcc	%o2,%o2,%o2
++LOC(n3):
++	addx	%o4,%o4,%o4
++	subcc	%o4,%o3,%o1
++	bcc	LOC(p4)
++	addxcc	%o2,%o2,%o2
++LOC(n4):
++	addx	%o4,%o4,%o4
++	addcc	%g1,-1,%g1
++	bne	LOC(nlop)
++	subcc	%o4,%o3,%o1
++	bcc	LOC(p5)
++	addxcc	%o2,%o2,%o2
++LOC(n5):
++	st	%o4,[%o0]
++	retl
++	xnor	%g0,%o2,%o0
++
++LOC(largedivisor):
++	and	%o2,1,%o5	! %o5 = n0 & 1
++
++	srl	%o2,1,%o2
++	sll	%o1,31,%g2
++	or	%g2,%o2,%o2	! %o2 = lo(n1n0 >> 1)
++	srl	%o1,1,%o1	! %o1 = hi(n1n0 >> 1)
++
++	and	%o3,1,%g2
++	srl	%o3,1,%g3	! %g3 = floor(d / 2)
++	add	%g3,%g2,%g3	! %g3 = ceil(d / 2)
++
++	b	LOC(Lp1)
++	addxcc	%o2,%o2,%o2
++
++LOC(Lplop):
++	bcc	LOC(Ln1)
++	addxcc	%o2,%o2,%o2
++LOC(Lp1):
++	addx	%o1,%o1,%o1
++	subcc	%o1,%g3,%o4
++	bcc	LOC(Ln2)
++	addxcc	%o2,%o2,%o2
++LOC(Lp2):
++	addx	%o1,%o1,%o1
++	subcc	%o1,%g3,%o4
++	bcc	LOC(Ln3)
++	addxcc	%o2,%o2,%o2
++LOC(Lp3):
++	addx	%o1,%o1,%o1
++	subcc	%o1,%g3,%o4
++	bcc	LOC(Ln4)
++	addxcc	%o2,%o2,%o2
++LOC(Lp4):
++	addx	%o1,%o1,%o1
++	addcc	%g1,-1,%g1
++	bne	LOC(Lplop)
++	subcc	%o1,%g3,%o4
++	bcc	LOC(Ln5)
++	addxcc	%o2,%o2,%o2
++LOC(Lp5):
++	add	%o1,%o1,%o1	! << 1
++	tst	%g2
++	bne	LOC(Oddp)
++	add	%o5,%o1,%o1
++	st	%o1,[%o0]
++	retl
++	xnor	%g0,%o2,%o0
++
++LOC(Lnlop):
++	bcc	LOC(Lp1)
++	addxcc	%o2,%o2,%o2
++LOC(Ln1):
++	addx	%o4,%o4,%o4
++	subcc	%o4,%g3,%o1
++	bcc	LOC(Lp2)
++	addxcc	%o2,%o2,%o2
++LOC(Ln2):
++	addx	%o4,%o4,%o4
++	subcc	%o4,%g3,%o1
++	bcc	LOC(Lp3)
++	addxcc	%o2,%o2,%o2
++LOC(Ln3):
++	addx	%o4,%o4,%o4
++	subcc	%o4,%g3,%o1
++	bcc	LOC(Lp4)
++	addxcc	%o2,%o2,%o2
++LOC(Ln4):
++	addx	%o4,%o4,%o4
++	addcc	%g1,-1,%g1
++	bne	LOC(Lnlop)
++	subcc	%o4,%g3,%o1
++	bcc	LOC(Lp5)
++	addxcc	%o2,%o2,%o2
++LOC(Ln5):
++	add	%o4,%o4,%o4	! << 1
++	tst	%g2
++	bne	LOC(Oddn)
++	add	%o5,%o4,%o4
++	st	%o4,[%o0]
++	retl
++	xnor	%g0,%o2,%o0
++
++LOC(Oddp):
++	xnor	%g0,%o2,%o2
++	! q' in %o2. r' in %o1
++	addcc	%o1,%o2,%o1
++	bcc	LOC(Lp6)
++	addx	%o2,0,%o2
++	sub	%o1,%o3,%o1
++LOC(Lp6):
++	subcc	%o1,%o3,%g0
++	bcs	LOC(Lp7)
++	subx	%o2,-1,%o2
++	sub	%o1,%o3,%o1
++LOC(Lp7):
++	st	%o1,[%o0]
++	retl
++	mov	%o2,%o0
++
++LOC(Oddn):
++	xnor	%g0,%o2,%o2
++	! q' in %o2. r' in %o4
++	addcc	%o4,%o2,%o4
++	bcc	LOC(Ln6)
++	addx	%o2,0,%o2
++	sub	%o4,%o3,%o4
++LOC(Ln6):
++	subcc	%o4,%o3,%g0
++	bcs	LOC(Ln7)
++	subx	%o2,-1,%o2
++	sub	%o4,%o3,%o4
++LOC(Ln7):
++	st	%o4,[%o0]
++	retl
++	mov	%o2,%o0
+ 
+ END(__udiv_qrnnd)
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/umul.S glibc-2.3.2/sysdeps/sparc/sparc32/umul.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/umul.S	Sun Aug 24 03:47:44 1997
++++ glibc-2.3.2/sysdeps/sparc/sparc32/umul.S	Thu Mar  1 18:24:39 2007
+@@ -1,155 +1,17 @@
+ /*
+- * Unsigned multiply.  Returns %o0 * %o1 in %o1%o0 (i.e., %o1 holds the
+- * upper 32 bits of the 64-bit product).
+- *
+- * This code optimizes short (less than 13-bit) multiplies.  Short
+- * multiplies require 25 instruction cycles, and long ones require
+- * 45 instruction cycles.
+- *
+- * On return, overflow has occurred (%o1 is not zero) if and only if
+- * the Z condition code is clear, allowing, e.g., the following:
+- *
+- *	call	.umul
+- *	nop
+- *	bnz	overflow	(or tnz)
++ * Sparc v8 has multiply.
+  */
+ 
+ #include <sysdep.h>
+ 
+ ENTRY(.umul)
+-	or	%o0, %o1, %o4
+-	mov	%o0, %y			! multiplier -> Y
+-	andncc	%o4, 0xfff, %g0		! test bits 12..31 of *both* args
+-	be	LOC(mul_shortway)	! if zero, can do it the short way
+-	 andcc	%g0, %g0, %o4		! zero the partial product; clear N & V
+ 
+-	/*
+-	 * Long multiply.  32 steps, followed by a final shift step.
+-	 */
+-	mulscc	%o4, %o1, %o4	! 1
+-	mulscc	%o4, %o1, %o4	! 2
+-	mulscc	%o4, %o1, %o4	! 3
+-	mulscc	%o4, %o1, %o4	! 4
+-	mulscc	%o4, %o1, %o4	! 5
+-	mulscc	%o4, %o1, %o4	! 6
+-	mulscc	%o4, %o1, %o4	! 7
+-	mulscc	%o4, %o1, %o4	! 8
+-	mulscc	%o4, %o1, %o4	! 9
+-	mulscc	%o4, %o1, %o4	! 10
+-	mulscc	%o4, %o1, %o4	! 11
+-	mulscc	%o4, %o1, %o4	! 12
+-	mulscc	%o4, %o1, %o4	! 13
+-	mulscc	%o4, %o1, %o4	! 14
+-	mulscc	%o4, %o1, %o4	! 15
+-	mulscc	%o4, %o1, %o4	! 16
+-	mulscc	%o4, %o1, %o4	! 17
+-	mulscc	%o4, %o1, %o4	! 18
+-	mulscc	%o4, %o1, %o4	! 19
+-	mulscc	%o4, %o1, %o4	! 20
+-	mulscc	%o4, %o1, %o4	! 21
+-	mulscc	%o4, %o1, %o4	! 22
+-	mulscc	%o4, %o1, %o4	! 23
+-	mulscc	%o4, %o1, %o4	! 24
+-	mulscc	%o4, %o1, %o4	! 25
+-	mulscc	%o4, %o1, %o4	! 26
+-	mulscc	%o4, %o1, %o4	! 27
+-	mulscc	%o4, %o1, %o4	! 28
+-	mulscc	%o4, %o1, %o4	! 29
+-	mulscc	%o4, %o1, %o4	! 30
+-	mulscc	%o4, %o1, %o4	! 31
+-	mulscc	%o4, %o1, %o4	! 32
+-	mulscc	%o4, %g0, %o4	! final shift
+-
+-	/*
+-	 * Normally, with the shift-and-add approach, if both numbers are
+-	 * positive you get the correct result.  With 32-bit two's-complement
+-	 * numbers, -x is represented as
+-	 *
+-	 *		  x		    32
+-	 *	( 2  -  ------ ) mod 2  *  2
+-	 *		   32
+-	 *		  2
+-	 *
+-	 * (the `mod 2' subtracts 1 from 1.bbbb).  To avoid lots of 2^32s,
+-	 * we can treat this as if the radix point were just to the left
+-	 * of the sign bit (multiply by 2^32), and get
+-	 *
+-	 *	-x  =  (2 - x) mod 2
+-	 *
+-	 * Then, ignoring the `mod 2's for convenience:
+-	 *
+-	 *   x *  y	= xy
+-	 *  -x *  y	= 2y - xy
+-	 *   x * -y	= 2x - xy
+-	 *  -x * -y	= 4 - 2x - 2y + xy
+-	 *
+-	 * For signed multiplies, we subtract (x << 32) from the partial
+-	 * product to fix this problem for negative multipliers (see mul.s).
+-	 * Because of the way the shift into the partial product is calculated
+-	 * (N xor V), this term is automatically removed for the multiplicand,
+-	 * so we don't have to adjust.
+-	 *
+-	 * But for unsigned multiplies, the high order bit wasn't a sign bit,
+-	 * and the correction is wrong.  So for unsigned multiplies where the
+-	 * high order bit is one, we end up with xy - (y << 32).  To fix it
+-	 * we add y << 32.
+-	 */
+-#if 0
+-	tst	%o1
+-	bl,a	1f		! if %o1 < 0 (high order bit = 1),
+-	 add	%o4, %o0, %o4	! %o4 += %o0 (add y to upper half)
+-1:	rd	%y, %o0		! get lower half of product
+-	retl
+-	 addcc	%o4, %g0, %o1	! put upper half in place and set Z for %o1==0
+-#else
+-	/* Faster code from tege@sics.se.  */
+-	sra	%o1, 31, %o2	! make mask from sign bit
+-	and	%o0, %o2, %o2	! %o2 = 0 or %o0, depending on sign of %o1
+-	rd	%y, %o0		! get lower half of product
+-	retl
+-	 addcc	%o4, %o2, %o1	! add compensation and put upper half in place
++#if 1 // Infrant: Handle unique hardware multiply instruction
++	nop
++	nop
+ #endif
+-
+-LOC(mul_shortway):
+-	/*
+-	 * Short multiply.  12 steps, followed by a final shift step.
+-	 * The resulting bits are off by 12 and (32-12) = 20 bit positions,
+-	 * but there is no problem with %o0 being negative (unlike above),
+-	 * and overflow is impossible (the answer is at most 24 bits long).
+-	 */
+-	mulscc	%o4, %o1, %o4	! 1
+-	mulscc	%o4, %o1, %o4	! 2
+-	mulscc	%o4, %o1, %o4	! 3
+-	mulscc	%o4, %o1, %o4	! 4
+-	mulscc	%o4, %o1, %o4	! 5
+-	mulscc	%o4, %o1, %o4	! 6
+-	mulscc	%o4, %o1, %o4	! 7
+-	mulscc	%o4, %o1, %o4	! 8
+-	mulscc	%o4, %o1, %o4	! 9
+-	mulscc	%o4, %o1, %o4	! 10
+-	mulscc	%o4, %o1, %o4	! 11
+-	mulscc	%o4, %o1, %o4	! 12
+-	mulscc	%o4, %g0, %o4	! final shift
+-
+-	/*
+-	 * %o4 has 20 of the bits that should be in the result; %y has
+-	 * the bottom 12 (as %y's top 12).  That is:
+-	 *
+-	 *	  %o4		    %y
+-	 * +----------------+----------------+
+-	 * | -12- |   -20-  | -12- |   -20-  |
+-	 * +------(---------+------)---------+
+-	 *	   -----result-----
+-	 *
+-	 * The 12 bits of %o4 left of the `result' area are all zero;
+-	 * in fact, all top 20 bits of %o4 are zero.
+-	 */
+-
+-	rd	%y, %o5
+-	sll	%o4, 12, %o0	! shift middle bits left 12
+-	srl	%o5, 20, %o5	! shift low bits right 20
+-	or	%o5, %o0, %o0
++	umul	%o0, %o1, %o0
+ 	retl
+-	 addcc	%g0, %g0, %o1	! %o1 = zero, and set Z
++	 rd	%y, %o1
+ 
+ END(.umul)
+diff -uNr glibc-2.3.2.orig/sysdeps/sparc/sparc32/urem.S glibc-2.3.2/sysdeps/sparc/sparc32/urem.S
+--- glibc-2.3.2.orig/sysdeps/sparc/sparc32/urem.S	Sun Aug 24 03:47:44 1997
++++ glibc-2.3.2/sysdeps/sparc/sparc32/urem.S	Thu Mar  1 18:24:39 2007
+@@ -1,346 +1,18 @@
+-   /* This file is generated from divrem.m4; DO NOT EDIT! */
+ /*
+- * Division and remainder, from Appendix E of the Sparc Version 8
+- * Architecture Manual, with fixes from Gordon Irlam.
++ * Sparc v8 has divide.
+  */
+ 
+-/*
+- * Input: dividend and divisor in %o0 and %o1 respectively.
+- *
+- * m4 parameters:
+- *  .urem	name of function to generate
+- *  rem		rem=div => %o0 / %o1; rem=rem => %o0 % %o1
+- *  false		false=true => signed; false=false => unsigned
+- *
+- * Algorithm parameters:
+- *  N		how many bits per iteration we try to get (4)
+- *  WORDSIZE	total number of bits (32)
+- *
+- * Derived constants:
+- *  TOPBITS	number of bits in the top decade of a number
+- *
+- * Important variables:
+- *  Q		the partial quotient under development (initially 0)
+- *  R		the remainder so far, initially the dividend
+- *  ITER	number of main division loop iterations required;
+- *		equal to ceil(log2(quotient) / N).  Note that this
+- *		is the log base (2^N) of the quotient.
+- *  V		the current comparand, initially divisor*2^(ITER*N-1)
+- *
+- * Cost:
+- *  Current estimate for non-large dividend is
+- *	ceil(log2(quotient) / N) * (10 + 7N/2) + C
+- *  A large dividend is one greater than 2^(31-TOPBITS) and takes a
+- *  different path, as the upper bits of the quotient must be developed
+- *  one bit at a time.
+- */
+-
+-
+-
+ #include <sysdep.h>
+-#include <sys/trap.h>
+ 
+ ENTRY(.urem)
+ 
+-	! Ready to divide.  Compute size of quotient; scale comparand.
+-	orcc	%o1, %g0, %o5
+-	bne	1f
+-	mov	%o0, %o3
+-
+-		! Divide by zero trap.  If it returns, return 0 (about as
+-		! wrong as possible, but that is what SunOS does...).
+-		ta	ST_DIV0
+-		retl
+-		clr	%o0
+-
+-1:
+-	cmp	%o3, %o5			! if %o1 exceeds %o0, done
+-	blu	LOC(got_result)		! (and algorithm fails otherwise)
+-	clr	%o2
+-	sethi	%hi(1 << (32 - 4 - 1)), %g1
+-	cmp	%o3, %g1
+-	blu	LOC(not_really_big)
+-	clr	%o4
+-
+-	! Here the dividend is >= 2**(31-N) or so.  We must be careful here,
+-	! as our usual N-at-a-shot divide step will cause overflow and havoc.
+-	! The number of bits in the result here is N*ITER+SC, where SC <= N.
+-	! Compute ITER in an unorthodox manner: know we need to shift V into
+-	! the top decade: so do not even bother to compare to R.
+-	1:
+-		cmp	%o5, %g1
+-		bgeu	3f
+-		mov	1, %g2
+-		sll	%o5, 4, %o5
+-		b	1b
+-		add	%o4, 1, %o4
+-
+-	! Now compute %g2.
+-	2:	addcc	%o5, %o5, %o5
+-		bcc	LOC(not_too_big)
+-		add	%g2, 1, %g2
+-
+-		! We get here if the %o1 overflowed while shifting.
+-		! This means that %o3 has the high-order bit set.
+-		! Restore %o5 and subtract from %o3.
+-		sll	%g1, 4, %g1	! high order bit
+-		srl	%o5, 1, %o5		! rest of %o5
+-		add	%o5, %g1, %o5
+-		b	LOC(do_single_div)
+-		sub	%g2, 1, %g2
+-
+-	LOC(not_too_big):
+-	3:	cmp	%o5, %o3
+-		blu	2b
+-		nop
+-		be	LOC(do_single_div)
+-		nop
+-	/* NB: these are commented out in the V8-Sparc manual as well */
+-	/* (I do not understand this) */
+-	! %o5 > %o3: went too far: back up 1 step
+-	!	srl	%o5, 1, %o5
+-	!	dec	%g2
+-	! do single-bit divide steps
+-	!
+-	! We have to be careful here.  We know that %o3 >= %o5, so we can do the
+-	! first divide step without thinking.  BUT, the others are conditional,
+-	! and are only done if %o3 >= 0.  Because both %o3 and %o5 may have the high-
+-	! order bit set in the first step, just falling into the regular
+-	! division loop will mess up the first time around.
+-	! So we unroll slightly...
+-	LOC(do_single_div):
+-		subcc	%g2, 1, %g2
+-		bl	LOC(end_regular_divide)
+-		nop
+-		sub	%o3, %o5, %o3
+-		mov	1, %o2
+-		b	LOC(end_single_divloop)
+-		nop
+-	LOC(single_divloop):
+-		sll	%o2, 1, %o2
+-		bl	1f
+-		srl	%o5, 1, %o5
+-		! %o3 >= 0
+-		sub	%o3, %o5, %o3
+-		b	2f
+-		add	%o2, 1, %o2
+-	1:	! %o3 < 0
+-		add	%o3, %o5, %o3
+-		sub	%o2, 1, %o2
+-	2:
+-	LOC(end_single_divloop):
+-		subcc	%g2, 1, %g2
+-		bge	LOC(single_divloop)
+-		tst	%o3
+-		b,a	LOC(end_regular_divide)
+-
+-LOC(not_really_big):
+-1:
+-	sll	%o5, 4, %o5
+-	cmp	%o5, %o3
+-	bleu	1b
+-	addcc	%o4, 1, %o4
+-	be	LOC(got_result)
+-	sub	%o4, 1, %o4
+-
+-	tst	%o3	! set up for initial iteration
+-LOC(divloop):
+-	sll	%o2, 4, %o2
+-		! depth 1, accumulated bits 0
+-	bl	LOC(1.16)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 2, accumulated bits 1
+-	bl	LOC(2.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits 3
+-	bl	LOC(3.19)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 7
+-	bl	LOC(4.23)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (7*2+1), %o2
+-	
+-LOC(4.23):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (7*2-1), %o2
+-	
+-	
+-LOC(3.19):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 5
+-	bl	LOC(4.21)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (5*2+1), %o2
+-	
+-LOC(4.21):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (5*2-1), %o2
+-	
+-	
+-	
+-LOC(2.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits 1
+-	bl	LOC(3.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 3
+-	bl	LOC(4.19)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (3*2+1), %o2
+-	
+-LOC(4.19):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (3*2-1), %o2
+-	
+-	
+-LOC(3.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits 1
+-	bl	LOC(4.17)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (1*2+1), %o2
+-	
+-LOC(4.17):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (1*2-1), %o2
+-	
+-	
+-	
+-	
+-LOC(1.16):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 2, accumulated bits -1
+-	bl	LOC(2.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits -1
+-	bl	LOC(3.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -1
+-	bl	LOC(4.15)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-1*2+1), %o2
+-	
+-LOC(4.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-1*2-1), %o2
+-	
+-	
+-LOC(3.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -3
+-	bl	LOC(4.13)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-3*2+1), %o2
+-	
+-LOC(4.13):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-3*2-1), %o2
+-	
+-	
+-	
+-LOC(2.15):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 3, accumulated bits -3
+-	bl	LOC(3.13)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -5
+-	bl	LOC(4.11)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-5*2+1), %o2
+-	
+-LOC(4.11):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-5*2-1), %o2
+-	
+-	
+-LOC(3.13):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-			! depth 4, accumulated bits -7
+-	bl	LOC(4.9)
+-	srl	%o5,1,%o5
+-	! remainder is positive
+-	subcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-7*2+1), %o2
+-	
+-LOC(4.9):
+-	! remainder is negative
+-	addcc	%o3,%o5,%o3
+-		b	9f
+-		add	%o2, (-7*2-1), %o2
+-	
+-	
+-	
+-	
+-	9:
+-LOC(end_regular_divide):
+-	subcc	%o4, 1, %o4
+-	bge	LOC(divloop)
+-	tst	%o3
+-	bl,a	LOC(got_result)
+-	! non-restoring fixup here (one instruction only!)
+-	add	%o3, %o1, %o3
+-
+-
+-LOC(got_result):
+-
++	wr	%g0, 0, %y
++	nop
++	nop
++	nop
++	udiv	%o0, %o1, %o2
++	umul	%o2, %o1, %o2
+ 	retl
+-	mov %o3, %o0
++	 sub	%o0, %o2, %o0
+ 
+ END(.urem)

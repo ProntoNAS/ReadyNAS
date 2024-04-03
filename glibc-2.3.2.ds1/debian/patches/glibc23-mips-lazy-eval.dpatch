@@ -1,0 +1,106 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: Workaround invalid resolving of lazy evaluation stubs
+# DP: Related bugs: #265678
+# DP: Dpatch author: Thiemo Seufer <ths@debian.org>
+# DP: Patch author: Thiemo Seufer <ths@debian.org>
+# DP: Upstream status: Debian-Specific
+# DP: Status Details: The correct fix will be done to modify toolchains in etch.
+# DP: Date: 2005-04-11
+
+PATCHLEVEL=2
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p$PATCHLEVEL < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p$PATCHLEVEL < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+diff -upr build-tree.orig/glibc-2.3.2/elf/do-lookup.h build-tree/glibc-2.3.2/elf/do-lookup.h
+--- build-tree.orig/glibc-2.3.2/elf/do-lookup.h	2005-02-28 23:42:31.000000000 +0100
++++ build-tree/glibc-2.3.2/elf/do-lookup.h	2005-04-11 18:19:20.000000000 +0200
+@@ -209,6 +209,13 @@ FCT (const char *undef_name, unsigned lo
+ 		}
+ 	      /* FALLTHROUGH */
+ 	    case STB_GLOBAL:
++#ifdef __mips__
++	      /* HACK: MIPS marks its lazy evaluation stubs with SHN_UNDEF
++		 symbols, we skip them. */
++	      if (sym->st_shndx == SHN_UNDEF)
++		break;
++#endif
++
+ 	      /* Global definition.  Just what we need.  */
+ 	      result->s = sym;
+ 	      result->m = map;
+diff -upr build-tree.orig/glibc-2.3.2/sysdeps/mips/dl-machine.h build-tree/glibc-2.3.2/sysdeps/mips/dl-machine.h
+--- build-tree.orig/glibc-2.3.2/sysdeps/mips/dl-machine.h	2005-02-28 23:42:36.000000000 +0100
++++ build-tree/glibc-2.3.2/sysdeps/mips/dl-machine.h	2005-04-10 22:39:15.000000000 +0200
+@@ -347,5 +347,6 @@ __dl_runtime_resolve (ElfW(Word) sym_ind
+   const ElfW(Word) gotsym						      \
+     = (const ElfW(Word)) l->l_info[DT_MIPS (GOTSYM)]->d_un.d_val;	      \
+   const ElfW(Sym) *sym = &symtab[sym_index];				      \
++  lookup_t result;							      \
+   ElfW(Addr) value;							      \
+ 									      \
+@@ -363,30 +364,37 @@ __dl_runtime_resolve (ElfW(Word) sym_ind
+ 									      \
+ 	    if (version->hash != 0)					      \
+ 	      {								      \
+-		value = _dl_lookup_versioned_symbol(strtab + sym->st_name, l, \
+-						    &sym, l->l_scope, version,\
+-						    ELF_RTYPE_CLASS_PLT, 0);  \
++		result = INTUSE(_dl_lookup_versioned_symbol) (strtab	      \
++							      + sym->st_name, \
++							      l, &sym,	      \
++							      l->l_scope,     \
++							      version,	      \
++							      ELF_RTYPE_CLASS_PLT,\
++							      0);\
+ 		break;							      \
+ 	      }								      \
+ 	    /* Fall through.  */					      \
+ 	  }								      \
+ 	case 0:								      \
+-	  value = _dl_lookup_symbol (strtab + sym->st_name, l, &sym,	      \
+-				     l->l_scope, ELF_RTYPE_CLASS_PLT,	      \
+-				     DL_LOOKUP_ADD_DEPENDENCY);		      \
++	  result = INTUSE(_dl_lookup_symbol) (strtab + sym->st_name, l, &sym, \
++					      l->l_scope, ELF_RTYPE_CLASS_PLT,\
++					      DL_LOOKUP_ADD_DEPENDENCY);      \
+ 	}								      \
+ 									      \
+-      /* Currently value contains the base load address of the object	      \
+-	 that defines sym.  Now add in the symbol offset.  */		      \
+-      value = (sym ? value + sym->st_value : 0);			      \
++      /* Currently result contains the base load address (or link map)	      \
++	 of the object that defines sym.  Now add in the symbol		      \
++	 offset.  */							      \
++      value = (sym ? result + sym->st_value : 0);			      \
+     }									      \
+   else									      \
+-    /* We already found the symbol.  The module (and therefore its load	      \
+-       address) is also known.  */					      \
+-    value = l->l_addr + sym->st_value;					      \
++    {									      \
++      /* We already found the symbol.  The module (and therefore its load     \
++         address) is also known.  */					      \
++      value = l->l_addr + sym->st_value;				      \
++    }									      \
+ 									      \
+   /* Apply the relocation with that value.  */				      \
+-  *(got + local_gotno + sym_index - gotsym) = value;			      \
++  *(got + local_gotno + sym_index - gotsym) = value;	 		      \
+ 									      \
+   return value;								      \
+ }									      \
+

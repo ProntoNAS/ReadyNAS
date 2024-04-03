@@ -1,0 +1,163 @@
+dnl Process this file with autoconf to produce a configure script.
+AC_INIT(quota.c)
+
+dnl Checks for programs.
+AC_PROG_CC
+AC_HEADER_STDC
+AC_PROG_INSTALL
+
+dnl Checks for libraries.
+AC_ARG_ENABLE(ldapmail, [  --enable-ldapmail=[yes/no/try]       Enable ldap mail address lookups [default=no].],
+	,
+	enable_ldapmail="no")
+if test "x$enable_ldapmail" != "xno"; then
+	LDAPLIBS="-L/usr/lib -lldap -llber -lssl -lresolv"
+	CFLAGS="$CFLAGS -DUSE_LDAP_MAIL_LOOKUP"
+fi
+AC_SUBST(LDAPLIBS)
+
+	
+AC_CHECK_HEADER(ext2fs/ext2fs.h,ext2fshead="yes")
+if test "x$ext2fshead" = "xyes"; then
+	CFLAGS="-DHAVE_EXT2_INCLUDE $CFLAGS"
+	AC_MSG_CHECKING([for ext2_ino_t])
+	have_ext2_ino_t="no"
+	AC_EGREP_HEADER(ext2_ino_t, ext2fs/ext2fs.h, have_ext2_ino_t="yes")
+	if test "x$have_ext2_ino_t" != "xyes"; then
+		AC_MSG_RESULT([not found])
+	else
+		AC_MSG_RESULT([found])
+		CFLAGS="-DHAVE_EXT2_INO_T $CFLAGS"
+	fi
+fi
+
+AC_ARG_ENABLE(ext2direct,
+	[  --enable-ext2direct=[yes/no/try]     Enable scanning of EXT2/EXT3 filesystem using e2fslib [default=try].],
+	,
+	enable_ext2direct="try")
+if test "x$enable_ext2direct" != "xno"; then
+	AC_CHECK_LIB(com_err, com_err, EXT2LIBS="-lcom_err $EXT2LIBS")
+	AC_CHECK_LIB(ext2fs, ext2fs_initialize, EXT2LIBS="-lext2fs $EXT2LIBS",, "-lcom_err")
+	if test "${ac_cv_lib_com_err_com_err}" != "yes" -o "${ac_cv_lib_ext2fs_ext2fs_initialize}" != "yes"; then
+		if test "x$enable_ext2direct" = "xyes"; then
+			AC_MSG_ERROR([Ext2 direct support required but libraries not found.])
+		else
+			AC_MSG_WARN([Ext2 direct support won't be compiled. Libraries not found.])
+		fi
+		enable_ext2direct="no"
+		EXT2LIBS=""
+	else
+		if test "x$ext2fshead" != "xyes"; then
+			if test "x$enable_ext2direct" = "xyes"; then
+				AC_MSG_ERROR([Ext2 direct support required but header files not found.])
+			else
+				AC_MSG_WARN([Ext2 direct support won't be compiled. Header files not found.])
+			fi
+			enable_ext2direct="no"
+			EXT2LIBS=""
+		else
+			enable_ext2direct="yes"
+		fi
+	fi
+	if test "x$enable_ext2direct" = "xyes"; then
+		EXT2_DIRECT="-DEXT2_DIRECT"
+		AC_SUBST(EXT2_DIRECT)
+	fi
+fi
+AC_SUBST(EXT2LIBS)
+
+AC_SEARCH_LIBS(gethostbyname, nsl)
+AC_CACHE_VAL(ac_cv_lib_wrap_main,
+	saved_LIBS="$LIBS"
+	LIBS="$LIBS -lwrap"
+	[AC_TRY_LINK([#include <stdio.h>
+	#include <sys/types.h>
+	#include <sys/socket.h>
+	#include <netinet/in.h>
+	#include <tcpd.h>
+	struct request_info request;
+	int deny_severity, allow_severity;],[hosts_access(&request);],
+	[ac_cv_lib_wrap_main=yes],[ac_cv_lib_wrap_main=no;LIBS="$saved_LIBS"])
+	])
+
+if test ${ac_cv_lib_wrap_main} = yes; then
+	AC_CHECK_HEADER(tcpd.h,, [
+		echo 'ERROR: could not find tcpd.h - missing TCP wrappers package'
+		exit 1
+	])
+	dnl Do this in case value was cached...
+	LIBS="$LIBS -lwrap"
+	HOSTS_ACCESS="-DHOSTS_ACCESS"
+	AC_SUBST(HOSTS_ACCESS)
+fi
+
+dnl Checks for typedefs, structures, and compiler characteristics.
+AC_C_CONST
+AC_C_INLINE
+
+AC_ARG_ENABLE(altformat,
+	[  --enable-altformat=[yes/no]     Enable alternative format used by edquota [default=yes].],
+	,
+	enable_altformat="yes")
+AC_ARG_ENABLE(rpc,
+	[  --enable-rpc=[yes/no]           Enable RPC support [default=yes].],
+	,
+	enable_rpc="yes")
+AC_ARG_ENABLE(rpcsetquota,
+	[  --enable-rpcsetquota=[yes/no]   Use RPC for setting quotas [default=no].],
+	,
+	enable_rpcsetquota="no")
+AC_ARG_ENABLE(xfs_roothack,
+	[  --enable-xfs_roothack=[yes/no]   Support old XFS root filesystems [default=no].],
+	,
+	enable_xfs_roothack="no")
+AC_ARG_ENABLE(bsd_behaviour,
+	[  --enable-bsd_behaviour=[yes/no]   Mimic BSD behaviour [default=yes].],
+	,
+	enable_bsd_behaviour="yes")
+AC_ARG_ENABLE(libefence,
+	[  --enable-libefence=[yes/no]     Use Electric Fence memory checks [default=no].],
+	,
+	enable_libefence="no")
+
+AC_ARG_ENABLE(nls,
+	[  --enable-nls=[yes/no]           Enable gettext [dafault=yes].],
+	,
+	enable_nls="yes")
+AC_ARG_ENABLE(rootsbin,
+	[  --enable-rootsbin=[yes/no]      Use /sbin for some important binaries regardless $prefix [default=no].],
+	,
+	enable_rootsbin="no")
+
+if test "$enable_altformat" = "yes" ; then
+	CFLAGS="-DALT_FORMAT $CFLAGS";
+fi
+if test "$enable_rpc" = "yes" ; then
+	CFLAGS="-DRPC $CFLAGS";
+fi
+if test "$enable_rpcsetquota" = "yes" ; then
+	CFLAGS="-DRPC_SETQUOTA $CFLAGS"
+fi
+if test "$enable_xfs_roothack" = "yes" ; then
+	CFLAGS="-DXFS_ROOTHACK $CFLAGS"
+fi
+if test "$enable_bsd_behaviour" = "yes" ; then
+	CFLAGS="-DBSD_BEHAVIOUR $CFLAGS"
+fi
+if test "$enable_libefence" = "yes" ; then
+	LIBMALLOC="/usr/lib/libefence.a"
+fi
+if test "$enable_nls" = "yes" ; then
+	CFLAGS="-D__GETTEXT__ $CFLAGS"
+	INSTMO="inst_mo"
+fi
+if test "$enable_rootsbin" = "yes" ; then
+	ROOTSBIN="/sbin"
+else
+	ROOTSBIN='$(prefix)/sbin'
+fi
+AC_SUBST(LIBMALLOC)
+AC_SUBST(INSTMO)
+AC_SUBST(ROOTSBIN)
+
+AC_OUTPUT(Makefile)

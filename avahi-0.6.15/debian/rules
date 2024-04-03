@@ -1,0 +1,54 @@
+#! /usr/bin/make -f 
+
+# Filter out the mono packages on architectures that don't support it
+#
+include /usr/share/cdbs/1/rules/buildvars.mk
+ifeq (,$(filter $(DEB_BUILD_ARCH), powerpc amd64 i386 ia64))
+  DEB_INDEP_PACKAGES := \
+    $(filter-out libavahi-cil,$(DEB_INDEP_PACKAGES))
+  DEB_INDEP_PACKAGES := \
+    $(filter-out monodoc-avahi-manual,$(DEB_INDEP_PACKAGES))
+  DEB_INDEP_REGULAR_PACKAGES := $(DEB_INDEP_PACKAGES)
+  MONO_FLAGS=--disable-mono --disable-monodoc
+endif
+
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/autotools.mk
+include /usr/share/cdbs/1/rules/simple-patchsys.mk
+
+# List any files which are not installed
+include /usr/share/cdbs/1/rules/utils.mk
+common-binary-post-install-arch:: list-missing
+
+# Ensure at build time that the library has no dependencies on undefined
+# symbols, and speed up loading.
+LDFLAGS += -Wl,-z,defs -Wl,-O1
+DEB_CONFIGURE_EXTRA_FLAGS += --with-avahi-user=admin --with-avahi-group=admin \
+			    --disable-glib --disable-qt3 --disable-qt4 --disable-dbus \
+			    --disable-gtk --disable-python --disable-pygtk --disable-python-dbus \
+			    --disable-mono --disable-monodoc --disable-doxygen-doc --disable-manpages \
+                            $(MONO_FLAGS)
+
+
+DEB_INSTALL_DOCS_ALL += docs/README
+
+DEB_SHLIBDEPS_INCLUDE := debian/libavahi-common3/usr/lib \
+                         debian/libavahi-core3/usr/lib \
+                         debian/libavahi-client3/usr/lib
+
+export MONO_SHARED_DIR=$(CURDIR)
+
+binary-predeb/libavahi-cil::
+	dh_makeclilibs
+	dh_clideps
+
+binary-install/avahi-discover::
+	dh_python -p$(cdbs_curpkg)
+	rm -f debian/tmp/usr/lib/python*/site-packages/avahi/*.py[co]
+
+binary-install/python2.4-avahi::
+	dh_python -p$(cdbs_curpkg)
+	rm -f debian/tmp/usr/lib/python*/site-packages/avahi/*.py[co]
+
+clean::
+	rm -rf $(MONO_SHARED_DIR)/.wapi

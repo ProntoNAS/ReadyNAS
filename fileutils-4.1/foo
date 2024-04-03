@@ -1,0 +1,256 @@
+--- src/remove.c	2002/02/01 23:30:23	1.42
++++ src/remove.c	2002/03/09 21:02:05	1.44
+@@ -414,10 +414,13 @@ same_file (const char *file_1, const cha
+ 
+ 
+ /* Recursively remove all of the entries in the current directory.
+-   Return an indication of the success of the operation.  */
++   Return an indication of the success of the operation.
++   CWD_DEV_INO must store the device and inode numbers of the
++   current working directory.  */
+ 
+ static enum RM_status
+-remove_cwd_entries (const struct rm_options *x)
++remove_cwd_entries (const struct rm_options *x,
++		    struct dev_ino const *cwd_dev_ino)
+ {
+   /* NOTE: this is static.  */
+   static DIR *dirp = NULL;
+@@ -530,7 +533,7 @@ remove_cwd_entries (const struct rm_opti
+ 	  /* CAUTION: after this call to rm, DP may not be valid --
+ 	     it may have been freed due to a close in a recursive call
+ 	     (through rm and remove_dir) to this function.  */
+-	  tmp_status = rm (&fs, 0, x);
++	  tmp_status = rm (&fs, 0, x, cwd_dev_ino);
+ 
+ 	  /* Update status.  */
+ 	  if (tmp_status > status)
+@@ -645,12 +648,14 @@ remove_file (struct File_spec *fs, const
+    FIXME: describe need_save_cwd parameter.  */
+ 
+ static enum RM_status
+-remove_dir (struct File_spec *fs, int need_save_cwd, const struct rm_options *x)
++remove_dir (struct File_spec *fs, int need_save_cwd,
++	    struct rm_options const *x, struct dev_ino const *cwd_dev_ino)
+ {
+   enum RM_status status;
+   struct saved_cwd cwd;
+   char *dir_name = fs->filename;
+   const char *fmt = NULL;
++  struct dev_ino tmp_cwd_dev_ino;
+ 
+   if (!x->recursive)
+     {
+@@ -719,6 +724,9 @@ was replaced with either another directo
+ 	       (unsigned long)(sb.st_dev),
+ 	       (unsigned long)(sb.st_ino));
+       }
++
++    tmp_cwd_dev_ino.st_dev = sb.st_dev;
++    tmp_cwd_dev_ino.st_ino = sb.st_ino;
+   }
+ 
+   push_dir (dir_name);
+@@ -728,7 +736,7 @@ was replaced with either another directo
+      remove_cwd_entries may close the directory.  */
+   ASSIGN_STRDUPA (dir_name, dir_name);
+ 
+-  status = remove_cwd_entries (x);
++  status = remove_cwd_entries (x, &tmp_cwd_dev_ino);
+ 
+   pop_dir ();
+ 
+@@ -742,11 +750,34 @@ was replaced with either another directo
+ 	}
+       free_cwd (&cwd);
+     }
+-  else if (chdir ("..") < 0)
++  else
+     {
+-      error (0, errno, _("cannot change back to directory %s via `..'"),
+-	     quote (full_filename (dir_name)));
+-      return RM_ERROR;
++      struct stat sb;
++      if (chdir ("..") < 0)
++	{
++	  error (0, errno, _("cannot change back to directory %s via `..'"),
++		 quote (full_filename (dir_name)));
++	  return RM_ERROR;
++	}
++
++      if (lstat (".", &sb))
++	error (EXIT_FAILURE, errno,
++	       _("cannot lstat `.' in %s"), quote (full_filename (".")));
++
++      if (!SAME_INODE (sb, *cwd_dev_ino))
++	{
++	  error (EXIT_FAILURE, 0,
++	       _("ERROR: the directory %s initially had device/inode\n\
++numbers %lu/%lu, but now (after changing into at least one subdirectory\n\
++and changing back via `..'), the numbers for `.' are %lu/%lu.\n\
++That means that while rm was running, a partially-removed subdirectory\n\
++was moved to a different position in the file system hierarchy."),
++		 quote (full_filename (".")),
++		 (unsigned long)(cwd_dev_ino->st_dev),
++		 (unsigned long)(cwd_dev_ino->st_ino),
++		 (unsigned long)(sb.st_dev),
++		 (unsigned long)(sb.st_ino));
++	}
+     }
+ 
+   if (x->interactive)
+@@ -795,10 +826,13 @@ was replaced with either another directo
+    things.  Return RM_OK if it is removed, and RM_ERROR or RM_USER_DECLINED
+    if not.  If USER_SPECIFIED_NAME is non-zero, then the name part of FS may
+    be `.', `..', or may contain slashes.  Otherwise, it must be a simple file
+-   name (and hence must specify a file in the current directory).  */
++   name (and hence must specify a file in the current directory).
++   CWD_DEV_INO must store the device and inode numbers of the
++   current working directory.  */
+ 
+ enum RM_status
+-rm (struct File_spec *fs, int user_specified_name, const struct rm_options *x)
++rm (struct File_spec *fs, int user_specified_name,
++    struct rm_options const *x, struct dev_ino const *cwd_dev_ino)
+ {
+   mode_t filetype_mode;
+ 
+@@ -884,7 +918,7 @@ The following two directories have the s
+       if (need_save_cwd)
+ 	need_save_cwd = (strchr (fs->filename, '/') != NULL);
+ 
+-      status = remove_dir (fs, need_save_cwd, x);
++      status = remove_dir (fs, need_save_cwd, x, cwd_dev_ino);
+ 
+ #ifdef ENABLE_CYCLE_CHECK
+       {
+Index: src/rm.c
+===================================================================
+RCS file: /fetish/fileutils/src/rm.c,v
+retrieving revision 1.107
+retrieving revision 1.108
+diff -u -p -r1.107 -r1.108
+--- src/rm.c	2001/12/02 22:26:58	1.107
++++ src/rm.c	2002/03/08 16:46:11	1.108
+@@ -1,5 +1,5 @@
+ /* `rm' file deletion utility for GNU.
+-   Copyright (C) 88, 90, 91, 1994-2001 Free Software Foundation, Inc.
++   Copyright (C) 88, 90, 91, 1994-2002 Free Software Foundation, Inc.
+ 
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+@@ -187,17 +187,31 @@ main (int argc, char **argv)
+ 
+   remove_init ();
+ 
+-  for (; optind < argc; optind++)
+-    {
+-      struct File_spec fs;
+-      enum RM_status status;
+-
+-      fspec_init_file (&fs, argv[optind]);
+-      status = rm (&fs, 1, &x);
+-      assert (VALID_STATUS (status));
+-      if (status == RM_ERROR)
+-	fail = 1;
+-    }
++  {
++    struct stat cwd_sb;
++    struct dev_ino cwd_dev_ino;
++
++    /* FIXME: this lstat is not always necessary -- e.g., if there are no
++       directories, or if all directories arguments are specified via
++       absolute names.  */
++    if (lstat (".", &cwd_sb))
++      error (EXIT_FAILURE, errno, _("cannot lstat `.'"));
++
++    cwd_dev_ino.st_dev = cwd_sb.st_dev;
++    cwd_dev_ino.st_ino = cwd_sb.st_ino;
++
++    for (; optind < argc; optind++)
++      {
++	struct File_spec fs;
++	enum RM_status status;
++
++	fspec_init_file (&fs, argv[optind]);
++	status = rm (&fs, 1, &x, &cwd_dev_ino);
++	assert (VALID_STATUS (status));
++	if (status == RM_ERROR)
++	  fail = 1;
++      }
++  }
+ 
+   remove_fini ();
+ 
+Index: src/mv.c
+===================================================================
+RCS file: /fetish/fileutils/src/mv.c,v
+retrieving revision 1.131
+retrieving revision 1.132
+diff -u -p -r1.131 -r1.132
+--- src/mv.c	2001/12/02 22:26:58	1.131
++++ src/mv.c	2002/03/08 16:45:51	1.132
+@@ -1,5 +1,5 @@
+ /* mv -- move or rename files
+-   Copyright (C) 86, 89, 90, 91, 1995-2001 Free Software Foundation, Inc.
++   Copyright (C) 86, 89, 90, 91, 1995-2002 Free Software Foundation, Inc.
+ 
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+@@ -241,7 +241,20 @@ do_move (const char *source, const char 
+ 	  struct rm_options rm_options;
+ 	  struct File_spec fs;
+ 	  enum RM_status status;
++	  static int first_rm = 1;
++	  static struct dev_ino cwd_dev_ino;
+ 
++	  if (first_rm)
++	    {
++	      struct stat cwd_sb;
++	      if (lstat (".", &cwd_sb))
++		error (EXIT_FAILURE, errno, _("cannot lstat `.'"));
++
++	      first_rm = 0;
++	      cwd_dev_ino.st_dev = cwd_sb.st_dev;
++	      cwd_dev_ino.st_ino = cwd_sb.st_ino;
++	    }
++
+ 	  rm_option_init (&rm_options);
+ 	  rm_options.verbose = x->verbose;
+ 
+@@ -253,7 +266,7 @@ do_move (const char *source, const char 
+ 	     took the else branch of movefile.  */
+ 	  strip_trailing_slashes (fs.filename);
+ 
+-	  status = rm (&fs, 1, &rm_options);
++	  status = rm (&fs, 1, &rm_options, &cwd_dev_ino);
+ 	  assert (VALID_STATUS (status));
+ 	  if (status == RM_ERROR)
+ 	    fail = 1;
+Index: src/remove.h
+===================================================================
+RCS file: /fetish/fileutils/src/remove.h,v
+retrieving revision 1.3
+retrieving revision 1.4
+diff -u -p -r1.3 -r1.4
+--- src/remove.h	2000/10/16 08:10:58	1.3
++++ src/remove.h	2002/03/08 16:46:26	1.4
+@@ -44,8 +44,16 @@ struct File_spec
+   dev_t st_dev;
+ };
+ 
+-enum RM_status rm PARAMS ((struct File_spec *fs, int user_specified_name,
+-			   const struct rm_options *x));
++struct dev_ino
++{
++  ino_t st_ino;
++  dev_t st_dev;
++};
++
++enum RM_status rm PARAMS ((struct File_spec *fs,
++			   int user_specified_name,
++			   struct rm_options const *x,
++			   struct dev_ino const *cwd_dev_ino));
+ void fspec_init_file PARAMS ((struct File_spec *fs, const char *filename));
+ void remove_init PARAMS ((void));
+ void remove_fini PARAMS ((void));

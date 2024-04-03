@@ -1,0 +1,89 @@
+#! /bin/sh -e
+# 
+#
+# DP: fix for shared libgcc
+
+if [ $# -eq 3 ] && [ "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+       -patch) patch $pdir -f --no-backup-if-mismatch -p2 < $0;;
+       -unpatch) patch $pdir -f --no-backup-if-mismatch -R -p2 < $0;;
+	*)
+		echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+		exit 1;;
+esac
+
+exit 0
+
+--- gcc-3.4-3.4.2/src/gcc/config.gcc.orig	2004-04-22 00:12:35.000000000 +0900
++++ gcc-3.4-3.4.2/src/gcc/config.gcc	2004-11-17 21:23:21.000000000 +0900
+@@ -1304,7 +1304,7 @@
+ m32r-*-linux*)
+ 	tm_file="dbxelf.h elfos.h svr4.h linux.h ${tm_file} m32r/linux.h"
+ 	extra_parts="crtbegin.o crtbeginS.o crtend.o crtendS.o"
+-	tmake_file="m32r/t-linux"
++	tmake_file="t-slibgcc-elf-ver m32r/t-linux"
+ 	gnu_ld=yes
+ 	use_fixproto=yes
+ 	if test x$enable_threads = xyes; then
+@@ -1314,7 +1314,7 @@
+ m32rle-*-linux*)
+ 	tm_file="dbxelf.h elfos.h svr4.h linux.h m32r/little.h ${tm_file} m32r/linux.h"
+ 	extra_parts="crtbegin.o crtbeginS.o crtend.o crtendS.o"
+-	tmake_file="m32r/t-linux"
++	tmake_file="t-slibgcc-elf-ver m32r/t-linux"
+ 	gnu_ld=yes
+ 	use_fixproto=yes
+ 	if test x$enable_threads = xyes; then
+--- gcc-3.4-3.4.2/src/gcc/config/m32r/t-linux.orig	2003-12-31 19:33:02.000000000 +0900
++++ gcc-3.4-3.4.2/src/gcc/config/m32r/t-linux	2004-11-17 21:18:50.000000000 +0900
+@@ -23,7 +23,6 @@
+ # to produce a shared library, but since we don't know ahead of time when
+ # we will be doing that, we just always use -fpic when compiling the
+ # routines in initfini.c.
+-# -fpic currently isn't supported for the m32r.
+ 
+ CRTSTUFF_T_CFLAGS_S = -fPIC
+ 
+@@ -40,3 +39,12 @@
+ CROSS_LIBGCC1 =
+ LIBGCC1_TEST =
+ 
++# Override t-slibgcc-elf-ver to export some libgcc symbols with
++# the symbol versions that glibc used.
++SHLIB_MAPFILES += $(srcdir)/libgcc-std.ver \
++	$(srcdir)/config/m32r/libgcc-glibc.ver
++
++# Use unwind-dw2-fde-glibc
++LIB2ADDEH = $(srcdir)/unwind-dw2.c $(srcdir)/unwind-dw2-fde-glibc.c \
++  $(srcdir)/unwind-sjlj.c $(srcdir)/gthr-gnat.c $(srcdir)/unwind-c.c
++LIB2ADDEHDEP = unwind.inc unwind-dw2-fde.h unwind-dw2-fde.c gthr-gnat.c
+--- /dev/null	2004-11-01 19:04:23.000000000 +0900
++++ gcc-3.4-3.4.2/src/gcc/config/m32r/libgcc-glibc.ver	2004-11-17 21:11:56.000000000 +0900
+@@ -0,0 +1,21 @@
++# In order to work around the very problems that force us to now generally
++# create a libgcc.so, glibc reexported a number of routines from libgcc.a.
++# By now choosing the same version tags for these specific routines, we
++# maintain enough binary compatibility to allow future versions of glibc
++# to defer implementation of these routines to libgcc.so via DT_AUXILIARY.
++
++# Note that we cannot use the default libgcc-glibc.ver file on m32r,
++# because GLIBC_2.0 does not exist on this architecture, as the first 
++# ever glibc release on the platform was GLIBC_2.3.
++
++%inherit GCC_3.0 GLIBC_2.3
++GLIBC_2.3 {
++  __register_frame
++  __register_frame_table
++  __deregister_frame
++  __register_frame_info
++  __deregister_frame_info
++  __frame_state_for
++  __register_frame_info_table
++}
++

@@ -1,0 +1,355 @@
+#! /bin/sh -e
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+applied upstream for 3.4
+
+# DP: #177840 / PR9812
+# DP: 
+# DP: 2003-06-27  James E Wilson  <wilson@tuliptree.org>
+# DP: 
+# DP: 	* rtl.h (mem_for_const_double): Delete prototype.
+# DP: 	* varasm.c (mem_for_const_double): Delete function.
+# DP: 	* config/m68k/hp320.h, config/m68k/linux.h, config/m68k/m68kelf.h,
+# DP: 	config/m68k/m68kv4.h, config/m68k/netbsd-elf.h
+# DP: 	(LEGITIMATE_PIC_OPERAND_P): Delete duplicate definitions.
+# DP: 	* config/m68k/m68k.h (LEGITIMATE_CONSTANT_P): Disallow XFmode.
+# DP: 	(LEGITIMATE_PIC_OPERAND_P): Delete CONST_DOUBLE tests.
+# DP: 	* config/m68k/m68k.md (movxf): Add reload_in_progress guard.  Add
+# DP: 	comment about confused support for XFmode constants.
+
+Index: rtl.h
+===================================================================
+RCS file: /cvs/gcc/gcc/gcc/rtl.h,v
+retrieving revision 1.419
+diff -p -r1.419 rtl.h
+*** gcc/rtl.h	25 Jun 2003 03:45:13 -0000	1.419
+--- gcc/rtl.h	27 Jun 2003 09:19:15 -0000
+*************** extern void end_full_sequence		PARAMS ((
+*** 1494,1500 ****
+  
+  /* In varasm.c  */
+  extern rtx immed_double_const		PARAMS ((HOST_WIDE_INT, HOST_WIDE_INT, enum machine_mode));
+- extern rtx mem_for_const_double		PARAMS ((rtx));
+  extern rtx force_const_mem		PARAMS ((enum machine_mode, rtx));
+  
+  /* In varasm.c  */
+--- 1494,1499 ----
+Index: varasm.c
+===================================================================
+RCS file: /cvs/gcc/gcc/gcc/varasm.c,v
+retrieving revision 1.368
+diff -p -r1.368 varasm.c
+*** gcc/varasm.c	25 Jun 2003 22:14:26 -0000	1.368
+--- gcc/varasm.c	27 Jun 2003 09:19:18 -0000
+*************** record_constant_rtx (mode, x)
+*** 3033,3056 ****
+    return ptr;
+  }
+  
+- /* Given a constant rtx X, return a MEM for the location in memory at which
+-    this constant has been placed.  Return 0 if it not has been placed yet.  */
+- 
+- rtx
+- mem_for_const_double (x)
+-      rtx x;
+- {
+-   enum machine_mode mode = GET_MODE (x);
+-   struct constant_descriptor_rtx *desc;
+- 
+-   for (desc = const_rtx_hash_table[const_hash_rtx (mode, x)]; desc;
+-        desc = desc->next)
+-     if (compare_constant_rtx (mode, x, desc))
+-       return desc->rtl;
+- 
+-   return 0;
+- }
+- 
+  /* Given a constant rtx X, make (or find) a memory constant for its value
+     and return a MEM rtx to refer to it in memory.  */
+  
+--- 3033,3038 ----
+Index: config/m68k/hp320.h
+===================================================================
+RCS file: /cvs/gcc/gcc/gcc/config/m68k/hp320.h,v
+retrieving revision 1.26
+diff -p -r1.26 hp320.h
+*** gcc/config/m68k/hp320.h	19 Jun 2003 21:47:15 -0000	1.26
+--- gcc/config/m68k/hp320.h	27 Jun 2003 09:19:20 -0000
+*************** do { size_t i, limit = (SIZE);		\
+*** 555,572 ****
+  
+  #endif /* not HPUX_ASM */
+  
+- /* In m68k svr4, a symbol_ref rtx can be a valid PIC operand if it is an
+-    operand of a function call.  */
+- #undef LEGITIMATE_PIC_OPERAND_P
+- #define LEGITIMATE_PIC_OPERAND_P(X) \
+-   ((! symbolic_operand (X, VOIDmode) \
+-     && ! (GET_CODE (X) == CONST_DOUBLE && mem_for_const_double (X) != 0	\
+- 	  && GET_CODE (mem_for_const_double (X)) == MEM			\
+- 	  && symbolic_operand (XEXP (mem_for_const_double (X), 0),	\
+- 			       VOIDmode))) 				\
+-    || (GET_CODE (X) == SYMBOL_REF && SYMBOL_REF_FLAG (X))       	\
+-    || PCREL_GENERAL_OPERAND_OK)
+- 
+  /* hpux8 and later have C++ compatible include files, so do not
+     pretend they are `extern "C"'.  */
+  #define NO_IMPLICIT_EXTERN_C
+--- 555,560 ----
+Index: config/m68k/linux.h
+===================================================================
+RCS file: /cvs/gcc/gcc/gcc/config/m68k/linux.h,v
+retrieving revision 1.33
+diff -p -r1.33 linux.h
+*** gcc/config/m68k/linux.h	7 Jun 2003 17:11:46 -0000	1.33
+--- gcc/config/m68k/linux.h	27 Jun 2003 09:19:20 -0000
+*************** do {									\
+*** 283,300 ****
+     ? gen_rtx_REG ((MODE), 16)						\
+     : gen_rtx_REG ((MODE), 0))
+  
+- /* In m68k svr4, a symbol_ref rtx can be a valid PIC operand if it is
+-    an operand of a function call.  */
+- #undef LEGITIMATE_PIC_OPERAND_P
+- #define LEGITIMATE_PIC_OPERAND_P(X) \
+-   ((! symbolic_operand (X, VOIDmode) \
+-     && ! (GET_CODE (X) == CONST_DOUBLE && mem_for_const_double (X) != 0	\
+- 	  && GET_CODE (mem_for_const_double (X)) == MEM			\
+- 	  && symbolic_operand (XEXP (mem_for_const_double (X), 0),	\
+- 			       VOIDmode))) 				\
+-    || (GET_CODE (X) == SYMBOL_REF && SYMBOL_REF_FLAG (X))       	\
+-    || PCREL_GENERAL_OPERAND_OK)
+- 
+  /* For m68k SVR4, structures are returned using the reentrant
+     technique.  */
+  #undef PCC_STATIC_STRUCT_RETURN
+--- 283,288 ----
+Index: config/m68k/m68k.h
+===================================================================
+RCS file: /cvs/gcc/gcc/gcc/config/m68k/m68k.h,v
+retrieving revision 1.90
+diff -p -r1.90 m68k.h
+*** gcc/config/m68k/m68k.h	19 Jun 2003 21:47:15 -0000	1.90
+--- gcc/config/m68k/m68k.h	27 Jun 2003 09:19:22 -0000
+*************** __transfer_from_trampoline ()					\
+*** 997,1003 ****
+  /* Nonzero if the constant value X is a legitimate general operand.
+     It is given that X satisfies CONSTANT_P or is a CONST_DOUBLE.  */
+  
+! #define LEGITIMATE_CONSTANT_P(X) 1
+  
+  /* Nonzero if the constant value X is a legitimate general operand
+     when generating PIC code.  It is given that flag_pic is on and 
+--- 997,1003 ----
+  /* Nonzero if the constant value X is a legitimate general operand.
+     It is given that X satisfies CONSTANT_P or is a CONST_DOUBLE.  */
+  
+! #define LEGITIMATE_CONSTANT_P(X) (GET_MODE (X) != XFmode)
+  
+  /* Nonzero if the constant value X is a legitimate general operand
+     when generating PIC code.  It is given that flag_pic is on and 
+*************** __transfer_from_trampoline ()					\
+*** 1014,1025 ****
+  #endif
+  
+  #define LEGITIMATE_PIC_OPERAND_P(X)	\
+!   ((! symbolic_operand (X, VOIDmode)				\
+!     && ! (GET_CODE (X) == CONST_DOUBLE && mem_for_const_double (X) != 0	\
+! 	  && GET_CODE (mem_for_const_double (X)) == MEM			\
+! 	  && symbolic_operand (XEXP (mem_for_const_double (X), 0),	\
+! 			       VOIDmode))) 				\
+!    || (GET_CODE (X) == SYMBOL_REF && SYMBOL_REF_FLAG (X))		\
+     || PCREL_GENERAL_OPERAND_OK)
+  
+  /* The macros REG_OK_FOR..._P assume that the arg is a REG rtx
+--- 1014,1021 ----
+  #endif
+  
+  #define LEGITIMATE_PIC_OPERAND_P(X)	\
+!   (! symbolic_operand (X, VOIDmode)				\
+!    || (GET_CODE (X) == SYMBOL_REF && SYMBOL_REF_FLAG (X))	\
+     || PCREL_GENERAL_OPERAND_OK)
+  
+  /* The macros REG_OK_FOR..._P assume that the arg is a REG rtx
+Index: config/m68k/m68k.md
+===================================================================
+RCS file: /cvs/gcc/gcc/gcc/config/m68k/m68k.md,v
+retrieving revision 1.59
+diff -p -r1.59 m68k.md
+*** gcc/config/m68k/m68k.md	12 Jun 2003 21:57:31 -0000	1.59
+--- gcc/config/m68k/m68k.md	27 Jun 2003 09:40:12 -0000
+***************
+*** 999,1025 ****
+    "TARGET_5200"
+    "* return output_move_double (operands);")
+  
+  (define_expand "movxf"
+    [(set (match_operand:XF 0 "nonimmediate_operand" "")
+  	(match_operand:XF 1 "general_operand" ""))]
+    ""
+    "
+  {
+!   if (CONSTANT_P (operands[1]))
+      {
+!       operands[1] = force_const_mem (XFmode, operands[1]);
+!       if (! memory_address_p (XFmode, XEXP (operands[1], 0))
+! 	  && ! reload_in_progress)
+! 	operands[1] = adjust_address (operands[1], XFmode, 0);
+!     }
+!   if (flag_pic && TARGET_PCREL && ! reload_in_progress)
+!     {
+!       /* Don't allow writes to memory except via a register;
+! 	 the m68k doesn't consider PC-relative addresses to be writable.  */
+!       if (GET_CODE (operands[0]) == MEM
+! 	  && symbolic_operand (XEXP (operands[0], 0), SImode))
+! 	operands[0] = gen_rtx (MEM, XFmode,
+! 			       force_reg (SImode, XEXP (operands[0], 0)));
+      }
+  }")
+  
+--- 999,1033 ----
+    "TARGET_5200"
+    "* return output_move_double (operands);")
+  
++ ;; ??? The XFmode patterns are schizophrenic about whether constants are
++ ;; allowed.  Most but not all have predicates and constraint that disallow
++ ;; constants.  Most but not all have output templates that handle constants.
++ ;; See also LEGITIMATE_CONSTANT_P.
++ 
+  (define_expand "movxf"
+    [(set (match_operand:XF 0 "nonimmediate_operand" "")
+  	(match_operand:XF 1 "general_operand" ""))]
+    ""
+    "
+  {
+!   /* We can't rewrite operands during reload.  */
+!   if (! reload_in_progress)
+      {
+!       if (CONSTANT_P (operands[1]))
+! 	{
+! 	  operands[1] = force_const_mem (XFmode, operands[1]);
+! 	  if (! memory_address_p (XFmode, XEXP (operands[1], 0)))
+! 	    operands[1] = adjust_address (operands[1], XFmode, 0);
+! 	}
+!       if (flag_pic && TARGET_PCREL)
+! 	{
+! 	  /* Don't allow writes to memory except via a register; the
+! 	     m68k doesn't consider PC-relative addresses to be writable.  */
+! 	  if (GET_CODE (operands[0]) == MEM
+! 	      && symbolic_operand (XEXP (operands[0], 0), SImode))
+! 	    operands[0] = gen_rtx (MEM, XFmode,
+! 				   force_reg (SImode, XEXP (operands[0], 0)));
+! 	}
+      }
+  }")
+  
+Index: config/m68k/m68kelf.h
+===================================================================
+RCS file: /cvs/gcc/gcc/gcc/config/m68k/m68kelf.h,v
+retrieving revision 1.18
+diff -p -r1.18 m68kelf.h
+*** gcc/config/m68k/m68kelf.h	12 May 2003 09:51:29 -0000	1.18
+--- gcc/config/m68k/m68kelf.h	27 Jun 2003 09:19:30 -0000
+*************** extern int switch_table_difference_label
+*** 246,261 ****
+  #undef ASM_OUTPUT_BEFORE_CASE_LABEL
+  #define ASM_OUTPUT_BEFORE_CASE_LABEL(FILE,PREFIX,NUM,TABLE)		\
+    fprintf ((FILE), "%s&%d\n", SWBEG_ASM_OP, XVECLEN (PATTERN (TABLE), 1));
+- 
+- /* In m68k svr4, a symbol_ref rtx can be a valid PIC operand if it is an
+-    operand of a function call.  */
+- #undef LEGITIMATE_PIC_OPERAND_P
+- 
+- #define LEGITIMATE_PIC_OPERAND_P(X)	\
+-   (! symbolic_operand (X, VOIDmode)				\
+-    || (GET_CODE (X) == SYMBOL_REF && SYMBOL_REF_FLAG (X))	\
+-    || PCREL_GENERAL_OPERAND_OK)
+- 
+  /* end of stuff from m68kv4.h */
+  
+  #undef SGS_CMP_ORDER
+--- 246,251 ----
+Index: config/m68k/m68kv4.h
+===================================================================
+RCS file: /cvs/gcc/gcc/gcc/config/m68k/m68kv4.h,v
+retrieving revision 1.22
+diff -p -r1.22 m68kv4.h
+*** gcc/config/m68k/m68kv4.h	17 May 2003 21:57:38 -0000	1.22
+--- gcc/config/m68k/m68kv4.h	27 Jun 2003 09:19:30 -0000
+*************** int switch_table_difference_label_flag;
+*** 277,294 ****
+  #define ASM_OUTPUT_BEFORE_CASE_LABEL(FILE,PREFIX,NUM,TABLE)		\
+    fprintf ((FILE), "%s&%d\n", SWBEG_ASM_OP, XVECLEN (PATTERN (TABLE), 1));
+  
+- /* In m68k svr4, a symbol_ref rtx can be a valid PIC operand if it is an
+-    operand of a function call.  */
+- #undef LEGITIMATE_PIC_OPERAND_P
+- #define LEGITIMATE_PIC_OPERAND_P(X) \
+-   ((! symbolic_operand (X, VOIDmode) \
+-     && ! (GET_CODE (X) == CONST_DOUBLE && mem_for_const_double (X) != 0	\
+- 	  && GET_CODE (mem_for_const_double (X)) == MEM			\
+- 	  && symbolic_operand (XEXP (mem_for_const_double (X), 0),	\
+- 			       VOIDmode))) 				\
+-    || (GET_CODE (X) == SYMBOL_REF && SYMBOL_REF_FLAG (X))       	\
+-    || PCREL_GENERAL_OPERAND_OK)
+- 
+  /* Output assembler code for a block containing the constant parts
+     of a trampoline, leaving space for the variable parts.  */
+  
+--- 277,282 ----
+Index: config/m68k/netbsd-elf.h
+===================================================================
+RCS file: /cvs/gcc/gcc/gcc/config/m68k/netbsd-elf.h,v
+retrieving revision 1.14
+diff -p -r1.14 netbsd-elf.h
+*** gcc/config/m68k/netbsd-elf.h	3 Jun 2003 09:06:54 -0000	1.14
+--- gcc/config/m68k/netbsd-elf.h	27 Jun 2003 09:19:30 -0000
+*************** while (0)
+*** 385,404 ****
+  #define BIGGEST_ALIGNMENT 64
+  
+  
+- /* In m68k svr4, a symbol_ref rtx can be a valid PIC operand if it is
+-    an operand of a function call. */
+- 
+- #undef LEGITIMATE_PIC_OPERAND_P
+- #define LEGITIMATE_PIC_OPERAND_P(X)					\
+-   ((! symbolic_operand (X, VOIDmode)					\
+-     && ! (GET_CODE (X) == CONST_DOUBLE && mem_for_const_double (X)	\
+- 	  && GET_CODE (mem_for_const_double (X)) == MEM			\
+- 	  && symbolic_operand (XEXP (mem_for_const_double (X), 0),	\
+- 			       VOIDmode)))				\
+-    || (GET_CODE (X) == SYMBOL_REF && SYMBOL_REF_FLAG (X))		\
+-    || PCREL_GENERAL_OPERAND_OK)
+- 
+- 
+  /* For m68k SVR4, structures are returned using the reentrant
+     technique. */
+  
+--- 385,390 ----
+
+
+
+

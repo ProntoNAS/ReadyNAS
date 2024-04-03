@@ -1,0 +1,98 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+package  = $(shell grep "^Package: "  debian/control  |head -1|sed 's/Package: \(.*\)/\1/g')
+source   = $(shell grep "^Source: "   debian/control  |head -1|sed 's/Source: \(.*\)/\1/g')
+version  = $(shell grep "^$(source) " debian/changelog|head -1|sed 's/.*(\(.*\)\-[^\-]*).*/\1/g')
+revision = $(shell grep "^$(source) " debian/changelog|head -1|sed 's/.*([^\-]*\-\(.*\)).*/\1/g')
+
+installbin = install -g root -o root -m 755
+installdoc = install -g root -o root -m 644
+
+tmpdir     = $(shell pwd)/debian/tmp
+tmpdir-dev = $(tmpdir)-dev
+instdirs   = $(tmpdir) \
+	     $(tmpdir)/DEBIAN \
+	     $(tmpdir)/usr/share/doc/libident \
+	     $(tmpdir)/usr/sbin \
+	     $(tmpdir)/usr/lib \
+	     $(tmpdir)/usr/share/man/man8 \
+	     $(tmpdir-dev) \
+	     $(tmpdir-dev)/DEBIAN \
+	     $(tmpdir-dev)/usr \
+	     $(tmpdir-dev)/usr/share/doc \
+	     $(tmpdir-dev)/usr/include \
+	     $(tmpdir-dev)/usr/lib \
+	     $(tmpdir-dev)/usr/share/man/man3
+
+CC=gcc
+CFLAGS=-O2 -g -Wall -DHAVE_ANSIHEADERS
+LDFLAGS=
+
+build:
+	$(checkdir)
+	echo 'char _id_version[] = "libident' $(version) Debian $(debian)'";' \
+		>version.c
+	$(MAKE) all INSTROOT=/usr CC="$(CC)" CFLAGS="$(CFLAGS)"
+	$(MAKE) testers CC="$(CC)" CFLAGS="$(CFLAGS)"
+	touch build
+
+clean:
+	$(checkdir)
+	-rm -f build stamp-build
+	-$(MAKE) -i clean
+	-rm -rf *~ debian/tmp* debian/*~ debian/files* \
+		debian/substvars* *.orig ./#*#
+
+binary-indep: 
+# None
+	@echo 'No independent package components.' ; false
+
+binary binary-arch:	checkroot build $(instdirs)
+	$(MAKE) INSTROOT=$(tmpdir-dev)/usr install-dev
+	$(MAKE) INSTROOT=$(tmpdir)/usr install
+	$(installdoc) debian/copyright \
+				$(tmpdir)/usr/share/doc/libident
+	$(installdoc) README \
+				$(tmpdir)/usr/share/doc/libident
+	$(installdoc) debian/changelog \
+				$(tmpdir)/usr/share/doc/libident/changelog.Debian
+	$(installdoc) debian/in.identtestd.8 \
+				$(tmpdir)/usr/share/man/man8
+	$(installbin) -s ident-tester \
+				$(tmpdir)/usr/sbin/in.identtestd
+	gzip -v9 {$(tmpdir),$(tmpdir-dev)}/usr/share/man/man?/*
+	# dont compress copyright
+	gzip -v9 $(tmpdir)/usr/share/doc/libident/{README,changelog.Debian}
+	strip --strip-debug    $(tmpdir-dev)/usr/lib/libident.a
+	strip --strip-unneeded $(tmpdir)/usr/lib/libident.so.$(version)
+	ln -s libident $(tmpdir-dev)/usr/share/doc/libident-dev
+	unset LD_PRELOAD; dpkg-shlibdeps $(tmpdir)/usr/sbin/in.identtestd
+	dpkg-gencontrol -P$(tmpdir)     -plibident
+	dpkg-gencontrol -P$(tmpdir-dev) -plibident-dev
+	$(installbin) debian/prerm    $(tmpdir)/DEBIAN/prerm
+	$(installbin) debian/postinst $(tmpdir)/DEBIAN/postinst
+	$(installdoc) debian/shlibs   $(tmpdir)/DEBIAN
+	$(installbin) debian/prerm-dev    $(tmpdir-dev)/DEBIAN/prerm
+	$(installbin) debian/postinst-dev $(tmpdir-dev)/DEBIAN/postinst
+	chown -R root.root $(tmpdir) $(tmpdir-dev)
+	chmod -R g-ws $(tmpdir) $(tmpdir-dev)
+	dpkg --build $(tmpdir) ..
+	dpkg --build $(tmpdir-dev) ..
+
+define checkdir
+	test -f id_open.c -a -f debian/rules
+endef
+
+checkroot:
+	$(checkdir)
+	test root = "`whoami`"
+
+.PHONY: binary binary-arch binary-indep clean checkroot
+
+zapdirs:
+	-rm -rf $(tmpdir) $(tmpdir-dev)
+
+$(instdirs): zapdirs
+	install -d -m 755 $@
+	chmod g-s $@

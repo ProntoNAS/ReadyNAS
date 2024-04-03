@@ -1,0 +1,26 @@
+Bug #153152 %l can cause
+segfault if ttyname is null
+
+Index: Linux-PAM/modules/pam_issue/pam_issue.c
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/modules/pam_issue/pam_issue.c,v
+retrieving revision 1.1.1.2
+diff -u -r1.1.1.2 pam_issue.c
+--- Linux-PAM/modules/pam_issue/pam_issue.c	15 Sep 2002 20:08:49 -0000	1.1.1.2
++++ Linux-PAM/modules/pam_issue/pam_issue.c	25 Nov 2002 01:15:40 -0000
+@@ -235,9 +235,13 @@
+ 	      case 'l':
+ 		{
+ 		    char *ttyn = ttyname(1);
+-		    if (!strncmp(ttyn, "/dev/", 5))
++		    if (ttyn) {
++		      if (!strncmp(ttyn, "/dev/", 5))
+ 			ttyn += 5;
+-		    snprintf (buf, 1024, "%s", ttyn);
++		      snprintf (buf, 1024, "%s", ttyn);
++		    } else {
++		      buf[0] = '\0';
++		    }
+ 		}
+ 		break;
+ 	      case 'u':

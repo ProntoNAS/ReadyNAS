@@ -1,0 +1,58 @@
+#! /bin/sh -e
+
+# sparc-config-ml.dpatch by  <schizo@debian.org>
+#
+# DP: disable some biarch libraries for sparc64 build
+
+if [ $# -eq 3 ] && [ "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+       -patch) patch -f --no-backup-if-mismatch -p0 < $0;;
+       -unpatch) patch -f --no-backup-if-mismatch -R -p0 < $0;;
+	*)
+		echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+		exit 1;;
+esac
+
+exit 0
+				    
+--- src/config-ml.in.bak	2002-07-02 12:36:38.000000000 +0000
++++ src/config-ml.in	2003-03-14 21:37:47.000000000 +0000
+@@ -478,13 +478,29 @@
+ 	;;
+ sparc*-*-*)
+ 	case " $multidirs " in
+-	*" m64 "*)
++	*" 64 "*)
+ 	  # We will not be able to create libraries with -m64 if
+ 	  # we cannot even link a trivial program.  It usually
+ 	  # indicates the 64bit libraries are missing.
+ 	  if echo 'main() {}' > conftest.c &&
+ 	     ${CC-gcc} -m64 conftest.c -o conftest; then
+-	    :
++           echo Enable only libstdc++.
++           old_multidirs="${multidirs}"
++           multidirs=""
++           for x in ${old_multidirs}; do
++             case "$x" in
++             *64* ) case ${ml_realsrcdir} in
++                       *"libstdc++-v3" ) multidirs="${multidirs} ${x}" ;;
++                       *"libf2c" ) multidirs="${multidirs} ${x}" ;;
++                       *"libobjc" ) multidirs="${multidirs} ${x}" ;;
++                       *"libiberty" ) multidirs="${multidirs} ${x}" ;;
++                       *"zlib" ) multidirs="${multidirs} ${x}" ;;
++                       *) : ;;
++                    esac 
++                    ;;
++             *) multidirs="${multidirs} ${x}" ;;
++             esac
++           done
+ 	  else
+ 	    echo Could not link program with -m64, disabling it.
+ 	    old_multidirs="${multidirs}"
+

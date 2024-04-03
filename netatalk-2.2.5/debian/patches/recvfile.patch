@@ -1,0 +1,145 @@
+diff -urp a/configure.ac b/configure.ac
+--- a/configure.ac	2011-12-02 10:29:55.241674000 -0800
++++ b/configure.ac	2011-12-02 10:34:09.729688064 -0800
+@@ -858,6 +858,9 @@
+    *linux*)
+         AC_DEFINE(SENDFILE_FLAVOR_LINUX,1,[Whether linux sendfile() API is available])
+         AC_CHECK_FUNC([sendfile], [netatalk_cv_HAVE_SENDFILE=yes])
++        if test x"$host_cpu" = "xsparc"; then 
++                AC_DEFINE(HAVE_SENDFILE_WRITE,1,[Whether reverse_sendfile() is available])
++        fi
+         ;;
+ 
+     *solaris*)
+diff -urp a/config.h.in b/config.h.in
+--- a/config.h.in	2011-12-01 02:39:51.000000000 -0800
++++ b/config.h.in	2011-12-02 10:34:09.717688062 -0800
+@@ -539,6 +539,9 @@
+ /* Define to 1 if you have the `select' function. */
+ #undef HAVE_SELECT
+ 
++/* Whether reverse_sendfile() is available */
++#undef HAVE_SENDFILE_WRITE
++
+ /* Define to 1 if you have the `setea' function. */
+ #undef HAVE_SETEA
+ 
+diff -urp a/configure b/configure
+--- a/configure	2011-12-01 02:55:48.000000000 -0800
++++ b/configure	2011-12-02 10:34:09.729688064 -0800
+@@ -17746,6 +17746,11 @@
+   netatalk_cv_HAVE_SENDFILE=yes
+ fi
+ 
++        if test x"$host_cpu" = "xsparc"; then
++
++$as_echo "#define HAVE_SENDFILE_WRITE 1" >>confdefs.h
++
++        fi
+         ;;
+ 
+     *solaris*)
+diff -urp a/etc/afpd/file.c b/etc/afpd/file.c
+--- a/etc/afpd/file.c	2011-12-02 10:35:33.185692657 -0800
++++ b/etc/afpd/file.c	2011-12-02 10:34:09.729688064 -0800
+@@ -1471,6 +1471,8 @@ static int copy_fork(int eid, struct ado
+     }
+     no_sendfile:
+     lseek(sfd, offset, SEEK_SET);
++    /* Need to seek dest file too. */
++    lseek(dfd, offset, SEEK_SET);
+ #endif 
+ 
+     while (1) {
+diff -urp a/etc/afpd/fork.c b/etc/afpd/fork.c
+--- a/etc/afpd/fork.c	2011-12-02 10:35:33.177692658 -0800
++++ b/etc/afpd/fork.c	2011-12-02 10:34:09.729688064 -0800
+@@ -1294,19 +1294,21 @@ static int write_fork(AFPObj *obj, char 
+             }
+             offset += cc;
+ 
+-#if 0 /*def HAVE_SENDFILE_WRITE*/
++#ifdef HAVE_SENDFILE_WRITE
+             if (!(xlate || obj->options.flags & OPTION_DEBUG)) {
+                 if ((cc = ad_writefile(ofork->of_ad, eid, dsi->socket,
+-                                       offset, dsi->datasize)) < 0) {
++                                       offset, 0, dsi->datasize)) < 0) {
+                     switch (errno) {
+                     case EDQUOT :
+                     case EFBIG :
+                     case ENOSPC :
++        		LOG(log_error, logtype_afpd, "write_fork2 (rsendfile): DISK FULL");
++                        LOG(log_error, logtype_afpd, "afp_write: ad_writefile1e: %s,%d", strerror(errno), cc );
+                         cc = AFPERR_DFULL;
+                         break;
+                     default :
+-                        LOG(log_error, logtype_afpd, "afp_write: ad_writefile: %s", strerror(errno) );
+-                        goto afp_write_loop;
++                        LOG(log_error, logtype_afpd, "afp_write: ad_writefile2e: %s,%d", strerror(errno), cc );
++                        //goto afp_write_loop;
+                     }
+                     dsi_writeflush(dsi);
+                     *rbuflen = 0;
+@@ -1318,7 +1320,11 @@ static int write_fork(AFPObj *obj, char 
+                 offset += cc;
+                 goto afp_write_done;
+             }
+-#endif /* 0, was HAVE_SENDFILE_WRITE */
++#else /* HAVE_SENDFILE_WRITE */
++#ifdef __sparc__
++#error Reverse sendfile not enabled on SPARC.  Why?
++#endif
++#endif /* HAVE_SENDFILE_WRITE */
+ 
+             /* loop until everything gets written. currently
+                     * dsi_write handles the end case by itself. */
+@@ -1337,6 +1339,7 @@ static int write_fork(AFPObj *obj, char 
+                 offset += cc;
+             }
+         }
++afp_write_done:
+         break;
+     }
+ 
+diff -urp a/include/atalk/adouble.h b/include/atalk/adouble.h
+--- a/include/atalk/adouble.h	2011-11-08 05:18:37.000000000 -0800
++++ b/include/atalk/adouble.h	2011-12-02 10:34:09.729688064 -0800
+@@ -552,11 +552,9 @@ extern int ad_readfile_init(const struct
+ 				       const int end);
+ #endif
+ 
+-#if 0
+ #ifdef HAVE_SENDFILE_WRITE
+ extern ssize_t ad_writefile (struct adouble *, const int,
+                                  const int, off_t, const int, const size_t);
+ #endif /* HAVE_SENDFILE_WRITE */
+-#endif /* 0 */
+ 
+ #endif /* _ATALK_ADOUBLE_H */
+diff -urp a/libatalk/adouble/ad_sendfile.c b/libatalk/adouble/ad_sendfile.c
+--- a/libatalk/adouble/ad_sendfile.c	2011-12-01 02:24:33.000000000 -0800
++++ b/libatalk/adouble/ad_sendfile.c	2011-12-02 10:34:09.733688063 -0800
+@@ -102,7 +102,6 @@ int ad_readfile_init(const struct adoubl
+ 
+ 
+ /* ------------------------ */
+-#if 0
+ #ifdef HAVE_SENDFILE_WRITE
+ /* read from a socket and write to an adouble file */
+ ssize_t ad_writefile(struct adouble *ad, const int eid, 
+@@ -113,7 +112,8 @@ ssize_t ad_writefile(struct adouble *ad,
+   ssize_t cc;
+   int fd;
+ 
+-  fd = ad_sendfile_init(ad, eid, &off, end);
++  fd = ad_readfile_init(ad, eid, &off, end);
++  lseek(fd, off, SEEK_SET);
+   if ((cc = sys_sendfile(fd, sock, &off, len)) < 0)
+     return -1;
+ 
+@@ -124,5 +124,4 @@ ssize_t ad_writefile(struct adouble *ad,
+ #endif /* __linux__ */
+ }
+ #endif /* HAVE_SENDFILE_WRITE */
+-#endif /* 0 */
+ #endif

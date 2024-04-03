@@ -1,0 +1,234 @@
+#! /bin/sh -e
+
+# DP: patches for ia64 unwind exception support.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p2 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p2 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+From: Matthew Wilcox <matthew@wil.cx>
+Sender: <willy@www.linux.org.uk>
+To: submit@bugs.debian.org
+Subject: Bug#278835: ia64 problems
+Date: Fri, 29 Oct 2004 17:55:12 +0100
+
+
+Package: gcc-3.3
+Version: 1:3.3.4-13
+Tags: patch
+
+This was sent to debian-ia64, I'm filing the appropriate bugs for it.
+Including this patch would be a great help.
+
+----- Forwarded message from David Mosberger <davidm@napali.hpl.hp.com> -----
+
+I have grown increasingly concerned that even with the current
+Debian/unstable, there are several failures reported by "make check"
+in libunwind.  This is disappointing because most of the necessary
+toolchain/libc fixes have been out there for a long time but things
+just haven't moved far along enough yet for Debian to pick them up in
+the normal course of syncing with upstream.  To make matters worse, I
+recently found on a SuSE 9 system that even with the existing fixes in
+place, there were two other unwind-related bugs in GCC.  Those have
+been fixed in upstream now and as of now, there are no known
+unwind-related bugs left.  Thus, it would be really good to get the
+Debian toolchain in sync.  Since Debian won't upgrade to gcc-3.4 and
+the latest libc over night, I thought I'd spend the effort to backport
+the minimal fixes to get things working right.  The result is the 3
+patches below, which fix, respectively, GCC v3.3, libc6.1, and
+binutils.
+
+Now the problem is that I'd really need help to get these patches
+integrated into Debian.  Any help in that direction would be greatly
+appreciated (especially since I'll be distracted with my move back to
+California over the next few days).
+
+In terms of the safety of these patches: they all have been checked
+into the mainline CVS trees and most have been there for months.  I'm
+convinced they're all safe for ia64 and even more so for all other
+arches (since they're for the most part 100% unaffected).  So really
+hope that these could be merged quickly.  Of course, I'd be happy to
+answer any questions in case something comes up.
+
+Also, it would be good if GCC on ia64 could be built against
+libunwind.  To do so, we'd probably want to make sure that Debian has
+libunwind v0.98.2 (which I'll release next week and contains just two
+minor bug fixes vs. v0.98.1) installed when building GCC and glibc.
+The rest should be automatic.
+
+With the patches below installed, "make check" in libunwind completes
+without failures.  Also, I single-stepped a test-program
+(test-ptrace-misc) from beginning to end, unwinding after each
+instruction and no failures where detected!  Also, the GCC patches
+fixes the 2 remaining unexpected libjava in GCC 3.3.5 (with no other
+changes), so I really do think this gets Debian/ia64 into much better
+shape.
+
+Anybody willing to help getting these into Debian?
+
+	--david
+
+
+ config/ia64/crtbegin.asm |   22 ++++++++++++++++------
+ config/ia64/crtend.asm   |    4 ++++
+ config/ia64/ia64.c       |   36 +++++++++++++++++++++++++-----------
+ emit-rtl.c               |    5 +++++
+ gcc.c                    |    3 +++
+ 5 files changed, 53 insertions(+), 17 deletions(-)
+
+diff -urN orig/gcc-3.3-3.3.5/src/gcc/config/ia64/crtbegin.asm gcc-3.3-3.3.5/src/gcc/config/ia64/crtbegin.asm
+--- orig/gcc-3.3-3.3.5/src/gcc/config/ia64/crtbegin.asm	2003-01-25 09:28:42.000000000 -0800
++++ gcc-3.3-3.3.5/src/gcc/config/ia64/crtbegin.asm	2004-10-28 09:30:53.000000000 -0700
+@@ -48,8 +48,9 @@
+ 	data8	__dso_handle#
+ #else
+ 	.section .bss
++	.align 8
+ __dso_handle:
+-	data8	0
++	.skip	8
+ #endif
+ 	.hidden __dso_handle#
+ 
+@@ -116,11 +117,15 @@
+ 	.align	16
+ 	.proc	__do_global_dtors_aux#
+ __do_global_dtors_aux:
++	.prologue
+ #ifndef SHARED
+ 	{ .mii
++	  .save ar.pfs, r35
+ 	  alloc loc3 = ar.pfs, 0, 4, 1, 0
+ 	  addl loc0 = @gprel(dtor_ptr#), gp
++	  .save rp, loc1
+ 	  mov loc1 = b0
++	  .body
+ 	}
+ 	{ .mib
+ 	  mov loc2 = gp
+@@ -133,6 +138,7 @@
+ 		  __cxa_finalize(__dso_handle)
+ 	*/
+ 	{ .mii
++	  .save ar.pfs, r35
+ 	  alloc loc3 = ar.pfs, 0, 4, 1, 0
+ 	  addl loc0 = @gprel(dtor_ptr#), gp
+ 	  addl r16 = @ltoff(@fptr(__cxa_finalize#)), gp
+@@ -148,16 +154,17 @@
+ 	{ .mmi
+ 	  ld8 out0 = [out0]
+ (p7)	  ld8 r18 = [r16], 8
++	  .save rp, loc1
+ 	  mov loc1 = b0
+ 	  ;;
+ 	}
+-	{ .mfi
++	{ .mmi
+ 	  mov loc2 = gp
++(p7)	  ld8 gp = [r16]
+ (p7)	  mov b6 = r18
+ 	}
+ 	{
+ 	  .mfb
+-(p7)	  ld8 gp = [r16]
+ (p7)	  br.call.sptk.many b0 = b6
+ 	}
+ 	{ .mfb
+@@ -189,15 +196,14 @@
+ 	  adds r15 = 8, r15
+ 	  ;;
+ 	}
+-	{ .mmi
++	{ .mii
+ 	  ld8 r16 = [r16]
+-	  mov gp = loc2
+ 	  mov b0 = loc1
++	  mov ar.pfs = loc3
+ 	  ;;
+ 	}
+ 	{ .mib
+ 	  cmp.ne p6, p0 = r0, r16
+-	  mov ar.pfs = loc3
+ (p6)	  br.cond.sptk.few 0b
+ 	}
+ 	{ .bbb
+@@ -209,7 +215,9 @@
+ 	.align	16
+ 	.proc	__do_jv_register_classes#
+ __do_jv_register_classes:
++	.prologue
+ 	{ .mlx
++	  .save ar.pfs, r34
+ 	  alloc loc2 = ar.pfs, 0, 3, 1, 0
+ 	  movl out0 = @gprel(__JCR_LIST__)
+ 	  ;;
+@@ -232,7 +240,9 @@
+ 	}
+ 	{ .mii
+ 	  ld8 r15 = [r14], 8
++	  .save rp, loc0
+ 	  mov loc0 = b0
++	  .body
+ 	  mov loc1 = gp
+ 	  ;;
+ 	}
+diff -urN orig/gcc-3.3-3.3.5/src/gcc/config/ia64/crtend.asm gcc-3.3-3.3.5/src/gcc/config/ia64/crtend.asm
+--- orig/gcc-3.3-3.3.5/src/gcc/config/ia64/crtend.asm	2003-01-25 09:28:42.000000000 -0800
++++ gcc-3.3-3.3.5/src/gcc/config/ia64/crtend.asm	2004-10-28 09:30:53.000000000 -0700
+@@ -74,18 +74,22 @@
+ #endif
+ 	.proc __do_global_ctors_aux#
+ __do_global_ctors_aux:
++	.prologue
+ 	/*
+ 		for (loc0 = __CTOR_END__-1; *p != -1; --p)
+ 		  (*p) ();
+ 	*/
+ 	{ .mlx
++	  .save ar.pfs, r36
+ 	  alloc loc4 = ar.pfs, 0, 5, 0, 0
+ 	  movl loc0 = @gprel(__CTOR_END__# - 8)
+ 	  ;;
+ 	}
+ 	{ .mmi
+ 	  add loc0 = loc0, gp
++	  .save rp, loc1
+ 	  mov loc1 = b0
++	  .body
+ 	  ;;
+ 	}
+ 	{
+diff -urN orig/gcc-3.3-3.3.5/src/gcc/emit-rtl.c gcc-3.3-3.3.5/src/gcc/emit-rtl.c
+--- orig/gcc-3.3-3.3.5/src/gcc/emit-rtl.c	2004-10-29 09:09:46.799764298 -0700
++++ gcc-3.3-3.3.5/src/gcc/emit-rtl.c	2004-10-28 05:49:16.000000000 -0700
+@@ -5586,6 +5586,11 @@
+ 
+   INSN_SCOPE (new) = INSN_SCOPE (insn);
+ 
++  /* If the old insn is frame related, then so is the new one.  This is
++     primarily needed for IA-64 unwind info which marks epilogue insns,
++     which may be duplicated by the basic block reordering code.  */
++  RTX_FRAME_RELATED_P (new) = RTX_FRAME_RELATED_P (insn);
++
+   /* Copy all REG_NOTES except REG_LABEL since mark_jump_label will
+      make them.  */
+   for (link = REG_NOTES (insn); link; link = XEXP (link, 1))

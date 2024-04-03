@@ -1,0 +1,20 @@
+Prevent a library double-free and crash when a keytab is zero-length.
+Patch from Rainer Weikusat with some modifications.
+
+Kerberos RT #3549
+Debian bug #344295
+ 
+--- krb5-1.4.3.orig/src/lib/krb5/keytab/kt_file.c
++++ krb5-1.4.3/src/lib/krb5/keytab/kt_file.c
+@@ -1107,7 +1107,10 @@
+     } else {
+ 	/* gotta verify it instead... */
+ 	if (!xfread(&kt_vno, sizeof(kt_vno), 1, KTFILEP(id))) {
+-	    kerror = errno;
++	    if (feof(KTFILEP(id)))
++		kerror = KRB5_KEYTAB_BADVNO;
++	    else
++		kerror = errno;
+ 	    (void) krb5_unlock_file(context, fileno(KTFILEP(id)));
+ 	    (void) fclose(KTFILEP(id));
+ 	    return kerror;

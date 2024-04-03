@@ -1,0 +1,1789 @@
+
+GCC 3.4 Release Series - Changes, New Features, and Fixes
+=========================================================
+
+The latest release in the 3.4 release series is GCC 3.4.3.
+
+Caveats
+=======
+
+- GNU Make is now required to build GCC.
+
+- With -nostdinc the preprocessor used to ignore both standard include
+  paths and include paths contained in environment variables.  It was
+  neither documented nor intended that environment variable paths be
+  ignored, so this has been corrected.
+
+- GCC no longer accepts the options -fvolatile, -fvolatile-global and
+  -fvolatile-static. It is unlikely that they worked correctly in any
+  3.x release.
+
+- GCC no longer ships <varargs.h>.  Use <stdarg.h> instead.
+
+- Support for all the systems obsoleted in GCC 3.3 has been removed
+  from GCC 3.4.  See below for a list of systems which are obsoleted in
+  this release.
+
+- GCC now requires an ISO C90 (ANSI C89) C compiler to build.  K&R C
+  compilers will not work.
+
+- The implementation of the MIPS ABIs has changed.  As a result, the
+  code generated for certain MIPS targets will not be binary compatible
+  with earlier releases.
+
+- In previous releases, the MIPS port had a fake "hilo" register with
+  the user-visible name accum.  This register has been removed.
+
+- The implementation of the SPARC ABIs has changed.  As a result, the
+  code generated will not be binary compatible with earlier releases in
+  certain cases.
+
+- The configure option --enable-threads=pthreads has been removed; use
+  --enable-threads=posix instead, which should have the same effect.
+
+- Code size estimates used by inlining heuristics for C, Objective-C,
+  C++ and Java have been redesigned significantly.  As a result the
+  parameters of -finline-insns, --param max-inline-insns-single and
+  --param max-inline-insns-auto need to be reconsidered.
+
+- --param max-inline-slope and --param min-inline-insns have been
+  removed; they are not needed for the new bottom-up inlining
+  heuristics.
+
+- The new unit-at-a-time compilation scheme has several compatibility
+  issues:
+
+  - The order in which functions, variables, and top-level asm
+    statements are emitted may have changed.  Code relying on some
+    particular ordering needs to be updated.  The majority of such
+    top-level asm statements can be replaced by section attributes.
+
+  - Unreferenced static variables and functions are removed.  This may
+    result in undefined references when an asm statement refers to the
+    variable/function directly.  In that case either the
+    variable/function shall be listed in asm statement operand or in the
+    case of top-level asm statements the attribute used shall be used to
+    force function/variable to be always output and considered as a
+    possibly used by unknown code.
+
+    For variables the attribute is accepted only by GCC 3.4 and newer,
+    while for earlier versions it is sufficient to use unused to silence
+    warnings about the variables not being referenced. To keep code
+    portable across different GCC versions, you can use appropriate
+    preprocessor conditionals.
+
+  - Static functions now can use non-standard passing conventions that
+    may break asm statements calling functions directly.  Again the
+    attribute used shall be used to prevent this behavior.
+    
+  As a temporary workaround, -fno-unit-at-a-time can be used, but this
+  scheme may not be supported by future releases of GCC.
+
+- GCC 3.4 automatically places zero-initialized variables in the .bss
+  section on some operating systems.  Versions of GNU Emacs up to (and
+  including) 21.3 will not work correctly when using this optimization;
+  you can use -fno-zero-initialized-in-bss to disable it.
+
+
+General Optimizer Improvements
+==============================
+
+- Usability of the profile feedback and coverage testing has been
+  improved.
+
+  - Performance of profiled programs has been improved by faster
+    profile merging code.
+  - Better use of the profile feedback for optimization (loop
+    unrolling and loop peeling).
+  - File locking support allowing fork() calls and parallel runs of
+    profiled programs.
+  - Coverage file format has been redesigned.
+  - gcov coverage tool has been improved.
+  - make profiledbootstrap available to build a faster compiler.
+
+    Experiments made on i386 hardware showed an 11% speedup on -O0 and
+    a 7.5% speedup on -O2 compilation of a large C++ testcase.
+
+  - New value profiling pass enabled via -fprofile-values
+  - New value profile transformations pass enabled via -fvpt aims to
+    optimize some code sequences by exploiting knowledge about value
+    ranges or other properties of the operands.  At the moment a
+    conversion of expensive divisions into cheaper operations has been
+    implemented.
+  - New -fprofile-generate and -fprofile-use command line options to
+    simplify the use of profile feedback.
+
+- A new unit-at-a-time compilation scheme for C, Objective-C, C++ and
+  Java which is enabled via -funit-at-a-time (and implied by -O2).  In
+  this scheme a whole file is parsed first and optimized later.  The
+  following basic inter-procedural optimizations are implemented:
+
+  - Removal of unreachable functions and variables
+  - Discovery of local functions (functions with static linkage whose
+    address is never taken)
+  - On i386, these local functions use register parameter passing
+    conventions.
+  - Reordering of functions in topological order of the call graph to
+    enable better propagation of optimizing hints (such as the stack
+    alignments needed by functions) in the back end.
+  - Call graph based out-of-order inlining heuristics which allows to
+    limit overall compilation unit growth (--param inline-unit-growth).
+
+  Overall, the unit-at-a-time scheme produces a 1.3% improvement for
+  the SPECint2000 benchmark on the i386 architecture (AMD Athlon CPU).
+
+- More realistic code size estimates used by inlining for C,
+  Objective-C, C++ and Java.  The growth of large functions can now be
+  limited via --param large-function-insns and --param
+  large-function-growth.
+
+- A new cfg-level loop optimizer pass replaces the old loop unrolling
+  pass and adds two other loop transformations -- loop peeling and loop
+  unswitching -- and also uses the profile feedback to limit code
+  growth. (The three optimizations are enabled by -funroll-loops,
+  -fpeel-loops and -funswitch-loops flags, respectively).
+
+  The old loop unroller still can be enabled by -fold-unroll-loops and
+  may produce better code in some cases, especially when the webizer
+  optimization pass is not run.
+
+- A new web construction pass enabled via -fweb (and implied by -O3)
+  improves the quality of register allocation, CSE, first scheduling
+  pass and some other optimization passes by avoiding re-use of pseudo
+  registers with non-overlapping live ranges.  The pass almost always
+  improves code quality but does make debugging difficult and thus is
+  not enabled by default by -O2
+
+  The pass is especially effective as cleanup after code duplication
+  passes, such as the loop unroller or the tracer.
+
+- Experimental implementations of superblock or trace scheduling in
+  the second scheduling pass can be enabled via -fsched2-use-superblocks
+  and -fsched2-use-traces, respectively.
+
+
+New Languages and Language specific improvements
+================================================
+
+Ada
+---
+
+- The Ada front end has been updated to include numerous bug fixes and
+  enhancements.  These include:
+
+  - Improved project file support 
+  - Additional set of warnings about potential wrong code 
+  - Improved error messages 
+  - Improved code generation 
+  - Improved cross reference information 
+  - Improved inlining 
+  - Better run-time check elimination 
+  - Better error recovery 
+  - More efficient implementation of unbounded strings 
+  - Added features in GNAT.Sockets,
+  - GNAT.OS_Lib, GNAT.Debug_Pools, ... 
+  - New GNAT.xxxx packages (e.g. GNAT.Strings,
+  - GNAT.Exception_Action) 
+  - New pragmas
+  - New -gnatS switch replacing gnatpsta
+  - Implementation of new Ada features (in particular limited with,
+    limited aggregates)
+
+
+C/Objective-C/C++
+-----------------
+
+- Precompiled headers are now supported.  Precompiled headers can
+  dramatically speed up compilation of some projects.  There are some
+  known defects in the current precompiled header implementation that
+  will result in compiler crashes in relatively rare situations.
+  Therefore, precompiled headers should be considered a "technology
+  preview" in this release.  Read the manual for details about how to
+  use precompiled headers.
+
+- File handling in the preprocessor has been rewritten.  GCC no longer
+  gets confused by symlinks and hardlinks, and now has a correct
+  implementation of #import and #pragma once. These two directives have
+  therefore been un-deprecated.
+
+- The undocumented extension that allowed C programs to have a label
+  at the end of a compound statement, which has been deprecated since
+  GCC 3.0, has been removed.
+
+- The cast-as-lvalue extension has been removed for C++ and deprecated
+  for C and Objective-C.  In particular, code like this:
+
+      int i;
+      (char) i = 5;
+
+  or this:
+
+      char *p;
+      ((int *) p)++;
+
+  is no longer accepted for C++ and will not be accepted for C and
+  Objective-C in a future version.
+
+- The conditional-expression-as-lvalue extension has been deprecated
+  for C and Objective-C.  In particular, code like this:
+
+      int a, b, c;
+      (a ? b : c) = 2;
+
+  will not be accepted for C and Objective-C in a future version.
+
+- The compound-expression-as-lvalue extension has been deprecated for
+  C and Objective-C.  In particular, code like this:
+
+      int a, b;
+      (a, b) = 2;
+
+  will not be accepted for C and Objective-C in a future version. A
+  possible non-intrusive workaround is the following:
+
+      (*(a, &b)) = 2;
+
+- Several built-in functions such as __builtin_popcount for counting
+  bits, finding the highest and lowest bit in a word, and parity have
+  been added.
+
+- The -fwritable-strings option has been deprecated and will be
+  removed.
+
+- Many C math library functions are now recognized as built-ins and
+  optimized.
+
+- The C, C++, and Objective-C compilers can now handle source files
+  written in any character encoding supported by the host C library.
+  The default input character set is taken from the current locale, and
+  may be overridden with the -finput-charset command line option.  In
+  the future we will add support for inline encoding markers.
+
+
+C++
+---
+
+- G++ is now much closer to full conformance to the ISO/ANSI C++
+  standard. This means, among other things, that a lot of invalid
+  constructs which used to be accepted in previous versions will now be
+  rejected. It is very likely that existing C++ code will need to be
+  fixed. This document lists some of the most common issues.
+
+- A hand-written recursive-descent C++ parser has replaced the
+  YACC-derived C++ parser from previous GCC releases.  The new parser
+  contains much improved infrastructure needed for better parsing of C++
+  source codes, handling of extensions, and clean separation (where
+  possible) between proper semantics analysis and parsing.  The new
+  parser fixes many bugs that were found in the old parser.
+
+- You must now use the typename and template keywords to disambiguate
+  dependent names, as required by the C++ standard.
+
+      struct K {
+          typedef int mytype_t;
+      };
+
+      template <class T1> struct A {
+          template <class T2> struct B {
+              void callme(void);
+          };
+
+          template <int N> void bar(void)
+          {
+              // Use 'typename' to tell the parser that T1::mytype_t names
+              //  a type. This is needed because the name is dependent (in
+              //  this case, on template parameter T1).
+              typename T1::mytype_t x;
+              x = 0;
+          }
+      };
+
+      template <class T> void template_func(void)
+      {
+          // Use 'template' to prefix member templates within 
+          //  dependent types (a has type A<T>, which depends on
+          //  the template parameter T).
+          A<T> a;
+          a.template bar<0>();
+
+          // Use 'template' to tell the parser that B is a nested 
+          //  template class (dependent on template parameter T), and 
+          //  'typename' because the whole A<T>::B<int> is 
+          //  the name of a type (again, dependent).
+          typename A<T>::template B<int> b;
+          b.callme();
+      }
+
+      void non_template_func(void)
+      {
+          // Outside of any template class or function, no names can be
+          //  dependent, so the use of the keyword 'typename' and 'template'
+          //  is not needed (and actually forbidden).
+          A<K> a;
+          a.bar<0>();
+          A<K>::B<float> b;
+          b.callme();
+      }
+
+- In a template definition, unqualified names will no longer find
+  members of a dependent base. For example,
+
+      template <typename T> struct B {
+          int m;
+          int n;
+          int f ();
+          int g ();
+      };
+      int n;
+      int g ();
+      template <typename T> struct C : B<T> {
+          void g ()
+          {
+              m = 0; // error
+              f ();  // error
+              n = 0; // ::n is modified
+              g ();  // ::g is called
+          }
+      };
+
+  You must make the names dependent by prefixing them with
+  this->. Here is the corrected definition of C<T>::g,
+        
+      template <typename T> void C<T>::g ()
+      {
+          this->m = 0;
+          this->f ();
+          this->n = 0
+          this->g ();
+      }
+
+- In templates, all non-dependent names are now looked up and bound at
+  definition time (while parsing the code), instead of later when the
+  template is instantiated. For instance:
+
+      void foo(int);
+
+      template <int> struct A {
+          static void bar(void) {
+              foo('a');
+          }
+      };
+
+      void foo(char);
+
+      int main()
+      {
+          A<0>::bar();    // Calls foo(int), used to call foo(char).
+      }
+
+
+- In an explicit instantiation of a class template, you must use class
+  or struct before the template-id:
+
+
+      template <int N>
+      class A {};
+
+      template A<0>;         // error, not accepted anymore
+      template class A<0>;   // OK
+
+- The "named return value" and "implicit typename" extensions have
+  been removed.
+
+- Default arguments in function types have been deprecated and will be
+  removed.
+
+- ARM-style name-injection of friend declarations has been deprecated
+  and will be removed.  For example:
+
+      struct S {
+          friend void f();
+      };
+
+      void g() { f(); }
+
+  will not be accepted by future versions of G++; instead a
+  declaration of "f" will need to be present outside of the scope of "S".
+
+- Covariant returns are implemented for all but varadic functions that
+  require an adjustment.
+
+- When -pedantic is used, G++ now issues errors about spurious
+  semicolons. For example,
+
+      namespace N {}; // Invalid semicolon.
+      void f() {}; // Invalid semicolon.
+
+- G++ no longer accepts attributes for a declarator after the
+  initializer associated with that declarator.  For example,
+
+      X x(1) __attribute__((...));
+      is no longer accepted.  Instead, use:
+
+      X x __attribute__((...)) (1);
+
+- Inside the scope of a template class, the name of the class itself
+  can be treated as either a class or a template.  So GCC used to accept
+  the class name as argument of type template, and template template
+  parameter.  However this is not C++ standard compliant.  Now the name
+  is not treated as a valid template template argument unless you
+  qualify the name by its scope.  For example, the code below no longer
+  compiles.
+
+      template <template <class> class TT> class X {};
+      template <class T> class Y {
+          X<Y> x; // Invalid, Y is always a type template parameter.
+      };
+
+  The valid code for the above example is
+
+      X< ::Y> x; // Valid.
+
+  (Notice the space between < and : to prevent GCC to interpret this
+  as a digraph for [.)
+
+- Friend declarations that refer to template specializations are
+  rejected if the template has not already been declared. For example,
+
+      template <typename T>
+      class C {
+          friend void f<> (C&);
+      };
+
+  is rejected. You must first declare f as a template,
+
+      template <typename T>
+      void f(T);
+
+- In case of friend declarations, every name used in the friend
+  declaration must be accessible at the point of that declaration.
+  Previous versions of G++ used to be less strict about this and allowed
+  friend declarations for private class members, for example.  See the
+  ISO C++ Standard Committee's defect report #209 for details.
+
+- Declaration of member functions of class templates as friends are
+  supported.  For example,
+
+      template <typename T> struct A {
+          void f();
+      };
+      class C {
+          template <typename T> friend void A<T>::f();
+      };
+
+- You must use template <> to introduce template specializations, as
+  required by the standard.  For example,
+
+      template <typename T>
+      struct S;
+
+      struct S<int> { };
+
+  is rejected. You must write,
+
+      template <> struct S<int> {};
+
+- G++ used to accept code like this,
+
+      struct S {
+          int h();
+          void f(int i = g());
+          int g(int i = h());
+      };
+
+  This behavior is not mandated by the standard. Now G++ issues an
+  error about this code.  To avoid the error, you must move the
+  declaration of g before the declaration of f.  The default arguments
+  for g must be visible at the point where it is called.
+
+- The C++ ABI Section 3.3.3 specifications for the array construction
+  routines __cxa_vec_new2 and __cxa_vec_new3 were changed to return NULL
+  when the allocator argument returns NULL.  These changes are
+  incorporated into the libstdc++ runtime library.
+
+- Using a name introduced by a typedef in a friend declaration or in
+  an explicit instantiation is now rejected, as specified by the ISO C++
+  standard.
+
+      class A;
+      typedef A B;
+      class C { 
+          friend class B;      // error, no typedef name here
+          friend B;            // error, friend always needs class/struct/enum
+          friend class A;      // OK
+      };
+
+      template <int> class Q {};
+      typedef Q<0> R;
+      template class R;        // error, no typedef name here
+      template class Q<0>;     // OK
+
+- When allocating an array with a new expression, GCC used to allow
+  parentheses around the type name. This is actually ill-formed and it
+  is now rejected:
+
+      int* a = new (int)[10];    // error, not accepted anymore
+      int* a = new int[10];      // OK
+
+- When binding an rvalue of class type to a reference, the copy
+  constructor of the class must be accessible. For instance, consider
+  the following code:
+
+      class A 
+      {
+          public:
+              A();
+
+          private:
+              A(const A&);   // private copy ctor
+      };
+
+      A makeA(void);
+      void foo(const A&);
+
+      void bar(void)
+      {
+          foo(A());          // error, copy ctor is not accessible
+          foo(makeA());      // error, copy ctor is not accessible
+
+          A a1;
+          foo(a1);           // OK, a1 is a lvalue
+      }
+
+  This might be surprising at first sight, especially since most
+  popular compilers do not correctly implement this rule (further
+  details).
+
+
+Runtime Library (libstdc++)
+---------------------------
+
+- Optimization work:
+
+  - Streamlined streambuf, filebuf, separate synched with C Standard
+    I/O streambuf.
+  - All formatted I/O now uses cached locale information.
+  - STL optimizations (memory/speed for list, red-black trees as used
+    by sets and maps).
+  - More use of GCC builtins.
+  - String optimizations (avoid contention on
+    increment/decrement-and-test of the reference count in the
+    empty-string object, constructor from input_iterators speedup).
+
+- Static linkage size reductions.
+
+- Large File Support (files larger than 2 GB on 32-bit systems).
+
+- Wide character and variable encoding filebuf work (UTF-8, Unicode).
+
+- Generic character traits.
+
+- Also support wchar_t specializations on Mac OS 10.3.x, FreeBSD 5.x,
+  Solaris 2.7 and above, AIX 5.x, Irix 6.5.
+
+- The allocator class is now standard-conformant, and two additional
+  extension allocators have been added, mt_alloc and bitmap_allocator.
+
+- PCH support: -include bits/stdc++.h (2x compile speedup).  Rewrote
+  __cxa_demangle with support for C++ style allocators.
+
+- New debug modes for STL containers and iterators.
+
+- Testsuite rewrite: five times as many tests, plus increasingly
+  sophisticated tests, including I/O, MT, multi-locale, wide and narrow
+  characters.
+
+- Use current versions of GNU "autotools" for build/configuration.
+
+
+Objective-C
+-----------
+
+- The Objective-C front end has been updated to include the numerous
+  bug fixes and enhancements previously available only in Apple's
+  version of GCC.  These include:
+
+  - Structured exception (@try... @catch...  @finally, @throw) and
+    synchronization (@synchronized) support.  These are accessible via
+    the -fobjc-exceptions switch; as of this writing, they may only be
+    used in conjunction with -fnext-runtime on Mac OS X 10.3 and
+    later. See Options Controlling Objective-C Dialect for more
+    information.
+
+  - An overhaul of @encode logic.  The C99 _Bool and C++ bool type may
+    now be encoded as 'B'. In addition, the back-end/codegen
+    dependencies have been removed.
+
+  - An overhaul of message dispatch construction, ensuring that the
+    various receiver types (and casts thereof) are handled properly, and
+    that correct diagnostics are issued.
+
+  - Support for "Zero-Link" (-fzero-link) and "Fix-and-Continue"
+    (-freplace-objc-classes) debugging modes, currently available on Mac
+    OS X 10.3 and later. See Options Controlling Objective-C Dialect for
+    more information.
+
+  - Access to optimized runtime entry points (-fno-nil-receivers ) on
+    the assumption that message receivers are never nil.  This is
+    currently available on Mac OS X 10.3 and later. See Options
+    Controlling Objective-C Dialect for more information.
+
+
+Java
+----
+
+- Compiling a .jar file will now cause non-.class entries to be
+  automatically compiled as resources.  libgcj has been ported to
+  Darwin.
+
+- Jeff Sturm has adapted Jan Hubicka's call graph optimization code to
+  gcj.
+
+- libgcj has a new gcjlib URL type; this lets URLClassLoader load code
+  from shared libraries.
+
+- libgcj has been much more completely merged with GNU Classpath.
+
+- Class loading is now much more correct; in particular the caller's
+  class loader is now used when that is required.
+
+- Eclipse 2.x will run out of the box using gij.
+
+- Parts of java.nio have been implemented.  Direct and indirect
+  buffers work, as do fundamental file and socket operations.
+
+- java.awt has been improved, though it is still not ready for general
+  use.
+
+- The HTTP protocol handler now uses HTTP/1.1 and can handle the POST
+  method.
+
+- The MinGW port has matured. Enhancements include socket timeout
+  support, thread interruption, improved Runtime.exec() handling and
+  support for accented characters in filenames.
+
+
+Fortran
+-------
+
+- Fortran improvements are listed in the Fortran documentation.
+
+
+New Targets and Target Specific Improvements
+============================================
+
+Alpha
+-----
+
+- Several built-in functions have been added such as
+  __builtin_alpha_zap to allow utilizing the more obscure instructions
+  of the CPU.
+
+- Parameter passing of complex arguments has changed to match the ABI.
+  This change is incompatible with previous GCC versions, but does fix
+  compatibility with the Tru64 compiler and several corner cases where
+  GCC was incompatible with itself.
+
+
+ARM
+---
+
+- Nicolas Pitre has contributed his hand-coded floating-point support
+  code for ARM.  It is both significantly smaller and faster than the
+  existing C-based implementation, even when building applications for
+  Thumb.  The arm-elf configuration has been converted to use the new
+  code.
+
+- Support for the Intel's iWMMXt architecture, a second generation
+  XScale processor, has been added.  Enabled at run time with the
+  -mcpu=iwmmxt command line switch.
+
+- A new ARM target has been added: arm-wince-pe.  This is similar to
+  the arm-pe target, but it defaults to using the APCS32 ABI.
+
+- The existing ARM pipeline description has been converted to the use
+  the DFA processor pipeline model. There is not much change in code
+  performance, but the description is now easier to understand.
+
+- Support for the Cirrus EP9312 Maverick floating point co-processor
+  added.  Enabled at run time with the -mcpu=ep9312 command line
+  switch.  Note however that the multilibs to support this chip are
+  currently disabled in gcc/config/arm/t-arm-elf, so if you want to
+  enable their production you will have to uncomment the entries in
+  that file.
+
+
+H8/300
+------
+
+- Support for long long has been added.
+
+- Support for saveall attribute has been added.
+
+- Pavel Pisa contributed hand-written 32-bit-by-32-bit division code
+  for H8/300H and H8S, which is much faster than the previous
+  implementation.
+
+- A lot of small performance improvements.
+
+
+IA-32/AMD64 (x86-64)
+--------------------
+
+- Tuning for K8 (AMD Opteron/Athlon64) core is available via -march=k8
+  and -mcpu=k8.
+
+- Scalar SSE code generation carefully avoids reformatting penalties,
+  hidden dependencies and minimizes the number of uops generated on both
+  Intel and AMD CPUs.
+
+- Vector MMX and SSE operands are now passed in registers to improve
+  performance and match the argument passing convention used by the
+  Intel C++ Compiler.  As a result it is not possible to call functions
+  accepting vector arguments compiled by older GCC version.
+
+- Conditional jump elimination is now more aggressive on modern CPUs.
+
+- The Athlon ports has been converted to use the DFA processor
+  pipeline description.
+
+- Optimization of indirect tail calls is now possible in a similar
+  fashion as direct sibcall optimization.
+
+- Further small performance improvements.
+
+- -m128bit-long-double is now less buggy.
+
+- __float128 support in 64-bit compilation.
+
+- Support for data structures exceeding 2GB in 64-bit mode.
+
+- -mcpu has been renamed to -mtune.
+
+
+IA-64
+-----
+
+- Tuning code for the Itanium 2 processor has been added.  The
+  generation of code tuned for Itanium 2 (option -mtune=itanium2) is
+  enabled by default now.  To generate code tuned for Itanium 1 the
+  option -mtune=itanium1 should be used.
+
+- DFA processor pipeline descriptions for the IA-64 processors have
+  been added.  This resulted in about 3% improvement on the SPECInt2000
+  benchmark for Itanium 2.
+
+- Instruction bundling for the IA-64 processors has been rewritten
+  using the DFA pipeline hazard recognizer.  It resulted in about 60%
+  compiler speedup on the SPECInt2000 C programs.
+
+
+M32R
+----
+
+- Support for the M32R/2 processor has been added by Renesas.
+
+- Support for an M32R Linux target and PIC code generation has been
+  added by Renesas.
+
+
+M68000
+------
+
+- Bernardo Innocenti (Develer S.r.l.) has contributed the m68k-uclinux
+  target, based on former work done by Paul Dale (SnapGear Inc.).  Code
+  generation for the ColdFire processors family has been enhanced and
+  extended to support the MCF 53xx and MCF 54xx cores, integrating
+  former work done by Peter Barada (Motorola).
+
+
+MIPS
+----
+
+- Processor-specific changes
+
+  - Support for the RM7000 and RM9000 processors has been added.  It
+    can be selected using the -march compiler option and should work
+    with any MIPS I (mips-*) or MIPS III (mips64-*) configuration.
+  - Support for revision 2 of the MIPS32 ISA has been added.  It can
+    be selected with the command-line option -march=mips32r2.
+  - There is a new option, -mfix-sb1, to work around certain SB-1
+    errata.
+
+- Configuration
+
+  - It is possible to customize GCC using the following configure-time
+    options:
+
+    - --with-arch, which specifies the defaultw value of the -march
+      option.
+    - --with-tune, which specifies the default value of the -mtune
+      option.
+    - --with-abi, which specifies the default ABI.
+    - --with-float=soft, which tells GCC to use software floating
+      point by default.
+    - --with-float=hard, which tells GCC to use hardware floating
+      point by default.
+
+  - A 64-bit GNU/Linux port has been added.  The associated
+    configurations are mips64-linux-gnu and mips64el-linux-gnu.
+
+  - The 32-bit GNU/Linux port now supports Java.
+
+  - The IRIX 6 configuration now supports the o32 ABI and will build
+    o32 multilibs by default.  This support is compatible with both
+    binutils and the SGI tools, but note that several features,
+    including debugging information and DWARF2 exception handling, are
+    only available when using the GNU assembler.  Use of the GNU
+    assembler and linker (version 2.15 or above) is strongly
+    recommended.
+
+  - The IRIX 6 configuration now supports 128-bit long doubles.
+
+  - There are two new RTEMS-specific configurations, mips-rtems and
+    mipsel-rtems.
+
+   - There are two new *-elf configurations, mipsisa32r2-elf and
+     mipsisa32r2el-elf.
+
+- General
+
+  - Several ABI bugs have been fixed.  Unfortunately, these changes
+    will break binary compatibility with earlier releases.
+
+  - GCC can now use explicit relocation operators when generating
+    -mabicalls code.  This behavior is controlled by -mexplicit-relocs
+    and can have several performance benefits.  For example:
+
+    - It allows for more optimization of GOT accesses, including
+      better scheduling and redundancy elimination.
+
+    - It allows sibling calls to be implemented as jumps.
+
+    - n32 and n64 leaf functions can use a call-clobbered global
+      pointer instead of $28.
+
+    - The code to set up $gp can be removed from functions that don't
+      need it.
+
+  - A new option, -mxgot, allows the GOT to be bigger than 64k.  This
+    option is equivalent to the assembler's -xgot option and should be
+    used instead of -Wa,-xgot.
+
+  - Frame pointer elimination is now supported when generating 64-bit
+    MIPS16 code.
+
+  - Inline block moves have been optimized to take more account of
+    alignment information.
+
+  - Many internal changes have been made to the MIPS port, mostly
+    aimed at reducing the reliance on assembler macros.
+
+
+PowerPC Darwin
+--------------
+
+- Support for shared/dylib gcc libraries has been added. It is enabled
+  by default on powerpc-apple-darwin7.0.0 and up.
+
+- Libgcj is enabled by default. On systems older than
+  powerpc-apple-darwin7.0.0 you need to install dlcompat.
+
+
+S/390 and zSeries
+-----------------
+
+- New command-line options allow to specify the intended execution
+  environment for generated code:
+
+  - -mesa/-mzarch allows to specify whether to generate code running
+    in ESA/390 mode or in z/Architecture mode (this is applicable to
+    31-bit code only).
+
+  - -march allows to specify a minimum processor architecture level
+    (g5, g6, z900, or z990).
+
+  - -mtune allows to specify which processor to tune for.
+
+- It is possible to customize GCC using the following configure-time
+  options:
+
+  - --with-mode, which specifies whether to default to assuming
+    ESA/390 or z/Architecture mode.
+
+  - --with-arch, which specifies the default value of the -march
+    option.
+
+  - --with-tune, which specifies the default value of the -mtune
+    option.
+
+- Support for the z990 processor has been added, and can be selected
+  using -march=z990 or -mtune=z990.  This includes instruction
+  scheduling tuned for the superscalar instruction pipeline of the z990
+  processor as well as support for all new instructions provided by the
+  long-displacement facility.
+
+- Support to generate 31-bit code optimized for zSeries processors
+  (running in ESA/390 or in z/Architecture mode) has been added.  This
+  can be selected using -march=z900 and -mzarch respectively.
+
+- Instruction scheduling for the z900 and z990 processors now uses the
+  DFA pipeline hazard recognizer.
+
+- GCC no longer generates code to maintain a stack backchain,
+  previously used to generate stack backtraces for debugging purposes.
+  As replacement that does not incur runtime overhead, DWARF-2 call
+  frame information is provided by GCC; this is supported by GDB 6.1.
+  The old behavior can be restored using the -mbackchain option.
+
+- The stack frame size of functions may now exceed 2 GB in 64-bit
+  code.
+
+- A port for the 64-bit IBM TPF operating system has been added; the
+  configuration is s390x-ibm-tpf.  This configuration is supported as
+  cross-compilation target only.
+
+- Various changes to improve the generated code have been implemented,
+  including:
+
+  - GCC now uses the MULTIPLY AND ADD and MULTIPLY AND SUBTRACT
+    instructions to significantly speed up many floating-point
+    applications.
+  - GCC now uses the ADD LOGICAL WITH CARRY and SUBTRACT LOGICAL WITH
+    BORROW instructions to speed up long long arithmetic.
+  - GCC now uses the SEARCH STRING instruction to implement strlen().
+  - In many cases, function call overhead for 31-bit code has been
+    reduced by placing the literal pool after the function code instead
+    of after the function prolog.
+  - Register 14 is no longer reserved in 64-bit code.  Handling of
+    global register variables has been improved.
+
+
+SPARC
+-----
+
+- The option -mflat is deprecated.
+
+- Support for large (> 2GB) frames has been added to the 64-bit port.
+
+- Several ABI bugs have been fixed.  Unfortunately, these changes will
+  break binary compatibility with earlier releases.
+
+- The default debugging format has been switched from STABS to DWARF-2
+  for 32-bit code on Solaris 7 and later.  DWARF-2 is already the
+  default debugging format for 64-bit code on Solaris.
+
+
+SuperH
+------
+
+- Support for the SH2E processor has been added.  Enabled at run time
+  with the -m2e command line switch, or at configure time by specifying
+  sh2e as the machine part of the target triple.
+
+
+V850
+----
+
+- Support for the Mitsubishi V850E1 processor has been added.  This is
+  a variant of the V850E processor with some additional debugging
+  instructions.
+
+
+Xtensa
+------
+
+- Several ABI bugs have been fixed.  Unfortunately, these changes
+  break binary compatibility with earlier releases.
+
+  - For big-endian processors, the padding of aggregate return values
+    larger than a word has changed.  If the size of an aggregate return
+    value is not a multiple of 32 bits, previous versions of GCC
+    inserted padding in the most-significant bytes of the first return
+    value register.  Aggregates larger than a word are now padded in the
+    least-significant bytes of the last return value register used.
+    Aggregates smaller than a word are still padded in the
+    most-significant bytes.  The return value padding has not changed
+    for little-endian processors.
+  - Function arguments with 16-byte alignment are now properly
+    aligned.
+  - The implementation of the va_list type has changed.  A va_list
+    value created by va_start from a previous release cannot be used
+    with va_arg from this release, or vice versa.
+
+- More processor configuration options for Xtensa processors are
+  supported:
+
+  - the ABS instruction is now optional;
+  - the ADDX* and SUBX* instructions are now optional;
+  - an experimental CONST16 instruction can be used to synthesize
+    constants instead of loading them from constant pools.
+
+  These and other Xtensa processor configuration options can no longer
+  be enabled or disabled by command-line options; the processor
+  configuration must be specified by the xtensa-config.h header file
+  when building GCC.  Additionally, the -mno-serialize-volatile option
+  is no longer supported.
+
+
+Obsolete Systems
+================
+
+Support for a number of older systems has been declared obsolete in
+GCC 3.4.  Unless there is activity to revive them, the next release of
+GCC will have their sources permanently removed.
+
+All configurations of the following processor architectures have been
+declared obsolete:
+
+
+- Mitsubishi D30V, d30v-*
+- AT&T DSP1600 and DSP1610, dsp16xx-*
+- Intel 80960, i960
+
+
+Also, some individual systems have been obsoleted:
+
+
+- ARM Family
+
+  - Support for generating code for operation in APCS/26 mode (-mapcs-26).
+
+- IBM ESA/390
+
+  - "Bigfoot" port, i370-*.  (The other port, s390-*, is actively
+     maintained and supported.)
+
+- Intel 386 family
+
+  - MOSS, i?86-moss-msdos and i?86-*-moss*
+  - NCR 3000 running System V r.4, i?86-ncr-sysv4*
+  - FreeBSD with a.out object format, i?86-*-freebsd*aout* and
+    i?86-*-freebsd2*
+  - Linux with a.out object format, i?86-linux*aout*
+  - Linux with libc5, a.k.a. glibc1, i?86-linux*libc1*
+  - Interix versions before Interix 3, i?86-*-interix
+  - Mach microkernel, i?86-mach*
+  - SCO UnixWare with UDK, i?86-*-udk*
+  - Generic System V releases 1, 2, and 3, i?86-*-sysv[123]*
+  - VSTa microkernel, i386-*-vsta
+
+- Motorola M68000 family
+
+  - HPUX, m68k-hp-hpux* and m68000-hp-hpux*
+  - NetBSD with a.out object format (before NetBSD 1.4),
+    m68k-*-*-netbsd* except m68k-*-*-netbsdelf*
+  - Generic System V r.4, m68k-*-sysv4*
+
+- VAX
+      
+  - Generic VAX, vax-*-* (This is generic VAX only; we have not
+    obsoleted any VAX triples for specific operating systems.)
+
+
+Documentation improvements
+==========================
+
+
+Other significant improvements
+==============================
+
+- The build system has undergone several significant cleanups.
+  Subdirectories will only be configured if they are being built, and
+  all subdirectory configures are run from the make command.  The top
+  level has been autoconfiscated.
+
+- Building GCC no longer writes to its source directory.  This should
+  help those wishing to share a read-only source directory over NFS or
+  build from a CD.  The exceptions to this feature are if you configure
+  with either --enable-maintainer-mode or --enable-generated-files-in-srcdir.
+
+- The -W warning option has been renamed to -Wextra, which is more
+  easily understood.  The older spelling will be retained for backwards
+  compatibility.
+
+- Substantial improvements in compile time have been made,
+  particularly for non-optimizing compilations.
+
+
+GCC 3.4.0
+=========
+
+Detailed release notes for the GCC 3.4.0 release follow.
+
+
+Bug Fixes
+---------
+
+A vast number of bugs have been fixed in 3.4.0, too many to publish a
+complete list here. Follow this link below to query the Bugzilla database for
+the list of over 900 bugsfixed in 3.4.0.  This is the list of all bugs
+marked as resolved and fixedin 3.4.0 that are not flagged as 3.4
+regressions.
+
+http://gcc.gnu.org/bugzilla/buglist.cgi?short_desc_type=notregexp&short_desc=%5C%5B3%5C.4.*%5BRr%5Degression&target_milestone=3.4.0&bug_status=RESOLVED&resolution=FIXED
+
+
+GCC 3.4.1
+=========
+
+Bug Fixes
+---------
+
+
+This section lists the problem reports (PRs) from GCC's bug tracking
+system that are known to be fixed in the 3.4.1 release. This list
+might not be complete (that is, it is possible that some PRs that have
+been fixed are not listed here).
+
+
+Bootstrap failures
+------------------
+
+10129 Ada bootstrap fails on PPC-Darwin - invalid assembler emitted
+      - PIC related
+14576 [ARM] ICE in libiberty when building gcc-3.4 for arm-elf
+14760 A bug in configure.in prevents using both --program-suffix
+      and --program-prefix
+14671 [hppa64] bootstrap fails: ICE in save_call_clobbered_regs,
+      in caller_save.c
+15093 [alpha][Java] make bootstrap fails to configure libffi on Alpha
+15178 Solaris 9/x86 fails linking after stage 3
+
+
+Multi-platform internal compiler errors (ICEs)
+----------------------------------------------
+
+12753 (preprocessor) Memory corruption in preprocessor on bad input
+13985 ICE in gcc.c-torture/compile/930621-1.c
+14810 (c++) tree check failures with invalid code involving templates
+14883 (c++) ICE on invalid code, in cp_parser_lookup_name, in cp/parser.c
+15044 (c++) ICE on syntax error, template header
+15057 (c++) Compiling of conditional value throw constructs cause a
+      segmentation violation
+15064 (c++) typeid of template parameter gives ICE
+15142 (c++) ICE when passing a string where a char* is expected in a
+      throw statement
+15159 ICE in rtl_verify_flow_info_1
+15165 (c++) ICE in instantiate_template
+15193 Unary minus using pointer to V4SF vector causes -fforce-mem
+      to exhaust all memory
+15209 (c++) Runs out of memory with packed structs
+15227 (c++) Trouble with invalid function definition
+15285 (c++) instantiate_type ICE when forming pointer to template function
+15299 (c++) ICE in resolve_overloaded_unification
+15329 (c++) ICE on constructor of member template
+15550 ICE in extract_insn, in recog.c
+15554 (c++) ICE in tsubst_copy, in cp/pt.c
+15640 (c++) ICE on invalid code in arg_assoc, in cp/name-lookup.c
+15666 [unit-at-a-time] Gcc abort on valid code
+15696 (c++) ICE with bad pointer-to-member code
+15701 (c++) ICE with friends and template template parameter
+15761 ICE in do_SUBST, in combine.c
+15829 (c++) ICE on Botan-1.3.13 due to -funroll-loops
+
+
+Ada
+---
+
+14538 All RTEMS targets broken for gnat
+
+
+C front end
+-----------
+
+12391 missing warning about assigning to an incomplete type
+14649 atan(1.0) should not be a constant expression
+15004 [unit-at-a-time] no warning for unused paramater in static function
+15749 --pedantic-errors behaves differently from --pedantic with C-compiler
+      on GNU/Linux
+
+
+C++ compiler and library
+------------------------
+
+10646 non-const reference is incorrectly matched in a "const T" partial
+      specialization
+12077 wcin.rdbuf()->in_avail() return value too high
+13598 enc_filebuf doesn't work
+14211 const_cast returns lvalue but should be rvalue
+14220 num_put::do_put() undesired float/double behavior
+14245 problem with user-defined allocators in std::basic_string
+14340 libstdc++ Debug mode: failure to convert iterator to const_iterator
+14600 __gnu_cxx::stdio_sync_filebuf should expose internal FILE*
+14668 no warning anymore for reevaluation of declaration
+14775 LFS (large file support) tests missing
+14821 Duplicate namespace alias declaration should not conflict
+14930 Friend declaration ignored
+14932 cannot use offsetof to get offsets of array elements in g++ 3.4.0
+14950 [non unit-at-a-time] always_inline does not mix with templates and -O0
+14962 g++ ignores #pragma redefine_extname
+14975 Segfault on low-level write error during imbue
+15002 Linewise stream input is unusably slow (std::string slow)
+15025 compiler accepts redeclaration of template as non-template
+15046 [arm] Math functions misdetected by cross configuration
+15069 a bit test on a variable of enum type is miscompiled
+15074 g++ -lsupc++ still links against libstdc++
+15083 spurious "statement has no effect" warning
+15096 parse error with templates and pointer to const member
+15287 combination of operator[] and operator .* fails in templates
+15317 __attribute__ unused in first parameter of constructor gives error
+15337 sizeof on incomplete type diagnostic
+15361 bitset<>::_Find_next fails
+15412 _GLIBCXX_ symbols symbols defined and used in different namespaces
+15427 valid code results in incomplete type error
+15471 Incorrect member pointer offsets in anonymous structs/unions
+15503 nested template problem
+15507 compiler hangs while laying out union
+15542 operator & and template definitions
+15565 SLES9: leading + sign for unsigned int with showpos
+15625 friend defined inside a template fails to find static function
+15629 Function templates, overloads, and friend name injection
+15742 'noreturn' attribute ignored in method of template functions.
+15775 Allocator::pointer consistently ignored
+15821 Duplicate namespace alias within namespace rejected
+15862 'enum yn' fails (confict with undeclared builtin)
+15875 rejects pointer to member in template
+15877 valid code using templates and anonymous enums is rejected
+15947 Puzzling error message for wrong destructor declaration in template class
+16020 cannot copy __gnu_debug::bitset
+16154 input iterator concept too restrictive
+16174 deducing top-level consts
+
+
+Java
+----
+
+14315 Java compiler is not parallel make safe
+
+
+Fortran
+-------
+
+15151 [g77] incorrect logical i/o in 64-bit mode
+
+
+Objective-C
+-----------
+
+7993  private variables cannot be shadowed in subclasses
+
+
+Optimization bugs
+-----------------
+
+15228 useless copies of floating point operands
+15345 [non-unit-at-a-time] unreferenced nested inline functions
+      not optimized away
+15945 Incorrect floating point optimization
+15526 ftrapv aborts on 0 * (-1)
+14690 Miscompiled POOMA tests
+15112 GCC generates code to write to unchanging memory
+
+
+Preprocessor
+------------
+
+15067 Minor glitch in the source of cpp
+
+
+Main driver program bugs
+------------------------
+
+1963  collect2 interprets -oldstyle_liblookup as -o ldstyle_liblookup
+
+
+x86-specific (Intel/AMD)
+------------------------
+
+15717 Error: can't resolve `L0' {*ABS* section} - `xx' {*UND* section}
+
+
+HPPA-specific
+-------------
+
+14782 GCC produces an unaligned data access at -O2
+14828 FAIL: gcc.c-torture/execute/20030408-1.c execution,  -O2
+15202 ICE in reload_cse_simplify_operands, in postreload.c
+
+
+IA64-specific
+-------------
+
+14610 __float80 constants incorrectly emitted
+14813 init_array sections are initialized in the wrong order
+14857 GCC segfault on duplicated asm statement
+15598 Gcc 3.4 ICE on valid code
+15653 Gcc 3.4 ICE on valid code
+
+
+MIPS-specific
+-------------
+
+15189 wrong filling of delay slot with -march=mips1 -G0
+      -mno-split-addresses -mno-explicit-relocs
+15331 Assembler error building gnatlib on IRIX 6.5 with GNU as 2.14.91
+16144 Bogus reference to __divdf3 when -O1
+16176 Miscompilation of unaligned data in MIPS backend
+
+
+PowerPC-specific
+----------------
+
+11591 ICE in gcc.dg/altivec-5.c
+12028 powerpc-eabispe produces bad sCOND operation
+14478 rs6000 geu/ltu patterns generate incorrect code
+14567 long double and va_arg complex args
+14715 Altivec stack layout may overlap gpr save with stack temps
+14902 (libstdc++) Stream checking functions fail when -pthread option is used.
+14924 Compiler ICE on valid code
+14960 -maltivec affects vector return with -mabi=no-altivec
+15106 vector varargs failure passing from altivec to non-altivec code for -m32
+16026 ICE in function.c:4804, assign_parms, when -mpowerpc64 & half-word operation
+15191 -maltivec -mabi=no-altivec results in mis-aligned lvx and stvx
+15662 Segmentation fault when an exception is thrown - even if try and catch
+      are specified
+
+
+s390-specific
+-------------
+
+15054 Bad code due to overlapping stack temporaries
+
+
+SPARC-specific
+--------------
+
+15783 ICE with union assignment in 64-bit mode
+15626 GCC 3.4 emits "ld: warning: relocation error: R_SPARC_UA32"
+
+
+x86-64-specific
+---------------
+
+14326 boehm-gc hardcodes to 3DNow! prefetch for x86_64
+14723 Backported -march=nocona from mainline
+15290 __float128 failed to pass to function properly
+
+
+Cygwin/Mingw32-specific
+-----------------------
+
+15250 Option -mms-bitfields support on GCC 3.4 is not conformant to MS layout
+15551 -mtune=pentium4 -O2 with sjlj EH breaks stack probe worker
+      on windows32 targets
+
+
+Bugs specific to embedded processors
+------------------------------------
+
+ 8309 [m68k] -m5200 produces erroneous SImode set of short varaible on stack
+13250 [SH] Gcc code for rotation clobbers the register, but gcc continues
+      to use the register as if it was not clobbered
+13803 [coldfire] movqi operand constraints too restrictivefor TARGET_COLDFIRE
+14093 [SH] ICE for code when using -mhitachi option in SH
+14457 [m6811hc] ICE with simple c++ source
+14542 [m6811hc] ICE on simple source
+15100 [SH] cc1plus got hang-up on libstdc++-v3/testsuite/abi_check.cc
+15296 [CRIS] Delayed branch scheduling causing invalid code on cris-*
+15396 [SH] ICE with -O2 -fPIC
+15782 [coldfire] m68k_output_mi_thunk emits wrong code for ColdFire
+
+
+Testsuite problems (compiler not affected)
+------------------------------------------
+
+11610 libstdc++	testcases 27_io/* don't work properly remotely
+15488 (libstdc++) possibly insufficient file permissions for executing
+      test suite
+15489 (libstdc++) testsuite_files determined incorrectly
+
+
+Documentation bugs
+------------------
+
+13928 (libstdc++) no whatis info in some man pages generated by doxygen
+14150 Ada documentation out of date
+14949 (c++) Need to document method visibility changes
+15123 libstdc++-doc: Allocators.3 manpage is empty
+
+
+GCC 3.4.2
+=========
+
+Bug Fixes
+---------
+
+
+This section lists the problem reports (PRs) from GCC's bug tracking
+system that are known to be fixed in the 3.4.2 release. This list
+might not be complete (that is, it is possible that some PRs that have
+been fixed are not listed here).
+
+
+Bootstrap failures and issues
+-----------------------------
+
+16469 [mips-sgi-irix5.3] bootstrap fails in libstdc++-v3/testsuite
+16344 [hppa-linux-gnu] libstdc++'s PCH built by profiledbootstrap
+      does not work with the built compiler
+16842 [Solaris/x86] mkheaders can not find mkheaders.conf
+
+
+Multi-platform internal compiler errors (ICEs)
+----------------------------------------------
+
+12608 (c++) ICE: expected class 't', have 'x' (error_mark)
+      in cp_parser_class_specifier, in cp/parser.c
+14492 ICE in loc_descriptor_from_tree, in dwarf2out.c
+15461 (c++) ICE due to NRV and inlining
+15890 (c++) ICE in c_expand_expr, in c-common.c
+16180 ICE: segmentation fault in RTL optimization
+16224 (c++) ICE in write_unscoped_name (template/namespace)
+16408 ICE: in delete_insn, in cfgrtl.c
+16529 (c++) ICE for: namespace-alias shall not be declared as the name
+      of any other entity
+16698 (c++) ICE with exceptions and declaration of __cxa_throw
+16706 (c++) ICE in finish_member_declaration, in cp/semantics.c
+16810 (c++) Legal C++ program with cast gives ICE in build_ptrmemfunc
+16851 (c++) ICE when throwing a comma expression
+16870 (c++) Boost.Spirit causes ICE in tsubst, in cp/pt.c
+16904 (c++) ICE in finish_class_member_access_expr, in cp/typeck.c
+16905 (c++) ICE (segfault) with exceptions
+16964 (c++) ICE in cp_parser_class_specifier due to redefinition
+17068 (c++) ICE: tree check: expected class 'd', have 'x' (identifier_node)
+      in dependent_template_p, in cp/pt.c
+
+
+Preprocessor bugs
+-----------------
+
+16366 Preprocessor option -remap causes memory corruption
+
+
+Optimization
+------------
+
+15345 unreferenced nested inline functions not optimized away
+16590 Incorrect execution when compiling with -O2
+16693 Bitwise AND is lost when used within a cast to an enum of the same
+      precision
+17078 Jump into if(0) substatement fails
+
+
+Problems in generated debug information
+---------------------------------------
+
+13956 incorrect stabs for nested local variables
+
+
+C front end bugs
+----------------
+
+16684 GCC should not warn about redundant redeclarations of built-ins
+
+
+C++ compiler and library
+------------------------
+
+12658 Thread safety problems in locale::global() and locale::locale()
+13092 g++ accepts invalid pointer-to-member conversion
+15320 Excessive memory consumption
+16246 Incorrect template argument deduction
+16273 Memory exhausted when using nested classes and virtual functions
+16401 ostringstream in gcc 3.4.x very slow for big data
+16411 undefined reference to
+      __gnu_cxx::stdio_sync_filebuf<char, std::char_traits<char> >::file()
+16489 G++ incorrectly rejects use of a null constant integral expression
+      as a null constant pointer
+16618 offsetof fails with constant member
+16637 syntax error reported for valid input code
+16717 __attribute__((constructor)) broken in C++
+16813 compiler error in DEBUG version of range insertion std::map::insert
+16853 pointer-to-member initialization from incompatible one accepted
+16889 ambiguity is not detected
+16959 Segmentation fault in ios_base::sync_with_stdio
+
+
+Java compiler and library
+-------------------------
+
+7587 direct threaded interpreter not thread-safe
+16473 ServerSocket accept() leaks file descriptors
+16478 Hash synchronization deadlock with finalizers
+
+
+Alpha-specific
+--------------
+
+10695 ICE in dwarf2out_frame_debug_expr, in dwarf2out.c
+16974 could not split insn (ice in final_scan_insn, in final.c)
+
+
+x86-specific
+------------
+
+16298 ICE in output_operand
+17113 ICE with SSE2 intrinsics
+
+
+x86-64 specific
+---------------
+
+14697 libstdc++ couldn't find 32bit libgcc_s
+
+
+MIPS-specific
+-------------
+
+15869 [mips64] No NOP after LW (with -mips1 -O0)
+16325 [mips64] value profiling clobbers gp on mips
+16357 [mipsisa64-elf] ICE copying 7 bytes between extern char[]s
+16380 [mips64] Use of uninitialised register after dbra conversion
+16407 [mips64] Unaligned access to local variables
+16643 [mips64] verify_local_live_at_start ICE after crossjumping & cfgcleanup
+
+
+ARM-specific
+------------
+
+15927 THUMB -O2: strength-reduced iteration variable ends up off by 1
+15948 THUMB: ICE with non-commutative cbranch
+17019 THUMB: bad switch statement in md code for addsi3_cbranch_scratch
+
+
+IA64-specific
+-------------
+
+16130 ICE on valid code: in bundling, in config/ia64/ia64.c (-mtune=merced)
+16142 ICE on valid code: in bundling, in config/ia64/ia64.c (-mtune=itanium)
+16278 Gcc failed to build Linux kernel with -mtune=merced
+16414 ICE on valid code: typo in comparison of asm_noperands result
+16445 ICE on valid code: don't count ignored insns
+16490 ICE (segfault) while compiling with -fprofile-use
+16683 ia64 does not honor SUBTARGET_EXTRA_SPECS
+
+
+PowerPC-specific
+----------------
+
+16195 (ppc64): Miscompilation of GCC 3.3.x by 3.4.x
+16239 ICE on ppc64 (mozilla 1.7 compile, -O1 -fno-exceptions issue)
+
+
+Sparc-specific
+--------------
+
+16199 ICE while compiling apache 2.0.49
+16416 -m64 doesn't imply -mcpu=v9 anymore
+16430 ICE when returning non-C aggregates larger than 16 bytes
+
+
+Bugs specific to embedded processors
+------------------------------------
+
+16379 [m32r] can't output large model function call of memcpy
+17093 [m32r] ICE with -msdata=use -O0
+17119 [m32r] ICE at switch case 0x8000
+
+
+DJGPP-specific
+--------------
+
+15928 libstdc++ in 3.4.x doesn't cross-compile for djgpp
+
+
+Alpha Tru64-specific
+--------------------
+
+16210 libstdc++ gratuitously omits "long long" I/O
+
+
+Testsuite, documentation issues (compiler is not affected)
+----------------------------------------------------------
+
+15488 (libstdc++) possibly insufficient file permissions for executing
+      test suite
+16250 ada/doctools runs makeinfo even in release tarball
+
+
+GCC 3.4.3
+=========
+
+This is the list of problem reports (PRs) from GCC's bug tracking
+system that are known to be fixed in the 3.4.2 release. This list
+might not be complete (that is, it is possible that some PRs that have
+been fixed are not listed here).
+
+
+Bootstrap failures
+------------------
+
+17369 [ia64] Bootstrap failure with binutils-2.15.90.0.1.1
+17850 [arm-elf] bootstrap failure - libstdc++ uses strtold when undeclared
+
+
+Internal compiler errors (ICEs) affecting multiple platforms
+------------------------------------------------------------
+
+13948 (java) GCJ segmentation fault while compiling GL4Java .class files
+14492 ICE in loc_descriptor_from_tree, in dwarf2out.c
+16301 (c++) ICE when "strong" attribute is attached to a using directive
+16566 ICE with flexible arrays
+17023 ICE with nested functions in parameter declaration
+17027 ICE with noreturn function in loop at -O2
+17524 ICE in grokdeclarator, in cp/decl.c
+17826 (c++) ICE in cp_tree_equal
+
+
+C and optimization bugs
+-----------------------
+
+15526 -ftrapv aborts on 0 * (-1)
+16999 #ident stopped working
+17503 quadratic behaviour in invalid_mode_change_p
+17581 Long long arithmetic fails inside a switch/case statement when compiled with -O2
+18129 -fwritable-strings doesn't work
+
+
+C++ compiler and library bugs
+-----------------------------
+
+10975 incorrect initial ostringstream::tellp()
+11722 Unbuffered filebuf::sgetn is slow
+14534 Unrecognizing static function as a template parameter
+      when its return value is also templated
+15172 Copy constructor optimization in aggregate initialization
+15786 Bad error message for frequently occuring error.
+16162 Rejects valid member-template-definition
+16612 empty basic_strings can't live in shared memory
+16715 std::basic_iostream is instantiated when used,
+      even though instantiations are already contained in libstdc++
+16848 code in /ext/demangle.h appears broken
+17132 GCC fails to eliminate function template specialization
+      when argument deduction fails
+17259 One more _S_leaf incorrectly qualified with _RopeRep:: in ropeimpl.h
+17327 use of `enumeral_type' in template type unification
+17393 "unused variable '._0'" warning with -Wall
+17501 Confusion with member templates
+17537 g++ not passing -lstdc++ to linker when all command line arguments are libraries
+17585 usage of unqualified name of static member from within class not allowed
+17821 Poor diagnostic for using "." instead of "->"
+17829 wrong error: call of overloaded function is ambiguous
+17851 Misleading diagnostic for invalid function declarations with undeclared types
+17976 Destructor is called twice
+18020 rejects valid definition of enum value in template
+18093 bogus conflict in namespace aliasing
+18140 C++ parser bug when using >> in templates
+
+
+Fortran
+-------
+
+17541 data statements with double precision constants fail
+
+
+x86-specific
+------------
+
+17853 -O2 ICE for MMX testcase
+
+
+Sparc-specific
+--------------
+
+17245 ICE compiling gsl-1.5 statistics/lag1.c
+
+
+Darwin-specific
+---------------
+
+17167 FATAL:Symbol L_foo$stub already defined.
+
+
+AIX-specific
+------------
+
+17277 could not catch an exception when specified -maix64
+
+
+Solaris-specific
+----------------
+
+17505 <cmath> calls acosf(), ceilf(), and other functions missing from system libraries
+
+
+HP/UX specific:
+---------------
+
+17684 /usr/ccs/bin/ld: Can't create libgcc_s.sl
+
+
+ARM-specific
+------------
+
+17384 ICE with mode attribute on structures
+
+
+MIPS-specific
+-------------
+
+17770 No NOP after LWL with -mips1
+
+
+Other embedded target specific
+------------------------------
+
+11476 [arc-elf] gcc ICE on newlib's vfprintf.c
+14064 [avr-elf] -fdata-sections triggers ICE
+14678 [m68hc11-elf] gcc ICE
+15583 [powerpc-rtems] powerpc-rtems lacks __USE_INIT_FINI__
+15790 [i686-coff] Alignment error building gcc with i686-coff target
+15886 [SH] Miscompilation with -O2 -fPIC
+16884 [avr-elf] [fweb related] bug while initializing variables
+
+
+Bugs relating to debugger support
+---------------------------------
+
+13841 missing debug info for _Complex function arguments
+15860 [big-endian targets] No DW_AT_location debug info is emitted for formal arguments
+      to a function that uses "register" qualifiers
+
+
+Testsuite issues (compiler not affected)
+----------------------------------------
+
+17465 Testsuite in libffi overrides LD_LIBRARY_PATH
+17469 Testsuite in libstdc++ overrides LD_LIBRARY_PATH
+18138 [mips-sgi-irix6.5] libgcc_s.so.1 not found by 64-bit testsuite
+
+
+Documentation
+-------------
+
+15498 typo in gcc manual: non-existing locale example en_UK, should be en_GB
+15747 [mips-sgi-irix5.3] /bin/sh hangs during bootstrap: document broken shell
+16406 USE_LD_AS_NEEDED undocumented
+
+
+------------------------------------------------------------------------------
+Please send FSF & GNU inquiries & questions tognu@gnu.org.There are
+also other ways to contact the FSF.
+
+These pages are maintained by the GCC team.
+
+For questions related to the use of GCC, please consult these web
+pages and the GCC manuals. If that fails, the gcc-help@gcc.gnu.org
+mailing list might help.  Please send comments on these web pages and
+the development of GCC to our public developer mailing list at
+gcc@gnu.org or gcc@gcc.gnu.org.
+
+Copyright (C) Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA  02111,  USA.
+
+Verbatim copying and distribution of this entire article is permitted
+in any medium, provided this notice is preserved.
+
+
+Last modified 2004-04-20

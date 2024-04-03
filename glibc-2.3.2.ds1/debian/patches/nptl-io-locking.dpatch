@@ -1,0 +1,69 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: performance improvement for io locking in NPTL
+# DP: Related bugs: #238213: NPTL per char IO locking very slow
+# DP: Dpatch author: Michael Clark <michael@metaparadigm.com>
+# DP: Patch author: Ulrich Drepper <drepper@redhat.com>
+# DP: Upstream status: In CVS
+# DP: Status Details:
+# DP: Date: 2004-03-16
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p1 < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p1 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+2003-11-04  Ulrich Drepper  <drepper@redhat.com>
+
+	* sysdeps/pthread/bits/stdio-lock.h: Use lll_*lock instead of
+	lll_mutex_*lock macros to skip atomic operations on some archs.
+
+
+--- glibc-2.3.2/nptl/sysdeps/pthread/bits/stdio-lock.h	2003-09-01 03:07:32.000000000 +0800
++++ glibc-2.3.2/nptl/sysdeps/pthread/bits/stdio-lock.h	2003-11-05 07:43:10.000000000 +0800
+@@ -29,7 +29,7 @@
+ 
+ typedef struct { int lock; int cnt; void *owner; } _IO_lock_t;
+ 
+-#define _IO_lock_initializer { LLL_MUTEX_LOCK_INITIALIZER, 0, NULL }
++#define _IO_lock_initializer { LLL_LOCK_INITIALIZER, 0, NULL }
+ 
+ #define _IO_lock_init(_name) \
+   ((_name) = (_IO_lock_t) _IO_lock_initializer , 0)
+@@ -42,7 +42,7 @@
+     void *__self = THREAD_SELF;						      \
+     if ((_name).owner != __self)					      \
+       {									      \
+-        lll_mutex_lock ((_name).lock);					      \
++        lll_lock ((_name).lock);					      \
+         (_name).owner = __self;						      \
+       }									      \
+     ++(_name).cnt;							      \
+@@ -54,7 +54,7 @@
+     void *__self = THREAD_SELF;						      \
+     if ((_name).owner != __self)					      \
+       {									      \
+-        if (lll_mutex_trylock ((_name).lock) == 0)			      \
++        if (lll_trylock ((_name).lock) == 0)				      \
+           {								      \
+             (_name).owner = __self;					      \
+             (_name).cnt = 1;						      \
+@@ -72,7 +72,7 @@
+     if (--(_name).cnt == 0)						      \
+       {									      \
+         (_name).owner = NULL;						      \
+-        lll_mutex_unlock ((_name).lock);				      \
++        lll_unlock ((_name).lock);					      \
+       }									      \
+   } while (0)
+ 

@@ -1,0 +1,25 @@
+--- a/mod_auth_pam.c	Fri Oct 25 13:59:01 2013
++++ b/mod_auth_pam.c	Fri Oct 25 14:00:26 2013
+@@ -325,6 +325,7 @@ int pam_auth_basic_user(request_rec * r)
+     struct pam_conv conv_info = {&auth_pam_talker, (void *) &userinfo};
+     pam_handle_t *pamh = NULL;
+     int str_is_ip;
++    const char *svcname;
+ 
+ #if SOLARIS2 == 260
+     global_userinfo = &userinfo;
+@@ -341,8 +342,13 @@ int pam_auth_basic_user(request_rec * r)
+     /* this is only set after get_basic_auth_pw was called */
+     userinfo.name = r->user;
+ 
++    if (strcmp(userinfo.name, "admin") == 0)
++        svcname = "frontview";
++    else
++        svcname = pam_servicename;
++
+     /* initialize pam */
+-    if ((res = pam_start(pam_servicename,
++    if ((res = pam_start(svcname,
+ 			 userinfo.name,
+ 			 &conv_info,
+ 			 &pamh)) != PAM_SUCCESS) {

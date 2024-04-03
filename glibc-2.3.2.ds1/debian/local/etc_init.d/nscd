@@ -1,0 +1,103 @@
+#!/bin/sh
+#
+# nscd:		Starts the Name Service Cache Daemon
+#
+# description:  This is a daemon which handles passwd and group lookups
+#		for running programs and caches the results for the next
+#		query.  You should start this daemon only if you use
+#		slow Services like NIS or NIS+
+
+NAME="nscd"
+DESC="name service cache"
+DAEMON="/usr/sbin/nscd"
+PIDFILE="/var/run/nscd.pid"
+
+[ -x "$DAEMON" ] || exit 0
+
+# Set PATH?
+
+[ -s "/etc/nscd.conf" ] || exit 0
+
+# nscd does not run on any kernel lower than 2.2.0 because of threading problems
+case "$(uname -r)" in
+	2.[0-1].*|1.*) exit 0 ;;
+esac
+
+start()
+{
+	# Return
+	#   0 if daemon has been started
+	#   1 if daemon was already running
+	#   2 if daemon could not be started
+	SECURE=""
+	for TABLE in passwd group
+	do
+		if egrep '^'$TABLE':.*nisplus' /etc/nsswitch.conf >/dev/null
+		then
+			/usr/sbin/nscd_nischeck "$TABLE" || SECURE="$SECURE -S $TABLE,yes"
+		fi
+	done
+	start-stop-daemon --start --quiet --pidfile "$PIDFILE" --exec "$DAEMON" --test > /dev/null || return 1
+	start-stop-daemon --start --quiet --pidfile "$PIDFILE" --exec "$DAEMON" -- \
+		$SECURE || return 2
+}
+
+stop()
+{
+	# Return
+	#   0 if daemon has been stopped
+	#   1 if daemon was already stopped
+	#   2 if daemon could not be stopped
+	start-stop-daemon --stop --quiet --retry=TERM/5/HUP/30/KILL/5 --pidfile "$PIDFILE" --name "$NAME"
+	RETVAL="$?"
+	[ "$RETVAL" = 2 ] && return 2
+	# Wait for children to finish too
+	start-stop-daemon --stop --quiet --oknodo --retry=0/30/KILL/5 --exec "$DAEMON" > /dev/null
+	[ "$?" = 2 ] && return 2
+	rm -f "$PIDFILE"
+	return "$RETVAL"
+}
+
+case "$1" in
+start)
+	echo -n "Starting $DESC: $NAME"
+	start
+	case "$?" in
+		0) echo "." ; exit 0 ;;
+		1) echo " (already running)." ; exit 0 ;;
+		*) echo " (failed)." ; exit 1 ;;
+	esac
+	;;
+stop)
+	echo -n "Stopping $DESC: $NAME"
+	stop
+	case "$?" in
+		0) echo "." ; exit 0 ;;
+		1) echo " (not running)." ; exit 0 ;;
+		*) echo " (failed)." ; exit 1 ;;
+	esac
+	;;
+restart|force-reload|reload)
+	echo -n "Restarting $DESC: $NAME"
+	stop
+	case "$?" in
+	0|1)
+		start
+		case "$?" in
+			0) echo "." ; exit 0 ;;
+			1) echo " (failed -- old process is still running)." ; exit 1 ;;
+			*) echo " (failed to start)." ; exit 1 ;;
+		esac
+		;;
+	*)
+		echo " (failed to stop)."
+		exit 1
+		;;
+	esac
+	;;
+*)
+	echo "Usage: /etc/init.d/$NAME {start|stop|restart|force-reload}" >&2
+	exit 3
+	;;
+esac
+

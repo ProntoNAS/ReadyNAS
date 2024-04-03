@@ -1,0 +1,64 @@
+#! /bin/sh -e
+
+# DP: Description: fix msqs on mips
+# DP: Related bugs: 215273
+# DP: Author: Thiemo Seufer <ica2_ts@csv.ica.uni-stuttgart.de>
+# DP: Upstream status: Pending
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p0 < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p0 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+Index: sysdeps/unix/sysv/linux/mips/bits/msq.h
+===================================================================
+RCS file: /cvs/glibc/libc/sysdeps/unix/sysv/linux/mips/bits/msq.h,v
+retrieving revision 1.1
+diff -a -d -u -p -r1.1 msq.h
+--- sysdeps/unix/sysv/linux/mips/bits/msq.h	26 Aug 2002 01:49:55 -0000	1.1
++++ sysdeps/unix/sysv/linux/mips/bits/msq.h	7 Oct 2003 18:30:30 -0000
+@@ -38,16 +38,34 @@ typedef unsigned long int msglen_t;
+ struct msqid_ds
+ {
+   struct ipc_perm msg_perm;	/* structure describing operation permission */
++#if __WORDSIZE == 32 && defined (__MIPSEB__)
++  unsigned long int __unused1;
++#endif
+   __time_t msg_stime;		/* time of last msgsnd command */
++#if __WORDSIZE == 32 && defined (__MIPSEL__)
++  unsigned long int __unused1;
++#endif
++#if __WORDSIZE == 32 && defined (__MIPSEB__)
++  unsigned long int __unused2;
++#endif
+   __time_t msg_rtime;		/* time of last msgrcv command */
++#if __WORDSIZE == 32 && defined (__MIPSEL__)
++  unsigned long int __unused2;
++#endif
++#if __WORDSIZE == 32 && defined (__MIPSEB__)
++  unsigned long int __unused3;
++#endif
+   __time_t msg_ctime;		/* time of last change */
++#if __WORDSIZE == 32 && defined (__MIPSEL__)
++  unsigned long int __unused3;
++#endif
+   unsigned long int __msg_cbytes; /* current number of bytes on queue */
+   msgqnum_t msg_qnum;		/* number of messages currently on queue */
+   msglen_t msg_qbytes;		/* max number of bytes allowed on queue */
+   __pid_t msg_lspid;		/* pid of last msgsnd() */
+   __pid_t msg_lrpid;		/* pid of last msgrcv() */
+-  unsigned long int __unused1;
+-  unsigned long int __unused2;
++  unsigned long int __unused4;
++  unsigned long int __unused5;
+ };
+ 
+ #ifdef __USE_MISC

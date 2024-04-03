@@ -1,0 +1,56 @@
+#! /bin/sh -e
+
+# DP: Backport of PR18380 to the gcc-3.3 branch
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+2004-11-08  H.J. Lu  <hongjiu.lu@intel.com>
+
+	PR target/18380
+	* config/ia64/unwind-ia64.h (_Unwind_FindTableEntry): Mark it
+	hidden.
+
+	* unwind-dw2.c (_Unwind_FindTableEntry): Removed.
+
+diff -ur gcc.old/config/ia64/unwind-ia64.h gcc/config/ia64/unwind-ia64.h
+--- gcc.old/config/ia64/unwind-ia64.h	2001-05-12 08:03:20.000000000 +0200
++++ gcc/config/ia64/unwind-ia64.h	2004-12-10 14:58:10.000000000 +0100
+@@ -28,4 +28,5 @@
+ 
+ extern struct unw_table_entry *
+ _Unwind_FindTableEntry (void *pc, unsigned long *segment_base,
+-			unsigned long *gp);
++			unsigned long *gp)
++			__attribute__ ((__visibility__ ("hidden")));
+diff -ur gcc.old/unwind-dw2.c gcc/unwind-dw2.c
+--- gcc.old/unwind-dw2.c	2004-12-10 13:17:42.000000000 +0100
++++ gcc/unwind-dw2.c	2004-12-10 14:58:10.000000000 +0100
+@@ -1275,7 +1275,6 @@
+ alias (_Unwind_Backtrace);
+ alias (_Unwind_DeleteException);
+ alias (_Unwind_FindEnclosingFunction);
+-alias (_Unwind_FindTableEntry);
+ alias (_Unwind_ForcedUnwind);
+ alias (_Unwind_GetDataRelBase);
+ alias (_Unwind_GetTextRelBase);

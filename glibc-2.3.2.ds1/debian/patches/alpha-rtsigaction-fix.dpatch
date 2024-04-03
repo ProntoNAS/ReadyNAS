@@ -1,0 +1,145 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: Fix alpha sigaction with SA_SIGINFO (rt_sigaction),
+#		   keep program execution after exiting signal handler,
+#		   with correctly calling rt_sigreturn.
+# DP: Related bugs: #221969: libc6.1 2.3.2.ds1-10 & 2.3.2-9 causes
+#		    Segmentation fault in Java JDK1.3.1 programs on Alpha
+# DP: Dpatch author: GOTO Masanori <gotom@debian.org>
+# DP: Patch author: Richard Henderson <rth@redhat.com>
+# DP: Upstream status: In CVS
+# DP: Status Details:
+# DP: Date: 2004-04-18
+
+PATCHLEVEL=0
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p$PATCHLEVEL < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p$PATCHLEVEL < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+2004-01-15  Richard Henderson  <rth@redhat.com>
+
+	* sysdeps/unix/sysv/linux/alpha/rt_sigaction.S: Prefix stubs with
+	__syscall_, move nop inside, adjust users by +4.
+
+2004-01-13  Richard Henderson  <rth@redhat.com>
+
+	* sysdeps/unix/sysv/linux/alpha/rt_sigaction.S: Fix typo.
+
+Index: sysdeps/unix/sysv/linux/alpha/rt_sigaction.S
+===================================================================
+RCS file: /cvs/glibc/libc/sysdeps/unix/sysv/linux/alpha/rt_sigaction.S,v
+retrieving revision 1.7
+retrieving revision 1.9
+diff -u -r1.7 -r1.9
+--- sysdeps/unix/sysv/linux/alpha/rt_sigaction.S	6 Jun 2003 05:54:15 -0000	1.7
++++ sysdeps/unix/sysv/linux/alpha/rt_sigaction.S	16 Jan 2004 04:59:55 -0000	1.9
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 1998, 2003 Free Software Foundation, Inc.
++/* Copyright (C) 1998, 2003, 2004 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+    Contributed by Richard Henderson <rth@cygnus.com>, 1998
+ 
+@@ -26,7 +26,6 @@
+ 
+    This just about halves signal delivery time.  */
+ 
+-#ifdef __NR_rt_sigaction
+ 	.text
+ 
+ ENTRY(__syscall_rt_sigaction)
+@@ -42,12 +41,20 @@
+ 
+ 	beq	a1, 0f
+ 	ldl	t0, 8(a1)			# sa_flags
+-	ldah	a4, sigreturn(gp)		!gprelhigh
+-	ldah	t1, rt_sigreturn(gp)		!gprelhigh
+-	lda	a4, sigreturn(a4)		!gprellow
+-	lda	t1, rt_sigreturn(a4)		!gprellow
+-	and	t0, 0x00000040, t0		# SA_SIGINFO
++
++	/* The unwinder will subtract one from the return address when
++	   attempting to find the call instruction that led us here.
++	   Since we didn't get here via a normal call, if we do nothing
++	   we would pick up the wrong symbol and the wrong FDE.  Account
++	   for this by adding a nop to the start of the function and 
++	   then skipping it here by adding 4.  */
++	ldah	a4, __syscall_sigreturn+4(gp)		!gprelhigh
++	ldah	t1, __syscall_rt_sigreturn+4(gp)	!gprelhigh
++	lda	a4, __syscall_sigreturn+4(a4)		!gprellow
++	lda	t1, __syscall_rt_sigreturn+4(t1)	!gprellow
++	and	t0, 0x40, t0				# SA_SIGINFO
+ 	cmovne	t0, t1, a4
++
+ 0:	ldi	v0, __NR_rt_sigaction
+ 	callsys
+ 	bne	a3, SYSCALL_ERROR_LABEL
+@@ -57,10 +64,10 @@
+ 
+ /* To enable unwinding through the signal frame without special hackery
+    elsewhere, describe the entire struct sigcontext with unwind info.
+-   Note that we begin the unwind info one instruction before the start
+-   of the function; the unwinder will subtract one from the return address
+-   attempting to find the call instruction that led us here, since we
+-   didn't get here via a normal call.  */
++
++   In order to minimize the size of the encoding, we set the CFA to the
++   end of the sigcontext, which makes all of the registers have small
++   negative offsets from that.  */
+ 
+ 	.macro SIGCONTEXT_REGS_I base, from=0
+ 	cfi_offset (\from, \base + (4 + \from) * 8)
+@@ -91,34 +98,23 @@
+ 	cfi_startproc
+ 	cfi_return_column (64)
+ 	SIGCONTEXT_REGS -648
++
+ 	cfi_def_cfa_offset (648)
++__syscall_sigreturn:
+ 	nop
+-sigreturn:
+ 	mov	sp, a0
+ 	ldi	v0, __NR_sigreturn
+ 	callsys
+-	cfi_endproc
+-	.size	sigreturn, .-sigreturn
+-	.type	sigreturn, @function
++	.size	__syscall_sigreturn, .-__syscall_sigreturn
++	.type	__syscall_sigreturn, @function
+ 
+-	cfi_startproc
+-	cfi_return_column (64)
+-	SIGCONTEXT_REGS -648
+ 	cfi_def_cfa_offset (176 + 648)
++__syscall_rt_sigreturn:
+ 	nop
+-rt_sigreturn:
+ 	mov	sp,a0
+ 	ldi	v0,__NR_rt_sigreturn
+ 	callsys
+-	cfi_endproc
+-	.size	rt_sigreturn, .-rt_sigreturn
+-	.type	rt_sigreturn, @function
++	.size	__syscall_rt_sigreturn, .-__syscall_rt_sigreturn
++	.type	__syscall_rt_sigreturn, @function
+ 
+-#else
+-ENTRY(__syscall_rt_sigaction)
+-	ldgp $29,0($27)
+-	.prologue 1
+-	ldi $0,ENOSYS
+-	SYSCALL_ERROR_HANDLER
+-END(__syscall_rt_sigaction)
+-#endif
++	cfi_endproc

@@ -1,0 +1,73 @@
+--- ft2demos-2.1.7~/src/ftbench.c	2002-09-26 09:22:59.000000000 +0800
++++ ft2demos-2.1.7/src/ftbench.c	2002-09-26 15:41:40.000000000 +0800
+@@ -54,6 +54,7 @@
+ FTC_ImageTypeRec  font_type;
+ charmap_t*        cmap = NULL;
+ double            bench_time = BENCH_TIME;
++FT_UInt           num_charcodes;
+ 
+ 
+ /*
+@@ -104,17 +105,25 @@
+   if (cmap)
+     return; /* Already available */
+ 
+-  cmap = (charmap_t*)calloc(face->num_glyphs, sizeof(charmap_t));
+-
+   if (face->charmap)
+   {
+-    i = 0;
++    /* A glyph may have multiple cmap entries in some fonts such that       */
++    /* the num_charcodes may be greater than face->num_glyphs.              */
++    /* To be safe, count num_charcodes before calling calloc.               */
++    /*                                                                      */
++    num_charcodes = 0;
+     charcode = FT_Get_First_Char(face, &gindex);
++    while ( gindex )
++    {
++      num_charcodes++;
++      charcode = FT_Get_Next_Char(face, charcode, &gindex);
++    }
+ 
+-    /* certain fonts contain a broken charmap that will map character codes */
+-    /* to out-of-bounds glyph indices. Take care of that here !!            */
+-    /*                                                                      */
+-    while ( gindex && i < face->num_glyphs )
++    cmap = (charmap_t*)calloc(num_charcodes, sizeof(charmap_t));
++
++    i = 0;
++    charcode = FT_Get_First_Char(face, &gindex);
++    while ( gindex )
+     {
+       cmap[i].index = gindex;
+       cmap[i].charcode = charcode;
+@@ -123,13 +132,18 @@
+     }
+   }
+   else
++  {
+     /* no charmap, do an identity mapping */
+-    for (i = 0; i < face->num_glyphs; i++)
++    num_charcodes = face->num_glyphs;
++
++    cmap = (charmap_t*)calloc(num_charcodes, sizeof(charmap_t));
++
++    for (i = 0; i < num_charcodes; i++)
+     {
+       cmap[i].index = i;
+       cmap[i].charcode = i;
+-      i++;
+     }
++  }
+ }
+ 
+ 
+@@ -151,7 +165,7 @@
+   t0 = get_time();
+   do
+   {
+-    for (i = 0; i < face->num_glyphs; i++)
++    for (i = 0; i < num_charcodes; i++)
+       if (!(*bench_func)(cmap[i].index, cmap[i].charcode))
+         done++;
+     n++;

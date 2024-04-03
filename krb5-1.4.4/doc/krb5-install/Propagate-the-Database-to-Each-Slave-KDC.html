@@ -1,0 +1,59 @@
+<html lang="en">
+<head>
+<title>Kerberos V5 Installation Guide</title>
+<meta http-equiv="Content-Type" content="text/html">
+<meta name="description" content="Kerberos V5 Installation Guide">
+<meta name="generator" content="makeinfo 4.5">
+<link href="http://www.gnu.org/software/texinfo/" rel="generator-home">
+</head>
+<body>
+<div class="node">
+<p>
+Node:<a name="Propagate%20the%20Database%20to%20Each%20Slave%20KDC">Propagate the Database to Each Slave KDC</a>,
+Previous:<a rel="previous" accesskey="p" href="Back-on-the-Master-KDC.html#Back%20on%20the%20Master%20KDC">Back on the Master KDC</a>,
+Up:<a rel="up" accesskey="u" href="Back-on-the-Master-KDC.html#Back%20on%20the%20Master%20KDC">Back on the Master KDC</a>
+<hr><br>
+</div>
+
+<h5 class="subsubsection">Propagate the Database to Each Slave KDC</h5>
+
+<p>First, create a dump of the database on the master KDC, as follows:
+
+<pre class="smallexample">     <b>shell%</b> /usr/local/sbin/kdb5_util dump /usr/local/var/krb5kdc/slave_datatrans
+     <b>shell%</b>
+     </pre>
+
+<p>Next, you need to manually propagate the database to each slave KDC, as
+in the following example.  (The lines beginning with =&gt; are
+continuations of the previous line.):
+
+<pre class="smallexample">     /usr/local/sbin/kprop -f /usr/local/var/krb5kdc/slave_datatrans
+     =&gt; kerberos-1.mit.edu
+     /usr/local/sbin/kprop -f /usr/local/var/krb5kdc/slave_datatrans
+     =&gt; kerberos-2.mit.edu
+     </pre>
+
+<p>You will need a script to dump and propagate the database.  The
+following is an example of a bourne shell script that will do this. 
+(Note that the line that begins with =&gt; is a continuation of the
+previous line.  Remember that you need to replace /usr/local with
+the name of the directory in which you installed Kerberos V5.)
+
+<pre class="smallexample">     #!/bin/sh
+     
+     kdclist = "kerberos-1.mit.edu kerberos-2.mit.edu"
+     
+     /usr/local/sbin/kdb5_util "dump
+     =&gt; /usr/local/var/krb5kdc/slave_datatrans"
+     
+     for kdc in $kdclist
+     do
+     /usr/local/sbin/kprop -f /usr/local/var/krb5kdc/slave_datatrans $kdc
+     done
+     </pre>
+
+<p>You will need to set up a cron job to run this script at the intervals
+you decided on earlier (See <a href="Database-Propagation.html#Database%20Propagation">Database Propagation</a>.)
+
+</body></html>
+

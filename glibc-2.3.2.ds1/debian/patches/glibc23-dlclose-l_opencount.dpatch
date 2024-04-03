@@ -1,0 +1,85 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: Fix reference counter in dl that does not decrement
+#		   correctly.
+# DP: Related bugs: #233301
+# DP: Dpatch author: GOTO Masanori <gotom@debian.org>
+# DP: Patch author: GOTO Masanori <gotom@debian.org>
+# DP: Upstream status: Pending
+# DP: Status Details: Ulrich Drepper is reviewing.
+# DP: Date: 2004-09-08
+
+PATCHLEVEL=0
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p$PATCHLEVEL < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p$PATCHLEVEL < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+Index: elf/dl-close.c
+===================================================================
+RCS file: /cvs/glibc/libc/elf/dl-close.c,v
+retrieving revision 1.104
+diff -u -r1.104 dl-close.c
+--- elf/dl-close.c	4 Aug 2004 21:45:38 -0000	1.104
++++ elf/dl-close.c	8 Sep 2004 00:00:54 -0000
+@@ -197,17 +197,39 @@
+ 		unsigned int j;
+ 		for (j = 0; j < remmap->l_reldepsact; ++j)
+ 		  {
++		    struct link_map *depmap = remmap->l_reldeps[j];
++
+ 		    /* Find out whether this object is in our list.  */
+-		    if (remmap->l_reldeps[j]->l_idx < nopencount
+-			&& (list[remmap->l_reldeps[j]->l_idx]
+-			    == remmap->l_reldeps[j]))
+-		      /* Yes, it is.  */
+-		      if (--new_opencount[remmap->l_reldeps[j]->l_idx] == 0)
+-			{
+-			  /* This one is now gone, too.  */
+-			  assert (remmap->l_reldeps[j]->l_type == lt_loaded);
+-			  mark_removed (remmap->l_reldeps[j]);
+-			}
++		    if (depmap->l_idx < nopencount
++			&& (list[depmap->l_idx] == depmap))
++		      {
++			/* Yes, it is.  */
++			if (depmap->l_searchlist.r_list != NULL)
++			  {
++			    if (--new_opencount[depmap->l_idx] == 0)
++			      {
++				/* This one is now gone, too.  */
++				assert (depmap->l_type == lt_loaded);
++				mark_removed (depmap);
++			      }
++			  }
++			else
++			  {
++			    /* When it's NULL, we need to check all
++			       dependencies for this object. */
++			    struct link_map **rmap;
++			    for (rmap = depmap->l_initfini;
++				 *rmap != NULL; ++rmap)
++			      {
++				if (--new_opencount[(*rmap)->l_idx] == 0)
++				  {
++				    /* This one is now gone, too.  */
++				    assert ((*rmap)->l_type == lt_loaded);
++				    mark_removed (*rmap);
++				  }
++			      }
++			  }
++		      }
+ 		  }
+ 	      }
+ 	  }

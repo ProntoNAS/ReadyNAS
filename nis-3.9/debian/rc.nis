@@ -1,0 +1,177 @@
+#!/bin/sh
+#
+# /etc/init.d/nis	Start NIS (formerly YP) daemons.
+#
+#
+
+# Customize the variables in /etc/default/nis rather than here
+NISSERVER=false
+YPPWDDIR=/etc
+YPCHANGEOK=chsh
+
+[ -f /etc/default/nis ] && . /etc/default/nis
+
+NET="/usr/sbin"
+test -f ${NET}/ypbind -a -f /etc/defaultdomain || exit 0
+
+#
+#	If ypbind broadcasts for the default domain, we may not be bound to 
+#	any server yet (note that you can set broadcast in yp.conf for the
+#	default domain without ypbind being run with -broadcast)
+#
+bind_wait()
+{
+	[ "`ypwhich 2>/dev/null`" = "" ] && sleep 1
+
+	if [ "`ypwhich 2>/dev/null`" = "" ]
+	then
+		bound=""
+		echo -n "[binding to YP server "
+		for i in 1 2 3 4 5 6 7 8 9 10
+		do
+			sleep 1
+			echo -n "."
+			if [ "`ypwhich 2>/dev/null`" != "" ]
+			then
+				echo -n " done] "
+				bound="yes"
+				break
+			fi
+		done
+		[ "$bound" ] || echo -n " backgrounded] "
+	fi
+}
+
+#
+#	Do we want ypbind to be started? On a laptop without ethernet
+#	maybe not just yet - /etc/network/if-up.d will take care of it.
+#
+want_ypbind()
+{
+	# Started manually?
+	if [ "" != "$manual" ]
+	then
+		return 0
+	fi
+
+	# Then special case for (partly) diskless systems.
+	nfs_root=`df -l / | tail +2`
+	nfs_usr=`df -l /usr | tail +2`
+	if [ "" = "$nfs_root" ] && [ "" != "$nfs_usr" ]
+	then
+		#
+		#	Root isn't on NFS, but /usr is, so
+		#	/etc/network/ifup.d couldn't ever have started
+		#	/usr/sbin/ypbind BUT the network is available.
+		#
+		return 0
+	fi
+
+	# Old style networking?
+	if [ -f /etc/init.d/network ] || [ ! -d /etc/network/if-up.d ]
+	then
+		return 0
+	fi
+
+	# Right, assume /etc/network/if-up.d handles starting ypbind
+	return 1
+}
+
+start ()
+{
+	oname=`domainname`
+	nname=`cat /etc/defaultdomain`
+	if [ "$oname" != "$nname" ]; then
+		echo "Setting NIS domainname to: $nname"
+		domainname "$nname"
+	fi
+	echo -n "Starting NIS services: "
+	if [ "$NISSERVER" != "false" ]
+	then
+		echo -n "ypserv "
+		start-stop-daemon --start --quiet \
+			--pidfile /var/run/ypserv.pid --exec ${NET}/ypserv
+	fi
+	if [ "$NISSERVER" = master ]
+	then
+		E=""
+		if [ "$YPCHANGEOK" != "" ]
+		then
+			OIFS="$IFS"; IFS="$IFS,"
+			for i in $YPCHANGEOK
+			do
+				case "$i" in
+					chsh|chfn)
+						E="$E -e $i"
+						;;
+				esac
+			done
+			IFS="$OIFS"
+		fi
+		echo -n "yppasswdd "
+		start-stop-daemon --start --quiet \
+			--exec ${NET}/rpc.yppasswdd -- -D $YPPWDDIR $E
+		echo -n "ypxfrd "
+		start-stop-daemon --start --quiet \
+			--exec ${NET}/rpc.ypxfrd
+	fi
+	if egrep -q '^(ypserver|domain)' /etc/yp.conf
+	then
+		broadcast=""
+	else
+		broadcast="-broadcast"
+	fi
+	if want_ypbind
+	then
+		echo -n "ypbind "
+		start-stop-daemon -b --start --quiet \
+			--exec ${NET}/ypbind -- $broadcast
+		bind_wait
+	fi
+	echo
+}
+
+stop () {
+	start-stop-daemon --stop --quiet --oknodo \
+		--pidfile /var/run/ypbind.pid
+	start-stop-daemon --stop --quiet --oknodo \
+		--pidfile /var/run/ypserv.pid
+	start-stop-daemon --stop --quiet --oknodo \
+		--exec /usr/sbin/rpc.yppasswdd
+	start-stop-daemon --stop --quiet --oknodo \
+		--name rpc.ypxfrd
+}
+
+# Set 'manual' to indicate if we were started by hand.
+case "$0" in
+	*S??/*|*S???/*|*K??/*|*K???/*)
+		manual=
+		;;
+	*)
+		manual=1
+		;;
+esac
+
+case "$1" in
+  start)
+	start;
+	;;
+  stop)
+	stop
+	;;
+  reload|force-reload)
+	start-stop-daemon --stop --quiet --oknodo --signal 1 \
+		--pidfile /var/run/ypserv.pid --exec /usr/sbin/ypserv
+	;;
+  restart)
+	stop
+	sleep 2
+	start
+	;;
+  *)
+	echo "Usage: /etc/init.d/nis {start|stop|reload|force-reload|restart}"
+	exit 1
+esac
+
+exit 0
+

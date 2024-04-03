@@ -1,0 +1,134 @@
+#!/usr/bin/env python
+# -*- Mode: Python -*-
+# 
+# ***** BEGIN LICENSE BLOCK *****
+# Source last modified: $Id: build,v 1.1.1.1 2006/03/29 16:45:39 hagi Exp $
+# 
+# Portions Copyright (c) 1995-2004 RealNetworks, Inc. All Rights Reserved.
+# 
+# The contents of this file, and the files included with this file,
+# are subject to the current version of the RealNetworks Public
+# Source License (the "RPSL") available at
+# http://www.helixcommunity.org/content/rpsl unless you have licensed
+# the file under the current version of the RealNetworks Community
+# Source License (the "RCSL") available at
+# http://www.helixcommunity.org/content/rcsl, in which case the RCSL
+# will apply. You may also obtain the license terms directly from
+# RealNetworks.  You may not use this file except in compliance with
+# the RPSL or, if you have a valid RCSL with RealNetworks applicable
+# to this file, the RCSL.  Please see the applicable RPSL or RCSL for
+# the rights, obligations and limitations governing use of the
+# contents of the file.
+# 
+# Alternatively, the contents of this file may be used under the
+# terms of the GNU General Public License Version 2 or later (the
+# "GPL") in which case the provisions of the GPL are applicable
+# instead of those above. If you wish to allow use of your version of
+# this file only under the terms of the GPL, and not to allow others
+# to use your version of this file under the terms of either the RPSL
+# or RCSL, indicate your decision by deleting the provisions above
+# and replace them with the notice and other provisions required by
+# the GPL. If you do not delete the provisions above, a recipient may
+# use your version of this file under the terms of any one of the
+# RPSL, the RCSL or the GPL.
+# 
+# This file is part of the Helix DNA Technology. RealNetworks is the
+# developer of the Original Code and owns the copyrights in the
+# portions it created.
+# 
+# This file, and the files included with this file, is distributed
+# and made available on an 'AS IS' basis, WITHOUT WARRANTY OF ANY
+# KIND, EITHER EXPRESS OR IMPLIED, AND REALNETWORKS HEREBY DISCLAIMS
+# ALL SUCH WARRANTIES, INCLUDING WITHOUT LIMITATION, ANY WARRANTIES
+# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, QUIET
+# ENJOYMENT OR NON-INFRINGEMENT.
+# 
+# Technology Compatibility Kit Test Suite(s) Location:
+#    http://www.helixcommunity.org/content/tck
+# 
+# Contributor(s):
+# 
+# ***** END LICENSE BLOCK *****
+# 
+
+"""BOOTSTRAP ONLY!!!  This file should only contain the code
+necessary to bootstrap the build system because this file
+is COMPILED on the Macintosh, and should not change often
+with CVS updates."""
+
+import os
+import sys
+import string
+
+## XXX FIXME - why are we doing platform checks all over the place?
+## fix broken RedHat Python
+if sys.platform == 'linux-i386':
+    sys.platform = 'linux2'
+
+## Bootstrap the Macintosh
+if sys.platform == 'mac':
+    import macfs
+    import MACFS
+
+    ## Load the build preferences
+    vrefnum, curdir = macfs.FindFolder(
+    		MACFS.kOnAppropriateDisk,
+    		MACFS.kPreferencesFolderType,
+    		0)
+    fss = macfs.FSSpec((vrefnum, curdir, 'RMA Build Prefs'))
+    filename = fss.as_pathname()
+    execfile(filename, globals(), locals())
+
+    ## change to the SOURCE_ROOT directory if given
+    try:
+        source_root = os.environ['SOURCE_ROOT']
+    except KeyError:
+        pass
+    else:
+        if os.path.exists(source_root):
+            os.chdir(source_root)
+        else:
+            print 'Invalid SOURCE_ROOT: %s' % (source_root)
+            sys.exit(1)
+        
+
+## CHECK ENVIRONMENT VARIABLES
+## BUILD_ROOT
+if not os.environ.has_key('BUILD_ROOT'):
+    print 'You need to add BUILD_ROOT to your environment.'
+    sys.exit(1)
+
+if not os.path.isdir(os.environ['BUILD_ROOT']) or \
+  not os.path.isfile(os.path.join(os.environ['BUILD_ROOT'],"lib","buildui.py")):
+    print 'Invalid BUILD_ROOT %s' % (os.environ['BUILD_ROOT'])
+
+
+## add Python import paths
+build_root = os.environ['BUILD_ROOT']
+sys.path.insert(0, os.path.join(build_root, 'lib'))
+sys.path.insert(0, os.path.join(build_root, 'umake'))
+
+
+if sys.platform == 'darwin':
+   import string
+   if string.find(os.environ.get("SYSTEM_ID",""),"-cw") != -1:
+       import macemu
+
+# Turn on new-style logging.
+import log
+# Logs to the 'build_logs' subdir under the working directory from where
+# 'build' is called. This should get us inside the build output.
+logdir     = os.path.join(os.getcwd(),'build_logs')
+identifier = 'build'
+log.initLogging(logdir, identifier)
+
+## run the build system
+import buildui
+
+buildui.run()
+
+#import profile
+#profile.run('buildui.run()', 'buildprof')
+#import pstats
+#p = pstats.Stats('buildprof')
+#p.sort_stats('cumulative').print_stats(80)

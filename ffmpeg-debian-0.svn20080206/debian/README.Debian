@@ -1,0 +1,169 @@
+FFmpeg names
+============
+
+The ffmpeg packaging has seen many renames in the course of its history.
+Looking for more stable names, the ffmpeg maintainers agreed on moving to
+a naming scheme which would fit known use cases and avoid confusion.
+
+Some of the constraints and proposed solutions on the new names follow:
+
+ 1. Distributions such as Debian and Ubuntu want to carry multiple version of
+    the source package to fit component divisions and please users; e.g. an
+    Ubuntu/universe and an Ubuntu/multiverse version, or a Debian/main and a
+    Debian/non-free version.  It is conceived that there are usually two
+    sources in these distributions: a) the vanilla upstream source shipped in
+    the most permissible component if possible and b) a stripped source
+    suitable for the most constrained component.  It seems natural to use the
+    "ffmpeg" source package name for the former and a branch package name for
+    the later such as "ffmpeg-debian".
+
+    For details why such a stripping is necessary in the first place, please
+    look further below in this document ("Disabled MPEG encoders").
+
+ 2. Packages from distributions and third party repositories such as the popular
+    debian-multimedia.org shouldn't interfere but coexist nicely.  If these
+    repositories want to provide an alternate version of the source package,
+    they could do so with their own source and binary package names.  It is
+    hoped that providing the vanilla source in one of the source packages will
+    remove the need to fork ffmpeg in these third party repositories.
+
+ 3. The libraries built by various source packages shall be ABI compatible as
+    to allow packages built against the most constrained component to run
+    against the more permissible components; for instance vlc if built against
+    ffmpeg in main shall be able to run against the ffmpeg libraries from
+    non-free.  The plan here is to use shlibs tricks to allow to install one
+    lib or the other.  The shlibs would look like:
+      lib-name-in-main-99 (>= 1.2.3) | lib-name-in-non-free-99 (>= 1.2.3)
+    This scheme can be extended for third party repositories if it still needs
+    to be.
+
+These new package names were imaginated at the time where the package names
+were as follow in Debian and Ubuntu (July 2008).
+debian:
+     ffmpeg   | 0.cvs20050313-2sarge1    |     oldstable
+     ffmpeg   | 0.cvs20060823-8          |        stable
+ffmpeg-free   | 0.svn20080206-8          |       testing
+ffmpeg-debian | 0.svn20080206-9          |      unstable
+ubuntu:
+     ffmpeg   | 3:0.cvs20070307-5ubuntu4 |         gutsy
+     ffmpeg   | 3:0.cvs20070307-5ubuntu7 |         hardy
+ffmpeg-debian | 3:0.svn20080206-9ubuntu1 |      intrepid
+
+Source          Version                 Binaries
+------------------------------------------------
+ffmpeg          0.cvs20050313-2sarge1   ffmpeg, libavcodec-dev,
+                                        libavformat-dev, libpostproc-dev
+ffmpeg          0.cvs20060823-8         ffmpeg, libavcodec-dev, libavcodec0d,
+                                        libavformat-dev, libavformat0d,
+                                        libpostproc-dev, libpostproc0d
+ffmpeg-debian   0.svn20080206-9         ffmpeg, ffmpeg-dbg, libavutil49,
+                                        libavcodec51, libavdevice52,
+                                        libpostproc51, libavformat52,
+                                        libswscale0, libavutil-dev,
+                                        libavcodec-dev, libavdevice-dev,
+                                        libpostproc-dev, libavformat-dev,
+                                        libswscale-dev
+
+For consistency at this date, Debian is missing a ffmpeg unstripped
+source package and Ubuntu had two source packages in the same component
+for a short time.  The binary package names are not unified and shlibs
+do not allow to install one or the other library.
+
+To avoid gratuitous package renames, the proposed changes against the above
+packages are:
+
+  * The renaming of the binary packages in main will be postponed until
+    the next SONAME bump to avoid unnecessary renaming.
+
+  * For Debian and Ubuntu the binary packages in the 'main' will be named on
+    the next soname change:
+
+     -  libavcodec-stripped-52
+     -  libavformat-stripped-52
+     -  libavdevice-stripped-52
+     -  libavutil-stripped-52
+     -  libpostproc-stripped-52
+ 
+    and so on.
+
+  * the unstripped replacement package in the 'non-free' (Debian) and
+    'multiverse' (ubuntu) component will be named as above without the
+    '-stripped-' marker in the name.
+  
+  * Only until the next SONAME bump happens: an unstripped replacement package
+    for the stripped 'libavcodec51' can provided e.g. in ubuntu multiverse with
+    the name 'libavcodec-unstripped-51'. This is implemented by generating an
+    shlibs file containing an alternative depedency.
+
+  * Ubuntu will track the ffmpeg packages in Debian and tries to minimize the
+    diff for maintenance reason.
+
+  * If you disagree with the naming, please speak up on
+    pkg-multimedia-maintainers@lists.alioth.debian.org
+
+  
+ -- Reinhard Tartler <siretart@tauware.de>  Wed, 02 Jul 2008 08:08:56 +0200
+
+
+Disabled MPEG encoders
+======================
+
+On Debconf 7, the ffmpeg maintainers had a conversation with James Troup
+from the ftpteam about mpeg encoders in the ffmpeg package. The ftpteam
+was pretty surprised about the accepted encoders, and admitted that they
+were accepted by accident. We therefore had no choice but removing
+them. We agreed on a plan that rather disables than removes the
+encoders, for details see debian/strip.sh, rendering those encoders
+unusable.
+
+In order to make this fact visible, the source package was renamed from
+ffmpeg to ffmpeg-free. The plan is to provide a source package called
+'ffmpeg' (without the -free) suffix, which builds drop-in replacement
+binary package with the mpeg encoders enabled. Ideally, we would be
+allowed to include those mpeg encoders enabled in non-free, but we
+haven't heared back from the ftpteam about that idea.
+
+ -- Reinhard Tartler <siretart@tauware.de>, Sun, 20 Apr 2008 08:43:23 +0200
+
+
+Notes for the Debian ffmpeg packages
+====================================
+
+ The license for the whole work is the GPL, not the LGPL, because GPL-only
+parts of ffmpeg were activated. If you need LGPL versions of the libraries,
+please comment out the appropriate lines in debian/confflags.
+
+
+Summary of the patent issues with ffmpeg
+========================================
+
+   The only patents related to ffmpeg which seem to be enforced against open
+source software cover the following codec technologies and file formats:
+
+   * MP3 encoding
+   * AAC encoding
+   * the ASF file format
+
+   I did not activate MP3 encoding (through LAME) in libavcodec, nor AAC
+encoding (through FAAC). However, since I have found no real enforcement
+of the mysterious ASF file format patents, I did not deactivate ASF support in
+libavformat. See more details in the patents.txt file.
+
+
+Differences with unofficial ffmpeg packages
+===========================================
+
+   There are popular unofficial ffmpeg packages at the following URL:
+
+     http://www.debian-multimedia.org/
+
+   I have nothing to do with these packages and it would be very tedious
+for me to track their changes. Given that my official packages use a
+Debian-specific naming scheme for libraries, you should be able to
+install at least the shared library packages together.
+
+   Before submitting a bug report, please make sure it is related to the
+Debian packages and not those unofficial packages.
+
+
+ -- Sam Hocevar <sam@zoy.org>  Thu, 30 Mar 2006 10:23:16 +0200

@@ -1,0 +1,46 @@
+diff -urp ffmpeg-debian-0.svn20080206/libavcodec/mpeg4video_parser.c ffmpeg-debian-0.svn20080206.netgear/libavcodec/mpeg4video_parser.c
+--- ffmpeg-debian-0.svn20080206/libavcodec/mpeg4video_parser.c	Thu Mar 20 11:10:58 2008
++++ ffmpeg-debian-0.svn20080206.netgear/libavcodec/mpeg4video_parser.c	Wed Feb 25 17:19:17 2009
+@@ -67,6 +67,9 @@ static int av_mpeg4_decode_header(AVCode
+                                   AVCodecContext *avctx,
+                                   const uint8_t *buf, int buf_size)
+ {
++#if 1 // JM: NETGEAR: This takes unnecessary time and can crash on some avi files
++    return 0;
++#endif
+     ParseContext1 *pc = s1->priv_data;
+     MpegEncContext *s = pc->enc;
+     GetBitContext gb1, *gb = &gb1;
+diff -urp ffmpeg-debian-0.svn20080206/libavformat/avidec.c ffmpeg-debian-0.svn20080206.netgear/libavformat/avidec.c
+--- ffmpeg-debian-0.svn20080206/libavformat/avidec.c	Tue Jan  1 14:05:51 2008
++++ ffmpeg-debian-0.svn20080206.netgear/libavformat/avidec.c	Wed Feb 25 16:41:01 2009
+@@ -595,8 +595,10 @@ static int avi_read_header(AVFormatConte
+         return -1;
+     }
+ 
++#if 0 // JM: NETGEAR: Speed up AVI parsing
+     if(!avi->index_loaded && !url_is_streamed(pb))
+         avi_load_index(s);
++#endif
+     avi->index_loaded = 1;
+     avi->non_interleaved |= guess_ni_flag(s);
+     if(avi->non_interleaved)
+diff -urp ffmpeg-debian-0.svn20080206/libavformat/utils.c ffmpeg-debian-0.svn20080206.netgear/libavformat/utils.c
+--- ffmpeg-debian-0.svn20080206/libavformat/utils.c	Wed Sep 17 17:44:08 2014
++++ ffmpeg-debian-0.svn20080206.netgear/libavformat/utils.c	Wed Sep 17 17:54:48 2014
+@@ -1899,6 +1899,7 @@ int av_find_stream_info(AVFormatContext 
+         if (pkt->duration != 0)
+             codec_info_nb_frames[st->index]++;
+ 
++#if 0 // JM: NETGEAR: Make (at least) MPEG PS parse faster
+         {
+             int index= pkt->stream_index;
+             int64_t last= last_dts[index];
+@@ -1930,6 +1931,7 @@ int av_find_stream_info(AVFormatContext 
+                 memset(pd->buf+pd->buf_size, 0, AVPROBE_PADDING_SIZE);
+             }
+         }
++#endif
+         if(st->parser && st->parser->parser->split && !st->codec->extradata){
+             int i= st->parser->parser->split(st->codec, pkt->data, pkt->size);
+             if(i){

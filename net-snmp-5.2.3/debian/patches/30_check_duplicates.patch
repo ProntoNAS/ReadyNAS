@@ -1,0 +1,80 @@
+--- net-snmp-5.2.3.orig/include/net-snmp/library/container.h	2004/09/14 02:29:16	1.25
++++ net-snmp-5.2.3.orig/include/net-snmp/library/container.h	2006/12/20 20:19:15	1.25.2.1
+@@ -2,7 +2,7 @@
+ #define NETSNMP_CONTAINER_H
+ 
+ /*
+- * $Id: container.h,v 1.25 2004/09/14 02:29:16 rstory Exp $
++ * $Id: container.h,v 1.25.2.1 2006/12/20 20:19:15 rstory Exp $
+  *
+  * WARNING: This is a recently created file, and all of it's contents are
+  *          subject to change at any time.
+@@ -267,6 +267,11 @@
+ #define CONTAINER_COMPARE(x,l,r)    (x)->compare(l,r)
+ #define CONTAINER_FOR_EACH(x,f,c)   (x)->for_each(x,f,c)
+ 
++/*
++ * container optionflags
++ */
++#define CONTAINER_KEY_ALLOW_DUPLICATES             0x00000001
++
+     /*
+      * if you are getting multiple definitions of these three
+      * inline functions, you most likely have optimizations turned off.
+--- net-snmp-5.2.3.orig/snmplib/container_binary_array.c	2005/06/13 16:16:31	1.17.2.1
++++ net-snmp-5.2.3/snmplib/container_binary_array.c	2006/12/20 20:19:14	1.17.2.2
+@@ -1,6 +1,6 @@
+ /*
+  * container_binary_array.c
+- * $Id: container_binary_array.c,v 1.17.2.1 2005/06/13 16:16:31 dts12 Exp $
++ * $Id: container_binary_array.c,v 1.17.2.2 2006/12/20 20:19:14 rstory Exp $
+  *
+  * see comments in header file.
+  *
+@@ -36,6 +36,7 @@
+ typedef struct binary_array_table_s {
+     size_t                     max_size;   /* Size of the current data table */
+     size_t                     count;      /* Index of the next free entry */
++    u_int                      flags;      /* flags */
+     int                        dirty;
+     int                        data_size;  /* Size of an individual entry */
+     void                     **data;       /* The table itself */
+@@ -182,6 +183,17 @@
+     SNMP_FREE(c);
+ }
+ 
++int
++netsnmp_binary_array_options_set(netsnmp_container *c, int set, u_int flags)
++{
++    binary_array_table *t = (binary_array_table*)c->container_data;
++    if (set)
++        t->flags = flags;
++    else
++        return ((t->flags & flags) == flags);
++    return flags;
++}
++
+ NETSNMP_STATIC_INLINE size_t
+ netsnmp_binary_array_count(netsnmp_container *c)
+ {
+@@ -338,6 +350,20 @@
+     void           *new_data;   /* Used for * a) extending the data table
+                                  * * b) the next entry to use */
+ 
++    /*
++     * check for duplicates
++     */
++    if (! (t->flags & CONTAINER_KEY_ALLOW_DUPLICATES)) {
++        new_data = netsnmp_binary_array_get(c, entry, 1);
++        if (NULL != new_data) {
++            DEBUGMSGTL(("container","not inserting duplicate key\n"));
++            return -1;
++        }
++    }
++    
++    /*
++     * check if we need to resize the array
++     */
+     if (t->max_size <= t->count) {
+         /*
+          * Table is full, so extend it to double the size

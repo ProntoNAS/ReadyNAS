@@ -1,0 +1,69 @@
+#!/bin/sh -e
+## 02_zero-headers.dpatch by Jeff Johnson <jbj@redhat.com> and Colin Watson <cjwatson@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Make sure database headers are properly initialized.
+## DP: [Initially from RH #4457, but then updated for more cases found
+## DP:  by Colin Watson with valgrind.]
+
+if [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+
+[ -f debian/patches/00patch-opts ] && . debian/patches/00patch-opts
+patch_opts="${patch_opts:--f --no-backup-if-mismatch}"
+
+case "$1" in
+       -patch) patch $patch_opts -p1 < $0;;
+       -unpatch) patch $patch_opts -p1 -R < $0;;
+        *)
+                echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+                exit 1;;
+esac
+
+exit 0
+
+@DPATCH@
+diff -urNad /home/james/debian/packages/gdbm/gdbm-1.8.3/falloc.c gdbm-1.8.3/falloc.c
+--- /home/james/debian/packages/gdbm/gdbm-1.8.3/falloc.c	2001-02-28 06:52:33.000000000 +0000
++++ gdbm-1.8.3/falloc.c	2003-09-08 23:58:43.000000000 +0100
+@@ -272,7 +272,7 @@
+ 
+ 
+   /* Split the header block. */
+-  temp = (avail_block *) malloc (av_size);
++  temp = (avail_block *) calloc (1, av_size);
+   if (temp == NULL) _gdbm_fatal (dbf, "malloc error");
+   /* Set the size to be correct AFTER the pop_avail_block. */
+   temp->size = dbf->header->avail.size;
+diff -urNad /home/james/debian/packages/gdbm/gdbm-1.8.3/gdbmopen.c gdbm-1.8.3/gdbmopen.c
+--- /home/james/debian/packages/gdbm/gdbm-1.8.3/gdbmopen.c	2003-09-08 23:58:01.000000000 +0100
++++ gdbm-1.8.3/gdbmopen.c	2003-09-08 23:58:43.000000000 +0100
+@@ -212,7 +212,7 @@
+ 	file_block_size = block_size;
+ 
+       /* Get space for the file header. */
+-      dbf->header = (gdbm_file_header *) malloc (file_block_size);
++      dbf->header = (gdbm_file_header *) calloc (1, file_block_size);
+       if (dbf->header == NULL)
+ 	{
+ 	  gdbm_close (dbf);
+@@ -256,7 +256,7 @@
+ 	(dbf->header->block_size - sizeof (hash_bucket))
+ 	/ sizeof (bucket_element) + 1;
+       dbf->header->bucket_size  = dbf->header->block_size;
+-      dbf->bucket = (hash_bucket *) malloc (dbf->header->bucket_size);
++      dbf->bucket = (hash_bucket *) calloc (1, dbf->header->bucket_size);
+       if (dbf->bucket == NULL)
+ 	{
+ 	  gdbm_close (dbf);
+@@ -420,7 +420,7 @@
+       for(index = 0; index < size; index++)
+         {
+           (dbf->bucket_cache[index]).ca_bucket
+-            = (hash_bucket *) malloc (dbf->header->bucket_size);
++            = (hash_bucket *) calloc (1, dbf->header->bucket_size);
+           if ((dbf->bucket_cache[index]).ca_bucket == NULL)
+ 	    {
+               gdbm_errno = GDBM_MALLOC_ERROR;

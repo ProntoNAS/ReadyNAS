@@ -1,0 +1,42 @@
+#! /bin/sh -e
+
+# DP: Do not build gpidump due to PR optimization/9279.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- gcc/p/utils/Makefile~	2003-02-26 23:28:45.000000000 +0100
++++ gcc/p/utils/Makefile	2003-02-26 23:29:38.000000000 +0100
+@@ -41,9 +41,9 @@
+ 
+ # Internal variables
+ PFLAGS1=--executable-path=. --unit-path=$(GCC_DIR)/p/rts --unit-path=$(GCC_DIR)/p/units
+-EXE=binobj$(exeext) gpidump$(exeext)
+-EXE2=binobj gpidump
+-DOC=binobj.1 gpidump.1
++EXE=binobj$(exeext) #gpidump$(exeext)
++EXE2=binobj #gpidump
++DOC=binobj.1 #gpidump.1
+ PC_WITH_FLAGS=$(PC) --automake --executable-file-name $(UTILS_WARN) $(CFLAGS) $(PFLAGS) $(PFLAGS1) `cat needed-options`
+ 
+ all: $(EXE) $(DOC)

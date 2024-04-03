@@ -1,0 +1,29 @@
+--- a/etc/afpd/quota.c	2013-07-23 02:53:18.000000000 -0700
++++ b/etc/afpd/quota.c	2013-08-01 18:25:53.573881461 -0700
+@@ -319,7 +319,9 @@ static int get_linux_fs_quota(int what, 
+ 	if (kernel_iface == IFACE_GENERIC)
+   	{
+     		struct dqblk_v3 dqb3;
++		uid_t oldeuid = geteuid();
+ 
++		seteuid(0);
+     		ret = quotactl(QCMD(Q_V3_GETQUOTA, (what ? GRPQUOTA : USRQUOTA)), path, euser_id, (caddr_t) &dqb3);
+     		if (ret == 0)
+     		{
+@@ -333,6 +335,7 @@ static int get_linux_fs_quota(int what, 
+       			dqb->dqb_itime      = dqb3.dqb_itime;
+ 			dqb->bsize	    = DEV_QBSIZE;
+     		}
++		seteuid(oldeuid);
+   	}
+   	else if (kernel_iface == IFACE_VFSV0)
+   	{
+@@ -487,7 +490,7 @@ special(char *file, int *nfs)
+ 
+     while (( mnt = getmntent( mtab )) != NULL ) {
+         /* check for local fs */
+-        if ( (stat( mnt->mnt_fsname, &sb ) == 0) && devno == sb.st_rdev) {
++        if ( (stat( mnt->mnt_dir, &sb ) == 0) && devno == sb.st_dev) {
+ 	    found = 1;
+ 	    break;
+         }

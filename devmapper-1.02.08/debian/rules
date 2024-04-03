@@ -1,0 +1,135 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode. 
+#export DH_VERBOSE=1
+export DH_COMPAT=4
+
+ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+CFLAGS += -g
+endif
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+INSTALL_PROGRAM += -s
+endif
+
+BUILD_DIR = debian/build
+
+PACKAGES_DEB = libdevmapper-dev libdevmapper1.02 dmsetup
+PACKAGES_UDEB = libdevmapper1.02-udeb dmsetup-udeb
+
+$(BUILD_DIR)/build-deb/config.status: DIR = $(BUILD_DIR)/build-deb
+$(BUILD_DIR)/build-deb/config.status:
+	dh_testdir
+
+	rm -rf $(DIR)
+	mkdir -p $(DIR)
+	cp -al $(filter-out debian, $(wildcard *)) $(DIR)
+	cp --remove-destination /usr/share/misc/config.sub /usr/share/misc/config.guess $(DIR)/autoconf
+	cd $(DIR); \
+	./configure \
+		--prefix=/usr \
+		--mandir=\$${prefix}/share/man \
+		--infodir=\$${prefix}/share/info \
+		--libdir=/lib --sbindir=/sbin \
+		--enable-compat \
+		--enable-pkgconfig \
+		--with-kernel-dir=/usr/src/linux-infrant-2.6 \
+		--disable-selinux \
+		--with-device-uid=0 \
+		--with-device-gid=6 \
+		--with-device-mode=0660
+
+$(BUILD_DIR)/build-udeb/config.status: DIR = $(BUILD_DIR)/build-udeb
+$(BUILD_DIR)/build-udeb/config.status:
+	dh_testdir
+
+	rm -rf $(DIR)
+	mkdir -p $(DIR)
+	cp -al $(filter-out debian, $(wildcard *)) $(DIR)
+	cp --remove-destination /usr/share/misc/config.sub /usr/share/misc/config.guess $(DIR)/autoconf
+	cd $(DIR); \
+	./configure \
+		--prefix=/usr \
+		--mandir=\$${prefix}/share/man \
+		--infodir=\$${prefix}/share/info \
+		--libdir=/lib --sbindir=/sbin \
+		--with-optimisation=-Os \
+		--enable-compat \
+		--disable-selinux
+
+build: build-deb build-udeb
+
+build-deb: $(BUILD_DIR)/build-deb-stamp
+$(BUILD_DIR)/build-deb-stamp: DIR = $(BUILD_DIR)/build-deb
+$(BUILD_DIR)/build-deb-stamp: $(BUILD_DIR)/build-deb/config.status
+	dh_testdir
+
+	$(MAKE) -C $(DIR)
+
+	touch $@
+
+build-udeb: $(BUILD_DIR)/build-udeb-stamp
+$(BUILD_DIR)/build-udeb-stamp: DIR = $(BUILD_DIR)/build-udeb
+$(BUILD_DIR)/build-udeb-stamp: $(BUILD_DIR)/build-udeb/config.status
+	dh_testdir
+
+	$(MAKE) -C $(DIR)
+
+	touch $@
+
+clean:
+	dh_testdir
+	rm -rf $(BUILD_DIR)
+
+	dh_clean
+
+install: install-deb install-udeb
+
+install-deb: DH_OPTIONS = $(addprefix -p,$(PACKAGES_DEB))
+install-deb: DIR = $(BUILD_DIR)/build-deb
+install-deb: INSTALL_DIR = $(BUILD_DIR)/install-deb
+install-deb: build-deb
+	dh_testdir
+	dh_testroot
+	dh_clean -k $(DH_OPTIONS)
+
+	rm -rf $(INSTALL_DIR)
+	$(MAKE) -C $(DIR) install DESTDIR=$(CURDIR)/$(INSTALL_DIR)
+
+	dh_install $(DH_OPTIONS) --sourcedir=$(INSTALL_DIR)
+
+install-udeb: DH_OPTIONS = $(addprefix -p,$(PACKAGES_UDEB))
+install-udeb: DIR = $(BUILD_DIR)/build-udeb
+install-udeb: INSTALL_DIR = $(BUILD_DIR)/install-udeb
+install-udeb: build-udeb
+	dh_testdir
+	dh_testroot
+	dh_clean -k $(DH_OPTIONS)
+
+	rm -rf $(INSTALL_DIR)
+	$(MAKE) -C $(DIR) install DESTDIR=$(CURDIR)/$(INSTALL_DIR)
+
+	dh_install $(DH_OPTIONS) --sourcedir=$(INSTALL_DIR)
+
+# Build architecture-independent files here.
+binary-indep:
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir -a
+	dh_testroot -a
+	dh_installchangelogs WHATS_NEW -a
+	dh_installdocs -a
+	dh_installinit -a -- start 25 S .
+	dh_strip -a
+	dh_link -a
+	dh_compress -a
+	dh_fixperms -a
+	dh_makeshlibs -a -V 'libdevmapper1.02 (>= 2:1.02.02-2)'
+	dh_installdeb -a
+	dh_shlibdeps -a
+	dh_gencontrol -a
+	dh_md5sums -a
+	dh_builddeb -a
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure

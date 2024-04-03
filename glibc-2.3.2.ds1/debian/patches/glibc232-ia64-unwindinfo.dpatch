@@ -1,0 +1,274 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: Make ia64 unwind info nicely + libunwind works properly.
+# DP:		   Without them, backtraces may be bogus or a local unwind
+# DP:		   could even crash a program if it leads to a bad memory
+# DP:		   access.
+# DP: Related bugs: #278837
+# DP: Dpatch author: GOTO Masanori <gotom@debian.org>
+# DP: Patch author: David Mosberger <davidm@napali.hpl.hp.com>
+# DP: Upstream status: In CVS
+# DP: Status Details: 
+# DP: Date: 2004-11-26, update 2004-12-21.
+
+PATCHLEVEL=3
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p$PATCHLEVEL < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p$PATCHLEVEL < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+ Makeconfig                                      |   18 ++++++++-
+ Makerules                                       |    4 +-
+ config.h.in                                     |    3 +
+ config.make.in                                  |    1 
+ configure.in                                    |   17 +++++++++
+ nptl/sysdeps/unix/sysv/linux/ia64/pt-initfini.c |   45 +++++++++++++++++++++---
+ 6 files changed, 78 insertions(+), 10 deletions(-)
+
+GLIBC patches:
+
+	Make GLIBC buildable with a libunwind-enabled GCC (patches by HJ Lu):
+	
+	 Makeconfig: Use $(static-gnulib) instead of $(gnulib).
+	        If compiler is libunwind-enabled, link against -lunwind.
+	 Makerules:
+	        (LDLIBS-c.so): Use $(libc.so-gnulib) instead of $(gnulib).
+	 config.h.in:
+	        (HAVE_CC_WITH_LIBUNWIND): New macro.
+	 config.make.in:
+	        (have-cc-with-libunwind): New macro.
+	 configure.in:
+	        Add a check to see whether compiler is libunwind-enabled.
+	
+	Fix unwind-info for NPTL _init/_fini routines.
+	
+	 nptl/sysdeps/unix/sysv/linux/ia64/pt-initfini.c:
+	        (_init): Add unwind directives.
+	        (_fini): Likewise.
+
+gotom: -20 adds another patch from doko:
+
+#  * Makeconfig: Uconditionally set the libunwind macro to -lunwind,
+#    until the it's safe again to regenerate the configure script, on
+#    advice of Jeff Bailey. Closes: #284563.
+
+diff -urN orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/Makeconfig glibc-2.3.2.ds1/build-tree/glibc-2.3.2/Makeconfig
+--- orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/Makeconfig	2004-10-29 09:19:49.973173566 -0700
++++ glibc-2.3.2.ds1/build-tree/glibc-2.3.2/Makeconfig	2004-10-28 10:47:59.000000000 -0700
+@@ -498,12 +498,12 @@
+ 
+ # The static libraries.
+ ifeq (yes,$(build-static))
+-link-libc-static = $(common-objpfx)libc.a $(gnulib) $(common-objpfx)libc.a
++link-libc-static = $(common-objpfx)libc.a $(static-gnulib) $(common-objpfx)libc.a
+ link-extra-libs-static = $(foreach lib,$(LDLIBS-$(@F)),$(common-objpfx)$(lib).a)
+ else
+ ifeq (yes,$(build-shared))
+ # We can try to link the programs with lib*_pic.a...
+-link-libc-static = $(gnulib) $(common-objpfx)libc_pic.a
++link-libc-static = $(static-gnulib) $(common-objpfx)libc_pic.a
+ link-extra-libs-static = $(link-extra-libs)
+ endif
+ endif
+@@ -511,7 +511,22 @@
+ link-extra-libs-bounded = $(foreach lib,$(LDLIBS-$(@F:%-bp=%)),$(common-objpfx)$(lib)_b.a)
+ 
+ ifndef gnulib
+-gnulib := -lgcc -lgcc_eh
++ifneq ($(have-cc-with-libunwind),yes)
++  libunwind =
++else
++  libunwind = -lunwind
++endif
++ifeq ($(shell uname -m),ia64)
++  libunwind = -lunwind
++endif
++ifneq ($(have-as-needed),yes)
++ libgcc_eh := -lgcc_eh $(libunwind)
++else
++ libgcc_eh := -Wl,--as-needed -lgcc_s$(libgcc_s_suffix) $(libunwind) -Wl,--no-as-needed
++endif
++gnulib := -lgcc $(libgcc_eh)
++static-gnulib := -lgcc -lgcc_eh $(libunwind)
++libc.so-gnulib := -lgcc
+ endif
+ ifeq ($(elf),yes)
+ +preinit = $(addprefix $(csu-objpfx),crti.o)
+diff -urN orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/Makerules glibc-2.3.2.ds1/build-tree/glibc-2.3.2/Makerules
+--- orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/Makerules	2004-10-29 09:19:50.451682658 -0700
++++ glibc-2.3.2.ds1/build-tree/glibc-2.3.2/Makerules	2004-10-28 07:58:29.000000000 -0700
+@@ -569,8 +569,8 @@
+ # Also omits crti.o and crtn.o, which we do not want
+ # since we define our own `.init' section specially.
+ LDFLAGS-c.so = -nostdlib -nostartfiles
+-# But we still want to link libc.so against $(gnulib).
+-LDLIBS-c.so += $(gnulib)
++# But we still want to link libc.so against $(libc.so-gnulib).
++LDLIBS-c.so += $(libc.so-gnulib)
+ # Give libc.so an entry point and make it directly runnable itself.
+ LDFLAGS-c.so += -e __libc_main
+ # Pre-link the objects of libc_pic.a so that we can locally resolve
+diff -urN orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/config.h.in glibc-2.3.2.ds1/build-tree/glibc-2.3.2/config.h.in
+--- orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/config.h.in	2004-10-29 09:19:46.026938378 -0700
++++ glibc-2.3.2.ds1/build-tree/glibc-2.3.2/config.h.in	2004-10-28 08:02:30.000000000 -0700
+@@ -153,6 +153,9 @@
+    sections.  */
+ #undef	HAVE_INITFINI_ARRAY
+ 
++/* Define if the compiler's exception support is based on libunwind.  */
++#undef	HAVE_CC_WITH_LIBUNWIND
++
+ /* Define if the access to static and hidden variables is position independent
+    and does not need relocations.  */
+ #undef	PI_STATIC_AND_HIDDEN
+diff -urN orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/config.make.in glibc-2.3.2.ds1/build-tree/glibc-2.3.2/config.make.in
+--- orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/config.make.in	2004-10-29 09:19:50.853044366 -0700
++++ glibc-2.3.2.ds1/build-tree/glibc-2.3.2/config.make.in	2004-10-28 09:11:43.000000000 -0700
+@@ -53,6 +53,7 @@
+ have-cpp-asm-debuginfo = @libc_cv_cpp_asm_debuginfo@
+ enable-check-abi = @enable_check_abi@
+ have-forced-unwind = @libc_cv_forced_unwind@
++have-cc-with-libunwind = @libc_cv_cc_with_libunwind@
+ fno-unit-at-a-time = @fno_unit_at_a_time@
+ 
+ static-libgcc = @libc_cv_gcc_static_libgcc@
+diff -urN orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/configure.in glibc-2.3.2.ds1/build-tree/glibc-2.3.2/configure.in
+--- orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/configure.in	2004-10-29 09:19:50.849138169 -0700
++++ glibc-2.3.2.ds1/build-tree/glibc-2.3.2/configure.in	2004-10-28 07:55:27.000000000 -0700
+@@ -1251,6 +1251,23 @@
+     AC_DEFINE(HAVE_INITFINI_ARRAY)
+   fi
+ 
++  AC_CACHE_CHECK(for libunwind-support in compiler,
++		 libc_cv_cc_with_libunwind, [
++    cat > conftest.c <<EOF
++int main (void) { return 0; }
++EOF
++    if ${CC-cc} $CFLAGS $CPPFLAGS $LDFLAGS -static -o conftest \
++       conftest.c -v 2>&1 >/dev/null | grep -q " -lunwind "; then
++      libc_cv_cc_with_libunwind=yes
++    else
++      libc_cv_cc_with_libunwind=no
++    fi
++    rm -f conftest*])
++  AC_SUBST(libc_cv_cc_with_libunwind)
++  if test $libc_cv_cc_with_libunwind = yes; then
++    AC_DEFINE(HAVE_CC_WITH_LIBUNWIND)
++  fi
++
+   AC_CACHE_CHECK(for -z nodelete option,
+ 		 libc_cv_z_nodelete, [dnl
+   cat > conftest.c <<EOF
+diff -urN orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/nptl/sysdeps/unix/sysv/linux/ia64/pt-initfini.c glibc-2.3.2.ds1/build-tree/glibc-2.3.2/nptl/sysdeps/unix/sysv/linux/ia64/pt-initfini.c
+--- orig/glibc-2.3.2.ds1/build-tree/glibc-2.3.2/nptl/sysdeps/unix/sysv/linux/ia64/pt-initfini.c	2003-03-11 01:20:41.000000000 -0800
++++ glibc-2.3.2.ds1/build-tree/glibc-2.3.2/nptl/sysdeps/unix/sysv/linux/ia64/pt-initfini.c	2004-10-29 08:42:00.835176367 -0700
+@@ -36,6 +36,22 @@
+    * crtn.s puts the corresponding function epilogues
+    in the .init and .fini sections. */
+ 
++#include <stddef.h>
++
++#ifdef HAVE_INITFINI_ARRAY
++
++__asm__ ("\n\
++#include \"defs.h\"\n\
++\n\
++/*@HEADER_ENDS*/\n\
++\n\
++/*@_init_PROLOG_BEGINS*/\n\
++	.xdata8 \".init_array\",@fptr(__pthread_initialize_minimal_internal)\n\
++/*@_init_PROLOG_ENDS*/\n\
++");
++
++#else
++
+ __asm__ ("\n\
+ \n\
+ #include \"defs.h\"\n\
+@@ -48,13 +64,16 @@
+ 	.global _init#\n\
+ 	.proc _init#\n\
+ _init:\n\
++	.prologue\n\
++	.save ar.pfs, r34\n\
+ 	alloc r34 = ar.pfs, 0, 3, 0, 0\n\
++	.vframe r32\n\
+ 	mov r32 = r12\n\
++	.save rp, r33\n\
+ 	mov r33 = b0\n\
++	.body\n\
+ 	adds r12 = -16, r12\n\
+ 	;;\n\
+-/* we could use r35 to save gp, but we use the stack since that's what\n\
+- * all the other init routines will do --davidm 00/04/05 */\n\
+ 	st8 [r12] = gp, -16\n\
+ 	br.call.sptk.many b0 = __pthread_initialize_minimal_internal# ;;\n\
+ 	;;\n\
+@@ -62,14 +81,18 @@
+ 	;;\n\
+ 	ld8 gp = [r12]\n\
+ 	;;\n\
+-	.align 16\n\
+ 	.endp _init#\n\
+ \n\
+ /*@_init_PROLOG_ENDS*/\n\
+ \n\
+ /*@_init_EPILOG_BEGINS*/\n\
+ 	.section .init\n\
+-	.regstk 0,2,0,0\n\
++	.proc _init#\n\
++	.prologue\n\
++	.save ar.pfs, r34\n\
++	.vframe r32\n\
++	.save rp, r33\n\
++	.body\n\
+ 	mov r12 = r32\n\
+ 	mov ar.pfs = r34\n\
+ 	mov b0 = r33\n\
+@@ -83,18 +106,28 @@
+ 	.global _fini#\n\
+ 	.proc _fini#\n\
+ _fini:\n\
++	.prologue\n\
++	.save ar.pfs, r34\n\
+ 	alloc r34 = ar.pfs, 0, 3, 0, 0\n\
++	.vframe r32\n\
+ 	mov r32 = r12\n\
++	.save rp, r33\n\
+ 	mov r33 = b0\n\
++	.body\n\
+ 	adds r12 = -16, r12\n\
+ 	;;\n\
+-	.align 16\n\
+ 	.endp _fini#\n\
+ \n\
+ /*@_fini_PROLOG_ENDS*/\n\
+ \n\
+ /*@_fini_EPILOG_BEGINS*/\n\
+ 	.section .fini\n\
++	.proc _fini#\n\
++	.prologue\n\
++	.save ar.pfs, r34\n\
++	.vframe r32\n\
++	.save rp, r33\n\
++	.body\n\
+ 	mov r12 = r32\n\
+ 	mov ar.pfs = r34\n\
+ 	mov b0 = r33\n\
+@@ -106,3 +139,5 @@
+ /*@TRAILER_BEGINS*/\n\
+ 	.weak	__gmon_start__#\n\
+ ");
++
++#endif

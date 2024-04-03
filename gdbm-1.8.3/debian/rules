@@ -1,0 +1,135 @@
+#!/usr/bin/make -f
+# debian/rules file - for GNU DBM (1.8.3).
+# Based on sample debian/rules file - for GNU Hello (1.3).
+# Copyright 1994,1995 by Ian Jackson.
+# Copyright 1998-2003 by James Troup.
+# I hereby give you perpetual unlimited permission to copy,
+# modify and relicense this file, provided that you do not remove
+# my name from the file itself.  (I assert my moral right of
+# paternity under the Copyright, Designs and Patents Act 1988.)
+# This file may have to be extensively modified
+
+STRIP=strip --remove-section=.comment --remove-section=.note
+
+install_dir=install -d -m 755
+install_file=install -m 644
+install_script=install -m 755
+install_binary=install -m 755 -s
+compress=gzip -9v
+
+include /usr/share/dpatch/dpatch.make
+
+clean: unpatch
+	$(checkdir)
+	-rm -f build config.log config.cache
+	-$(MAKE) -i distclean || $(MAKE) -f Makefile.in distclean
+	-rm $$(find . -name "*~")
+	-rm -rf debian/tmp debian/files* debian/substvars* debian/patched
+
+build: patch-stamp
+	$(checkdir)
+	CFLAGS="-O2 -g -Wall -D_REENTRANT" ./configure --prefix=/usr
+	echo "/* We use fcntl locking (POSIX) instead of flock (BSD) */" >> autoconf.h
+	echo "#undef HAVE_FLOCK" >> autoconf.h
+	$(MAKE)
+	$(MAKE) gdbm.info
+	touch build
+
+binary-indep:	checkroot build
+	$(checkdir)
+
+binary-arch: binary-libgdbm binary-libgdbm-dev
+
+binary-libgdbm: checkroot build
+	$(checkdir)
+	-rm -rf debian/tmp/
+
+	$(install_dir) debian/tmp/usr/lib/
+	for ext in "" "_compat"; do \
+	  $(install_file) .libs/libgdbm$$ext.so.3.0.0 debian/tmp/usr/lib/; \
+	  $(STRIP) --strip-unneeded debian/tmp/usr/lib/libgdbm$$ext.so.3.0.0; \
+	  ln -s libgdbm$$ext.so.3.0.0 debian/tmp/usr/lib/libgdbm$$ext.so.3; \
+	  chrpath -d debian/tmp/usr/lib/libgdbm$$ext.so.3.0.0; \
+	done
+
+	$(install_dir) debian/tmp/DEBIAN
+	$(install_file) debian/shlibs debian/tmp/DEBIAN/shlibs
+
+	$(install_dir) debian/tmp/usr/share/doc/libgdbm3/
+	$(install_file) debian/changelog debian/tmp/usr/share/doc/libgdbm3/changelog.Debian
+	$(compress) debian/tmp/usr/share/doc/libgdbm3/*
+	$(install_file) debian/copyright debian/tmp/usr/share/doc/libgdbm3/copyright
+
+	dpkg-shlibdeps debian/tmp/usr/lib/libgdbm.so.3.0.0
+	dpkg-gencontrol -isp -plibgdbm3
+	chown -R root.root debian/tmp/
+	chmod -R go=rX debian/tmp/
+	dpkg --build debian/tmp/ ..
+
+binary-libgdbm-dev: checkroot build
+	$(checkdir)
+	-rm -fr debian/tmp/
+
+	$(MAKE) prefix=`pwd`/debian/tmp/usr infodir=`pwd`/debian/tmp/usr/share/info man3dir=`pwd`/debian/tmp/usr/share/man/man3 install install-compat
+	for ext in "" "_compat"; do \
+	  $(STRIP) --strip-debug debian/tmp/usr/lib/libgdbm$$ext.a; \
+	  rm debian/tmp/usr/lib/libgdbm$$ext.so.3.0.0; \
+	  rm debian/tmp/usr/lib/libgdbm$$ext.so.3; \
+	done
+	chmod 644 debian/tmp/usr/lib/*.la
+
+	# libc6 owns ndbm.h, but some apps want gdbm's
+	mv debian/tmp/usr/include/ndbm.h debian/tmp/usr/include/gdbm-ndbm.h
+
+	mv debian/tmp/usr/share/man/man3/gdbm.3 debian/tmp/usr/share/man/man3/gdbm.3gdbm
+	$(compress) debian/tmp/usr/share/man/man3/*
+	cd debian/tmp/usr/share/man/man3 ; \
+	    for i in dbm gdbm_error gdbm_errno gdbm_open \
+		    gdbm_close gdbm_store gdbm_fetch gdbm_delete \
+		    gdbm_firstkey gdbm_nextkey gdbm_reorganize \
+		    gdbm_sync gdbm_exists gdbm_strerror \
+		    gdbm_setopt dbminit store fetch delete \
+		    firstkey nextkey dbmclose dbm_open \
+		    dbm_close dbm_fetch dbm_store dbm_delete \
+		    dbm_firstkey dbm_nextkey dbm_error \
+		    dbm_clearerr dbm_pagfno dbm_dirfno \
+		    dbm_rdonly; do \
+		ln -s gdbm.3gdbm.gz $$i.3gdbm.gz ; \
+	    done
+
+	$(compress) debian/tmp/usr/share/info/*
+
+	$(install_dir) debian/tmp/DEBIAN/
+	$(install_script) debian/postinst.dev debian/tmp/DEBIAN/postinst
+	$(install_script) debian/prerm.dev debian/tmp/DEBIAN/prerm
+
+	$(install_dir) debian/tmp/usr/share/doc/libgdbm-dev/
+	$(install_file) debian/changelog \
+			debian/tmp/usr/share/doc/libgdbm-dev/changelog.Debian
+	$(install_file) ChangeLog  debian/tmp/usr/share/doc/libgdbm-dev/changelog
+	$(install_file) NEWS README debian/tmp/usr/share/doc/libgdbm-dev/
+	$(compress) debian/tmp/usr/share/doc/libgdbm-dev/*
+	$(install_file) debian/copyright \
+			debian/tmp/usr/share/doc/libgdbm-dev/copyright
+
+	dpkg-gencontrol -isp -plibgdbm-dev
+	chown -R root.root debian/tmp/
+	chmod -R go=rX debian/tmp/
+	dpkg --build debian/tmp/ ..
+
+define checkdir
+	test -f gdbmclose.c -a -f debian/rules
+endef
+
+# Below here is fairly generic really
+
+binary:		binary-indep binary-arch
+
+source diff:
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+checkroot:
+	$(checkdir)
+	test root = "`whoami`"
+
+.PHONY: binary binary-arch binary-indep clean checkroot

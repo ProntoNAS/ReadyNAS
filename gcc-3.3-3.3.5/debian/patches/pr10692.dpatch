@@ -1,0 +1,72 @@
+#! /bin/sh -e
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+From: Richard Henderson <rth@redhat.com>
+Sender: gcc-patches-owner@gcc.gnu.org
+To: gcc-patches@gcc.gnu.org
+Subject: fix rtl-opt/10692
+Date: Wed, 5 Jan 2005 20:17:07 -0800
+
+Kudos to Roman for some excellent diagnosis.
+
+As seen in the dumps in comment 13, note that reg 277 is used twice.
+This is what promoted reload 0 to RELOAD_OTHER.  When that happens,
+we don't have a record of all the locations within the insn that 
+reference the data.
+
+Which means that the pitiful amount of life analysis that happens
+within this if conditional is insufficient.  The only simple, and
+therefore reliable, solution is to ignore the hard cases entirely.
+
+Bootstrappend and tested on i686-linux, fwiw.  Committed to 3.4/4.0.
+
+
+r~
+
+# DP: 2005-01-05  Richard Henderson  <rth@redhat.com>
+# DP: 
+# DP:         PR rtl-opt/10692
+# DP:         * reload1.c (do_input_reload): Restrict the optimization deleteing
+# DP:         a previous output reload to RELOAD_FOR_INPUT.
+
+
+Index: reload1.c
+===================================================================
+RCS file: /cvs/gcc/gcc/gcc/reload1.c,v
+retrieving revision 1.456
+diff -c -p -d -r1.456 reload1.c
+*** gcc/reload1.c	23 Dec 2004 04:53:48 -0000	1.456
+--- gcc/reload1.c	6 Jan 2005 04:05:46 -0000
+*************** do_input_reload (struct insn_chain *chai
+*** 6822,6827 ****
+--- 6822,6831 ----
+       actually no need to store the old value in it.  */
+  
+    if (optimize
++       /* Only attempt this for input reloads; for RELOAD_OTHER we miss
++ 	 that there may be multiple uses of the previous output reload.
++ 	 Restricting to RELOAD_FOR_INPUT is mostly paranoia.  */
++       && rl->when_needed == RELOAD_FOR_INPUT
+        && (reload_inherited[j] || reload_override_in[j])
+        && rl->reg_rtx
+        && REG_P (rl->reg_rtx)

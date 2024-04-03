@@ -1,0 +1,156 @@
+.\" -*- nroff -*-
+.TH raidtab 5
+.SH NAME
+raidtab \- configuration file for md (RAID) devices
+.SH DESCRIPTION
+\fB/etc/raidtab\fR is the default configuration file for the raid
+tools (\fBraidstart\fP and company). It defines how RAID devices are
+configured on a system.
+
+.SH FORMAT
+\fB/etc/raidtab\fP has multiple sections, one for each md device which
+is being configured. Each section begins with the \fBraiddev\fR keyword.
+The order of items in the file is important. Later \fBraiddev\fR entries
+can use earlier ones (which allows RAID-10, for example), and the parsing
+code isn't overly bright, so be sure to follow the ordering in this
+man page for best results.
+
+Here's a sample md configuration file:
+
+.nf
+.ta +3i
+#
+# sample raiddev configuration file
+# 'old' RAID0 array created with mdtools.
+#
+raiddev /dev/md0
+    raid-level              0
+    nr-raid-disks           2
+    persistent-superblock   0
+    chunk-size              8
+
+    device                  /dev/hda1
+    raid-disk               0
+    device                  /dev/hdb1
+    raid-disk               1
+
+raiddev /dev/md1
+    raid-level              5
+    nr-raid-disks           3
+    nr-spare-disks          1
+    persistent-superblock   1
+    parity-algorithm        left-symmetric
+
+    device                  /dev/sda1
+    raid-disk               0
+    device                  /dev/sdb1
+    raid-disk               1
+    device                  /dev/sdc1
+    raid-disk               2
+    device                  /dev/sdd1
+    spare-disk              0
+.fi
+
+Here is more information on the directives which are in raid configuration
+files; the options are listen in this file in the same order they should
+appear in the actual configuration file.
+
+.TP
+\fBraiddev \fIdevice\fR
+This introduces the configuration section for the stated device.
+
+.TP
+\fBnr-raid-disks \fIcount\fR
+Number of raid devices in the array; there should be \fIcount\fR
+\fIraid-disk\fR entries later in the file. (current maximum limit
+for RAID devices -including spares- is 12 disks. This limit is
+already extended to 256 disks in experimental patches.)
+
+.TP
+\fBnr-spare-disks \fIcount\fR
+Number of spare devices in the array; there should be \fIcount\fR
+\fIspare-disk\fR entries later in the file. Spare disks may only
+be used with RAID4 and RAID5, and allow the kernel to automatically
+build new RAID disks as needed. It is also possible to add/remove
+spares runtime via raidhotadd/raidhotremove, care has to be taken
+that the /etc/raidtab configuration exactly follows the actual
+configuration of the array. (raidhotadd/raidhotremove does not
+change the configuration file)
+
+.TP
+\fBpersistent-superblock \fI0/1\fR
+newly created RAID arrays should use a persistent superblock. A
+persistent superblock is a small disk area allocated at the end
+of each RAID device, this helps the kernel to safely detect RAID
+devices even if disks have been moved between SCSI controllers.
+It can be used for RAID0/LINEAR arrays too, to protect against
+accidental disk mixups. (the kernel will either correctly reorder
+disks, or will refuse to start up an array if something has
+happened to any member disk. Of course for the 'fail-safe' RAID
+variants (RAID1/RAID5) spares are activated if any disk fails.)
+
+Every member disk/partition/device has a superblock, which carries
+all information necessary to start up the whole array. (for
+autodetection to work all the 'member' RAID partitions should be
+marked type 0xfd via fdisk) The superblock is not visible in the
+final RAID array and cannot be destroyed accidentally through
+usage of the md device files, all RAID data content is available
+for filesystem use.
+
+.TP
+\fBparity-algorithm \fIwhich\fR
+The parity-algorithm to use with RAID5. It must be one of
+\fBleft-asymmetric\fR, \fBright-asymmetric\fR, \fBleft-symmetric\fR, or
+\fBright-symmetric\fR. left-symmetric is the one that offers maximum
+performance on typical disks with rotating platters.
+
+.TP
+\fBchunk-size \fIsize\fR
+Sets the stripe size to \fIsize\fR bytes. Has to be a power of 2 and
+has a compilation-time maximum of 4M. (MAX_CHUNK_SIZE in the kernel
+driver) typical values are anything from 4k to 128k, the best value
+should be determined by experimenting on a given array, alot depends
+on the SCSI and disk configuration.
+
+.TP
+\fBdevice \fIdevpath\fR
+Adds the device \fIdevpath\fR to the list of devices which comprise the
+raid system. Note that this command must be followed by one of
+\fBraid-disk\fR, \fBspare-disk\fR, or \fBparity-disk\fR. Also note that
+it's possible to recursively define RAID arrays, ie. to set up a RAID5
+array of RAID5 arrays. (thus achieving two-disk failure protection, at
+the price of more disk space spent on RAID5 checksum blocks)
+
+.TP
+\fBraid-disk \fIindex\fR
+The most recently defined \fBdevice\fR is inserted at position \fIindex\fR
+in the raid array.
+
+.TP
+\fBspare-disk \fIindex\fR
+The most recently defined \fBdevice\fR is inserted at position \fIindex\fR
+in the spare disk array.
+
+.TP
+\fBparity-disk \fIindex\fR
+The most recently defined \fBdevice\fR is moved to the end of the
+raid array, which forces it to be used for parity.
+
+.TP
+\fBfailed-disk \fIindex\fR
+The most recently defined \fBdevice\fR is inserted at position \fIindex\fR
+in the raid array as a failed device. This allows you to create raid 1/4/5
+devices in degraded mode - useful for installation. Don't use the smallest 
+device in an array for this, put this after the raid-disk definitions!
+
+.SH NOTES
+
+The raidtools are derived from the md-tools and raidtools packages, which
+were originally written by Marc Zyngier, Miguel de Icaza, Gadi Oxman, 
+Bradley Ward Allen, and Ingo Molnar.
+
+.SH SEE ALSO
+.IR raidstart (8),
+.IR raid0run (8),
+.IR mkraid (8),
+.IR raidstop (8)

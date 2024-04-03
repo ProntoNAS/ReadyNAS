@@ -1,0 +1,90 @@
+#!/bin/sh -e
+# Demo config module. This is more a regression/stress test than anything.
+
+# Note this stanza is only here to make this script work in an uninstalled
+# debconf source tree, and is not needed in production code.
+PATH=$PATH:.
+if [ -e confmodule ]; then
+	. confmodule
+else
+	. /usr/share/debconf/confmodule
+fi
+
+db_version 2.0
+#db_capb backup
+db_capb escape
+db_settitle demo/title
+
+# This implements a simple state machine so the back button can be handled.
+STATE=1
+while [ "$STATE" != 0 -a "$STATE" != 10 ]; do
+	case $STATE in
+	1)
+		db_input high demo/boolean || true
+	;;
+	2)
+		db_input high demo/multiselect || true
+	;;
+	3)
+		db_info demo/info
+		db_input critical demo/string || true
+		db_input low demo/password || true
+		db_input low demo/text || true
+		db_subst demo/select colors red, Yellow, green
+		db_input high demo/select || true
+	;;
+	4)
+		db_beginblock
+		db_input low demo/boolean || true
+		db_input low demo/boolean || true
+		db_endblock
+		db_input low demo/note || true
+	;;
+	5)
+		# Will be displayed again.
+		db_input high demo/password || true
+		
+	;;
+	6)
+		db_progress START 0 10 demo/progress/title
+		sleep 1
+		db_progress SET 2
+		sleep 1
+		db_progress INFO demo/progress/info
+		db_progress STEP 3
+		sleep 1
+		db_progress STEP 1
+		sleep 1
+		db_progress STOP
+	;;
+	7)
+		db_subst demo/subst user 'joeuser\nanotheruser'
+		db_metaget demo/subst extended_description
+		echo "demo/subst extended_description: $RET" >&2
+		db_input high demo/subst || true
+	;;
+	8)
+		db_input high demo/error || true
+	;;
+	9)
+		db_input low demo/error || true
+	;;
+	esac
+	
+	if db_go; then
+		STATE=$(($STATE + 1))
+	else
+		STATE=$(($STATE - 1))
+	fi
+#	echo "ON STATE: $STATE"
+done
+
+# This is EVIL, never echo in your own config scripts!
+db_get demo/string
+echo "string is $RET"
+db_get demo/boolean
+echo $RET
+db_get demo/multiselect
+echo $RET
+
+db_stop

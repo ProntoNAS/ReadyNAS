@@ -1,0 +1,131 @@
+#! /bin/sh -e
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p1 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p1 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+diff -u ./libf2c/Makefile.in~ ./libf2c/Makefile.in
+--- ./libf2c/Makefile.in~	2003-07-04 21:53:54.000000000 +0200
++++ ./libf2c/Makefile.in	2004-05-28 17:17:35.334839648 +0200
+@@ -154,6 +154,7 @@
+ 	$(LIBTOOL) --mode=link $(CC) -o $@ \
+ 	  -version-info $(VERSION_MAJOR):$(VERSION_MINOR):$(VERSION_SUB) \
+ 	  -rpath $(glibcpp_toolexeclibdir) \
++	  -Wl,-O1 \
+ 	  -objectlist s-libe77 \
+ 	  -objectlist s-libf77 \
+ 	  -objectlist s-libi77 \
+diff -u ./libjava/Makefile.in~ ./libjava/Makefile.in
+--- ./libjava/Makefile.in~	2004-05-23 13:59:17.000000000 +0200
++++ ./libjava/Makefile.in	2004-05-28 17:14:23.595988384 +0200
+@@ -162,7 +162,7 @@
+ 
+ GCJCOMPILE = $(LIBTOOL) --tag=GCJ --mode=compile $(GCJ_WITH_FLAGS) -fclasspath= -fbootclasspath=$(here) $(JC1FLAGS) -MD -MT $@ -MF $(@:.lo=.d) -c
+ GCJLINK = $(LIBTOOL) --tag=GCJ --mode=link $(GCJ) -L$(here) $(JC1FLAGS) $(LDFLAGS) -o $@
+-LIBLINK = $(LIBTOOL) --tag=CXX --mode=link $(CXX) -L$(here) $(JC1FLAGS) $(LDFLAGS) -o $@
++LIBLINK = $(LIBTOOL) --tag=CXX --mode=link $(CXX) -L$(here) $(JC1FLAGS) $(LDFLAGS) -Wl,-O1 -o $@
+ 
+ LTCXXCOMPILE = $(LIBTOOL) --tag=CXX --mode=compile $(CXX) $(DEFS) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS)
+ 
+diff -u ./libjava/Makefile.am~ ./libjava/Makefile.am
+--- ./libjava/Makefile.am~	2004-05-23 13:59:17.000000000 +0200
++++ ./libjava/Makefile.am	2004-05-28 17:13:58.076867880 +0200
+@@ -67,7 +67,7 @@
+ 
+ GCJCOMPILE = $(LIBTOOL) --tag=GCJ --mode=compile $(GCJ_WITH_FLAGS) -fclasspath= -fbootclasspath=$(here) $(JC1FLAGS) -MD -MT $@ -MF $(@:.lo=.d) -c
+ GCJLINK = $(LIBTOOL) --tag=GCJ --mode=link $(GCJ) -L$(here) $(JC1FLAGS) $(LDFLAGS) -o $@
+-LIBLINK = $(LIBTOOL) --tag=CXX --mode=link $(CXX) -L$(here) $(JC1FLAGS) $(LDFLAGS) -o $@
++LIBLINK = $(LIBTOOL) --tag=CXX --mode=link $(CXX) -L$(here) $(JC1FLAGS) $(LDFLAGS) -Wl,-O1 -o $@
+ 
+ ## We define this because otherwise libtool can be run with different
+ ## values of `CXX' and will then get confused and fail to work.  So,
+diff -u ./libobjc/Makefile.in~ ./libobjc/Makefile.in
+--- ./libobjc/Makefile.in~	2004-05-23 13:59:17.000000000 +0200
++++ ./libobjc/Makefile.in	2004-05-28 17:16:18.398535744 +0200
+@@ -264,11 +264,13 @@
+ libobjc.la: $(OBJS)
+ 	$(LIBTOOL_LINK) $(CC) -o $@ $(OBJS) \
+ 		-rpath $(glibcpp_toolexeclibdir) \
++		-Wl,-O1 \
+ 		-version-info $(LIBOBJC_VERSION)
+ 
+ libobjc_gc.la: $(OBJS_GC)
+ 	$(LIBTOOL_LINK) $(CC) -o $@ $(OBJS_GC) \
+ 		-rpath $(glibcpp_toolexeclibdir) \
++		-Wl,-O1 \
+ 		-version-info $(LIBOBJC_GC_VERSION)
+ 
+ #
+diff -u ./libstdc++-v3/src/Makefile.am~ ./libstdc++-v3/src/Makefile.am
+--- ./libstdc++-v3/src/Makefile.am~	2004-05-23 13:59:13.000000000 +0200
++++ ./libstdc++-v3/src/Makefile.am	2004-05-28 17:09:27.743964728 +0200
+@@ -160,6 +160,7 @@
+ libstdc___la_DEPENDENCIES = ${version_dep} $(libstdc___la_LIBADD)
+ 
+ libstdc___la_LDFLAGS = \
++	-Wl,-O1 \
+ 	-version-info @libtool_VERSION@ ${version_arg} \
+ 	-lm @LIBUNWIND_FLAG@ 
+ 
+diff -u ./libstdc++-v3/src/Makefile.in~ ./libstdc++-v3/src/Makefile.in
+--- ./libstdc++-v3/src/Makefile.in~	2004-05-30 15:58:53.000000000 +0200
++++ ./libstdc++-v3/src/Makefile.in	2004-05-30 16:08:05.000000000 +0200
+@@ -246,6 +246,7 @@
+ 
+ libstdc___la_LDFLAGS = \
+ 	-version-info @libtool_VERSION@ ${version_arg} \
++	-Wl,-O1 \
+ 	-lm @LIBUNWIND_FLAG@ 
+ 
+ 
+--- ./libffi/Makefile.am~	2004-05-30 15:58:53.000000000 +0200
++++ ./libffi/Makefile.am	2004-05-30 16:05:30.000000000 +0200
+@@ -179,7 +179,7 @@
+ 
+ AM_CFLAGS = -fexceptions
+ 
+-libffi_la_LDFLAGS = -release $(VERSION) 
++libffi_la_LDFLAGS = -release $(VERSION)  -Wl,-O1
+ 
+ INCLUDES = -I$(top_srcdir)/include -Iinclude -I$(top_srcdir)/src
+ 
+--- ./libffi/Makefile.in~	2004-05-30 15:58:53.000000000 +0200
++++ ./libffi/Makefile.in	2004-05-30 16:05:48.000000000 +0200
+@@ -223,7 +223,7 @@
+ 
+ AM_CFLAGS = -fexceptions
+ 
+-libffi_la_LDFLAGS = -release $(VERSION) 
++libffi_la_LDFLAGS = -release $(VERSION) -Wl,-O1
+ 
+ INCLUDES = -I$(top_srcdir)/include -Iinclude -I$(top_srcdir)/src
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+--- src/gcc/config/t-slibgcc-elf-ver~	2004-12-10 15:18:46.000000000 +0100
++++ src/gcc/config/t-slibgcc-elf-ver	2004-12-10 15:20:06.000000000 +0100
+@@ -13,6 +13,7 @@
+ SHLIB_LINK = $(GCC_FOR_TARGET) $(LIBGCC2_CFLAGS) -shared -nodefaultlibs \
+ 	-Wl,--soname=$(SHLIB_SONAME) \
+ 	-Wl,--version-script=$(SHLIB_MAP) \
++	-Wl,-O1 \
+ 	-o $(SHLIB_NAME).tmp @multilib_flags@ $(SHLIB_OBJS) $(SHLIB_LC) && \
+ 	rm -f $(SHLIB_SOLINK) && \
+ 	if [ -f $(SHLIB_NAME) ]; then \

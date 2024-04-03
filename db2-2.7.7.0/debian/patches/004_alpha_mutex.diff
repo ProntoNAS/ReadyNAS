@@ -1,0 +1,135 @@
+diff -urN db-2.7.7.orig/dist/acconfig.h db-2.7.7/dist/acconfig.h
+--- db-2.7.7.orig/dist/acconfig.h	Mon Dec 14 09:41:38 1998
++++ db-2.7.7/dist/acconfig.h	Fri Mar 23 00:22:54 2001
+@@ -38,6 +38,9 @@
+ /* Define if you want to use x86/gcc assembly spinlocks. */
+ #undef HAVE_ASSEM_X86_GCC
+ 
++/* Define if you want to use alpha/gcc assembly spinlocks. */
++#undef HAVE_ASSEM_ALPHA_GCC
++
+ /* Define if you have the AIX _check_lock spinlocks. */
+ #undef HAVE_FUNC_AIX
+ 
+diff -urN db-2.7.7.orig/dist/config.hin db-2.7.7/dist/config.hin
+--- db-2.7.7.orig/dist/config.hin	Sun Apr 18 21:21:40 1999
++++ db-2.7.7/dist/config.hin	Fri Mar 23 00:22:54 2001
+@@ -64,6 +64,9 @@
+ /* Define if you want to use x86/gcc assembly spinlocks. */
+ #undef HAVE_ASSEM_X86_GCC
+ 
++/* Define if you want to use alpha/gcc assembly spinlocks. */
++#undef HAVE_ASSEM_ALPHA_GCC
++
+ /* Define if you have the AIX _check_lock spinlocks. */
+ #undef HAVE_FUNC_AIX
+ 
+diff -urN db-2.7.7.orig/dist/configure.in db-2.7.7/dist/configure.in
+--- db-2.7.7.orig/dist/configure.in	Fri Mar 23 00:22:39 2001
++++ db-2.7.7/dist/configure.in	Fri Mar 23 00:22:54 2001
+@@ -382,6 +382,17 @@
+ exit(1);}], [db_cv_spinlocks=x86/gcc])
+ fi
+ 
++dnl alpha/gcc: BSD/OS, FreeBSD, NetBSD, Linux
++if test "$db_cv_spinlocks" = no; then
++AC_TRY_RUN([main(){
++#if defined(__alpha__)
++#if defined(__GNUC__)
++exit(0);
++#endif
++#endif
++exit(1);}], [db_cv_spinlocks=alpha/gcc])
++fi
++
+ dnl: uts/cc: UTS
+ if test "$db_cv_spinlocks" = no; then
+ AC_TRY_RUN([main(){
+@@ -475,6 +486,10 @@
+ 	AC_DEFINE(HAVE_ASSEM_X86_GCC)
+ 	mutex_align="1"
+ 	spin_line1="typedef unsigned char tsl_t;";;
++alpha/gcc)
++	AC_DEFINE(HAVE_ASSEM_ALPHA_GCC)
++	mutex_align="16"
++	spin_line1="typedef unsigned long tsl_t;";;
+ *)
+ 	mutex_align="1";;
+ esac
+@@ -603,9 +618,9 @@
+ 	dnl different function names on each test, otherwise we find the
+ 	dnl result of the first test in the cache and don't do subsequent
+ 	dnl checks.
+-	AC_CHECK_LIB(tcl, Tcl_Eval, [db_cv_tcl="-ltcl"],
+-	    [AC_CHECK_LIB(tcl, Tcl_VarEval, [db_cv_tcl="-ltcl -ldl -lm"],
+-	    [AC_CHECK_LIB(tcl, Tcl_EvalFile, [db_cv_tcl="-ltcl -lm"],
++	AC_CHECK_LIB(tcl8.0, Tcl_Eval, [db_cv_tcl="-ltcl8.0"],
++	    [AC_CHECK_LIB(tcl8.0, Tcl_VarEval, [db_cv_tcl="-ltcl8.0 -ldl -lm"],
++	    [AC_CHECK_LIB(tcl8.0, Tcl_EvalFile, [db_cv_tcl="-ltcl8.0 -lm"],
+ 	    [db_cv_tcl=no], -lm)], -ldl -lm)])
+ 
+ 	if test "$db_cv_tcl" = "no"; then
+diff -urN db-2.7.7.orig/mutex/alpha.gcc db-2.7.7/mutex/alpha.gcc
+--- db-2.7.7.orig/mutex/alpha.gcc	Wed Dec 31 19:00:00 1969
++++ db-2.7.7/mutex/alpha.gcc	Fri Mar 23 00:22:54 2001
+@@ -0,0 +1,46 @@
++/* Alpha inline assembly locking primitives, by David Huggins-Daines
++   <dhd@linuxcare.com>.
++
++   Note: we must align the lock to 16 bytes, because that is the
++   minimum granularity of the lock_flag.  It is theoretically possible
++   for the locked range to be much, much larger than this (from
++   a cache line up to an entire page!) but we should be OK.
++
++   The 'mb' instructions guarantee that all access to the structure
++   protected by this lock is done between the acquisition and release
++   of the lock.
++
++   The spaghetti mess of branches is an attempt to not break branch
++   prediction, as recommended by the Architecture Reference Manual.
++   If we knew the extent of the protected section we could do it more
++   optimally.  The kernel solves this by moving the failure cases to
++   a separate ELF section, but I don't know if that will work here. */
++
++#define TSL_SET(tsl) ({					\
++	register tsl_t *__l = (tsl);			\
++	unsigned long __r = 0;				\
++	asm volatile("					\n\
++0:				#$start:		\n\
++	ldq_l   %0,%3		# ldq_l __r,__l		\n\
++	blbs    %2,3f		# blbs  __r,$fail	\n\
++	bis     $31,1,%0	# mov   1,__r		\n\
++	stq_c   %2,%1		# stq_c __r,__l		\n\
++	beq     %2,2f		# beq   __r,$again	\n\
++1:				#$success:		\n\
++	mb			# mb			\n\
++	br      $31,4f		# br $done		\n\
++2:				#$again:		\n\
++	br      $31,0b		# br $start		\n\
++3:				#$fail:			\n\
++	bis     $31,$31,%0	# mov   0,__r		\n\
++4:				#$done:			\n\
++	" : "=r" (__r), "=m" (*__l)			\
++	 : "0" (__r), "1" (*__l) : "memory");		\
++	 __r; })
++
++#define TSL_UNSET(tsl) ({				\
++	asm volatile("					\n\
++	mb						\n\
++	stq     $31,%0"					\
++	: "=m" (*(tsl)) :: "memory");})
++#define TSL_INIT(tsl) TSL_UNSET(tsl)
+diff -urN db-2.7.7.orig/mutex/mutex.c db-2.7.7/mutex/mutex.c
+--- db-2.7.7.orig/mutex/mutex.c	Tue Nov 10 11:52:03 1998
++++ db-2.7.7/mutex/mutex.c	Fri Mar 23 00:23:40 2001
+@@ -110,6 +110,10 @@
+ #include "x86.gcc"
+ #endif
+ 
++#ifdef HAVE_ASSEM_ALPHA_GCC
++#include "alpha.gcc"
++#endif
++
+ #ifdef WIN16
+ /* Win16 spinlocks are simple because we cannot possibly be preempted. */
+ #define	TSL_INIT(tsl)

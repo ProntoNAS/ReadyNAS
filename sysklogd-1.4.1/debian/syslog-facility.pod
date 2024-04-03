@@ -1,0 +1,58 @@
+=head1 NAME
+
+syslog-facility - Setup and remove LOCALx facility for sysklogd
+
+=head1 SYNOPSIS
+
+B<syslog-facility> B<set> I<set_of_priority> I<log_file>  ...
+
+B<syslog-facility> B<remove> I<facility>
+
+=head1 DESCRIPTION
+
+B<syslog-facility> can be used to setup a syslog facility and to remove
+it. The primary use of this perl script is to allow packages to
+automatically setup (and remove) a LOCALx facility. With the
+first argument beeing I<set>, it will output a string containing
+the first free LOCALx facility that has been assigned to your request :
+
+  # syslog-facility set all /var/log/sympa
+  local0
+
+This does mean that a line "local0.*	/var/log/sympa" has been
+added to the syslog.conf file. If no free LOCALx facility has been
+found, then it outputs "none" (with a end of line).
+
+You can use different set of priorities (most of what syslogd supports) :
+
+  # syslog-facility set 'all;!=debug;' /var/log/sympa '=debug' /var/log/sympa-d
+  local1
+
+Pay particular attention to shell escapes since ';','!' have special
+meanings for them. The syntax is similar to syslog.conf except that
+'*' must be replaced by 'all'.
+
+In that case you will have two lines added two the syslog.conf file :
+
+  local1.*;local1.!=debug	/var/log/sympa
+  local1.=debug			/var/log/sympa-d
+
+If the first argument is I<remove>, then it will remove all references
+to a precise LOCALx facility. Example :
+
+  # syslog-facility remove local1
+
+It will remove all references to the local1 facility. 
+
+=head1 BUGS
+
+The script doesn't know about multi-lines configuration (ie with '\').
+
+With a line like that "mail,local0.* /anything", "syslog-facility remove
+local0" would remove the entire line. It should not be a problem since
+lines installed by this script cannot use this syntax.
+
+=head1 SEE ALSO
+
+B<syslog.conf>(5), B<sysklogd>(8).
+ 

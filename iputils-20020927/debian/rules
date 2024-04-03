@@ -1,0 +1,99 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode. 
+#export DH_VERBOSE=1
+
+# This is the debhelper compatability version to use.
+export DH_COMPAT=1
+
+# This has to be exported to make some magic below work.
+export DH_OPTIONS
+
+export BASEDIR=debian/tmp
+
+configure:
+	dh_testdir
+	$(MAKE) symlink
+
+build: configure
+	dh_testdir
+
+	$(MAKE)
+	$(MAKE) -C doc man
+
+clean:
+	dh_testdir
+	dh_testroot
+
+	-$(MAKE) clean
+	rm -f include-glibc/bits/socket.h
+	dh_clean
+
+install: DH_OPTIONS=
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs 
+
+	install -m 4755 -o root -g root ping $(BASEDIR)/bin/
+	install -m 4755 -o root -g root ping6 $(BASEDIR)/bin/
+	install -m 4755 -o root -g root traceroute6 $(BASEDIR)/usr/sbin
+	install -m 0755 -o root -g root tracepath $(BASEDIR)/usr/sbin/
+	install -m 0755 -o root -g root tracepath6 $(BASEDIR)/usr/sbin/
+	install -m 0755 -o root -g root arping $(BASEDIR)/usr/sbin/
+
+	dh_movefiles -p iputils-tracepath usr/sbin/trace{path,path6,route6} 
+	dh_movefiles -p iputils-arping usr/sbin/arping
+	#dh_movefiles -p iputils-ping bin/ping bin/ping6 usr/bin/arping
+
+# Build architecture-independent files here.
+# Pass -i to all debhelper commands in this target to reduce clutter.
+binary-indep: DH_OPTIONS=
+binary-indep: build install
+	dh_testdir
+	dh_testroot
+	dh_installdocs
+	dh_installexamples
+	dh_installmenu
+	dh_installchangelogs 
+	dh_link
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+# Build architecture-dependent files here.
+# Pass -a to all debhelper commands in this target to reduce clutter.
+binary-arch: DH_OPTIONS=
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installdocs
+	dh_installexamples
+	dh_installmenu
+	dh_installcron
+	dh_installman -piputils-ping
+	dh_installman -piputils-tracepath
+	dh_installman -piputils-arping
+	dh_installchangelogs 
+	dh_strip
+	dh_link
+	dh_compress
+	dh_fixperms
+	chmod 4755 debian/tmp/bin/ping
+	chmod 4755 debian/tmp/bin/ping6
+	chmod 4755 debian/iputils-tracepath/usr/sbin/traceroute6
+	chmod 4755 debian/iputils-arping/usr/sbin/arping
+	ln -sf ping.8.gz debian/tmp/usr/share/man/man8/ping6.8.gz
+	ln -sf tracepath.8.gz debian/iputils-tracepath/usr/share/man/man8/tracepath6.8.gz
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-arch # no binary-indep
+.PHONY: build configure clean binary-indep binary-arch binary install

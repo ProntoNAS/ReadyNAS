@@ -1,0 +1,43 @@
+#! /bin/sh -e
+
+# DP: Description: Fix pthread_rwlock_wrlock hangs with NPTL on amd64.
+# DP: Related bugs: 314408
+# DP: Author: Jakub Jelinek <jakub@redhat.com>
+# DP: Upstream status: Fixed
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p1 < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p1 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+2004-02-18  Jakub Jelinek  <jakub@redhat.com>
+
+	* sysdeps/unix/sysv/linux/x86_64/pthread_rwlock_unlock.S
+	(__pthread_rwlock_unlock): Access WRITER as 32-bit value.
+
+--- libc/nptl/sysdeps/unix/sysv/linux/x86_64/pthread_rwlock_unlock.S.jj	2003-09-22 06:40:52.000000000 +0200
++++ libc/nptl/sysdeps/unix/sysv/linux/x86_64/pthread_rwlock_unlock.S	2004-02-18 13:22:16.620462840 +0100
+@@ -49,12 +49,12 @@ __pthread_rwlock_unlock:
+ #endif
+ 	jnz	1f
+ 
+-2:	cmpq	$0, WRITER(%rdi)
++2:	cmpl	$0, WRITER(%rdi)
+ 	jne	5f
+ 	decl	NR_READERS(%rdi)
+ 	jnz	6f
+ 
+-5:	movq	$0, WRITER(%rdi)
++5:	movl	$0, WRITER(%rdi)
+ 
+ 	movq	$1, %rsi
+ 	leaq	WRITERS_WAKEUP(%rdi), %r10
+

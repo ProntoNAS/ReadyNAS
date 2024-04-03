@@ -1,0 +1,37 @@
+#!/bin/sh -e
+## 04_fix-gdbm-compat-linking.dpatch.dpatch by James Troup <james@nocrew.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Ensure libgdbm_compat is correctly linked with libgdbm.
+
+if [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+
+[ -f debian/patches/00patch-opts ] && . debian/patches/00patch-opts
+patch_opts="${patch_opts:--f --no-backup-if-mismatch}"
+
+case "$1" in
+       -patch) patch $patch_opts -p1 < $0;;
+       -unpatch) patch $patch_opts -p1 -R < $0;;
+        *)
+                echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+                exit 1;;
+esac
+
+exit 0
+
+@DPATCH@
+diff -urNad /home/james/debian/packages/gdbm/gdbm-1.8.3/Makefile.in gdbm-1.8.3/Makefile.in
+--- /home/james/debian/packages/gdbm/gdbm-1.8.3/Makefile.in	2002-10-08 17:09:12.000000000 +0100
++++ gdbm-1.8.3/Makefile.in	2003-05-30 20:27:32.000000000 +0100
+@@ -161,7 +161,7 @@
+ libgdbm_compat.la: $(C_LOBJS) gdbm.h
+ 	rm -f libgdbm_compat.la
+ 	$(LIBTOOL) --mode=link $(CC) -o libgdbm_compat.la -rpath $(libdir) \
+-		-version-info $(SHLIB_VER) $(C_LOBJS)
++		-version-info $(SHLIB_VER) $(C_LOBJS) -lgdbm
+ 
+ gdbm.h:	gdbm.proto gdbmerrno.h gdbm.proto2
+ 	rm -f gdbm.h

@@ -1,0 +1,81 @@
+#!/bin/sh
+#
+# source:
+#   /var/cvs/projects/debian/dpkg.common/installdirs,v
+#
+# revision:
+#   @(#) installdirs,v 1.4 1999/03/29 15:11:08 jplejacq Exp
+#
+# copyright:
+#   Copyright (C) 1999 Jean Pierre LeJacq <jplejacq@quoininc.com>
+#
+#   Distributed under the GNU GENERAL PUBLIC LICENSE.
+#
+# synopsis:
+#   installdirs -p <DH_DOPACKAGES> -P <DH_TMPDIR>
+#
+# description:
+#   Install package directories.
+#
+#   This program is package independent and should work unmodified
+#   with any package.  Package overrides can be implemented by
+#   providing a file with the name
+#   "debian/dpkg.scripts/installdirs" with a function
+#   "install_dirs_override()".
+#
+#   I've implemented argument parsing with the debhelper package.
+
+
+
+install_dirs()
+# postconditions:
+#   Return 0 if successful, exit with 1 otherwise.
+#
+# description:
+#   Install directories that all packages must have.
+{
+  echo "${0}: debian standard directories: installing..."
+    install -d -m 0755 ${DH_TMPDIR}
+
+    install -d -m 0755 ${DH_TMPDIR}${d_host_doc}
+    install -d -m 0755 ${DH_TMPDIR}${d_host_docbase}
+
+    install -d -m 0755 ${DH_TMPDIR}${d_pkg_doc}
+    install -d -m 0755 ${DH_TMPDIR}${d_pkg_docbase}
+    install -d -m 0755 ${DH_TMPDIR}${d_pkg_man}
+
+    if [ -f debian/dpkg.src/${DH_DOPACKAGES}.menu.in ]
+    then
+      install -d -m 0755 ${DH_TMPDIR}${d_host_menu}
+    fi
+
+
+  return 0
+}
+
+
+# main:
+  set -e
+
+
+  . debian/dpkg.common/substfiles 
+  . debian/dpkg.scripts/substfiles
+
+
+  echo "${0}: parsing arguments..."
+    readonly DH_DOPACKAGES=$(./debian/dpkg.common/get_option_dopackages ${@})
+    readonly DH_TMPDIR=$(./debian/dpkg.common/get_option_tmpdir ${@})
+
+
+  if [ -f "./debian/dpkg.scripts/installdirs" ]
+  then
+    echo "${0}: include overrides..."
+      . ./debian/dpkg.scripts/installdirs
+
+    install_dirs_override
+  else
+    install_dirs
+  fi
+
+
+  exit 0

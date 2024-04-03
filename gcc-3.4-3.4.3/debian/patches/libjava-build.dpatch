@@ -1,0 +1,69 @@
+#! /bin/sh -e
+
+# DP: work around libtool to fix mips libgcj build, backport from HEAD
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        cd ${dir}libjava && automake
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}libjava/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+2005-02-15  Richard Henderson <rth@redhat.com>
+
+        * Makefile.am (libgcj_la_SOURCES): Move all sources ...
+        (libgcj0_convenience_la_SOURCES): ... here.
+        (libgcj_la_LIBADD): Add libgcj0_convenience.la.
+        (libgcj_la_DEPENDENCIES): Include libgcj_la_LIBADD.
+        * Makefile.in: Regenerate.
+
+
+--- libjava/Makefile.am~	2005-02-08 00:52:28.282758095 +0100
++++ libjava/Makefile.am	2005-02-25 01:21:18.726320374 +0100
+@@ -150,18 +150,26 @@
+ 	$(built_java_source_files:.java=.lo)
+ x_javao_files = $(x_java_source_files:.java=.lo)
+ 
+-libgcj_la_SOURCES = prims.cc jni.cc exception.cc \
++# Work around libtool wanting to do piece-wise linking with -r.  Using a
++# convenience library suddenly invokes the --whole-archive path instead.
++# This allows the build to succeed for targets that allocate multiple got
++# subsections in the linker, such as Alpha and MIPS.
++libgcj0_convenience_la_SOURCES = prims.cc jni.cc exception.cc \
+ 	resolve.cc defineclass.cc interpret.cc verify.cc \
+ 	$(nat_source_files)
+ EXTRA_libgcj_la_SOURCES = boehm.cc nogc.cc posix-threads.cc no-threads.cc \
+ 	win32-threads.cc posix.cc win32.cc $(c_source_files) \
+ 	$(extra_cc_source_files) $(java_source_files) $(built_java_source_files)
+-libgcj_la_DEPENDENCIES = libgcj-@gcc_version@.jar $(javao_files) \
+-	$(c_files) $(extra_cc_files) $(GCOBJS) $(THREADOBJS) \
+-       $(PLATFORMOBJS) $(LIBLTDL) $(LIBFFI) $(ZLIBS) $(GCLIBS)
++noinst_LTLIBRARIES = libgcj0_convenience.la
++
++libgcj_la_SOURCES =
+ 
+ libgcj_la_LIBADD = $(javao_files) $(c_files) $(extra_cc_files) $(GCOBJS) \
++	libgcj0_convenience.la \
+ 	$(THREADOBJS) $(PLATFORMOBJS)
++libgcj_la_DEPENDENCIES = libgcj-@gcc_version@.jar \
++	java/lang/fdlibm.h java/lang/ieeefp.h java/lang/mprec.h \
++	$(libgcj_la_LIBADD)
+ # Include THREADLIBS here to ensure that the correct version of
+ # certain linuxthread functions get linked:
+ libgcj_la_LDFLAGS = -rpath $(toolexeclibdir) $(THREADLDFLAGS) $(THREADLIBS) \

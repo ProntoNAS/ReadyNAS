@@ -1,0 +1,32 @@
+#! /bin/sh -e
+ 
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: Fix perl crashes in pthread_once
+# DP: Author: Daniel Jacobowitz <dan@debian.org>
+# DP: Upstream status: Submitted, accepted
+# DP: Status Details:
+# DP: Date: 2003-10-03
+ 
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p1 < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p1 < $0;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- glibc-2.3.2/nptl/sysdeps/unix/sysv/linux/i386/pthread_once.S.orig	2003-10-03 15:54:00.000000000 -0400
++++ glibc-2.3.2/nptl/sysdeps/unix/sysv/linux/i386/pthread_once.S	2003-10-03 15:52:31.000000000 -0400
+@@ -109,6 +109,7 @@ __pthread_once:
+ 	movl	$0, 4(%esp)
+ 	movl	%eax, (%esp)
+ 	call	__sigsetjmp@PLT
++	testl	%eax, %eax
+ 	jne	7f
+ 
+ 	leal	8(%esp), %eax

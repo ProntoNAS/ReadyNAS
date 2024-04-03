@@ -1,0 +1,198 @@
+# -*- makefile -*-
+# rules to patch the unpacked files in the source directory
+# ---------------------------------------------------------------------------
+# various rules to unpack addons and (un)apply patches.
+# 	- patch / apply-patches
+#	- unpatch / reverse-patches
+
+.NOTPARALLEL:
+
+patchdir	= debian/patches
+
+# which patches should be applied?
+debian_patches =
+
+ifeq ($(hammer_branch),yes)
+  debian_patches += hammer-branch
+endif
+debian_patches += \
+	cvs-updates \
+	pr14925 \
+	pr17684 \
+	pr18153 \
+	pr18380 \
+	pr18508 \
+	pr10692 \
+	gcc-version \
+	rename-info-files \
+	libf2c-update \
+	libobjc-update \
+	libstdc++-pic libstdc++-doclink \
+	gccbug \
+	gccbug-posix \
+	hppa-libffi hppa-libjava \
+	libffi-config \
+	i386-mtune \
+	link-libs \
+	gcc-doc-locale \
+
+
+ifneq ($(hammer_branch),yes)
+  debian_patches += libtool-rpath
+endif
+
+ifeq ($(with_multiarch),yes)
+  debian_patches += multiarch-include
+endif
+
+ifeq ($(with_java),yes)
+  debian_patches += gcj-without-rpath
+endif
+
+ifeq ($(with_libffi),yes)
+  debian_patches += libffi-install libffi-no-debug
+  ifneq ($(with_java),yes)
+    debian_patches += libffi-without-libgcj
+  endif
+endif
+
+ifeq ($(with_proto),yes)
+  debian_patches += deb-protoize
+endif
+
+ifeq ($(with_objc),yes)
+  debian_patches += libobjc
+endif
+
+ifeq ($(with_ada),yes)
+  ifeq ($(with_libgnat),yes)
+    debian_patches += ada-link-lib
+  endif
+  debian_patches += ada-gcc-name #ada-names
+  ifeq ($(DEB_TARGET_ARCH),mips)
+    debian_patches += ada-no-gnatpsta
+  endif
+  ifeq ($(DEB_TARGET_ARCH),mipsel)
+    debian_patches += ada-no-gnatpsta
+  endif
+endif
+
+ifeq ($(with_pascal),yes)
+  debian_patches += gpc-20040516-patch-update gpc-update11 gpc-driver
+  ifeq ($(hammer_branch),yes)
+    debian_patches += gpc-hammer-backout
+  endif
+  debian_patches += gpc-3.x
+  debian_patches += gpc-names
+  ifneq ($(with_gpidump),yes)
+    debian_patches += gpc-no-gpidump
+  endif
+endif
+
+ifeq ($(DEB_TARGET_ARCH),alpha)
+  debian_patches += alpha-ieee
+endif
+ifeq ($(DEB_TARGET_ARCH),arm)
+  debian_patches += arm-tune arm-gotoff arm-ldm
+endif
+ifneq (,$(findstring $(DEB_TARGET_ARCH),i386))
+  debian_patches += cpu-default-i486
+endif
+ifeq ($(DEB_TARGET_ARCH),ia64)
+  debian_patches += ia64-unwind
+endif
+ifeq ($(DEB_TARGET_ARCH),hurd-i386)
+  debian_patches += hurd-changes cpu-default-i586
+endif
+ifeq ($(DEB_TARGET_ARCH),hppa)
+  debian_patches += boehm-gc-nocheck
+endif
+ifeq ($(DEB_TARGET_ARCH),m68k)
+  debian_patches += m68k-subreg m68k-update2 m68k-update3
+endif
+ifeq ($(DEB_TARGET_GNU_CPU), $(findstring $(DEB_TARGET_GNU_CPU),mips mipsel))
+  debian_patches += libstdc++-mips-atomic
+endif
+ifeq ($(DEB_TARGET_ARCH)-$(biarch),i386-yes)
+  debian_patches += i386-biarch
+endif
+ifeq ($(DEB_TARGET_ARCH)-$(biarch),s390-yes)
+  debian_patches += s390-biarch s390-config-ml s390-ifcvt
+endif
+ifeq ($(DEB_TARGET_ARCH),sparc)
+  ifeq ($(biarch),yes)
+    debian_patches += sparc64-build sparc-config-ml
+  endif
+endif
+
+ifeq ($(DEB_TARGET_ARCH),freebsd-i386)
+  debian_patches += cpu-default-i486
+endif
+ifeq ($(DEB_TARGET_ARCH),freebsd-i386-gnu)
+  debian_patches += cpu-default-i486
+endif
+
+ifeq ($(DEB_TARGET_ARCH),netbsd-i386)
+  debian_patches += netbsd-all-gcc netbsd-archs-gcc
+endif
+
+debian_patches += reporting # applied after gcc-cvs-updates
+
+ifdef DEB_CROSS
+  debian_patches += cross-cpp-installman
+endif
+
+# not applied by default
+#debian_patches += protector
+
+ifeq ($(findstring linux,$(DEB_TARGET_GNU_SYSTEM)),linux)
+  debian_patches += configure-deplibs_check_method # applied last
+endif
+
+# debian/rules.conf isn't yet sourced
+SOURCE_VERSION := $(shell dpkg-parsechangelog | awk '/^Version:/ {print $$NF}')
+DEB_VERSION := $(shell echo $(SOURCE_VERSION) | sed 's/ds[0-9]*//')
+
+patch: $(patch_stamp)
+$(patch_stamp): $(unpack_stamp) pre-patch \
+    $(foreach p,$(debian_patches),$(patch_stamp)-$(p))
+	echo -e "\nPatches that Debian applied in this version:" > pxxx
+	for i in $(debian_patches); do \
+	  echo -e "\n$$i:" >> pxxx; \
+	  sed -n 's/^# *DP: */  /p' $(patchdir)/$$i.dpatch >> pxxx; \
+	done
+	mv -f pxxx $@
+
+pre-patch:
+	@if [ -x /usr/bin/automake-1.4 ]; then \
+	  : ; \
+	else \
+	  mkdir -p $(PWD)/bin; \
+	  ln -sf /usr/bin/automake $(PWD)/bin/automake-1.4; \
+	fi
+
+unpatch:
+	for stamp in none `ls -1t $(patch_stamp)-*`; do \
+	  case "$$stamp" in none|patched-stamp|patched-\*) continue; esac; \
+	  patch=`echo $$stamp | sed -e 's,$(patch_stamp)-,,'`; \
+	  echo "trying to revert patch $$patch ..."; \
+	  if [ -x $(patchdir)/$$patch.dpatch ]; then true; else \
+	    chmod +x $(patchdir)/$$patch.dpatch; fi; \
+	  if $(patchdir)/$$patch.dpatch -unpatch -d $(srcdir); then \
+	    echo "reverted $$patch patch."; \
+	    rm -f $$stamp; \
+	  else \
+	    echo "error in reverting $$patch patch."; \
+	    exit 1; \
+	  fi; \
+	done
+	rm -f patched-stamp
+
+$(patch_stamp)-%: $(patchdir)/%.dpatch
+	if [ -x $< ]; then true; else chmod +x $<; fi
+	if [ -f $@ ]; then \
+	  echo "$* patches already applied."; exit 1; \
+	fi
+	DEB_VERSION='$(DEB_VERSION)'; export DEB_VERSION; \
+	$< -patch -d $(srcdir)
+	echo "$* patches applied." > $@

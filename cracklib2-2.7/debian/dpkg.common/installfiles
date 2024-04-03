@@ -1,0 +1,108 @@
+#!/bin/sh
+#
+# source:
+#   /var/cvs/projects/debian/dpkg.common/installfiles,v
+#
+# revision:
+#   @(#) installfiles,v 1.4 1999/03/29 15:11:35 jplejacq Exp
+#
+# copyright:
+#   Copyright (C) 1999 Jean Pierre LeJacq <jplejacq@quoininc.com>
+#
+#   Distributed under the GNU GENERAL PUBLIC LICENSE.
+#
+# synopsis:
+#   installfiles -p <DH_DOPACKAGES> -P <DH_TMPDIR>
+#
+# description:
+#   Install package files.
+#
+#   This program is package independent and should work unmodified
+#   with any package.  Package overrides can be implemented by
+#   providing a file with the name
+#   "debian/dpkg.scripts/installdirs" with a function
+#   "install_dirs_override()".
+#
+#   I've implemented argument parsing with the debhelper package.
+
+
+
+install_files()
+# postconditions:
+#   Return 0 if successful, exits with 1 otherwise.
+#
+# description:
+#   Install files that all packages must have.
+{
+  echo "${0}: debian standard files: installing..."
+    install -m 0644\
+      debian/dpkg.src/changelog\
+      ${DH_TMPDIR}${d_pkg_doc}/changelog.Debian
+
+    install -m 0644\
+      debian/dpkg.src/copyright\
+      ${DH_TMPDIR}${d_pkg_doc}/
+
+    install -m 0644\
+      debian/dpkg.src/${DH_DOPACKAGES}.doc-base\
+      ${DH_TMPDIR}${f_pkg_docbase}
+
+    if [ -f debian/dpkg.src/${DH_DOPACKAGES}.menu.in ]
+    then
+      install -m 0644\
+        debian/dpkg.src/${DH_DOPACKAGES}.menu\
+        ${DH_TMPDIR}${f_pkg_menu}
+    fi
+
+
+  echo "${0}: debian standard files: linking..."
+    if [ "${f_pkg_menu}" != "${l_pkg_menu}" ]
+    then
+      ln -f -s ${f_pkg_menu} ${DH_TMPDIR}${l_pkg_menu}
+    fi
+
+    if [ "${d_pkg_doc}" != "${l_pkg_doc}" ]
+    then
+      ln -f -s ${d_pkg_doc} ${DH_TMPDIR}${l_pkg_doc}
+    fi
+
+    if [ "${f_pkg_docbase}" != "${l_pkg_docbase}" ]
+    then
+      ln -f -s ${f_pkg_docbase} ${DH_TMPDIR}${l_pkg_docbase}
+    fi
+
+
+  echo "${0}: debian standard files: compressing..."
+    gzip -9 ${DH_TMPDIR}${d_pkg_doc}/changelog.Debian
+
+
+  return 0
+}
+
+
+
+# main:
+  set -e
+
+
+  . debian/dpkg.common/substfiles 
+  . debian/dpkg.scripts/substfiles
+
+
+  echo "${0}: parsing arguments..."
+    readonly DH_DOPACKAGES=$(./debian/dpkg.common/get_option_dopackages ${@})
+    readonly DH_TMPDIR=$(./debian/dpkg.common/get_option_tmpdir ${@})
+
+
+  if [ -f "./debian/dpkg.scripts/installfiles" ]
+  then
+    echo "${0}: include overrides..."
+      . ./debian/dpkg.scripts/installfiles
+
+    install_files_override
+  else
+    install_files
+  fi
+
+
+  exit 0

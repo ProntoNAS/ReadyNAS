@@ -1,0 +1,45 @@
+diff -urN db-2.7.7.orig/mutex/sparc.gcc db-2.7.7/mutex/sparc.gcc
+--- db-2.7.7.orig/mutex/sparc.gcc	Tue Nov 10 11:50:51 1998
++++ db-2.7.7/mutex/sparc.gcc	Fri May  4 00:52:54 2001
+@@ -13,21 +13,27 @@
+  * For gcc/sparc, 0 is clear, 1 is set.
+  */
+ 
+-#if defined(__sparcv9__)
+-Does the following code need membar instructions for V9 processors?
+-#endif
+ 
+-#define	TSL_SET(tsl) ({							\
+-	register tsl_t *__l = (tsl);					\
+-	register tsl_t __r;						\
+-	__asm__ volatile						\
+-	    ("ldstub [%1],%0"						\
+-	    : "=r"( __r) : "r" (__l));					\
+-	!__r;								\
++#ifndef __arch64__
++#define	TSL_SET(tsl) ({					\
++	register tsl_t *__l = (tsl);			\
++	register tsl_t __r;				\
++	__asm__ volatile				\
++	    ("ldstub [%1], %0"				\
++	    : "=r"( __r) : "r" (__l) : "memory");	\
++	!__r;						\
+ })
+-
+-#define	TSL_UNSET(tsl) ({						\
+-         register tsl_t *__l = (tsl);					\
+-        __asm__ volatile ("stb %%g0,[%0]" : : "r" (__l));		\
++#else
++#define TSL_SET(tsl) ({					\
++	register tsl_t *__l = (tsl);			\
++	register tsl_t __r;				\
++	__asm__ volatile				\
++	    ("ldstub [%1], %0"				\
++	    "membar #StoreLoad | #StoreStore"		\
++	    : "=r"( __r) : "r" (__l) : "memory");	\
++	!__r;						\
+ })
++#endif
++
++#define	TSL_UNSET(tsl)	(*(tsl) = 0)
+ #define	TSL_INIT(tsl)	TSL_UNSET(tsl)

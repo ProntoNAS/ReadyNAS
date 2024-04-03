@@ -1,0 +1,41 @@
+#! /bin/sh -e
+
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch $pdir -f --no-backup-if-mismatch -p0 < $0;;
+    -unpatch) patch $pdir -f --no-backup-if-mismatch -R -p0 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+From: Ken Shan <ken@digitas.harvard.edu>
+Cc: 159996@bugs.debian.org
+Subject: Bug#159996: bash: shift with no argument causes segfault
+Date: Tue, 22 Oct 2002 01:09:31 -0400
+
+# DP: Subject: Bug#159996: bash: shift with no argument causes segfault
+# DP: The bug is only triggered by "shopt -s shift_verbose".  It is a null
+# DP: pointer dereference caused by an erroneous assumption that, when the
+# DP: number of arguments to shift exceeds the number of arguments available
+# DP: for shifting, the latter is always explicitly specified on the command
+# DP: line rather than left implicit at the default 1.  Here is a patch:
+
+--- builtins/shift.def.orig	2002-10-22 01:05:10.000000000 -0400
++++ builtins/shift.def	2002-10-22 01:05:06.000000000 -0400
+@@ -68,7 +68,7 @@
+   else if (times > number_of_args ())
+     {
+       if (print_shift_error)
+-	sh_erange (list->word->word, "shift count");
++	sh_erange (list ? list->word->word : NULL, "shift count");
+       return (EXECUTION_FAILURE);
+     }
+ 
+

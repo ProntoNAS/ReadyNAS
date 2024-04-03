@@ -1,0 +1,133 @@
+#!/bin/sh -e
+
+case "$1" in
+    configure)
+
+	# Create directories for log etc
+	install -d -omail -gadm -m2750 /var/log/exim
+	install -d -omail -gmail /var/run/exim
+
+	# Create /usr/doc symlink
+	if [ -d /usr/doc -a ! -e /usr/doc/exim ]; then
+	    ln -sf ../share/doc/exim /usr/doc/exim
+	fi
+
+	# Configure exim
+	if [ ! -f /etc/exim/exim.conf ]; then
+	    if [ "$DEBIAN_FRONTEND" != "noninteractive" ]; then
+		/usr/sbin/eximconfig $*
+	    fi
+	fi
+
+	# Remove smail from inetd.conf in case it hasn't done so properly
+	if [ -x /usr/sbin/update-inetd ]; then
+	    update-inetd --remove in.smtpd
+	fi
+
+	# If there is a "root: root" line in aliases, delete it
+	if [ -f /etc/aliases ]; then
+	    if grep -q "^root: root$" /etc/aliases; then
+		echo "Removing duplicate root alias."
+		grep -v "^root: root$" /etc/aliases >/etc/aliases.new
+		mv -f /etc/aliases.new /etc/aliases
+	    fi
+	fi
+
+	# If we're upgrading from an older version than 3.16-5, and so are
+	# using libdb 1.85 for databases
+	if [ $2 ] && dpkg --compare-versions $2 lt 3.16-5; then
+	    # Remove hints databases
+	    rm -f /var/spool/exim/db/*
+
+	    # Check whether any other databases are used
+	    if [ -f /etc/exim/exim.conf ]; then
+		if grep -q "dbm" /etc/exim/exim.conf; then
+		    cat <<EOM
+New libdb version
+=================
+This version of exim uses libdb2 databases. The version you are
+upgrading from used libdb 1.85. Unfortunately the files are not 
+compatible. The hints databases have been deleted, which should not
+cause any problems, however it looks like your configuration file
+refers to some other database files. If this is indeed the case, you 
+should rebuild them as libdb2 databases.
+EOM
+		    read -p "* Press return to continue" foo
+		fi
+	    fi
+	fi
+
+	# If we're upgrading from an older version than 3.03-2 and not enabled
+	# in /etc/inetd.conf
+	if [ "$2" ] && dpkg --compare-versions $2 lt 3.03-2 &&
+	    ! grep -q "^#<off># *smtp" /etc/inetd.conf; then
+ 	    # Give a warning
+	    cat <<EOM
+This may be important
+=====================
+In the version of exim you are upgrading from, the startup script 
+(/etc/init.d/exim) was set up by default to not run exim. In the new one, 
+it will run exim as a daemon if you are not running exim from inetd, and 
+you appear not to be.
+
+If you have edited your startup script then you can ignore this message.
+
+Otherwise, if you do not want to run exim as a daemon, you will need to edit 
+the startup script.
+EOM
+	    read -p "* Press return to continue" foo
+	fi
+
+	# If we're upgrading from a pre-3.00 version, and it was configured
+	if [ $2 ] && dpkg --compare-versions $2 lt 3.00-1 && 
+				[ -f /etc/exim/exim.conf ] ; then
+
+	    # Rename old file and convert
+	    mv /etc/exim/exim.conf /etc/exim/exim.conf-pre-v3
+	    /usr/sbin/exim-upgrade-to-r3 </etc/exim/exim.conf-pre-v3 \
+						>/etc/exim/exim.conf 2>/dev/null
+
+	    # Print warning message
+	    cat <<EOM
+Important! Exim configuration file format has changed!
+======================================================
+Your old configuration file has been renamed to /etc/exim/exim.conf-pre-v3. 
+An automatic conversion script has been used to write a new 
+/etc/exim/exim.conf for you.
+
+However, this does not fix everything, and you should check it is OK. 
+Because a wrongly configured mailer can cause serious problems, exim 
+is now disabled! When you want to re-enable it, you should do 
+"eximconfig -i".
+
+Please read /usr/doc/exim/README.UPDATING.gz for more information.
+
+EOM
+	    read -p "* Press return to continue" foo
+	else
+	    # OK to start exim running again
+
+	    # If configured
+	    if [ -f /etc/exim/exim.conf ]; then
+		# Install us in inetd
+		if [ -x /usr/sbin/update-inetd ]; then
+		    update-inetd --group MAIL --comment-chars \#disabled\# --add \
+ "smtp		stream	tcp	nowait	mail	/usr/sbin/exim exim -bs"
+		fi
+
+		# Install in init.d
+		update-rc.d exim defaults >/dev/null
+
+		# Start running exim (maybe)
+		/etc/init.d/exim start || true
+	    fi
+
+	fi
+	;;
+	
+    abort-upgrade|abort-remove|abort-deconfigure)
+
+	# Restart exim
+	/etc/init.d/exim start || true
+	;;
+esac

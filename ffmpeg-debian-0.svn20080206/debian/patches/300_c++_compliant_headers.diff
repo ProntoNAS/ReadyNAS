@@ -1,0 +1,29 @@
+The following patch has been discussed on #ffmpeg-devel on 2008-06-03:
+
+16:30:04 <@DonDiego> 300_c++_compliant_headers.diff
+16:30:13 <@DonDiego> siretart: this patch is wrong for two reasons
+16:31:21 <@DonDiego> 1) the header is not #included everywhere that INT64_C is used
+16:31:44 <@DonDiego> 2) if this is required for C++, then C++ programs should add the definition themselves
+16:31:53 <@DonDiego> it has no place in a C-only library
+
+Todo: Check if any package actually relies on that.
+
+Index: ffmpeg.20080206/libavcodec/avcodec.h
+===================================================================
+--- ffmpeg.20080206.orig/libavcodec/avcodec.h	2008-03-15 22:59:25.000000000 +0100
++++ ffmpeg.20080206/libavcodec/avcodec.h	2008-03-15 23:12:06.000000000 +0100
+@@ -30,6 +30,14 @@
+ #include "avutil.h"
+ #include <sys/types.h> /* size_t */
+ 
++#if !defined INT64_C
++#if defined __WORDSIZE && __WORDSIZE == 64
++#define INT64_C(c) c ## L
++#else
++#define INT64_C(c) c ## LL
++#endif
++#endif
++
+ #define AV_STRINGIFY(s)         AV_TOSTRING(s)
+ #define AV_TOSTRING(s) #s
+ 

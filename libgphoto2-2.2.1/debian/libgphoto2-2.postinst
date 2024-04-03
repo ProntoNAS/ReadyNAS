@@ -1,0 +1,63 @@
+#!/bin/sh
+set -e
+
+#DEBHELPER#
+
+PACKAGE="libgphoto2"
+
+case "$1" in
+    configure)
+	# create USB usermap
+	/usr/lib/$PACKAGE/print-camera-list usb-usermap libgphoto2 > \
+		/etc/hotplug/usb/$PACKAGE.usermap
+
+	# create FDI file
+	mkdir -p /usr/share/hal/fdi/preprobe/10osvendor/ || true
+	/usr/lib/$PACKAGE/print-camera-list hal-fdi > \
+		/usr/share/hal/fdi/preprobe/10osvendor/20-$PACKAGE.fdi
+	
+	# remove old fdi files
+	rm -f /usr/share/hal/fdi/information/10freedesktop/10-camera-$PACKAGE.fdi
+	rm -f /usr/share/hal/fdi/information/20thirdparty/$PACKAGE.fdi
+	rm -f /usr/share/hal/fdi/information/10freedesktop/10-camera-$PACKAGE-device.fdi
+
+	# create udev rules file
+	if [ -d /etc/udev/ ]; then
+	    /usr/lib/$PACKAGE/print-camera-list udev-rules > /etc/udev/$PACKAGE.rules
+	    # install the udev file only once:
+	    #    - the first time the package is installed
+	    # OR - the first time the package is upgraded from a version earlier than 2.1.6-5.1
+	    if [ -z "$2" ] || dpkg --compare-versions "$2" lt 2.1.6-5.1 ; then
+		ln -sf ../$PACKAGE.rules /etc/udev/rules.d/025_$PACKAGE.rules
+	    fi
+
+	    if [ -L /etc/udev/rules.d/020_libgphoto2_generic-ptp_support.rules ]; then
+	    	rm -f /etc/udev/rules.d/020_libgphoto2_generic-ptp_support.rules
+	    fi
+
+	    if [ -f /etc/udev/libgphoto2_generic-ptp_support.rules ]; then
+	    	rm -f /etc/udev/libgphoto2_generic-ptp_support.rules
+	    fi
+
+	    if [ -x /etc/init.d/udev ]; then
+	      if [ -x "`which invoke-rc.d 2>/dev/null`" ]; then
+		invoke-rc.d udev reload || /bin/true
+	      else
+		/etc/init.d/udev reload || /bin/true
+	      fi
+	    fi
+	fi
+	;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+
+exit 0
+

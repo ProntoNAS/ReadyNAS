@@ -1,0 +1,78 @@
+#! /usr/bin/make -f
+
+# Debian package information
+package		= grep
+docdir		= /usr/share/doc/$(package)
+
+# C compiler information
+CC		= gcc
+CFLAGS		= -g -O2
+LDFLAGS		= -s
+
+all build:	Makefile
+	make $(MFLAGS) CC="$(CC)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)"
+	touch stamp-build
+
+clean:
+	-make distclean
+	rm -f intl/libintl.h
+	rm -f stamp-build debian/files debian/substvars
+	rm -rf debian/tmp
+
+Makefile:
+	./configure --prefix=/usr --exec-prefix=/ --datadir=/usr/share --mandir=/usr/share/man --infodir=/usr/share/info 
+
+binary: binary-indep binary-arch
+
+binary-indep:
+
+binary-arch: checkroot
+	test -f stamp-build || make $(MFLAGS) -f debian/rules build
+	-rm -rf debian/tmp debian/{files,substvars}
+	install -d -o root -g root -m 755 debian/tmp/DEBIAN
+	install -d -o root -g root -m 755 debian/tmp/usr/share/doc/$(package)
+
+# Install grep
+	make prefix=`pwd`/debian/tmp/usr exec_prefix=`pwd`/debian/tmp \
+		mandir=`pwd`/debian/tmp/usr/share/man infodir=`pwd`/debian/tmp/usr/share/info install
+	strip -R .note -R .comment `pwd`/debian/tmp/bin/grep
+	strip -R .note -R .comment `pwd`/debian/tmp/bin/egrep
+	strip -R .note -R .comment `pwd`/debian/tmp/bin/fgrep
+
+# Now fix installation errors
+	find debian/tmp -type d | xargs chmod 755
+	gzip -9 debian/tmp/usr/share/man/man1/grep.1
+	rm -f debian/tmp/usr/share/man/man1/{e,f}grep.1
+	ln -s grep.1.gz debian/tmp/usr/share/man/man1/egrep.1.gz
+	ln -s grep.1.gz debian/tmp/usr/share/man/man1/fgrep.1.gz
+	gzip -9 debian/tmp/usr/share/info/grep.info
+
+# Install documentation
+	install -p -o root -g root -m 644 TODO AUTHORS NEWS README THANKS \
+		debian/tmp$(docdir)
+	install -p -o root -g root -m 644 ChangeLog \
+			debian/tmp$(docdir)/changelog
+
+# Install Debian-specific documentation
+	install -p -o root -g root -m 644 debian/changelog \
+			debian/tmp$(docdir)/changelog.Debian
+	gzip -9 debian/tmp$(docdir)/*
+	install -p -o root -g root -m 644 debian/copyright debian/tmp$(docdir)
+
+# Install the rgrep-script for people used to rgrep
+	install -d -o root -g root -m 755 debian/tmp/usr/bin
+	install -p -o root -g root -m 755 debian/rgrep debian/tmp/usr/bin
+	ln -s grep.1.gz debian/tmp/usr/share/man/man1/rgrep.1.gz
+
+# Finish the installation
+	install -p -o root -g root -m 755 debian/preinst debian/tmp/DEBIAN/
+	install -p -o root -g root -m 755 debian/postinst debian/tmp/DEBIAN/
+	install -p -o root -g root -m 755 debian/prerm debian/tmp/DEBIAN/
+
+	dpkg-shlibdeps -dPre-Depends src/grep
+	dpkg-gencontrol -isp
+	dpkg --build debian/tmp ..
+
+checkroot:
+	test root = "`whoami`"
+

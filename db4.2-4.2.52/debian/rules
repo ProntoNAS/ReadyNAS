@@ -1,0 +1,196 @@
+#!/usr/bin/make -f
+
+CFLAGS = -Wall -g
+INSTALL = install
+INSTALL_FILE    = $(INSTALL) -p    -o root -g root  -m  644
+INSTALL_PROGRAM = $(INSTALL) -p    -o root -g root  -m  755
+INSTALL_SCRIPT  = $(INSTALL) -p    -o root -g root  -m  755
+INSTALL_DIR     = $(INSTALL) -p -d -o root -g root  -m  755
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+CFLAGS += -O0
+else
+CFLAGS += -O2
+endif
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+INSTALL_PROGRAM += -s
+endif
+
+DEB_BUILD_GNU_CPU ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_CPU)
+DEB_BUILD_GNU_SYSTEM ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_SYSTEM)
+
+JAVA_UNSUPPORTED_CPUS = zhppaz zmipsz zmipselz
+JAVA_UNSUPPORTED_SYSTEMS = zgnuz zkfreebsd-gnuz zknetbsd-gnuz
+
+CONFIGURE_VARS =  CFLAGS="$(CFLAGS)" CPPFLAGS="-I/usr/include/tcl8.4" 
+CONFIGURE_SWITCHES =    --prefix=/usr \
+			--mandir=\$${prefix}/share/man \
+			--localstatedir=/var \
+			--sysconfdir=/etc \
+			--libexecdir=/usr/lib \
+			--enable-cxx \
+			--enable-compat185 \
+			--enable-rpc \
+			--with-uniquename \
+			--enable-tcl \
+			--with-tcl=/usr/lib/tcl8.4 \
+			--enable-test
+
+DB_BINARY_PKGS = libdb4.2 libdb4.2-dev libdb4.2++ libdb4.2++-dev libdb4.2-tcl db4.2-util
+
+ifeq (,$(findstring z$(DEB_BUILD_GNU_CPU)z,$(JAVA_UNSUPPORTED_CPUS)))
+ifeq (,$(findstring z$(DEB_BUILD_GNU_SYSTEM)z,$(JAVA_UNSUPPORTED_SYSTEMS)))
+CONFIGURE_VARS += JAVAC="gcj-wrapper" JAR="fastjar"
+CONFIGURE_SWITCHES += --enable-java
+DB_BINARY_PKGS += libdb4.2-java
+endif
+endif
+
+package=db4.2
+bdbversion=4.2
+
+version=$(shell expr `pwd` : '.*-\([0-9.]*\)')
+version_major=$(shell expr `pwd` : '.*-\([0-9]*\).[0-9.]*')
+
+build:
+	$(checkdir)
+	
+	mkdir -p obj
+
+	chmod 755 dist/configure
+
+	cd obj && $(CONFIGURE_VARS) \
+		../dist/configure $(CONFIGURE_SWITCHES)
+
+	cd obj && $(MAKE)
+
+#ifneq (,$(findstring $(DEB_BUILD_GNU_CPU),ia64))
+#	chmod +x ./debian/runtests.tclsh
+#	cd obj && ../debian/runtests.tclsh || true
+#
+#	grep ^FAIL obj/ALL.OUT || true
+#endif
+
+	touch build
+
+clean:
+	$(checkdir)
+	rm -rf obj
+	rm -f build install-stamp
+	-rm -rf debian/tmp `find debian/* -type d ! -name CVS` debian/files* core
+	-rm -f debian/substvars.*
+
+install-stamp: build
+	$(checkdir)
+
+	rm -rf debian/tmp
+	$(INSTALL_DIR) debian/tmp
+
+	cd obj && $(MAKE) install prefix=$(CURDIR)/debian/tmp/usr
+
+	touch install-stamp
+
+binary-indep: checkroot build install-stamp
+	$(checkdir)
+
+	rm -rf debian/$(package)-doc
+	$(INSTALL_DIR) debian/$(package)-doc/usr/share/doc debian/$(package)-doc/DEBIAN
+
+	cp -a debian/tmp/usr/docs debian/$(package)-doc/usr/share/doc/$(package)-doc
+
+	$(INSTALL_FILE) debian/copyright debian/$(package)-doc/usr/share/doc/$(package)-doc/copyright
+	$(INSTALL_FILE) debian/changelog debian/$(package)-doc/usr/share/doc/$(package)-doc/changelog.Debian
+	gzip -9frq debian/$(package)-doc/usr/share/doc/$(package)-doc/changelog.Debian
+
+	dpkg-gencontrol -isp -p$(package)-doc -Pdebian/$(package)-doc
+	chown -R root:root debian/$(package)-doc
+	chmod -R ugo=rX,u+w debian/$(package)-doc
+	dpkg --build debian/$(package)-doc ..
+
+binary-arch: checkroot build install-stamp
+	$(checkdir)
+
+	rm -rf debian/lib$(package)-dev debian/$(package)-util debian/lib$(package) \
+		debian/lib$(package)++ debian/lib$(package)++-dev debian/lib$(package)-tcl \
+		debian/lib$(package)-java
+	$(INSTALL_DIR) debian/lib$(package)-dev/usr/lib debian/$(package)-util/usr \
+			debian/lib$(package)/usr/lib debian/lib$(package)++/usr/lib \
+			debian/lib$(package)++-dev/usr/include \
+			debian/lib$(package)++-dev/usr/lib \
+			debian/lib$(package)-tcl/usr/lib \
+			debian/lib$(package)-java/usr/lib \
+			debian/lib$(package)-java/usr/share/java
+
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+	strip --remove-section=.note --remove-section=.comment \
+	      debian/tmp/usr/lib/*.so debian/tmp/usr/bin/*
+	strip --strip-debug debian/tmp/usr/lib/*.a
+endif
+
+	chmod 644 debian/tmp/usr/lib/*.so debian/tmp/usr/include/*.h
+	chmod 755 debian/tmp/usr/bin/*
+
+	cp -a debian/tmp/usr/include debian/lib$(package)-dev/usr
+	cp -a debian/tmp/usr/bin debian/$(package)-util/usr
+	cp -a debian/tmp/usr/lib/*.so debian/tmp/usr/lib/*.a \
+	        debian/tmp/usr/lib/*.la debian/lib$(package)-dev/usr/lib
+ifeq (,$(findstring z$(DEB_BUILD_GNU_CPU)z,$(JAVA_UNSUPPORTED_CPUS)))
+ifeq (,$(findstring z$(DEB_BUILD_GNU_SYSTEM)z,$(JAVA_UNSUPPORTED_SYSTEMS)))
+	cp -a debian/tmp/usr/lib/db.jar \
+		debian/lib$(package)-java/usr/share/java/lib$(package)-java-$(version).jar
+	ln -s lib$(package)-java-$(version).jar \
+		debian/lib$(package)-java/usr/share/java/lib$(package)-java.jar
+endif
+endif
+	mv debian/lib$(package)-dev/usr/lib/*cxx* debian/lib$(package)++-dev/usr/lib
+	mv debian/lib$(package)-dev/usr/include/*cxx* debian/lib$(package)++-dev/usr/include
+	mv debian/lib$(package)-dev/usr/lib/*tcl* debian/lib$(package)-tcl/usr/lib
+ifeq (,$(findstring z$(DEB_BUILD_GNU_CPU)z,$(JAVA_UNSUPPORTED_CPUS)))
+ifeq (,$(findstring z$(DEB_BUILD_GNU_SYSTEM)z,$(JAVA_UNSUPPORTED_SYSTEMS)))
+	mv debian/lib$(package)-dev/usr/lib/*java* debian/lib$(package)-java/usr/lib
+endif
+endif
+	mv debian/lib$(package)-dev/usr/lib/libdb-$(bdbversion).so debian/lib$(package)/usr/lib
+	mv debian/lib$(package)++-dev/usr/lib/libdb_cxx-$(bdbversion).so debian/lib$(package)++/usr/lib
+
+	rm -f debian/lib$(package)-dev/usr/lib/libdb.a
+	ln -s libdb-$(bdbversion).a debian/lib$(package)-dev/usr/lib/libdb.a
+
+	cd debian/$(package)-util/usr/bin && for i in * ; \
+	 do mv $$i `echo $$i | sed 's/db/$(package)/'` ; \
+	done
+	for i in $(DB_BINARY_PKGS); \
+	do $(INSTALL_DIR) debian/$${i}/DEBIAN debian/$${i}/usr/share/doc/$${i} ; \
+	   $(INSTALL_FILE) debian/copyright debian/$${i}/usr/share/doc/$${i} ; \
+	   $(INSTALL_FILE) debian/changelog debian/$${i}/usr/share/doc/$${i}/changelog.Debian ; \
+	   gzip -9fq debian/$${i}/usr/share/doc/$${i}/changelog.Debian ; \
+	done
+
+	echo 'libdb $(bdbversion) lib$(package)' >debian/lib$(package)/DEBIAN/shlibs
+	echo 'libdb_cxx $(bdbversion) lib$(package)++' >debian/lib$(package)++/DEBIAN/shlibs
+	echo 'libdb_tcl $(bdbversion) lib$(package)-tcl' >debian/lib$(package)-tcl/DEBIAN/shlibs
+ifeq (,$(findstring z$(DEB_BUILD_GNU_CPU)z,$(JAVA_UNSUPPORTED_CPUS)))
+ifeq (,$(findstring z$(DEB_BUILD_GNU_SYSTEM)z,$(JAVA_UNSUPPORTED_SYSTEMS)))
+	echo 'libdb_java $(bdbversion) lib$(package)-java' >debian/lib$(package)-java/DEBIAN/shlibs
+endif
+endif
+
+	for i in $(DB_BINARY_PKGS); \
+	do dpkg-shlibdeps -Tdebian/substvars.$${i} -dDepends `find debian/$${i}/usr -name "*.so" -o -name "$(package)_*"` ; \
+	   dpkg-gencontrol -isp -p$${i} -Pdebian/$${i} -Tdebian/substvars.$${i} ; \
+	   chown -R root:root debian/$${i} ; \
+	   chmod -R ugo=rX,u+w debian/$${i} ; \
+	   dpkg --build debian/$${i} .. ; \
+	done
+
+define checkdir
+	test -f debian/rules
+endef
+
+binary: binary-indep binary-arch
+
+checkroot:
+	$(checkdir)
+	test root = "`whoami`"
+
+.PHONY: binary binary-arch binary-indep clean checkroot

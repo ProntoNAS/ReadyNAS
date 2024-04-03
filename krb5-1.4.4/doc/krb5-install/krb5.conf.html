@@ -1,0 +1,124 @@
+<html lang="en">
+<head>
+<title>Kerberos V5 Installation Guide</title>
+<meta http-equiv="Content-Type" content="text/html">
+<meta name="description" content="Kerberos V5 Installation Guide">
+<meta name="generator" content="makeinfo 4.5">
+<link href="http://www.gnu.org/software/texinfo/" rel="generator-home">
+</head>
+<body>
+<div class="node">
+<p>
+Node:<a name="krb5.conf">krb5.conf</a>,
+Next:<a rel="next" accesskey="n" href="kdc.conf.html#kdc.conf">kdc.conf</a>,
+Previous:<a rel="previous" accesskey="p" href="Edit-the-Configuration-Files.html#Edit%20the%20Configuration%20Files">Edit the Configuration Files</a>,
+Up:<a rel="up" accesskey="u" href="Install-the-Master-KDC.html#Install%20the%20Master%20KDC">Install the Master KDC</a>
+<hr><br>
+</div>
+
+<h5 class="subsubsection">krb5.conf</h5>
+
+<p>The <code>krb5.conf</code> file contains Kerberos configuration information,
+including the locations of KDCs and admin servers for the Kerberos
+realms of interest, defaults for the current realm and for Kerberos
+applications, and mappings of hostnames onto Kerberos realms.  Normally,
+you should install your <code>krb5.conf</code> file in the directory
+<code>/etc</code>.  You can override the default location by setting the
+environment variable <code>KRB5_CONFIG</code>.
+
+<p>The <code>krb5.conf</code> file is set up in the style of a Windows INI file. 
+Sections are headed by the section name, in square brackets.  Each
+section may contain zero or more relations, of the form:
+
+<pre class="smallexample">     foo = bar
+     </pre>
+
+<p>or
+
+<pre class="smallexample">     fubar = {
+             foo = bar
+             baz = quux
+     }
+     </pre>
+
+<p>Placing a `*' at the end of a line indicates that this is the
+<dfn>final</dfn> value for the tag.  This means that neither the remainder
+of this configuration file nor any other configuration file will be
+checked for any other values for this tag.
+
+<p>For example, if you have the following lines:
+
+<pre class="smallexample">     foo = bar*
+     foo = baz
+     </pre>
+
+<p>then the second value of foo (baz) would never be read.
+
+<p>The <code>krb5.conf</code> file may contain any or all of the following
+sections:
+
+     <dl>
+<dt><b>libdefaults</b>
+     <dd>Contains default values used by the Kerberos V5 library.
+
+     <dt><b>login</b>
+     <dd>Contains default values used by the Kerberos V5 login program.
+
+     <dt><b>appdefaults</b>
+     <dd>Contains default values that can be used by Kerberos V5 applications.
+
+     <dt><b>realms</b>
+     <dd>Contains subsections keyed by Kerberos realm names.  Each subsection
+describes realm-specific information, including where to find the
+Kerberos servers for that realm.
+
+     <dt><b>domain_realm</b>
+     <dd>Contains relations which map domain names and subdomains onto Kerberos
+realm names.  This is used by programs to determine what realm a host
+should be in, given its fully qualified domain name.
+
+     <dt><b>logging</b>
+     <dd>Contains relations which determine how Kerberos programs are to perform
+logging.
+
+     <dt><b>capaths</b>
+     <dd>Contains the authentication paths used with direct (nonhierarchical)
+cross-realm authentication.  Entries in this section are used by the
+client to determine the intermediate realms which may be used in
+cross-realm authentication.  It is also used by the end-service when
+checking the transited field for trusted intermediate realms.
+
+</dl>
+
+<p>If you are not using DNS TXT records, you must specify the
+<code>default_realm</code> in the <code>libdefaults</code> section.  If you are not
+using DNS SRV records, you must include the <code>kdc</code> tag for each
+realm in the <code>realms</code> section.  To communicate with the kadmin
+server in each realm, the <code>admin_server</code> tag must be set in the
+<code>realms</code> section.  If your domain name and realm name are not the
+same, you must provide a translation in <code>domain_realm</code>.  It is
+also higly recommeneded that you create a <code>[logging]</code> stanza if
+the computer will be functioning as a KDC so that the KDC and kadmind
+will generate logging output.
+
+<p>An example <code>krb5.conf</code> file:
+
+<pre class="smallexample">     [libdefaults]
+         default_realm = ATHENA.MIT.EDU
+     
+     [realms]
+         ATHENA.MIT.EDU = {
+         	kdc = kerberos.mit.edu
+         	kdc = kerberos-1.mit.edu
+         	kdc = kerberos-2.mit.edu
+         	admin_server = kerberos.mit.edu
+         {
+     
+     [logging]
+         kdc = FILE:/var/log/krb5kdc.log
+         admin_server = FILE:/var/log/kadmin.log
+         default = FILE:/var/log/krb5lib.log
+     </pre>
+
+</body></html>
+

@@ -1,0 +1,126 @@
+#! /bin/sh -e
+
+# DP: use gcc-3.3 instead of gcc and gnatXXX-3.15 instead of gnatXXX
+# DP: as the command names.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p1 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p1 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- src/gcc/ada/gnatlink.adb~	Mon Jan  7 06:58:54 2002
++++ src/gcc/ada/gnatlink.adb	Sun Apr 28 11:43:19 2002
+@@ -109,7 +109,7 @@
+ 
+    subtype chars_ptr is System.Address;
+ 
+-   Gcc : String_Access := Program_Name ("gcc");
++   Gcc : String_Access := Program_Name ("gcc-3.3");
+ 
+    Read_Mode  : constant String := "r" & ASCII.Nul;
+ 
+@@ -957,7 +957,8 @@
+       Write_Line ("  -b target  Compile the binder source to run on target");
+       Write_Line ("  -Bdir      Load compiler executables from dir");
+       Write_Line ("  --GCC=comp Use comp as the compiler");
+-      Write_Line ("  --LINK=nam Use 'nam' for the linking rather than 'gcc'");
++      Write_Line ("  --LINK=nam Use 'nam' for the linking rather " &
++                  "than 'gcc-3.3'");
+       Write_Eol;
+       Write_Line ("  [non-Ada-objects]  list of non Ada object files");
+       Write_Line ("  [linker-options]   other options for the linker");
+--- src/gcc/ada/ali.adb~	Mon Jan  7 06:58:35 2002
++++ src/gcc/ada/ali.adb	Sun Apr 28 11:43:59 2002
+@@ -232,7 +232,7 @@
+          Write_Str (" is incorrectly formatted");
+          Write_Eol;
+          Write_Str
+-           ("make sure you are using consistent versions of gcc/gnatbind");
++           ("make sure you are using consistent versions of gcc-3.3/gnatbind");
+          Write_Eol;
+ 
+          --  Find start of line
+--- src/gcc/ada/par-ch10.adb~	Tue Oct  2 16:23:51 2001
++++ src/gcc/ada/par-ch10.adb	Sun Apr 28 11:41:04 2002
+@@ -226,7 +226,7 @@
+             else
+                Item := First (Config_Pragmas);
+                Error_Msg_N
+-                 ("cannot compile configuration pragmas with gcc", Item);
++                 ("cannot compile configuration pragmas with gcc-3.3", Item);
+                Error_Msg_N
+                  ("use gnatchop -c to process configuration pragmas!", Item);
+                raise Unrecoverable_Error;
+--- src/gcc/ada/makeusg.adb~	Fri Apr  5 09:31:14 2002
++++ src/gcc/ada/makeusg.adb	Sun Apr 28 11:46:23 2002
+@@ -185,7 +185,7 @@
+    Write_Eol;
+    Write_Eol;
+ 
+-   Write_Str ("  --GCC=command       Use this gcc command");
++   Write_Str ("  --GCC=command       Use this gcc-3.3 command");
+    Write_Eol;
+ 
+    Write_Str ("  --GNATBIND=command  Use this gnatbind command");
+--- src/gcc/ada/make.adb~	Fri Apr  5 09:31:14 2002
++++ src/gcc/ada/make.adb	Sun Apr 28 11:44:41 2002
+@@ -412,7 +412,7 @@
+    -- Compiler, Binder & Linker Data and Subprograms --
+    ----------------------------------------------------
+ 
+-   Gcc             : String_Access := Program_Name ("gcc");
++   Gcc             : String_Access := Program_Name ("gcc-3.3");
+    Gnatbind        : String_Access := Program_Name ("gnatbind");
+    Gnatlink        : String_Access := Program_Name ("gnatlink");
+    --  Default compiler, binder, linker programs
+--- src/gcc/ada/comperr.adb~	Mon Jan  7 06:58:35 2002
++++ src/gcc/ada/comperr.adb	Sun Apr 28 11:46:48 2002
+@@ -274,7 +274,7 @@
+                End_Line;
+ 
+                Write_Str
+-                 ("| Include the exact gcc or gnatmake command " &
++                 ("| Include the exact gcc-3.3 or gnatmake command " &
+                   "that you entered.");
+                End_Line;
+ 
+--- src/gcc/ada/gnatcmd.adb~	2003-01-20 01:57:48.000000000 +0100
++++ src/gcc/ada/gnatcmd.adb	2003-01-20 02:02:42.000000000 +0100
+@@ -2541,7 +2541,7 @@
+          Usage    => new S'("GNAT SHARED [obj_&_lib_&_exe_&_opt"
+                             & "files] /qualifiers"),
+          VMS_Only => True,
+-         Unixcmd  => new S'("gcc"),
++         Unixcmd  => new S'("gcc-3.3"),
+          Unixsws  => new Argument_List'(new String'("-shared")
+                                         & Init_Object_Dirs),
+          Switches => Shared_Switches'Access,
+--- src/gcc/ada/gnatchop.adb~	2002-03-14 11:59:24.000000000 +0100
++++ src/gcc/ada/gnatchop.adb	2004-04-25 09:41:00.000000000 +0200
+@@ -48,7 +48,7 @@
+    Config_File_Name : constant String_Access := new String'("gnat.adc");
+    --  The name of the file holding the GNAT configuration pragmas
+ 
+-   Gcc : String_Access := new String'("gcc");
++   Gcc : String_Access := new String'("gcc-3.3");
+    --  May be modified by switch --GCC=
+ 
+    Gcc_Set : Boolean := False;

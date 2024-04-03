@@ -1,0 +1,50 @@
+#! /bin/sh
+###############################################################################
+#
+#  This file is an executable that demonstrates some methods for creating
+#  new entries in the /etc/mailcap file.  More information is available from
+#  the 'install-mime' man page.
+#
+#  This was written by Brian White <bcwhite@pobox.com> and has been placed
+#  in the public domain.
+#
+###############################################################################
+
+
+# It's probably a good idea to put an "if" around this so it will work
+# even if the mime-support package is not installed
+if [ -x /usr/sbin/install-mime ]
+then
+
+# A really basic way to access text files
+install-mime	--install --package=mime-support --content=text/plain \
+		--description="Plain ASCII Text" --textualnewlines=t \
+		--view=more --compose="ae %s" --edit="ae %s" --needsterminal=t \
+		--comment="Make sure this entry is last in the priority list!"
+
+
+# Viewing debian packages (under XWindows) will list their files in a window
+install-mime	--install --package=mime-support --content=application/x-debian-package \
+		--description="A Debian Package" --nametemplate="%s.deb" \
+		--test='test -n "$DISPLAY"' \
+		--view='/usr/bin/X11/xterm -T "Debian Package" -e /bin/sh -c "/usr/lib/mime/debian-view %s"'
+
+
+# Viewing debian packages will list their files to stdout (put _after_ above)
+install-mime	--install --package=mime-support --content=application/x-debian-package \
+		--view="/usr/lib/mime/debian-view %s" --needsterminal=t \
+		--comment="This entry should appear after any entries with test conditions. \
+			   Otherwise, none of the others will ever get a chance to run."
+
+# Some basic "xv" commands
+install-mime	--install --package=xv --content=image/gif \
+		--description="GIF Image" --nametemplate="%s.gif" \
+		--test='test -n "$DISPLAY"' \
+		--view="/usr/bin/X11/xv %s"
+
+install-mime	--install --package=xv --content=image/jpeg \
+		--description="JPEG Image" --nametemplate="%s.jpg" \
+		--test='test -n "$DISPLAY"' \
+		--view="/usr/bin/X11/xv %s"
+
+fi

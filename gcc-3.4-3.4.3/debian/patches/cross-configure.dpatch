@@ -1,0 +1,48 @@
+#! /bin/sh -e
+
+# DP: fix configure script to handle both --program-prefix and --program-suffix
+# DP: and not to override binutils detected by autoconf
+
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch $pdir -f --no-backup-if-mismatch -p0 < $0;;
+    -unpatch) patch $pdir -f --no-backup-if-mismatch -R -p0 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+--- configure.in.orig	2004-02-06 10:03:08.000000000 +0300
++++ configure.in	2004-03-10 00:39:05.000000000 +0300
+@@ -2103,7 +2103,10 @@
+ AC_SUBST(RAW_CXX_FOR_TARGET_FOR_RECURSIVE_MAKE)
+ 
+ # Fix up target tools.
+-if test "x${build}" = "x${host}" ; then
++# This is not needed for Debian: binutils are built separately, and
++# USUAL_*_FOR_TARGET macros do cause problems for cross-compiler build
++#if test "x${build}" = "x${host}" ; then
++if false; then
+   # In this case, the newly built tools can and should be used,
+   # so we override the results of the autoconf tests.
+   # This should really only happen when the tools are actually being built,
+--- configure.orig	2004-02-06 10:03:08.000000000 +0300
++++ configure	2004-03-10 00:39:18.000000000 +0300
+@@ -4006,7 +4006,10 @@
+ 
+ 
+ # Fix up target tools.
+-if test "x${build}" = "x${host}" ; then
++# This is not needed for Debian: binutils are built separately, and
++# USUAL_*_FOR_TARGET macros do cause problems for cross-compiler build
++#if test "x${build}" = "x${host}" ; then
++if false; then
+   # In this case, the newly built tools can and should be used,
+   # so we override the results of the autoconf tests.
+   # This should really only happen when the tools are actually being built,

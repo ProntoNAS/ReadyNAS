@@ -1,0 +1,150 @@
+#!/usr/bin/make -f
+# Exim rules file, based on example rules by:
+# Copyright 1994,1995 by Ian Jackson.
+# Modifications for exim by Tim Cutts <timc@chiark.greenend.org.uk>
+# Modified to be a prototype for debmake by Christoph Lameter <clameter@debian.org>
+# Modified to not use debmake by Mark Baker <mbaker@iee.org>
+
+package=exim
+
+build:
+	$(checkdir)
+	# Set up local build files
+	mkdir -p Local
+	chmod +x debian/config-ipv6
+	debian/config-ipv6
+	patch -o Local/Makefile src/EDITME debian/editme-diff
+	# This cp can be replaced with a patch like the one above if needed
+	cp exim_monitor/EDITME Local/eximon.conf
+	$(MAKE)
+	touch build
+
+clean:
+	$(checkdir)
+	-rm -f build
+	-( test -d build-`scripts/os-type`-`scripts/arch-type` && $(MAKE) clean)
+	-rm -rf build-`scripts/os-type`-`scripts/arch-type`
+	-rm -rf Local
+	-rm -rf util/convert4r3 util/exi* util/transport-filter.pl
+	-rm `find . -name "*~"`
+	-rm -rf debian/*substvars debian/tmp debian/files*
+	-rm -rf eximon*
+
+binary-indep:	checkroot build
+	$(checkdir)
+
+	# No architecture independent packages
+
+binary-arch:	checkroot build
+	$(checkdir)
+
+	# Build exim package
+
+	-rm -rf debian/tmp
+	# First create directories
+	install -d debian/tmp/DEBIAN
+	install -d debian/tmp/usr/sbin
+	install -d debian/tmp/usr/bin
+	install -d debian/tmp/usr/lib
+	install -d debian/tmp/usr/share/doc/exim
+	install -d debian/tmp/usr/share/man/man8	
+	install -d debian/tmp/etc/exim
+	install -d debian/tmp/etc/init.d
+	install -d debian/tmp/etc/cron.daily
+	install -d debian/tmp/etc/cron.d
+	install -d debian/tmp/etc/ppp/ip-up.d
+	# Make install does most stuff for us
+	$(MAKE) inst_conf=`pwd`/debian/tmp/usr/share/doc/exim/example.conf \
+                inst_dest=`pwd`/debian/tmp/usr/sbin install
+	# But eximon wants to go in a different package
+	mv debian/tmp/usr/sbin/eximon* .
+	# Install other files
+	install debian/config debian/tmp/usr/sbin/eximconfig
+	install util/convert4r3 debian/tmp/usr/sbin/exim-upgrade-to-r3	
+	(cd debian/tmp/usr/sbin;  ln -sf exim rsmtp; \
+                                  ln -sf exim sendmail; \
+				  ln -sf exim runq; \
+				  ln -sf exim rmail; \
+	 cd ../bin;		  ln -sf ../sbin/exim mailq; \
+	 cd ../lib;               ln -sf ../sbin/exim sendmail )
+	install debian/newaliases debian/tmp/usr/bin
+	install -m 0755 debian/init.d debian/tmp/etc/init.d/exim
+	install -m 0755 debian/cron.daily debian/tmp/etc/cron.daily/exim
+	install -m 0644 debian/crontab debian/tmp/etc/cron.d/exim
+	install -m 0755 debian/ip-up.d debian/tmp/etc/ppp/ip-up.d/exim
+	install -m 0644 debian/email-addresses debian/tmp/etc/email-addresses
+	# Install documentation
+	install -m 0644 debian/exicyclog.8 debian/exigrep.8 debian/exim.8 debian/exim_db.8 \
+		debian/exim_dbmbuild.8 debian/exim_dumpdb.8 \
+		debian/exim_fixdb.8 debian/exim_tidydb.8 debian/eximstats.8 \
+		debian/exinext.8 debian/exiwhat.8 debian/exiqsumm.8 \
+		debian/eximconfig.8 debian/newaliases.8 debian/rmail.8 \
+		debian/rsmtp.8 debian/runq.8 debian/sendmail.8 debian/mailq.8 \
+		debian/exim_lock.8   debian/tmp/usr/share/man/man8
+	gzip -9v debian/tmp/usr/share/man/man8/*
+	install -m 0644 doc/NewStuff debian/tmp/usr/share/doc/exim
+	install -m 0644 debian/exim-uucp.texinfo debian/tmp/usr/share/doc/exim
+	install -m 0644 README* doc/*.txt debian/README.Debian debian/mails \
+						debian/tmp/usr/share/doc/exim
+	install -m 0644 debian/changelog debian/tmp/usr/share/doc/exim/changelog.Debian
+	install -m 0644 doc/ChangeLog debian/tmp/usr/share/doc/exim/changelog
+	gzip -9v debian/tmp/usr/share/doc/exim/*
+	install -m 0644 debian/copyright debian/tmp/usr/share/doc/exim
+	# Generate md5sums
+	(cd debian/tmp; find -type f | sed s#^./## | grep -v DEBIAN | \
+					xargs md5sum > DEBIAN/md5sums )
+	# Standard package building stuff
+	install -m 0755 debian/preinst debian/postinst debian/tmp/DEBIAN
+	install -m 0755 debian/prerm debian/postrm debian/tmp/DEBIAN
+	cp debian/conffiles debian/tmp/DEBIAN
+	dpkg-shlibdeps debian/tmp/usr/sbin/exim
+	dpkg-gencontrol -pexim
+	chown -R root.root debian/tmp
+	chmod -R g-ws debian/tmp
+	dpkg --build debian/tmp ..
+
+	# Build eximon package
+
+	-rm -rf debian/tmp
+	# First create directories
+	install -d debian/tmp/DEBIAN
+	install -d debian/tmp/usr/sbin
+	install -d debian/tmp/usr/lib/exim
+	install -d debian/tmp/usr/share/man/man8
+	install -d debian/tmp/usr/share/doc
+	# Symlink to documentation in /usr/share/doc/exim
+	ln -s exim debian/tmp/usr/share/doc/eximon
+	# Move eximon back
+	mv eximon debian/tmp/usr/sbin
+	mv eximon.bin debian/tmp/usr/lib/exim
+	# Install man page
+	cp debian/eximon.8 debian/tmp/usr/share/man/man8
+	gzip -9v debian/tmp/usr/share/man/man8/*
+	# Generate md5sums
+	(cd debian/tmp; find -type f | sed s#^./## | grep -v DEBIAN | \
+					xargs md5sum > DEBIAN/md5sums )
+	# Standard package building stuff
+	install -m 0755 debian/postinst-eximon debian/tmp/DEBIAN/postinst
+	install -m 0755 debian/prerm-eximon debian/tmp/DEBIAN/prerm
+	dpkg-shlibdeps debian/tmp/usr/lib/exim/eximon.bin
+	dpkg-gencontrol -peximon
+	chown -Rh root.root debian/tmp
+	chmod -R go=rX debian/tmp
+	dpkg --build debian/tmp ..
+
+define checkdir
+	test -f src/exim.c -a -f debian/rules
+endef
+
+# Below here is fairly generic really
+
+binary:	binary-indep binary-arch
+
+source diff:
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+checkroot:
+	$(checkdir)
+	test root = "`whoami`"
+
+.PHONY: binary binary-arch binary-indep clean checkroot

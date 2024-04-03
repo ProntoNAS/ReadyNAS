@@ -1,0 +1,1233 @@
+.\" $Id: MAKEDEV.man,v 3.0 2002/05/17 22:47 toff Exp $
+.TH MAKEDEV 8 "May 17 2002" Linux "Make Linux Devices"
+.SH NAME
+MAKEDEV \- create devices
+.SH SYNOPSIS
+.B "cd /dev; ./MAKEDEV [ -n ] [ -v ] [ update ]"
+.br
+.B "cd /dev; ./MAKEDEV [ -n ] [ -v ] [ generic ] [ local ] [ group-keyword ... device ... ]"
+.br
+.BI "cd /dev; ./MAKEDEV [ -n ] [ -v ] [ -d ]" " device ..."
+.SH DESCRIPTION
+.B MAKEDEV
+is a script that will create the devices in 
+.B /dev
+used to interface
+with drivers in the kernel.
+.PP
+Note that programs giving the error ``ENOENT: No such file or
+directory'' normally means that the device file is missing, whereas
+``ENODEV: No such device'' normally means the kernel does not have the
+driver configured or loaded.
+.SH OPTIONS
+.TP
+.B \-n
+Do not actually update the devices, just print the actions that would be
+performed.
+.TP
+.B \-d
+Delete the devices.  The main use for this flag is by
+.B MAKEDEV
+itself.
+.TP
+.B \-v
+Be verbose.  Print out the actions as they are performed.  This is the
+same output as produced by
+.BR \-n .
+.SH CUSTOMISATION
+Since there is currently no standardisation in what names are used for
+system users and groups, it is possible that you may need to modify
+.B MAKEDEV
+to reflect your site's settings.  Near the top of the file is a mapping
+from device type to user, group and permissions (e.g. all CD-ROM devices
+are set from the \fC$cdrom\fP variable).  If you wish to change the
+defaults, this is the section to edit.
+.SH GENERAL OPTIONS
+.TP
+.B update
+This only works on kernels which have \fC/proc/interrupts\fP (introduced
+during 1.1.x).  This file is scanned to see what devices are currently
+configured into the kernel, and this is compared with the previous
+settings stored in the file called \fCDEVICES\fP.
+Devices which are new since then or have a different major number are
+created, and those which are no longer configured are deleted.
+.TP
+.B generic
+Create a generic subset of devices.  This subset consists of the
+standard devices, plus floppy drives, various hard drives, CD-ROM
+drives, pseudo-terminals, console devices, basic serial devices,
+busmice, audio devices, video framebuffers, printer ports, and some
+specialized devices. The generic subset varies somewhat according to
+architecture; see the 
+.B /dev/MAKEDEV
+script itself for details.
+.TP 
+.B local
+This simply runs 
+.BR MAKEDEV.local .
+This is a script that can create any local devices.
+.SH DEVICE GROUPS 
+.B MAKEDEV 
+creates groups of devices when passed keywords for the group.
+Each listing below shows the 
+.B MAKEDEV 
+keyword and then lists the devices which will be created. Many 
+devices can also be specified individually.
+.SH STANDARD DEVICES
+.TP
+.B std
+Creates this group of standard devices:
+.B mem
+for access to physical memory,
+.B kmem
+for access to kernel virtual memory,
+.B null
+the null device (infinite sink),
+.B port
+for access to I/O ports,
+.B zero
+the null byte source (infinite source),
+.BR core ,
+a symlink to /proc/kcore (for kernel debugging),
+.B full
+which always returns ENOSPACE on write,
+.BR random " and " urandom
+random byte generators, and
+.B tty
+to access the controlling tty of a process. The
+loopback disk devices
+.B loop0 
+through 
+.BR loop7 
+are also created in the 
+.B std
+group.  These allow you to use a regular file as a
+block device. A filesystem image can be mounted,
+and used as though it were a filesystem on a partition or other 
+block device.  
+.B loop
+may also be used as a separate keyword to create the 8 loop devices. Finally, the
+.B ram
+group of memory devices is also created by the 
+.B std 
+keyword (see below).
+.SH MEMORY DEVICES
+.TP
+.B ram
+This is the keyword used to generate the ramdisk devices 
+.BI ram {0..16}
+and the 
+.B ram 
+symlink. This group does not include 
+.BR initrd .
+.TP
+.B initrd
+Ramdisk which has been pre-initialized by a bootloader. 
+.B initrd
+is not created in the 
+.B ram
+group; it must be specifically included 
+in the command line if you want it to be created.
+.TP
+.IR cpu " or " microcode
+Creates the CPU microcode update interface in the 
+.B cpu/
+folder, with devices 
+.BR microcode ,
+and subfolders 
+.BR {0..3}
+each containing devices 
+.BR msr " and " cpuid .
+.TP
+.B rom
+Creates the 
+.BI rom {0..7} " rrom" {0..7} " flaxh" {0..7} 
+and
+.BI rflash {0..7}  
+flash memory card devices. 
+.BR rrom " and " rflash
+devices are read-only.
+.SH CONSOLE DEVICES
+.TP
+.B console
+This keyword creates virtual consoles;
+.BI tty {0..63}
+devices, the corresponding 
+.B vcs
+and 
+.B vcsa
+devices which are used to generate screen-dumps, and the 
+.B console 
+device itself plus appropriate symlinks.
+To create the console device alone, use 
+.BR consoleonly .
+The device 
+.B tty0 
+is the currently active virtual console. The 
+.B console
+device serves the same function.
+.SH PSEUDO TERMINALS
+.TP 
+.B pty
+This keyword creates the Pseudo-TTY masters 
+.BI pty {a..e,p..z}
+and corresponding 
+.BI tty {a..e,p..z}
+devices, along with 
+.BR ptmx . 
+Each possible argument will create a bank of 16 master and slave pairs.
+The master pseudo-terminals are 
+.BR pty{p..s}{0..9a..f} ,
+and the slaves are
+.BR tty{p..s}{0..9a..f} .
+.SH SERIAL DEVICES
+.TP
+.I ttyS{0..63}
+Standard serial ports. There is no group keyword, you must 
+specify these individually. However 
+.BI ttyS{0..3}
+are created under the 
+.B generic
+option for most architectures.
+.TP
+.BR cyclades " or " ttyC
+Creates Cyclades ports 
+.BI ttyC {0..31} \fR.
+.TP
+.BR digi " or " ttyD
+Creates Digiboard serial card ports
+.BI ttyD {0..15} \fR.
+.TP
+.BR stallion " or " ttyE
+Creates Stallion devices 
+.BI ttyE {0..255} 
+and 
+.BI staliomem {0..3} \fR.
+.TP
+.BR computone " or " ttyF
+Creates CompuTone serial card ports
+.BI ttyH {0..255} 
+and special devices 
+.B ip2ipl{0,4,8,12}
+and
+.BR ip2stat{1,5,9,13} \fR.
+.TP
+.BR chase " or " ttyH
+Creates Chase serial card ports
+.BI ttyH {0..15} \fR.
+.TP
+.BR isdnmodem " or " ttyI
+Creates isdn4linux virtual modem ports
+.BI ttyI {0..63} \fR.
+.TP
+.BR isdn-tty
+Also creates isdn4linux virtual modem ports
+.BI ttyI {0..7} \fR.
+.TP
+.B isdnbri
+Creates ISDN BRI driver devices
+.B isdn{0..63} isdnctrl{0..63} ippp{0..63} 
+and
+.BR isdninfo .
+.TP
+.B isdn-io
+Also creates ISDN BRI driver devices
+.B isdn{0..7} isdnctrl{0..7} ippp{0..7} 
+and
+.BR isdninfo .
+The
+.B isdn-ippp 
+keyword can be used separately to create only the 
+.BI ippp {0..7} 
+devices.
+.TP
+.B ppp
+Creates a device independent PPP interface.
+.TP
+.B dcbri
+Creates Spellcaster DataComm/BRI ISDN card devices 
+.BR dcbri{0..3} .
+.TP
+.BR riscom " or " ttyL
+Creates Riscom serial card ports
+.BI ttyL {0..15} \fR.
+.TP
+.BR PAM " or " ttyM
+Creates PAM multimodem (or ISI serial card) ports 
+.BI ttyM {0..15} \fR.
+.TP
+.BR ESP " or " ttyP
+Creates ESP ports 
+.BI ttyP {0..4} \fR.
+.TP
+.BR rocketport " or " ttyR
+Creates Rocketport devices
+.BI ttyR {0..63} \fR.
+.TP
+.BR ttyV
+Creates Comtrol VS-1000 serial controller ports 
+.BI ttyV {0..15} \fR.
+.TP
+.BR specialixIO8 " or " ttyW
+Creates Specialix IO8+ ports 
+.BI ttyW {0..15} \fR.
+.TP
+.BR specialix " or " ttyX
+Creates Specialix ports 
+.BI ttyX {0..15} \fR.
+.TP
+.BI i2c
+Creates 
+.BI i2c {0..7}
+devices for the I2C bus interface.
+.TP
+.BI tlk
+Philips SAA5249 Teletext signal decoder {2.6} ports 
+.BI tlk {0..3} \fR.
+.SH PARALLEL PORTS
+.TP
+.IR lp
+Creates the standard parallel ports 
+.BR lp0 , 
+.BR lp1 ,
+and 
+.BR lp2 
+normally used for printers.
+These correspond to ports at 0x3bc, 0x378 and 0x278.
+Hence, on some machines, the first printer port may actually be
+.BR lp1 .
+.TP
+.I par
+Alternative to
+.IR lp .
+The same ports are created, but are named
+.BI par {0..2}
+instead of
+.BI lp {0..2} \fR.
+.TP
+.I parport
+Creates raw parallel ports
+.BR parport0 , 
+.BR parport1 ,
+and 
+.BR parport2 .
+.TP
+.B slm
+Creates the Atari SLM ACSI laser printer (68k/Atari) ports
+.BI slm {0..3} \fR.
+.TP
+.B pg
+Parallel port generic ATAPI interface (devices 
+.BI pg {0..3} \fR.
+.TP
+.B paride
+Parallel port IDE disk devices 
+.BI pd {a..d}
+with 15 partitions on each. Also creates
+.BR pcd{0..3} " and " pf{0..3} . 
+.SH OTHER BUS PORTS
+.TP
+.BR netlink " or " tap
+Creates NetLink devices 
+.B route skip fwmonitor
+and
+.BI tap {0..15} 
+Ethertap devices.
+The
+.BI tap x
+virtual ethernet device was designed as low level kernel support for
+Ethernet tunneling. Userland application can write Ethernet frame to
+.BI /dev/tapX
+and the kernel will receive this frame from tapX interface. 
+Every frame the kernel writes to a
+.BI tapX
+interface can be read by a userland application from the corresponding
+.BI /dev/tapX
+device.
+.TP 
+.B enskip
+ENskip kernel encryption package.
+.TP
+.B qng
+ComScire Quantum Noise Generator.
+.TP
+.B ipsec
+The Free S/WAN implementation of IPSEC.
+.TP 
+.B adb
+On powerpc, creates 
+.B adb
+for the Apple Data Bus and 
+.BR adbmouse .
+On m68k, 
+.B adb
+creates the ACSI disk device 
+.B adb
+and partitions
+.B adb1 
+through 
+.BR adb15 .
+.TP
+.B hamradio
+Creates the 
+.BI scc {0..7} 
+and 
+.BI bc {0..3} 
+device groups.
+.TP 
+.B comx
+Creates COMX devices
+.BI comx {0..4} \fR.
+.TP
+.B irda
+Creates IrCOMM devices (IrDA serial/parallel emulation)
+.B ircomm0 ircomm1 irlpt0
+and
+.BR irlpt1 .
+.TP
+.B comedi
+Control and Measurement devices 
+.BI comedi {0..3} \fR.
+.SH MOUSE DEVICES
+.TP
+.I busmice
+This keyword creates the following devices:
+.B logibm
+(Logitech bus mouse),
+.B psaux
+(PS/2-style mouse),
+.B inportbm
+(Microsoft Inport bus mouse) and
+.B atibm
+(ATI XL bus mouse) and
+.B jbm
+(J-mouse).
+.TP
+.I m68k-mice
+Creates mouse devices for the m68k architecture, including:
+.BR amigamouse ,
+.BR amigamouse1 ,
+.B atarimouse 
+and
+.BR adbmouse .
+.TP
+.I input
+On powerpc, this keyword creates the 
+.I input 
+folder which groups input devices
+.BR mice , 
+.BI mouse {0..3} \fR,
+.BI event {0..3} \fR,
+and 
+.BI js {0..3}
+(joystick), and creates these devices inside. 
+.SH JOYSTICK DEVICES
+.TP
+.I js
+Joystick.  Creates 
+.B js0
+and 
+.BR js1 .
+.TP
+.I djs
+Digital joystick. Creates 
+.B djs0
+and 
+.BR djs1 .
+.SH USB DEVICES
+.TP
+.B usb
+USB is a general purpose I/O bus which can serve many purposes. The
+.B usb
+keyword creates a 
+.B usb
+folder, and devices in the folder:
+.BI lp {0..15}
+(printer),
+.BI mouse {0..15}
+(USB connected mice),
+.BI ez {0..15}
+(firmware loaders)
+.BI scanner {0..15}
+(scanner interfaces),
+.BI ttyACM {0..15} 
+and
+.BI ttyUSB {0..15}
+(dialout devices),
+and 
+.B rio500
+the Diamond Rio 500 device. 
+.SH DISK DEVICES
+.TP
+.BI fd {0..7}
+Floppy disk devices.  The device
+.BI fd x
+is the device which autodetects the format, 
+and the additional devices are
+fixed format (whose size is indicated in the name).
+The other devices are named as
+.BI fd x{dqhu}n .
+The single letter 
+.RI ( d ,
+.IR q , 
+.IR h or 
+.IR u )
+signifies the type of drive: 5.25" Double Density (d),
+5.25" Quad Density (q), 5.25" High Density (h) or 3.5"
+(any model, u). The number
+.I n
+represents the capacity of that format in K.  
+Thus the standard formats are
+.BI fd x d360 ,
+.BI fd x h1200 ,
+.BI fd x 720 ,
+.BI fd x 1440 ,
+and
+.BI fd x 2880 .
+.IP
+For more information see Alain Knaff's fdutils package.
+.IP
+Devices
+.BI fd0 *
+through
+.BI fd3 *
+are floppy disks on the first controller, and devices
+.BI fd4 *
+through
+.BI fd7 *
+are floppy disks on the second controller.
+.TP
+.BI fd {0..7} -bare
+Creates just the autodetecting floppy device specified, without the fixed 
+format devices.
+.TP
+.BI hd {a..l}
+AT (ide) hard disks.  The device
+.BI hd x
+provides access to the whole disk, with the partitions being
+.BI hd x {1..63}.
+For i386, the four primary partitions are
+.BI hd x 1
+through
+.BI hd x 4,
+with the logical partitions being numbered from
+.BI hd x 5
+though
+.BI hd x 20.
+(A primary partition can be made into an extended partition, which can
+hold 4 logical partitions). Other architectures may not differentiate
+partition types.  By default, devices for 20 logical partitions are
+made. The kernel supports up to 63 partitions per device.
+.IP
+Drives 
+.B hda 
+and  
+.B hdb 
+are the two on the primary controller
+.B hdc 
+and
+.B hdd 
+are the two
+drives on the secondary controller.  These devices can also be used to
+access IDE CDROMs. Additional devices 
+.BI hd {e..l} 
+can be created.
+.TP
+.BI xd {a..d} 
+XT hard disks.  Partitions are the same as IDE disks, except only 8 
+partitions are created. 
+.TP
+.BI sd {a..h}
+SCSI hard disks.  The partitions are similar to the IDE disks, but there
+is a limit of 11 logical partitions
+.BI sd x 5
+through
+.BI sd x 15, 
+to allow there to be 8 SCSI disks on a system 
+(addresses 0 through 7). 
+.TP
+.BI sd {i..z} 
+and 
+.BI sd {a..d}{a..z}
+The kernel (and MAKEDEV) can handle up to 128 SCSI disks (up to 
+.BR sddx ).
+15 partition devices are created for each.
+.TP
+.B eda edb
+MCA ESDI hard disk. Partitions are handled the same as hd.
+.TP
+.BI dasd {a..z}
+Direct Access Storage Devices for the s390 architecture. Currently
+only one device partition is created (for example, 
+.BR dasda1 ).
+.TP
+.BI ada {a..p}
+ACSI disk (68k/Atari). 15 partitions are created for each.
+.TP
+.BI dac960. {0..7} 
+Mylex DAC960 PCI RAID controller. For this device, an 
+.B rd
+directory is created. 32 logical devices
+.BI c x d {0..31}
+are created for each unit 
+.I x
+specified, each with 7 partitions 
+.BI c x d {0..31} p {1..7} \fR.
+The 
+.B dac960
+keyword will create all 7 units at once.
+.TP
+.BI dpti
+Adaptec I2O RAID and DPT SmartRAID V I2O controllers. Creates
+7 devices for handling up to 7 controllers.
+.TP
+.BI ataraid. {0..7} 
+Obsolete, device not in current devices.txt. For this device, an 
+.B ataraid
+directory is created. 
+.BI d x 
+is created for each unit 
+.I x
+specified, and 15 partitions 
+.BI d x p {1..15} \fR.
+The 
+.B ataraid
+keyword will create all 7 units at once.
+.TP
+.BI i2o.hd{a..d}{a..z}
+I2O based harddisk drives. Device nodes are located in the
+.B i2o
+directory. The filename is followed by a number that specifies the partition on
+each disk. The numbers are handled the same as hd.
+.TP
+.BI ida. {0..7} 
+Compaq Intelligent Drive Array. For this device, an 
+.B ida
+directory is created. 16 logical devices
+.BI c x d {0..15}
+are created for each unit 
+.I x
+specified, each with 15 partitions 
+.BI c x d {0..15} p {1..15} \fR.
+The 
+.B ida
+keyword will create the first three units.
+.TP
+.BI cciss. {0..7} 
+Compaq Next Generation Drive Array. For this device, a
+.B cciss
+directory is created. 16 logical devices
+.BI c x d {0..15}
+are created for each unit 
+.I x
+specified, each with 15 partitions 
+.BI c x d {0..15} p {1..15} \fR.
+The 
+.B cciss
+keyword will create the first three units.
+.TP
+.BI md
+Creates Metadisk (RAID) disk array with 16 devices.
+.SH TAPE DEVICES
+.TP
+.I st{0..7}
+SCSI tape devices.  This creates the rewinding tape device
+.BI st x
+and the non-rewinding tape device
+.BI nst x ,
+for each of modes 0 through 3.
+.TP
+.I qic
+QIC-11, -24, -120, and -150 tapes.  The devices created are
+.B ntpqic11 tpqic11 ntpqic24 tpqic24 ntpqic120 tpqic120 ntpqic150
+and 
+.B tpqic150
+tape devices, along with
+.BR rmt8 ,
+.BR rmt16 ,
+.BR tape-d ,
+and
+.BR tape-reset .
+.TP
+.I ftape 		
+Floppy driver tapes (QIC-117).  There are 4 methods of access depending on
+the floppy tape drive.  For each of access methods 0, 1, 2 and 3, the
+devices
+.BI qft x
+.BI zqft x
+and
+.BI rawqftx
+(rewinding) and
+.BI nqft x
+.BI nzqft x
+.BI nrawqdt x
+(non-rewinding) are created.  For compatibility, devices
+.B ftape
+and
+.B nftape
+are symlinks to
+.B qft0
+and
+.B nqft0
+respectively.
+.TP
+.B ht0
+Creates IDE tape devices 
+.B ht0
+and
+.BR nht0 .
+.TP
+.BI pt {0..3}
+Creates parallel port ATAPI tape devices
+.B pt{0..3}
+and
+.BR npt{0..3} .
+.SH CDROM DEVICES
+.TP
+.BR sr " or " scd " or " scd-all
+Creates 
+.BI scd {0..16}
+SCSI CD players and 
+.BI sr {0..16}
+symlinks for these devices.
+.B cdrom 
+is a symlink which can be created by the user to the active CD device.
+It is not created by 
+.BR MAKEDEV .
+.TP
+.B pktcdvd
+Provides packet writing devices 
+.BI pktcdvd {0..3}
+for CD/DVD.
+.TP
+.I pcd{0..3}
+Parallel port ATAPI CD-ROM devices
+.TP
+.I sonycd 
+Sony CDU-31a CD-ROM
+.TP
+.I mcd 
+Mitsumi CD-ROM
+.TP
+.I mcdx
+Obsolete, device not in current devices.txt.
+.TP
+.I cdu535
+Sony CDU-535 CD-ROM
+.TP
+.IR lmscd
+Philips LMS CM-205 CD-ROM. The newer name for this device is 
+.IR cm205 ,
+but MAKEDEV creates only lmscd at this time.
+.TP
+.I cm206cd
+Philips LMS CM-206 CD-ROM
+.TP
+.I bpcd
+MicroSolutions BackPack parallel port CD-ROM (Obsolete - use pcd)
+.TP
+.I sbpcd{0..15}
+Matsushita (Panasonic/SoundBlaster) CD-ROM. Units {0..3} are created with the keyword
+.BR sbpcd .
+.TP
+.I aztcd
+Aztech/Orchid/Okano/Wearnes CD-ROM
+.TP
+.I gscd 
+GoldStar CD-ROM
+.TP
+.I optcd
+Optics Storage CD-ROM
+.TP
+.I sjcd
+Sanyo CD-ROM
+.TP
+.I hitcd
+Hitachi CD-ROM
+.SH SCANNERS
+.TP
+.I logiscan
+Logitech ScanMan32 & ScanMan 256.
+.TP
+.I m105scan
+Mustek M105 Handscanner.
+.TP
+.I ac4096
+A4Tek Color Handscanner.
+.SH AUDIO DEVICES
+.TP
+.I audio
+This creates the audio devices used by the sound driver.  These include
+.B mixer mixer{1..3}
+(Mixer controls), 
+.B sequencer
+(Audio sequencer),
+.B dsp dsp{1..3}
+(Digital audio),
+.B sndstat
+(Sound card status information),
+.B audioctl
+(SPARC audio control device)
+and
+.B audio audio{1..3} 
+(Sun-compatible digital audio). MIDI devices are 
+.B midi00
+through
+.BR midi03 ,
+.BI midi {0..3} \fR,
+.BI rmidi {0..3} \fR,
+.BI smpte {0..3} \fR.
+In addition, devices 
+.B mpu401data
+and
+.B mpu401stat
+are created.
+.TP
+.I pcaudio
+Devices for the PC Speaker sound driver.  These are
+.BR pcmixer ,
+.BR pxsp ,
+and
+.BR pcaudio .
+.SH VIDEO DEVICES
+.TP
+.B fb
+Creates framebuffer devices
+.BI fb {0..7} \fR,
+.BI fb {0..7} current \fR,
+.BI fb {0..7} autodetect \fR.
+.TP
+.B fb{0..7}
+If the framebuffer number 
+.I x 
+is specifed, a group of  
+.BI fb x user {0..7} 
+devices is created.
+.TP
+.B 3dfx
+is the 3Dfx Voodoo Graphics device.
+.TP
+.B agpgart
+AGP Graphics Address Remapping Table
+.TP
+.I "video video4linux v4l radio"
+Each of these keywords produces the same result:
+Video capture/overlay devices
+.BI video {0..63} \fR,
+Radio devices
+.BI radio {0..63} \fR,
+Teletext devices 
+.BI vtx {0..31} \fR,
+and Vertical blank interrupt devices
+.BI vbi {0..31} \fR. 
+In addition, the 
+.BR winradio0 " and " winradio1 " devices,"
+and 
+.BR vtx " and " vttuner " devices,"
+and symlinks
+.BR "radio video" " and " vbi
+are created. 
+.TP
+.BI srnd
+miroMEDIA Surround board devices 
+.BR srnd0 " and " srnd1 .
+.TP
+.B fgrab
+Matrox Meteor frame grabber {2.6}. Creates 
+.BR mmetfgrab ,
+.BR wvisfgrab ,
+.BR iscc0 ,
+.BR iscc1 ,
+.BR isccctl0 ,
+.BR isccctl1 ,
+.BR dcxx0 ,
+and
+.BR dcxx1 .
+.SH MISCELLANEOUS DEVICES
+.TP
+.IR sg " or " sg-all
+Generic SCSI devices.  The devices created are 
+.B sg0 
+through 
+.BR sg16 .
+These allow arbitary commands to be sent to any SCSI device, to query
+information or control SCSI devices that are not disk, tape or CDROM
+(for example, scanner or writeable CDROM).
+.TP
+.I fd
+To allow an arbitary program to be fed input from file descriptor
+.IR x ,
+use
+.BI /dev/fd/ x
+as the file name.  This also creates 
+.BR /dev/stdin ,
+.BR /dev/stdout ,
+and
+.BR /dev/stderr .
+(Note, these are just symlinks into /proc/self/fd).
+.TP
+.I ibcs2
+Devices 
+.B socksys spx 
+(and symlinks 
+.BR "nfsd XOR" ) 
+needed by the IBCS2 emulation.
+.TP
+.I apm
+.B apm_bios 
+Advanced Power Management BIOS device.
+.TP
+.I dcf
+Driver for DCF-77 radio clock.
+.TP
+.I helloworld
+Kernel modules demonstration device.  See the modules source.
+.TP
+.BR xfs " or " arla
+Arla XFS network file system.
+.TP
+.B capi
+CAPI 2.0 interface ports
+.BI capi20 {01..20} \fR.
+.TP
+.B ubd
+User-mode block devices
+.BI ubd {0..255} \fR.
+.TP
+.BI nb {0..7}
+Network block devices.
+.TP 
+.B raw
+Creates the raw block device interface 
+.B raw
+device, the 
+.B rawctl 
+symlink, and 
+.BI raw {1..8} \fR.
+.TP
+.B raw1394
+IEEE 1394 (Firewire).
+.TP
+.B misc
+This keyword creates all the following devices. You may find the 
+device explanations in other categories in this man page, many 
+under OTHER DEVICES below.
+.BR logibm ,
+.BR psaux ,
+.BR inportbm ,
+.BR atibm ,
+.BR jbm ,
+.BR amigamouse ,
+.BR atarimouse ,
+.BR sunmouse ,
+.BR amigamouse1 ,
+.BR smouse ,
+.BR pc110pad ,
+.BR adbmouse ,
+.BR beep ,
+.BR modreq ,
+.BR watchdog ,
+.BR temperature ,
+.BR hwtrap ,
+.BR exttrp ,
+.BR apm_bios ,
+.BR rtc ,
+.BR openprom ,
+.BR relay8 ,
+.BR relay16 ,
+.BR msr ,
+.BR pciconf ,
+.BR nvram ,
+.BR hfmodem ,
+.BR led ,
+.BR mergemem ,
+.BR pmu .
+.TP
+.B "Network Devices"
+Linux used to have devices in /dev for controlling network devices, but
+that is no longer the case.  To see what network devices are known by the
+kernel, look at /proc/net/dev.
+.SH OTHER DEVICES
+.TP
+Many of these devices are architecture-specific.
+.TP
+.I scc
+Z8530 HDLC driver (HAM radio)
+.TP
+.I bc
+Baycom radio modem (HAM radio)
+.TP
+.IR cfs0 " or " cfs " or " coda
+Coda network file system
+.TP
+.I sunmouse 
+Sun mouse
+.TP
+.I smouse 
+Simple serial mouse driver
+.TP
+.I pc110pad 
+IBM PC-110 digitizer pad
+.TP
+.I vrtpanel 
+Vr41xx embedded touch panel
+.TP
+.I vpcmouse
+Connectix Virtual PC Mouse
+.TP
+.I beep
+Fancy beep device
+.TP
+.I modreq
+Kernel module load request {2.6}
+.TP
+.I watchdog
+Watchdog timer port
+.TP
+.I temperature
+Machine internal temperature
+.TP
+.I hwtrap
+Hardware fault trap
+.TP
+.I exttrp
+External device trap
+.TP
+.I rtc
+Real Time Clock
+.TP
+.I efirtc
+Real Time Clock
+.TP
+.I openprom
+SPARC OpenBoot PROM
+.TP
+.I relay8
+Berkshire Products Octal relay card
+.TP
+.I relay16
+Berkshire Products ISO-16 relay card
+.TP
+.I msr 
+x86 model-specific registers {2.6}
+.TP
+.I pciconf
+PCI configuration space
+.TP
+.I nvram
+Non-volatile configuration RAM
+.TP
+.I hfmodem
+Soundcard shortwave modem control {2.6}
+.TP
+.I graphics
+Linux/SGI graphics device
+.TP
+.I opengl
+Linux/SGI OpenGL pipe
+.TP
+.I gfx
+Linux/SGI graphics effects device
+.TP
+.I lcd
+Front panel LCD display
+.TP
+.I led
+Front panel LEDs
+.TP
+.I mergemem
+Memory merge device
+.TP
+.I pmu
+Macintosh PowerBook power manager
+.TP
+.I isictl
+MultiTech ISICom serial control
+.TP
+.I ac
+Applicom Intl Profibus card
+.TP
+.I nwbutton
+Netwinder external button
+.TP
+.I nwdebug
+Netwinder debug interface
+.TP
+.I nwflash
+Netwinder flash memory
+.TP
+.I userdma
+User-space DMA access
+.TP
+.I smbus
+System Management Bus
+.TP
+.I lik
+Logitech Internet Keyboard
+.TP
+.I ipmo
+Intel Intelligent Platform Management
+.TP
+.I vmmon
+VMWare virtual machine monitor
+.TP
+.I tcldrv
+Technology Concepts serial control
+.TP
+.I specialix_sxctl
+Specialix serial control
+.TP
+.I specialix_rioctl
+Specialix RIO serial control
+.TP
+.IR smapi " or " thinkpad
+IBM Thinkpad 
+.B smapi
+device, and a symlink 
+.BR thinkpad .
+.TP
+.I srripc
+QNX4 API IPC manager
+.TP
+.I usemaclone
+Semaphore clone device
+.TP
+.IR ipmi " or " ipmikcs
+Intelligent Platform Management
+.TP
+.I uctrl
+SPARCbook 3 microcontroller
+.TP
+.I gtrsc
+Gorgy Timing radio clock
+.TP
+.I cbm
+Serial CBM bus
+.TP
+.I jsflash
+JavaStation OS flash SIMM
+.TP
+.I xsvc
+High-speed shared-mem/semaphore service
+.TP
+.I vrbuttons
+Vr41xx button input device
+.TP
+.I toshiba
+Toshiba laptop SMM support
+.TP
+.I perfctr
+Performance-monitoring counters
+.TP
+.I intel_rng
+Intel i8x0 random number generator
+.TP
+.I atomicps
+Atomic shapshot of process state data
+.TP
+.I irnet
+IrNET device
+.TP
+.I smbusbios
+SMBus BIOS
+.TP
+.I ussp_ctl
+User space serial port control
+.TP
+.I crash
+Mission Critical Linux crash dump facility
+.TP
+.I nas_xbus
+NAS xbus LCD/buttons access
+.TP
+.I d7s
+SPARC 7-segment display
+.TP
+.I zkshim
+Zero-Knowledge network shim control
+.TP
+.I sexec
+Signed executable interface
+.TP
+.I kchuid
+Inter-process chuid control
+.TP
+.I mptctl
+Message passing technology (MPT) control
+.TP
+.I button/gulpb
+Transmeta GULP-B buttons
+.TP
+.I compaq/cpqphpc
+Compaq PCI Hot Plug Controller
+.TP
+.I compaq/cpqrid
+Compaq Remote InsightDriver
+.TP
+.I elographics/e2201
+Elographics touchscreen E271-2201
+.TP
+.I fujitsu/apanel
+Fujitsu/Siemens application panel
+.TP
+.I i2o/ctl
+I2O configuration manager
+.TP
+.I impi/bt
+IMPI coprocessor block transfer
+.TP
+.I impi/smic
+IMPI coprocessor stream interface
+.TP
+.I input/mouse
+Linux/SGI Irix emulation mouse
+.TP
+.I input/keyboard
+Linux/SGI Irix emulation keyboard
+.TP
+.I modems/mwave
+MWave modem firmware upload
+.TP
+.I mvista/hssdsi
+Montavista PICMG hot swap system driver
+.TP
+.I mvista/hasi
+Montavista PICMG high availability
+.TP
+.I net/tun
+TAP/TUN network device
+.TP
+.I ni/natmotn
+National Instruments Motion
+.TP
+.I scanners/cuecat 
+:CueCat barcode scanner
+.TP
+.I touchscreen/ucb1x00
+UCB 1x00 touchscreen
+.TP
+.I touchscreen/mk712
+MK712 touchscreen
+.TP
+.I video/em8300
+EM8300 DVD decoder control
+.TP
+.I video/em8300_mv
+EM8300 DVD decoder video
+.TP
+.I video/em8300_ma
+EM8300 DVD decoder audio
+.TP
+.I video/em8300_sp
+EM8300 DVD decoder subpicture
+.TP
+.I watchdogs/{0..3}
+Watchdog devices 0 through 3
+
+.SH "SEE ALSO"
+Linux Allocated Devices, maintained by H.\ Peter Anvin,
+<Peter.Anvin@linux.org>, and devices.txt in the Linux 
+kernel source.
+.SH AUTHOR
+Nick Holloway, rewritten and updated by Chris Tillman
+

@@ -1,0 +1,71 @@
+#!/usr/bin/make -f
+#	Debian rules file for gzip, requires the debhelper package.
+#	Crafted by Bdale Garbee, bdale@gag.com, 5 November 2000
+
+# Comment this to turn off debhelper verbose mode.
+export DH_VERBOSE=1
+
+# This is the debhelper compatibility version to use.
+export DH_COMPAT=3
+
+CFLAGS="-g -O2 -Wall" 
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	CFLAGS=$(CFLAGS) ./configure \
+		--prefix=/usr \
+		--infodir=`pwd`/debian/gzip/usr/share/info \
+		--mandir=`pwd`/debian/gzip/usr/share/man
+	touch configure-stamp
+
+build: configure-stamp build-stamp
+build-stamp:
+	dh_testdir
+	$(MAKE)
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	-rm -f build-stamp configure-stamp
+	make distclean || exit 0
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	make install prefix=debian/gzip/usr bindir=debian/gzip/bin \
+		 scriptdir=debian/gzip/usr/bin
+	ln debian/gzip/bin/gzip debian/gzip/bin/uncompress
+
+binary-indep:	build install
+
+binary-arch:	build install
+	dh_testdir
+	dh_testroot
+	dh_installdocs README* TODO
+	dh_installmanpages
+	dh_installinfo gzip.info
+	dh_installchangelogs
+	dh_link
+	dh_strip
+	dh_compress
+	ln -s gunzip.1.gz debian/gzip/usr/share/man/man1/uncompress.1.gz
+	ln -s zgrep.1.gz debian/gzip/usr/share/man/man1/zegrep.1.gz
+	ln -s zgrep.1.gz debian/gzip/usr/share/man/man1/zfgrep.1.gz
+	dh_fixperms
+	# You may want to make some executables suid here.
+	dh_makeshlibs
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure
+

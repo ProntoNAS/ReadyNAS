@@ -1,0 +1,101 @@
+#!/usr/bin/make -f
+# debian/rules file - for GNU DBM (1.7.3).
+# Based on sample debian/rules file - for GNU Hello (1.3).
+# Copyright 1994,1995 by Ian Jackson.
+# Copyright 1998-2003 by James Troup.
+# I hereby give you perpetual unlimited permission to copy,
+# modify and relicense this file, provided that you do not remove
+# my name from the file itself.  (I assert my moral right of
+# paternity under the Copyright, Designs and Patents Act 1988.)
+# This file may have to be extensively modified
+
+STRIP=strip --remove-section=.comment --remove-section=.note
+
+install_dir=install -d -m 755
+install_file=install -m 644
+install_script=install -m 755
+install_binary=install -m 755 -s
+compress=gzip -9v
+
+include /usr/share/dpatch/dpatch.make
+
+clean: unpatch
+	$(checkdir)
+	-rm -rf static shared
+	-rm -f build config.log config.cache
+	-$(MAKE) -i distclean || $(MAKE) -f Makefile.in distclean
+	-rm $$(find . -name "*~")
+	-rm -rf debian/tmp debian/files* debian/substvars* debian/patched
+
+build: patch-stamp
+	$(checkdir)
+	./configure --prefix=/usr
+	echo "/* We use fcntl locking (POSIX) instead of flock (BSD) */" >> autoconf.h
+	echo "#undef HAVE_FLOCK" >> autoconf.h
+
+	-mkdir shared static
+	#
+	# First build the shared library
+	#
+	cd shared ; \
+	    $(MAKE) -f ../Makefile VPATH=".." srcdir=".." \
+	        CFLAGS="-O2 -g -Wall -fPIC -D_REENTRANT" ; \
+	    gcc -shared -Wl,-soname,libgdbm.so.1 -o libgdbm.so.1.7.3 $$(ls *.o) -lc
+	#
+	# Build the static library
+	#
+	cd static ; \
+	     $(MAKE) -f ../Makefile VPATH=".." srcdir=".." \
+	          CFLAGS="-O2 -g -Wall -D_REENTRANT"
+	#
+	# Make the info file
+	#
+	$(MAKE) gdbm.info
+	touch build
+
+
+binary-indep:	checkroot build
+	$(checkdir)
+
+binary-arch: binary-libgdbmg
+
+binary-libgdbmg: checkroot build
+	$(checkdir)
+	-rm -rf debian/tmp/
+
+	$(install_dir) debian/tmp/usr/lib/
+	$(install_file) shared/libgdbm.so.1.7.3 debian/tmp/usr/lib/
+	$(STRIP) --strip-unneeded debian/tmp/usr/lib/libgdbm.so.1.7.3
+	ln -s libgdbm.so.1.7.3 debian/tmp/usr/lib/libgdbm.so.1
+	ln -s libgdbm.so.1.7.3 debian/tmp/usr/lib/libgdbm.so.2
+
+	$(install_dir) debian/tmp/DEBIAN
+	$(install_file) debian/shlibs debian/tmp/DEBIAN/shlibs
+
+	$(install_dir) debian/tmp/usr/share/doc/libgdbmg1/
+	$(install_file) debian/changelog debian/tmp/usr/share/doc/libgdbmg1/changelog.Debian
+	$(compress) debian/tmp/usr/share/doc/libgdbmg1/*
+	$(install_file) debian/copyright debian/tmp/usr/share/doc/libgdbmg1/copyright
+
+	dpkg-shlibdeps debian/tmp/usr/lib/libgdbm.so.1.7.3
+	dpkg-gencontrol -isp -plibgdbmg1
+	chown -R root.root debian/tmp/
+	chmod -R go=rX debian/tmp/
+	dpkg --build debian/tmp/ ..
+
+define checkdir
+	test -f gdbmclose.c -a -f debian/rules
+endef
+
+# Below here is fairly generic really
+
+binary:		binary-indep binary-arch
+
+source diff:
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+checkroot:
+	$(checkdir)
+	test root = "`whoami`"
+
+.PHONY: binary binary-arch binary-indep clean checkroot

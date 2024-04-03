@@ -1,0 +1,48 @@
+=== debian/rules
+==================================================================
+--- debian/rules	(revision 2704)
++++ debian/rules	(local)
+@@ -27,7 +27,7 @@
+ 	find src \( -name \*hin -o -name \*.h.in -o -name \*.stmp \) -print |xargs touch
+ 	(cd build; ../src/configure --prefix=/usr --enable-shared  \
+ 		--with-system-et --with-system-ss --enable-fakeka \
+-		CFLAGS="$(CCOPTS) -D_REENTRANT" --localstatedir=/etc \
++		CFLAGS="$(CCOPTS) -D_REENTRANT -DHAVE_VSNPRINTF" --localstatedir=/etc \
+ 		--mandir=/usr/share/man --without-tcl)
+ 	touch configure-stamp
+ 
+=== src/lib/kadm5/logger.c
+==================================================================
+--- src/lib/kadm5/logger.c	(revision 2704)
++++ src/lib/kadm5/logger.c	(local)
+@@ -45,7 +45,7 @@
+ #include <varargs.h>
+ #endif	/* HAVE_STDARG_H */
+ 
+-#define	KRB5_KLOG_MAX_ERRMSG_SIZE	1024
++#define	KRB5_KLOG_MAX_ERRMSG_SIZE	2048
+ #ifndef	MAXHOSTNAMELEN
+ #define	MAXHOSTNAMELEN	256
+ #endif	/* MAXHOSTNAMELEN */
+@@ -256,7 +256,9 @@
+ #endif	/* HAVE_SYSLOG */
+ 
+     /* Now format the actual message */
+-#if	HAVE_VSPRINTF
++#if	HAVE_VSNPRINTF
++    vsnprintf(cp, sizeof(outbuf) - (cp - outbuf), actual_format, ap);
++#elif	HAVE_VSPRINTF
+     vsprintf(cp, actual_format, ap);
+ #else	/* HAVE_VSPRINTF */
+     sprintf(cp, actual_format, ((int *) ap)[0], ((int *) ap)[1],
+@@ -843,7 +845,9 @@
+     syslogp = &outbuf[strlen(outbuf)];
+ 
+     /* Now format the actual message */
+-#ifdef	HAVE_VSPRINTF
++#ifdef	HAVE_VSNPRINTF
++    vsnprintf(syslogp, sizeof(outbuf) - (syslogp - outbuf), format, arglist);
++#elif	HAVE_VSPRINTF
+     vsprintf(syslogp, format, arglist);
+ #else	/* HAVE_VSPRINTF */
+     sprintf(syslogp, format, ((int *) arglist)[0], ((int *) arglist)[1],

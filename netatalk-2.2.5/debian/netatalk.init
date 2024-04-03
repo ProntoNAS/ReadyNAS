@@ -1,0 +1,104 @@
+#!/bin/sh
+
+# Guard to prevent execution of netatalk was removed.
+test -x /usr/sbin/afpd || exit 0
+
+# Set defaults. Please change these options in /etc/default/netatalk.
+AFPD_UAMLIST="-U uams_dhx.so,uams_clrtxt.so,uams_randnum.so"
+AFPD_GUEST=nobody
+AFPD_MAX_CLIENTS=50
+ATALK_ZONE=
+ATALK_NAME=`/bin/hostname --short`
+ATALK_BGROUND=no
+
+# Read in netatalk configuration.
+if [ -f /etc/default/netatalk ]; then
+  . /etc/default/netatalk
+fi
+
+OPTIONS_AFP="$AFPD_UAMLIST -g $AFPD_GUEST -c $AFPD_MAX_CLIENTS -n $ATALK_NAME$ATALK_ZONE"
+
+# Start Netatalk servers.
+atalk_startup() {
+    if [ "$ATALKD_RUN" = "yes" ]; then
+	# Quickly probe for appletalk if it was supposed to be loaded.
+	if grep -q '^appletalk$' /etc/modules; then
+	    /sbin/modprobe appletalk || echo "[could not load appletalk module]"
+	fi
+
+	# Start atalkd server.
+	/usr/sbin/atalkd
+
+	# register workstation
+	/usr/bin/nbprgstr -p 4 "$ATALK_NAME:Workstation$ATALK_ZONE"
+	/usr/bin/nbprgstr -p 4 "$ATALK_NAME:netatalk$ATALK_ZONE"
+
+	echo -n " atalkd"
+    fi
+
+    if [ "$AFPD_RUN" = "yes" ]; then
+	/usr/sbin/afpd $OPTIONS_AFP
+	echo -n " afpd"
+    fi
+
+    if [ "$ATALKD_RUN" = "yes" -a "$PAPD_RUN" = "yes" ]; then
+	/usr/sbin/papd
+	echo -n " papd"
+    fi
+
+    if [ "$TIMELORD_RUN" = "yes" ]; then
+	/usr/sbin/timelord
+	echo -n " timelord"
+    fi
+}
+
+
+case "$1" in
+    start)
+	if test "x${ATALK_BGROUND}" = "xyes"; then
+	    echo "Starting AppleTalk services in the background."
+	    atalk_startup >/dev/null &
+	else
+	    echo -n "Starting AppleTalk services (this will take a while): "
+	    atalk_startup
+	    echo "."
+	fi
+    ;;
+
+    stop)
+	echo -n "Stopping AppleTalk Daemons:"
+	echo -n " afpd"; \
+	start-stop-daemon --stop --quiet --oknodo --exec /usr/sbin/afpd
+
+	echo -n " papd"; \
+	start-stop-daemon --stop --quiet --oknodo --exec /usr/sbin/papd
+
+	echo -n " timelord"; \
+	start-stop-daemon --stop --quiet --oknodo --exec /usr/sbin/timelord
+
+	echo -n " atalkd"; \
+	start-stop-daemon --stop --quiet --oknodo --exec /usr/sbin/atalkd
+
+	echo "."
+    ;;
+    
+    restart)
+	$0 force-reload
+    ;;
+
+    force-reload)
+	echo -n "Restarting AppleTalk Daemons (this will take a while)"
+	/etc/init.d/netatalk stop > /dev/null 2>&1
+	echo -n "."
+	sleep 2
+	echo -n "."
+	if /etc/init.d/netatalk start > /dev/null 2>&1; then
+		echo "done."
+	fi
+    ;;
+  
+    *)
+	echo "Usage: /etc/init.d/netatalk {start|stop|restart|force-reload}" >&2
+	exit 1
+    ;;
+esac

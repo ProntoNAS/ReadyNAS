@@ -1,0 +1,87 @@
+#!/bin/sh
+# Security checks script - run daily out of the system crontab
+
+set -e
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+
+umask 027
+cd /
+
+. /etc/checksecurity.conf
+
+if [ "$CHECKSECURITY_DISABLE" = "TRUE" ] ; then
+    exit
+fi
+
+if [ -z "$CHECKSECURITY_GREPOUT" ]; then
+    CHECKSECURITY_GREPOUT="$^"
+fi
+
+TMPSETUID=${LOGDIR:=/var/log}/setuid.new.tmp
+TMPDIFF=${LOGDIR:=/var/log}/setuid.diff.tmp
+
+#
+# Check for NFS/AFS mounts that are not nosuid/nodev
+#
+if [ ! "$CHECKSECURITY_NONFSAFS" = "TRUE" ] ; then
+   # temporarily disable error exit, as grep may give errors if no nfs/afs
+   # are mounted.
+   set +e
+   nfssys=`mount | grep -E 'nfs|afs' | grep -vE '\(.*(nosuid|noexec).*nodev.*\)'`
+   nfssyscnt=`echo $nfssys |grep "[a-z]"| wc -l`
+   set -e
+   if [ $nfssyscnt -gt 0 ] ; then
+      echo "The following NFS or AFS filesystems are mounted insecurely:"
+      echo ""
+      echo $nfssys
+      echo ""
+      echo "If this is intentional and you have supreme confidence in the"
+      echo "security of the server for these file systems, you may disable"
+      echo "this message by editing the value of CHECKSECURITY_NONFSAFS in"
+      echo "the file /etc/checksecurity.conf."
+   fi
+fi
+
+if [ "$CHECKSECURITY_NOFINDERRORS" = "TRUE" ] ; then
+	exec 9>&2
+	exec 2>/dev/null
+fi
+
+
+# This is the only way to pass '*' through a variable (NODEVDIRS)  -- Marc
+set -o noglob
+find `mount | grep -vE "$CHECKSECURITY_FILTER" | cut -d ' ' -f 3` \
+    -xdev \(  $CHECKSECURITY_PATHFILTER \) -prune -o \
+    \( -type f -perm +06000 -o \
+    \( \( -type b -o -type c \) -a -not \( $CHECKSECURITY_DEVICEFILTER \) \) \) \
+    -printf "%8i %5m %3n %-10u %-10g %9s %t %h/%f\n" | sort >$TMPSETUID
+set +o noglob
+
+if [ "$CHECKSECURITY_NOFINDERRORS" = "TRUE" ] ; then
+	exec 2>&9
+fi
+
+cd $LOGDIR
+
+test -f setuid.today || touch setuid.today
+
+if cmp -s setuid.today $TMPSETUID >/dev/null
+then
+    :
+else
+	diff -u0 setuid.today $TMPSETUID >> $TMPDIFF || [ $? = 1 ]
+	echo "`hostname` changes to setuid programs and devices:" 
+	cat $TMPDIFF 
+	
+	if [ `cat $TMPDIFF | wc -l` -gt 0 -a ! -z "$CHECKSECURITY_EMAIL" ]; then
+		/usr/bin/mail -s "Setuid changes for `hostname -f` on `date '+%D %T'`" $CHECKSECURITY_EMAIL < $TMPDIFF
+	fi
+	
+	mv setuid.today setuid.yesterday
+	mv $TMPSETUID setuid.today
+        chown root.adm setuid.today
+fi
+rm -f $TMPDIFF
+rm -f $TMPSETUID

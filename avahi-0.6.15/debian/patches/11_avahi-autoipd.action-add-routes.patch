@@ -1,0 +1,30 @@
+--- avahi-autoipd/avahi-autoipd.action.old	2006-10-20 09:42:33.732375000 +0200
++++ avahi-autoipd/avahi-autoipd.action	2006-10-20 09:44:35.003954000 +0200
+@@ -36,11 +36,13 @@
+ 
+     case "$1" in
+         BIND)
+-            ip addr add "$3"/16 brd 169.254.255.255 label "$2:avahi" scope link dev "$2" 
++            ip addr add "$3"/16 brd 169.254.255.255 label "$2:avahi" scope link dev "$2"
++            ip route add default dev "$2" metric 1000 scope link || true
+             ;;
+ 
+         CONFLICT|UNBIND|STOP)
+             ip addr del "$3"/16 brd 169.254.255.255 label "$2:avahi" scope link dev "$2" 
++            ip route del default dev "$2" metric 1000 scope link || true
+             ;;
+ 
+         *)
+@@ -56,10 +58,12 @@
+     case "$1" in
+         BIND)
+             ifconfig "$2:3" inet "$3" netmask 255.255.0.0 broadcast 169.254.255.255 up
++            route add default dev "$2:3" metric 1000 || true
+             ;;
+ 
+         CONFLICT|STOP|UNBIND)
+             ifconfig "$2:3" down
++            route del default dev "$2:3" metric 1000 || true
+             ;;
+ 
+         *)

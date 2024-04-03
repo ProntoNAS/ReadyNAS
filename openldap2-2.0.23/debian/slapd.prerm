@@ -1,0 +1,37 @@
+#!/bin/sh
+
+pkg=slapd
+
+set -e
+
+update_doclink() {
+	if [ -L /usr/doc/$pkg  ] ; then
+		rm -f /usr/doc/$pkg
+	fi
+
+}
+
+
+stop_all() {
+	if [ -x /etc/init.d/slapd ] ; then
+		/etc/init.d/slapd stop
+	fi
+}
+
+
+stop_slurp() {
+	if grep -q '^replica' /etc/ldap/slapd.conf > /dev/null 2>&1 ; then
+		start-stop-daemon --stop --quiet --exec /usr/sbin/slurpd
+	fi
+}
+
+
+if [ "$1" = "remove" ] ; then
+	update_doclink
+	stop_all
+elif [ "$1" = "upgrade" ] ; then
+	stop_slurp
+fi
+
+exit 0
+

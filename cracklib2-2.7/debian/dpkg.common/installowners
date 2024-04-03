@@ -1,0 +1,75 @@
+#!/bin/sh
+#
+# source:
+#   /var/cvs/projects/debian/dpkg.common/installowners,v
+#
+# revision:
+#   @(#) installowners,v 1.2 1999/03/08 04:34:57 jplejacq Exp
+#
+# copyright:
+#   Copyright (C) 1999 Jean Pierre LeJacq <jplejacq@quoininc.com>
+#
+#   Distributed under the GNU GENERAL PUBLIC LICENSE.
+#
+# synopsis:
+#   installowners -p <DH_DOPACKAGES> -P <DH_TMPDIR>
+#
+# description:
+#   Adjust owners of directories and files in DH_TMPDIR
+#
+#   This needs to be done as the last thing before the binary package
+#   is built with dpkg-deb.  This minimizes the need to be root to
+#   build the package.  Instead, regular users can be granted access
+#   (with super or sudo) to only chown.  This is useful when using
+#   dpkg-buildpackage which signs the resulting package with the
+#   builder's pgp key.
+#
+#   This program is package independent and should work unmodified
+#   with any package.  Package overrides can be implemented by
+#   providing a file with the name "debian/dpkg.scripts/installowners"
+#   with a function "install_owners_override()".
+#
+#   I've implemented argument parsing with the debhelper package.
+
+
+
+install_owners()
+# postconditions:
+#   Return 0 if successful, non-zero if not.
+#
+# description:
+#   Adjust owners of directories and files in DH_TMPDIR
+{
+  echo "${0}: setting ownership of package files..."
+    chown -R root:root ${DH_TMPDIR}
+
+
+  return 0
+}
+
+
+# main:
+  set -e
+
+
+  . debian/dpkg.common/substfiles 
+  . debian/dpkg.scripts/substfiles
+
+
+  echo "${0}: parsing arguments..."
+    readonly DH_DOPACKAGES=$(./debian/dpkg.common/get_option_dopackages ${@})
+    readonly DH_TMPDIR=$(./debian/dpkg.common/get_option_tmpdir ${@})
+
+
+  if [ -f "./debian/dpkg.scripts/installowners" ]
+  then
+    echo "${0}: include overrides..."
+      . ./debian/dpkg.scripts/installowners
+
+    install_owners_override
+  else
+    install_owners
+  fi
+
+
+  exit 0

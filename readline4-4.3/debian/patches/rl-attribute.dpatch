@@ -1,0 +1,47 @@
+#! /bin/sh -e
+
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch $pdir -f --no-backup-if-mismatch -p0 < $0;;
+    -unpatch) patch $pdir -f --no-backup-if-mismatch -R -p0 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# DP: do not redefine __attribute__
+
+--- readline.h~	2002-07-31 20:09:09.000000000 +0200
++++ readline.h	2003-05-26 08:50:59.000000000 +0200
+@@ -360,7 +360,7 @@
+ extern int rl_crlf PARAMS((void));
+ 
+ #if (defined (__STDC__) || defined (__cplusplus)) && defined (USE_VARARGS) && defined (PREFER_STDARG)
+-extern int rl_message (const char *, ...)  __attribute__((__format__ (printf, 1, 2)));
++extern int rl_message (const char *, ...)  __rl_attribute__((__format__ (printf, 1, 2)));
+ #else
+ extern int rl_message ();
+ #endif
+--- rlstdc.h~	2003-05-29 16:51:35.000000000 +0200
++++ rlstdc.h	2003-05-29 16:53:47.000000000 +0200
+@@ -36,10 +36,10 @@
+ #  endif
+ #endif
+ 
+-#ifndef __attribute__
+-#  if __GNUC__ < 2 || (__GNUC__ == 2 && __GNUC_MINOR__ < 8) || __STRICT_ANSI__
+-#    define __attribute__(x)
+-#  endif
++#if defined(__GNUC__) && __GNUC__ >= 2
++#  define __rl_attribute__(x) __attribute__(x)
++#else
++#  define __rl_attribute__(x)
+ #endif
+ 
+ #endif /* !_RL_STDC_H_ */

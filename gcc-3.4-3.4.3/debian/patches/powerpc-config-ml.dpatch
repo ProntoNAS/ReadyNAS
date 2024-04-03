@@ -1,0 +1,75 @@
+#! /bin/sh -e
+
+# powerpc-config-ml.dpatch by Matthias Klose <doko@debian.org>
+#
+# DP: disable some biarch libraries for powerpc64 build
+
+if [ $# -eq 3 ] && [ "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+       -patch) patch $pdir -f --no-backup-if-mismatch -p0 < $0;;
+       -unpatch) patch $pdir -f --no-backup-if-mismatch -R -p0 < $0;;
+	*)
+		echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+		exit 1;;
+esac
+
+exit 0
+				    
+--- config-ml.in	2004-01-05 00:41:14.000000000 +0000
++++ config-ml.in~	2004-11-14 14:13:30.409034784 +0000
+@@ -489,6 +489,49 @@
+ 	    esac
+ 	  done
+ 	fi
++	echo "**********************************************************************************************"
++	echo "ml_realsrcdir: $ml_realsrcdir"
++	echo "multidirs: $multidirs"
++	case " $multidirs " in
++	*" 64 "*)
++	  # We will not be able to create libraries with -m64 if
++	  # we cannot even link a trivial program.  It usually
++	  # indicates the 64bit libraries are missing.
++	  if echo 'main() {}' > conftest.c &&
++	     ${CC-gcc} -m64 conftest.c -o conftest; then
++	    echo Enable only libstdc++.
++	    old_multidirs="${multidirs}"
++	    multidirs=""
++	    for x in ${old_multidirs}; do
++	      case "$x" in
++	      *64* ) case ${ml_realsrcdir} in
++			*"libstdc++-v3" ) multidirs="${multidirs} ${x}" ;;
++			*"libf2c" ) multidirs="${multidirs} ${x}" ;;
++			*"libobjc" ) multidirs="${multidirs} ${x}" ;;
++			*"libiberty" ) multidirs="${multidirs} ${x}" ;;
++			*"zlib" ) multidirs="${multidirs} ${x}" ;;
++			*) : ;;
++		     esac 
++		     ;;
++	      *) multidirs="${multidirs} ${x}" ;;
++	      esac
++	    done
++	  else
++	    echo Could not link program with -m64, disabling it.
++	    old_multidirs="${multidirs}"
++	    multidirs=""
++	    for x in ${old_multidirs}; do
++	      case "$x" in
++	      *64* ) : ;;
++	      *) multidirs="${multidirs} ${x}" ;;
++	      esac
++	    done
++	  fi
++	  rm -f conftest.c conftest
++	  ;;
++	esac
++	echo "multidirs: $multidirs"
++	echo "**********************************************************************************************"
+ 	;;
+ sparc*-*-*)
+ 	case " $multidirs " in

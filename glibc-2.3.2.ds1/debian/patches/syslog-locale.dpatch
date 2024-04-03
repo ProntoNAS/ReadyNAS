@@ -1,0 +1,58 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: Use C Locale for Syslog Messages
+# DP: Related bugs: 207619
+# DP: Dpatch author: Jeff Bailey
+# DP: Patch author: Jakub Jelinek  <jakub@redhat.com>
+# DP: Upstream status: In CVS
+# DP: Status Details: 
+# DP: Date: 2004-07-27
+
+PATCHLEVEL=0
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p$PATCHLEVEL < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p$PATCHLEVEL < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+2003-09-25  Jakub Jelinek  <jakub@redhat.com>
+
+        * misc/syslog.c: Include locale.h.
+        (vsyslog): Add date always in C locale %h %e %T format.
+
+# append the patch here and adjust the -p? flag in the patch calls.
+--- misc/syslog.c	2004-03-24 10:45:27.000000000 -0500
++++ misc/syslog.c	2004-07-27 14:33:21.000000000 -0400
+@@ -48,6 +48,7 @@
+ #include <stdlib.h>
+ #include <bits/libc-lock.h>
+ #include <signal.h>
++#include <locale.h>
+ 
+ #if __STDC__
+ #include <stdarg.h>
+@@ -187,10 +188,11 @@
+ 	    prioff = fprintf (f, "<%d>", pri);
+ 	    (void) time (&now);
+ #ifdef USE_IN_LIBIO
+-	    f->_IO_write_ptr += strftime (f->_IO_write_ptr,
+-					  f->_IO_write_end - f->_IO_write_ptr,
+-					  "%h %e %T ",
+-					  __localtime_r (&now, &now_tm));
++	    f->_IO_write_ptr += __strftime_l (f->_IO_write_ptr,
++					      f->_IO_write_end - f->_IO_write_ptr,
++					      "%h %e %T ",
++					      __localtime_r (&now, &now_tm),
++					      &_nl_C_locobj);
+ #else
+ 	    f->__bufp += strftime (f->__bufp, f->__put_limit - f->__bufp,
+ 				   "%h %e %T ", __localtime_r (&now, &now_tm));

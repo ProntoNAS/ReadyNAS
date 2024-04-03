@@ -1,0 +1,255 @@
+#! /bin/sh -e
+
+# DP: MD_FALLBACK_FRAME_STATE_FOR definition for pa32-linux
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        cd ${dir}libjava && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+From: "John David Anglin" <dave@hiauly1.hia.nrc.ca>
+Sender: gcc-patches-owner@gcc.gnu.org
+To: randolph@tausq.org
+Cc: gcc-patches@gcc.gnu.org
+Subject: Re: [patch/hppa-linux] MD_FALLBACK_FRAME_STATE_FOR definition
+Date: Thu, 8 Jul 2004 23:44:54 -0400 (EDT)
+
+I committed the following, slightly revised version, of your patch.
+The libjava portion was previously approved.
+
+Tested on hppa-unknown-linux-gnu.  Installed to trunk.
+
+Thanks,
+Dave
+-- 
+J. David Anglin                                  dave.anglin@nrc-cnrc.gc.ca
+National Research Council of Canada              (613) 990-0752 (FAX: 952-6602)
+
+2004-07-08  Randolph Chung  <tausq@debian.org>
+
+	* gcc/config/pa/pa32-linux.h (MD_FALLBACK_FRAME_STATE_FOR): Define.
+
+	* libjava/configure.in (SIGNAL_HANDLER): Use pa-signal.h for hppa.
+	* libjava/configure: Regenerate.
+	* libjava/configure.host: Set can_unwind_signal for hppa*-linux.
+	* libjava/pa-signal.h: New file.
+
+Index: gcc/config/pa/pa32-linux.h
+===================================================================
+RCS file: /cvs/gcc/gcc/gcc/config/pa/pa32-linux.h,v
+retrieving revision 1.12
+diff -u -3 -p -r1.12 pa32-linux.h
+--- gcc/config/pa/pa32-linux.h	23 Aug 2003 01:32:59 -0000	1.12
++++ gcc/config/pa/pa32-linux.h	9 Jul 2004 03:12:51 -0000
+@@ -35,3 +35,97 @@ Boston, MA 02111-1307, USA.  */
+     __attribute__ ((__unused__, section(".ctors"),			\
+ 		    aligned(sizeof(func_ptr))))				\
+     = { (func_ptr) (-1) }
++
++/* Do code reading to identify a signal frame, and set the frame
++   state data appropriately.  See unwind-dw2.c for the structs.  */
++
++#ifdef IN_LIBGCC2
++#include <signal.h>
++#include <sys/ucontext.h>
++
++/* Unfortunately, because of various bugs and changes to the kernel,
++   we have several cases to deal with.
++
++   In 2.4, the signal trampoline is 4 words, and (CONTEXT)->ra should
++   point directly at the beginning of the trampoline and struct rt_sigframe.
++
++   In <= 2.6.5-rc2-pa3, the signal trampoline is 9 words, and 
++   (CONTEXT)->ra points at the 4th word in the trampoline structure.  This 
++   is wrong, it should point at the 5th word.  This is fixed in 2.6.5-rc2-pa4.
++
++   To detect these cases, we first take (CONTEXT)->ra, align it to 64-bytes
++   to get the beginning of the signal frame, and then check offsets 0, 4
++   and 5 to see if we found the beginning of the trampoline.  This will
++   tell us how to locate the sigcontext structure.
++
++   Note that with a 2.4 64-bit kernel, the signal context is not properly
++   passed back to userspace so the unwind will not work correctly.  */
++#define MD_FALLBACK_FRAME_STATE_FOR(CONTEXT, FS, SUCCESS)		\
++  do {									\
++    unsigned long sp = (unsigned long)(CONTEXT)->ra & ~63;		\
++    unsigned int *pc = (unsigned int *)sp;				\
++    unsigned long off;							\
++    _Unwind_Ptr new_cfa;						\
++    int i;								\
++    struct sigcontext *sc;						\
++    struct rt_sigframe {						\
++      struct siginfo info;						\
++      struct ucontext uc;						\
++    } *frame;								\
++									\
++    /* rt_sigreturn trampoline: 					\
++       3419000x ldi 0, %r25 or ldi 1, %r25   (x = 0 or 2)  		\
++       3414015a ldi __NR_rt_sigreturn, %r20 				\
++       e4008200 be,l 0x100(%sr2, %r0), %sr0, %r31 			\
++       08000240 nop  */							\
++    									\
++    if (pc[0] == 0x34190000 || pc[0] == 0x34190002)			\
++      off = 4*4;							\
++    else if (pc[4] == 0x34190000 || pc[4] == 0x34190002)		\
++      {									\
++	pc += 4;							\
++	off = 10 * 4;							\
++      }									\
++    else if (pc[5] == 0x34190000 || pc[5] == 0x34190002)		\
++      {									\
++	pc += 5;							\
++	off = 10 * 4;							\
++      }									\
++    else								\
++      break;								\
++    if (pc[1] != 0x3414015a 						\
++	|| pc[2] != 0xe4008200 						\
++	|| pc[3] != 0x08000240)						\
++      break;								\
++									\
++    frame = (struct rt_sigframe *)(sp + off);				\
++    sc = &frame->uc.uc_mcontext;					\
++									\
++    new_cfa = sc->sc_gr[30];						\
++    (FS)->cfa_how = CFA_REG_OFFSET;					\
++    (FS)->cfa_reg = 30;							\
++    (FS)->cfa_offset = new_cfa - (long) (CONTEXT)->cfa;			\
++    for (i = 1; i <= 31; i++)						\
++      {									\
++	(FS)->regs.reg[i].how = REG_SAVED_OFFSET;			\
++	(FS)->regs.reg[i].loc.offset = (long)&sc->sc_gr[i] - new_cfa;	\
++      }									\
++    for (i = 4; i <= 31; i++)						\
++      {									\
++	/* FP regs have left and right halves */			\
++	(FS)->regs.reg[2*i+24].how = REG_SAVED_OFFSET;			\
++	(FS)->regs.reg[2*i+24].loc.offset				\
++	  = (long)&sc->sc_fr[i] - new_cfa;				\
++	(FS)->regs.reg[2*i+24+1].how = REG_SAVED_OFFSET;		\
++	(FS)->regs.reg[2*i+24+1].loc.offset				\
++	  = (long)&sc->sc_fr[i] + 4 - new_cfa;				\
++      }									\
++    (FS)->regs.reg[88].how = REG_SAVED_OFFSET;				\
++    (FS)->regs.reg[88].loc.offset = (long) &sc->sc_sar - new_cfa;	\
++    (FS)->regs.reg[2].how = REG_SAVED_OFFSET;				\
++    (FS)->regs.reg[2].loc.offset = (long) &sc->sc_iaoq[0] - new_cfa;	\
++    (FS)->retaddr_column = 2;						\
++    goto SUCCESS;							\
++  } while (0)
++
++#endif /* IN_LIBGCC2 */
+Index: libjava/configure.host
+===================================================================
+RCS file: /cvs/gcc/gcc/libjava/configure.host,v
+retrieving revision 1.59
+diff -u -3 -p -r1.59 configure.host
+--- libjava/configure.host	7 Jul 2004 18:23:59 -0000	1.59
++++ libjava/configure.host	9 Jul 2004 03:12:51 -0000
+@@ -169,6 +169,7 @@ case "${host}" in
+   sparc*-linux* | \
+   ia64-* | \
+   x86_64*-linux* | \
++  hppa*-linux* | \
+   sh-linux* | sh[34]*-linux*)
+   	can_unwind_signal=yes
+ 	if test x$slow_pthread_self = xyes \
+Index: libjava/configure.in
+===================================================================
+RCS file: /cvs/gcc/gcc/libjava/configure.in,v
+retrieving revision 1.186
+diff -u -3 -p -r1.186 configure.in
+--- libjava/configure.in	1 Jul 2004 04:09:07 -0000	1.186
++++ libjava/configure.in	9 Jul 2004 03:12:51 -0000
+@@ -1177,6 +1177,9 @@ case "${host}" in
+ #    SYSDEP_SOURCES=sysdep/ia64.c
+ #    test -d sysdep || mkdir sysdep
+ #    ;;
++ hppa*-*-linux*)
++    SIGNAL_HANDLER=include/pa-signal.h
++    ;;
+  ia64-*-linux*)
+     SIGNAL_HANDLER=include/dwarf2-signal.h
+     ;;
+--- libjava/include/pa-signal.h	2004-05-04 13:30:25.000000000 -0700
++++ libjava/include/pa-signal.h	2004-05-04 13:30:25.000000000 -0700
+@@ -0,0 +1,61 @@
++// pa-signal.h - Catch runtime signals and turn them into exceptions.
++
++/* Copyright (C) 1998, 1999, 2000  Free Software Foundation
++
++   This file is part of libgcj.
++
++This software is copyrighted work licensed under the terms of the
++Libgcj License.  Please consult the file "LIBGCJ_LICENSE" for
++details.  */
++
++#ifndef JAVA_SIGNAL_H
++#define JAVA_SIGNAL_H 1
++
++#include <signal.h>
++#include <ucontext.h>
++#include <sys/syscall.h>
++
++#define HANDLE_SEGV 1
++#define HANDLE_FPE 1
++
++#define SIGNAL_HANDLER(_name) 					\
++static void _Jv_##_name (int _dummy, siginfo_t *_info, void *arg)
++
++#define MAKE_THROW_FRAME(_exception)				\
++do								\
++{								\
++  struct ucontext *uc = (struct ucontext *)arg;			\
++  struct sigcontext *sc = &uc->uc_mcontext;			\
++  (void)_dummy;							\
++  (void)_info;							\
++  /* Advance the program counter so that it is after the start 	\
++     of the instruction:  the exception handler expects		\
++     the PC to point to the instruction after a call. */	\
++  sc->sc_iaoq[0] = sc->sc_iaoq[1];				\
++  sc->sc_iaoq[1] += 4;						\
++}								\
++while (0)
++
++#define INIT_SEGV						\
++do								\
++  {								\
++    struct sigaction act;					\
++    act.sa_sigaction = _Jv_catch_segv;      			\
++    sigemptyset (&act.sa_mask);					\
++    act.sa_flags = SA_SIGINFO;	       				\
++    syscall (SYS_rt_sigaction, SIGSEGV, &act, NULL, _NSIG / 8);	\
++  }								\
++while (0)  
++
++#define INIT_FPE						\
++do								\
++  { 								\
++    struct sigaction act;					\
++    act.sa_sigaction = _Jv_catch_fpe;				\
++    sigemptyset (&act.sa_mask);					\
++    act.sa_flags = SA_SIGINFO;		       			\
++    syscall (SYS_rt_sigaction, SIGFPE, &act, NULL, _NSIG / 8);	\
++  }								\
++while (0)  
++
++#endif /* JAVA_SIGNAL_H */

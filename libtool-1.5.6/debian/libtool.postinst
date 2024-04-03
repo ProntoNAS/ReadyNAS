@@ -1,0 +1,85 @@
+#!/bin/sh
+
+set -e
+
+compiler_check()
+{
+	# Check for a working C compiler
+	#
+	# This check needs to be done since C compiler alternatives may not
+	# be up to date and may point to a bogus C compiler.  This would
+	# cause libtool's ltconfig script to choke during the postinst
+	# phase of installation.
+	#
+	# Check for an executable file with the name `cc'.  If it doesn't
+	# exist then check for gcc.  If gcc exists then update the C
+	# compiler alternatives to point to gcc.
+	if test -x /usr/bin/cc; then
+		: # Success
+	elif test -x /usr/bin/gcc; then
+		# gcc installed, but not linked to cc
+		update-alternatives --install \
+			/usr/bin/cc cc /usr/bin/gcc 20 \
+			--slave /usr/share/man/man1/cc.1.gz cc.1.gz \
+				/usr/share/man/man1/gcc.1.gz
+	elif test -x /usr/bin/gcc-3.2; then
+		# Only gcc 3.2 installed
+		update-alternatives --install \
+			/usr/bin/cc cc /usr/bin/gcc-3.2 20 \
+			--slave /usr/share/man/man1/cc.1.gz cc.1.gz \
+				/usr/share/man/man1/gcc-3.2.1.gz
+	elif test -x /usr/bin/gcc-3.3; then
+		# Only gcc 3.3 installed
+		update-alternatives --install \
+			/usr/bin/cc cc /usr/bin/gcc-3.3 20 \
+			--slave /usr/share/man/man1/cc.1.gz cc.1.gz \
+				/usr/share/man/man1/gcc-3.3.1.gz
+	elif test -x /usr/bin/gcc-3.4; then
+		# Only gcc 3.4 installed
+		update-alternatives --install \
+			/usr/bin/cc cc /usr/bin/gcc-3.4 20 \
+			--slave /usr/share/man/man1/cc.1.gz cc.1.gz \
+				/usr/share/man/man1/gcc-3.4.1.gz
+	elif test -x /usr/bin/gcc-4.0; then
+		# Only gcc 4.0 installed
+		update-alternatives --install \
+			/usr/bin/cc cc /usr/bin/gcc-4.0 20 \
+			--slave /usr/share/man/man1/cc.1.gz cc.1.gz \
+				/usr/share/man/man1/gcc-4.0.1.gz
+	else
+		echo "No C compiler found, please install one." >&2
+		exit 1
+	fi
+}
+
+autotools_dev()
+{
+	# Use links to the config.{guess,sub} scripts found in the
+	# autotools-dev package instead of using the potentially old
+	# versions of those scripts shipped with this distribution.
+	cd /usr/share/libtool && rm -f config.guess config.sub
+	for p in config.guess config.sub; do
+		ln -s ../misc/$p /usr/share/libtool/$p
+	done
+}
+
+case "$1" in
+configure)
+	compiler_check
+	autotools_dev
+	;;
+
+abort-upgrade|abort-remove|abort-deconfigure)
+	# Old package removed some files here, and I'm not sure why, so
+	# we don't.
+	;;
+
+*)
+	echo "postinst called with unknown argument \`$1'" >&2
+	exit 1
+	;;
+esac
+
+#DEBHELPER#
+
+exit 0

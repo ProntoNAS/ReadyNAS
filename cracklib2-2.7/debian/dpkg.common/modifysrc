@@ -1,0 +1,99 @@
+#!/bin/sh
+#
+# source:
+#   /var/cvs/projects/debian/dpkg.common/modifysrc,v
+#
+# revision:
+#   @(#) modifysrc,v 1.4 1999/03/29 15:12:02 jplejacq Exp
+#
+# copyright:
+#   Copyright (C) 1999 Jean Pierre LeJacq <jplejacq@quoininc.com>
+#
+#   Distributed under the GNU GENERAL PUBLIC LICENSE.
+#
+# synopsis:
+#   modifysrc -p <DH_DOPACKAGES>
+#
+# description:
+#   Modification program for package pristine source
+#
+#   The changes made to the pristine source for this debian package
+#   have been parameterized to support relocation of the files.  All
+#   installed file and directory locations are specified in
+#   debian/dpkg.scripts/substfiles.  This program reads that file and
+#   takes each file in debian/src and makes the required
+#   modifications.
+#
+#   This program is package independent and should work unmodified
+#   with any package.  Package overrides can be implemented by
+#   providing a file with the name "debian/dpkg.scripts/modifysrc"
+#   with a function "modify_src_override()".
+#
+#   I've implemented argument parsing with the debhelper package.
+
+
+
+modify_src()
+# postconditions:
+#   Return 0 if successful, non-zero if not.
+#
+# description:
+#   Modify package pristine source.
+{
+  echo "${0}: unpacking source..."
+    if [ ! -d "${DH_DOPACKAGES}.src" ]
+    then
+      if [ -f "../${pvo}" ];
+      then
+        tar -z -x -f "../${pvo}"
+        mv "${d_pkg_src_unpacked}" "${DH_DOPACKAGES}.src"
+      else
+        # Simulate unpacking an already unpacked source
+        mkdir "${DH_DOPACKAGES}.src"
+        find . -path './debian' -prune -o \
+             -path './*.src' -prune -o \
+             -path './*.tmp' -prune -o \
+             \( \
+               -type f -a \
+               \! \( \
+                 -name \*.stamp-build -o \
+                 -name \*.stamp-modify -o \
+                 -name \*.stamp-modify -o \
+                 -name scheme-standard -o \
+                 -name scheme-opt \
+               \) \
+             \) -print0 \
+        | cpio --pass-through --make-directories --no-preserve-owner --null \
+	       "${DH_DOPACKAGES}.src"
+      fi
+    fi
+
+
+  return 0
+}
+
+
+
+# main:
+  set -e
+
+  . debian/dpkg.common/substfiles 
+  . debian/dpkg.scripts/substfiles
+
+
+  echo "${0}: parsing arguments..."
+    readonly DH_DOPACKAGES=$(./debian/dpkg.common/get_option_dopackages ${@})
+
+
+  if [ -f "./debian/dpkg.scripts/modifysrc" ]
+  then
+    echo "${0}: include overrides..."
+      . ./debian/dpkg.scripts/modifysrc
+
+    modify_src_override
+  else
+    modify_src
+  fi
+
+
+  exit 0

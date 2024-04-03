@@ -1,0 +1,249 @@
+diff -urN shadow-20000902.orig/src/login.c shadow-20000902/src/login.c
+--- shadow-20000902.orig/src/login.c	Mon Oct 23 13:56:25 2000
++++ shadow-20000902/src/login.c	Mon Oct 23 13:58:39 2000
+@@ -63,6 +63,10 @@
+ #include <sys/sysi86.h>
+ #endif
+ 
++#ifndef MAXHOSTNAMELEN
++#define MAXHOSTNAMELEN 64
++#endif
++
+ #ifdef RADIUS
+ /*
+  * Support for RADIUS authentication based on a hacked util-linux login
+@@ -477,7 +481,7 @@
+ 
+ 	check_flags(argc, argv);
+ 
+-	while ((flag = getopt(argc, argv, "d:f:h:pr:")) != EOF) {
++	while ((flag = getopt(argc, argv, "d:f::h:pr:")) != EOF) {
+ 		switch (flag) {
+ 		case 'p':
+ 			pflg++;
+@@ -486,11 +490,16 @@
+ 			/*
+ 			 * username must be a separate token
+ 			 * (-f root, *not* -froot).  --marekm
++			 *
++			 * if -f has an arg, use that, else use the
++			 * normal user name passed after all options
++			 * --benc
+ 			 */
+-			if (optarg != argv[optind - 1])
++			if (optarg != NULL && optarg != argv[optind - 1])
+ 				usage();
+ 			fflg++;
+-			STRFCPY(username, optarg);
++			if (optarg)
++				STRFCPY(username, optarg);
+ 			break;
+ #ifdef	RLOGIN
+ 		case 'r':
+@@ -637,7 +646,7 @@
+ 	init_env();
+ 
+ 	if (optind < argc) {		/* get the user name */
+-		if (rflg || fflg)
++		if (rflg || (fflg && username[0]))
+ 			usage();
+ 
+ #ifdef SVR4
+@@ -747,50 +756,88 @@
+ 		if (pam_user[0] == '\0')
+ 			pam_set_item(pamh, PAM_USER, NULL);
+ 
+-		/* there may be better ways to deal with some of these
+-		   conditions, but at least this way I don't think we'll
+-		   be giving away information... */
+ 		/* Perhaps someday we can trust that all PAM modules will
+ 		   pay attention to failure count and get rid of
+ 		   MAX_LOGIN_TRIES? */
+ 
+-		retcode = pam_authenticate(pamh, 0);
+-		while ((failcount++ < retries) &&
+-		       ((retcode == PAM_AUTH_ERR) ||
+-			(retcode == PAM_USER_UNKNOWN) ||
+-			(retcode == PAM_CRED_INSUFFICIENT) ||
+-			(retcode == PAM_AUTHINFO_UNAVAIL))) {
+-			pam_get_item(pamh, PAM_USER, (const void **) &pam_user);
+-			syslog(LOG_NOTICE,"FAILED LOGIN %d FROM %s FOR %s, %s",
+-				failcount, hostname, pam_user,
+-				PAM_STRERROR(pamh, retcode));
+-#ifdef HAVE_PAM_FAIL_DELAY
+-			pam_fail_delay(pamh, 1000000*delay);
+-#endif
+-			fprintf(stderr, "Login incorrect\n\n");
+-			pam_set_item(pamh, PAM_USER, NULL);
++		failcount = 0;
++		while (1) {
++			const char *failent_user;
++			failed = 0;
++
++			failcount++;
++			if (delay > 0)
++				retcode = pam_fail_delay(pamh, 1000000*delay);
++
+ 			retcode = pam_authenticate(pamh, 0);
+-		}
+ 
+-		if (retcode != PAM_SUCCESS) {
+ 			pam_get_item(pamh, PAM_USER, (const void **) &pam_user);
+ 
+-			if (retcode == PAM_MAXTRIES)
+-				syslog(LOG_NOTICE,
+-					"TOO MANY LOGIN TRIES (%d) FROM %s FOR %s, %s",
+-					failcount, hostname, pam_user,
+-					PAM_STRERROR(pamh, retcode));
+-			else
++			pwd = getpwnam(pam_user);
++			if (pwd) {
++				pwent = *pwd;
++				failent_user = pwent.pw_name;
++			} else {
++				if (getdef_bool("LOG_UNKFAIL_ENAB") && pam_user)
++					failent_user = pam_user;
++				else
++					failent_user = "UNKNOWN";
++			}
++
++			if (retcode == PAM_MAXTRIES || failcount >= retries) {
+ 				syslog(LOG_NOTICE,
+-					"FAILED LOGIN SESSION FROM %s FOR %s, %s",
+-					hostname, pam_user,
++					_("TOO MANY LOGIN TRIES (%d)%s FOR `%s'"),
++					failcount, fromhost, failent_user);
++				if (pwd && getdef_bool("FAILLOG_ENAB"))
++					failure (pwent.pw_uid, tty, &faillog);
++				fprintf(stderr,_("Maximum number of tries exceeded (%d)\n"),
++					failcount);
++				PAM_END;
++				exit(0);
++			} else if (retcode == PAM_ABORT) {
++				/* Serious problems, quit now */
++				fprintf(stderr,_("login: abort requested by PAM\n"));
++				syslog(LOG_ERR,_("PAM_ABORT returned from pam_authenticate()"));
++				PAM_END;
++				exit(99);
++			} else if (retcode != PAM_SUCCESS) {
++				syslog(LOG_NOTICE,_("FAILED LOGIN (%d)%s FOR `%s', %s"),
++					failcount, fromhost, failent_user,
+ 					PAM_STRERROR(pamh, retcode));
++				failed = 1;
++			}
++			if (pwd && getdef_bool("FAILLOG_ENAB") &&
++			   ! failcheck (pwent.pw_uid, &faillog, failed)) {
++				SYSLOG((LOG_CRIT, FAILURE_CNT, failent_user, fromhost));
++				failed = 1;
++			}
+ 
+-			fprintf(stderr, "\nLogin incorrect\n");
+-			pam_end(pamh, retcode);
+-			exit(0);
++			if (!failed)
++				break;
++
++			fprintf(stderr,"Login incorrect\n\n");
++			if (pwd && getdef_bool("FAILLOG_ENAB"))
++				failure (pwent.pw_uid, tty, &faillog);
++			if (getdef_str("FTMP_FILE") != NULL) {
++ #if HAVE_UTMPX_H
++				failent = utxent;
++				gettimeofday(&(failent.ut_tv), NULL);
++ #else
++				failent = utent;
++				time(&failent.ut_time);
++ #endif
++				strncpy(failent.ut_user, failent_user, sizeof(failent.ut_user));
++ #ifdef USER_PROCESS
++				failent.ut_type = USER_PROCESS;
++ #endif
++				failtmp(&failent);
++			}
++
++			/* Let's give it another go around */
++			pam_set_item(pamh,PAM_USER,NULL);
+ 		}
+ 
++		/* We don't get here unless they were authenticated above */
+ 		retcode = pam_acct_mgmt(pamh, 0);
+ 
+ 		if(retcode == PAM_NEW_AUTHTOK_REQD) {
+@@ -809,11 +856,13 @@
+ 
+ 	if (!pwd || setup_groups(pwd))
+ 		exit(1);
++	else
++		pwent = *pwd;
+ 
+ 	retcode = pam_setcred(pamh, PAM_ESTABLISH_CRED);
+ 	PAM_FAIL_CHECK;
+ 
+-	retcode = pam_open_session(pamh, 0);
++	retcode = pam_open_session(pamh, hushed(&pwent) ? PAM_SILENT : 0);
+ 	PAM_FAIL_CHECK;
+ 
+ 
+@@ -1202,9 +1251,10 @@
+ 
+ 	if (!hushed(&pwent)) {
+ 		addenv("HUSHLOGIN=FALSE", NULL);
+-	/* pam_unix, pam_mail and pam_lastlog should take care of this */
++	/* pam_unix and pam_mail should take care of this */
+ #ifndef USE_PAM
+ 		motd();		/* print the message of the day */
++#endif
+ 		if (getdef_bool("FAILLOG_ENAB") && faillog.fail_cnt != 0) {
+ 			failprint(&faillog);
+ 			/* Reset the lockout times if logged in */
+@@ -1215,6 +1265,7 @@
+ 					(int) faillog.fail_cnt));
+ 			}
+ 		}
++#ifndef USE_PAM
+ 		if (getdef_bool("LASTLOG_ENAB") && lastlog.ll_time != 0) {
+ #ifdef HAVE_STRFTIME
+ 			strftime(ptime, sizeof(ptime),
+@@ -1296,7 +1347,11 @@
+ 	if (pwent.pw_uid == 0)
+ 		SYSLOG((LOG_NOTICE, ROOT_LOGIN, fromhost));
+ 	else if (getdef_bool("LOG_OK_LOGINS"))
++#ifdef USE_PAM
++		SYSLOG((LOG_INFO, REG_LOGIN, pam_user, fromhost));
++#else
+ 		SYSLOG((LOG_INFO, REG_LOGIN, username, fromhost));
++#endif
+ 	closelog();
+ #ifdef RADIUS
+ 	if (is_rad_login) {
+--- shadow-20000902/src/login.c~	Sun Dec 31 14:14:50 2000
++++ shadow-20000902/src/login.c	Sun Dec 31 14:15:53 2000
+@@ -773,15 +773,20 @@
+ 
+ 			pam_get_item(pamh, PAM_USER, (const void **) &pam_user);
+ 
+-			pwd = getpwnam(pam_user);
+-			if (pwd) {
+-				pwent = *pwd;
+-				failent_user = pwent.pw_name;
++			if (pam_user && pam_user[0]) {
++				pwd = getpwnam(pam_user);
++				if (pwd) {
++					pwent = *pwd;
++					failent_user = pwent.pw_name;
++				} else {
++					if (getdef_bool("LOG_UNKFAIL_ENAB") && pam_user)
++						failent_user = pam_user;
++					else
++						failent_user = "UNKNOWN";
++				}
+ 			} else {
+-				if (getdef_bool("LOG_UNKFAIL_ENAB") && pam_user)
+-					failent_user = pam_user;
+-				else
+-					failent_user = "UNKNOWN";
++				pwd = NULL;
++				failent_user = "UNKNOWN";
+ 			}
+ 
+ 			if (retcode == PAM_MAXTRIES || failcount >= retries) {

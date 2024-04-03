@@ -1,0 +1,89 @@
+diff -urN db-3.2.9/dist/acconfig.h db-3.2.9.new/dist/acconfig.h
+--- db-3.2.9/dist/acconfig.h	Sun Jun 23 16:34:28 2002
++++ db-3.2.9.new/dist/acconfig.h	Sun Jun 23 16:27:57 2002
+@@ -42,6 +42,7 @@
+ #undef HAVE_MUTEX_SCO_X86_CC_ASSEMBLY
+ #undef HAVE_MUTEX_SEMA_INIT
+ #undef HAVE_MUTEX_SGI_INIT_LOCK
++#undef HAVE_MUTEX_SH_GCC_ASSEMBLY
+ #undef HAVE_MUTEX_SOLARIS_LOCK_TRY
+ #undef HAVE_MUTEX_SOLARIS_LWP
+ #undef HAVE_MUTEX_SPARC_GCC_ASSEMBLY
+diff -urN db-3.2.9/dist/aclocal/mutex.m4 db-3.2.9.new/dist/aclocal/mutex.m4
+--- db-3.2.9/dist/aclocal/mutex.m4	Sun Jun 23 16:34:28 2002
++++ db-3.2.9.new/dist/aclocal/mutex.m4	Sun Jun 23 16:29:14 2002
+@@ -288,6 +288,18 @@
+ }], [db_cv_mutex="s390/gcc-assembly"])
+ fi
+ 
++dnl sh/gcc: Linux
++if test "$db_cv_mutex" = no; then
++AC_TRY_RUN([main(){
++#if defined(__sh__)
++#if defined(__GNUC__)
++	exit(0);
++#endif
++#endif
++	exit(1);
++}], [db_cv_mutex="sh/gcc-assembly"])
++fi
++
+ dnl Sparc/gcc: SunOS, Solaris
+ dnl The sparc/gcc code doesn't always work, specifically, I've seen assembler
+ dnl failures from the stbar instruction on SunOS 4.1.4/sun4c and gcc 2.7.2.2.
+@@ -386,6 +398,8 @@
+ 			AC_DEFINE(HAVE_MUTEX_SCO_X86_CC_ASSEMBLY);;
+ SGI/init_lock)		ADDITIONAL_OBJS="mut_tas${o} $ADDITIONAL_OBJS"
+ 			AC_DEFINE(HAVE_MUTEX_SGI_INIT_LOCK);;
++sh/gcc-assembly)	ADDITIONAL_OBJS="mut_tas${o} $ADDITIONAL_OBJS"
++			AC_DEFINE(HAVE_MUTEX_SH_GCC_ASSEMBLY);;
+ Solaris/_lock_try)	ADDITIONAL_OBJS="mut_tas${o} $ADDITIONAL_OBJS"
+ 			AC_DEFINE(HAVE_MUTEX_SOLARIS_LOCK_TRY);;
+ Solaris/lwp)		ADDITIONAL_OBJS="mut_pthread${o} $ADDITIONAL_OBJS"
+diff -urN db-3.2.9/dist/config.hin db-3.2.9.new/dist/config.hin
+--- db-3.2.9/dist/config.hin	Sun Jun 23 16:34:28 2002
++++ db-3.2.9.new/dist/config.hin	Sun Jun 23 16:29:35 2002
+@@ -71,6 +71,7 @@
+ #undef HAVE_MUTEX_SCO_X86_CC_ASSEMBLY
+ #undef HAVE_MUTEX_SEMA_INIT
+ #undef HAVE_MUTEX_SGI_INIT_LOCK
++#undef HAVE_MUTEX_SH_GCC_ASSEMBLY
+ #undef HAVE_MUTEX_SOLARIS_LOCK_TRY
+ #undef HAVE_MUTEX_SOLARIS_LWP
+ #undef HAVE_MUTEX_SPARC_GCC_ASSEMBLY
+diff -urN db-3.2.9/include/mutex.h db-3.2.9.new/include/mutex.h
+--- db-3.2.9/include/mutex.h	Sun Jun 23 16:34:28 2002
++++ db-3.2.9.new/include/mutex.h	Sun Jun 23 16:33:38 2002
+@@ -563,6 +563,32 @@
+ #endif
+ 
+ /*********************************************************************
++ * SuperH/gcc assembly.
++ *********************************************************************/
++#ifdef HAVE_MUTEX_SH_GCC_ASSEMBLY
++typedef unsigned char tsl_t;
++
++#ifdef LOAD_ACTUAL_MUTEX_CODE
++/*
++ * For gcc/sh, 0 is clear, 1 is set.
++ */
++#define	MUTEX_SET(tsl) ({						\
++	register tsl_t *__l = (tsl);					\
++	int __r;							\
++	asm volatile("tas.b	%1\n\t"					\
++		     "movt	%0"					\
++	    : "=r" (__r), "=m" (*__l)					\
++	    : "1" (*__l)						\
++	    : "t");							\
++	(__r & 1) == 0;							\
++})
++
++#define	MUTEX_UNSET(tsl)  (*(tsl) = 0)
++#define	MUTEX_INIT(tsl)	  MUTEX_UNSET(tsl)
++#endif
++#endif
++
++/*********************************************************************
+  * Sparc/gcc assembly.
+  *********************************************************************/
+ #ifdef HAVE_MUTEX_SPARC_GCC_ASSEMBLY

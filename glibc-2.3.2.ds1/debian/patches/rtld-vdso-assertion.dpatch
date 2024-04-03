@@ -1,0 +1,157 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: Correct a bit of VDSO support which broke running
+# DP:              binaries linked against ld.so directly.
+# DP: Related bugs: 207872, 210840, 274852, 276384
+# DP: Dpatch author: Daniel Jacobowitz <dan@debian.org>
+# DP: Patch author: Daniel Jacobowitz, Roland McGrath, Jakub Jelinek
+# DP: Upstream status: In CVS
+# DP: Status Details: Backported
+# DP: Date: 2005-05-08
+
+PATCHLEVEL=1
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p$PATCHLEVEL < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p$PATCHLEVEL < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+
+2004-02-27  Jakub Jelinek  <jakub@redhat.com>
+
+        * elf/rtld.c (dl_main): Adjust l->l_ld of the vDSO by l->l_addr.
+        * sysdeps/generic/dl-sysdep.c (_dl_sysdep_start): Only set
+        GL(dl_sysinfo) if non-zero.
+
+2004-02-26  Jakub Jelinek  <jakub@redhat.com>
+
+        * elf/rtld.c (dl_main): Correctly set up l_map_end and l_addr
+        in vDSO's link_map, don't assume l_addr == 0.  Set GL(dl_sysinfo)
+        from e_entry only if AT_SYSINFO not present and adjust by l_addr.
+        Take vDSO into account when inserting rtld into _dl_loaded chain.
+
+2003-10-09  Roland McGrath  <roland@redhat.com>
+
+        * elf/rtld.c (dl_main): Don't set l_name for sysinfo DSO, since there
+        is no file to name.
+
+2003-10-08  Jakub Jelinek  <jakub@redhat.com>
+
+        * sysdeps/generic/dl-sysdep.c (_dl_important_hwcaps): Don't generate
+        two identical copies of strings.
+
+2003-09-30  Daniel Jacobowitz  <drow@mvista.com>
+
+        * elf/rtld.c (dl_main): Set l_libname and l_name for the sysinfo DSO
+        to work around kernel problem.
+
+--- glibc-2.3.2/elf/rtld.c.orig	2005-05-08 10:25:33.775671493 -0400
++++ glibc-2.3.2/elf/rtld.c	2005-05-08 10:29:36.631515133 -0400
+@@ -1161,11 +1161,9 @@ of this helper program; chances are you 
+     }
+ 
+ #ifdef NEED_DL_SYSINFO
++  struct link_map *sysinfo_map = NULL;
+   if (GL(dl_sysinfo_dso) != NULL)
+     {
+-      /* We have a prelinked DSO preloaded by the system.  */
+-      GL(dl_sysinfo) = GL(dl_sysinfo_dso)->e_entry;
+-
+       /* Do an abridged version of the work _dl_map_object_from_fd would do
+ 	 to map in the object.  It's already mapped and prelinked (and
+ 	 better be, since it's read-only and so we couldn't relocate it).
+@@ -1174,7 +1172,7 @@ of this helper program; chances are you 
+       struct link_map *l = _dl_new_object ((char *) "", "", lt_library, NULL);
+       if (__builtin_expect (l != NULL, 1))
+ 	{
+-	  static ElfW(Dyn) dyn_temp [DL_RO_DYN_TEMP_CNT];
++	  static ElfW(Dyn) dyn_temp[DL_RO_DYN_TEMP_CNT];
+ 
+ 	  l->l_phdr = ((const void *) GL(dl_sysinfo_dso)
+ 		       + GL(dl_sysinfo_dso)->e_phoff);
+@@ -1188,18 +1186,32 @@ of this helper program; chances are you 
+ 		  l->l_ldnum = ph->p_memsz / sizeof (ElfW(Dyn));
+ 		  break;
+ 		}
+-	      if (ph->p_type == PT_LOAD)
+-		assert ((void *) ph->p_vaddr == GL(dl_sysinfo_dso));
++	      else if (ph->p_type == PT_LOAD)
++		{
++		  if (! l->l_addr)
++		    l->l_addr = ph->p_vaddr;
++		  else if (ph->p_vaddr + ph->p_memsz >= l->l_map_end)
++		    l->l_map_end = ph->p_vaddr + ph->p_memsz;
++  		}
+ 	    }
++	  l->l_map_start = (ElfW(Addr)) GL(dl_sysinfo_dso);
++	  l->l_addr = l->l_map_start - l->l_addr;
++	  l->l_map_end += l->l_addr;
++	  l->l_ld = (void *) ((ElfW(Addr)) l->l_ld + l->l_addr);
+ 	  elf_get_dynamic_info (l, dyn_temp);
+ 	  _dl_setup_hash (l);
+ 	  l->l_relocated = 1;
+ 
+ 	  /* Now that we have the info handy, use the DSO image's soname
+ 	     so this object can be looked up by name.  */
+ 	  if (l->l_info[DT_SONAME] != NULL)
+ 	    l->l_libname->name = ((char *) D_PTR (l, l_info[DT_STRTAB])
+ 				  + l->l_info[DT_SONAME]->d_un.d_val);
++
++	  /* We have a prelinked DSO preloaded by the system.  */
++	  if (GL(dl_sysinfo) == DL_SYSINFO_DEFAULT)
++	    GL(dl_sysinfo) = GL(dl_sysinfo_dso)->e_entry + l->l_addr;
++	  sysinfo_map = l;
+ 	}
+     }
+ #endif
+@@ -1245,9 +1268,17 @@ of this helper program; chances are you 
+ 	++i;
+       GL(dl_rtld_map).l_prev = GL(dl_loaded)->l_searchlist.r_list[i - 1];
+       if (__builtin_expect (mode, normal) == normal)
+-	GL(dl_rtld_map).l_next = (i + 1 < GL(dl_loaded)->l_searchlist.r_nlist
+-				  ? GL(dl_loaded)->l_searchlist.r_list[i + 1]
+-				  : NULL);
++	{
++	  GL(dl_rtld_map).l_next = (i + 1 < GL(dl_loaded)->l_searchlist.r_nlist
++				    ? GL(dl_loaded)->l_searchlist.r_list[i + 1]
++				    : NULL);
++#ifdef NEED_DL_SYSINFO
++	  if (sysinfo_map != NULL
++	      && GL(dl_rtld_map).l_prev->l_next == sysinfo_map
++	      && GL(dl_rtld_map).l_next != sysinfo_map)
++	    GL(dl_rtld_map).l_prev = sysinfo_map;
++#endif
++	}
+       else
+ 	/* In trace mode there might be an invisible object (which we
+ 	   could not find) after the previous one in the search list.
+--- glibc-2.3.2/sysdeps/generic/dl-sysdep.c.orig	2005-05-08 10:16:09.270961000 -0400
++++ glibc-2.3.2/sysdeps/generic/dl-sysdep.c	2005-05-08 10:41:11.607089482 -0400
+@@ -196,7 +196,7 @@ _dl_sysdep_start (void **start_argptr,
+ 
+ #if defined NEED_DL_SYSINFO
+   /* Only set the sysinfo value if we also have the vsyscall DSO.  */
+-  if (GL(dl_sysinfo_dso) != 0)
++  if (GL(dl_sysinfo_dso) != 0 && new_sysinfo)
+     GL(dl_sysinfo) = new_sysinfo;
+ #endif
+ 
+@@ -454,7 +454,7 @@ _dl_important_hwcaps (const char *platfo
+     }
+   else
+     {
+-      n = 1 << cnt;
++      n = 1 << (cnt - 1);
+       do
+ 	{
+ 	  n -= 2;

@@ -1,0 +1,292 @@
+#!@(PERL)
+#
+# ypmake        NIS map builder
+#
+# Copyright (C) 1996, Olaf Kirch <okir@monad.swb.de>
+
+$ypmapdir	= "@(YPMAPDIR)";
+$yplibdir	= "@(YPLIBDIR)";
+$ypmoddir	= "@(YPMODDIR)";
+$makedbm	= "@(MAKEDBM)";
+$yppush		= "@(YPPUSH)";
+
+push(@INC, "$ypmoddir");
+require "getopt.pl";
+require "arrays";
+require "config";
+
+$domain = `domainname`;
+$master = `$yplibdir/yphelper --hostname`;
+chop $master;
+chop $domain;
+
+$confname  = '';
+$noinstall = 0;
+$debug     = 0;
+$needclear = 0;
+
+while ($arg = shift) {
+	unless ($arg =~ /^-/) {
+		push(@ARGV, $arg);
+		last;
+	}
+	if ($arg eq "-A") {
+		$dumpaliases = 1;
+	} elsif ($arg eq "-c") {
+		$confname = shift;
+	} elsif ($arg eq "--dir") {
+		$ypmapdir = shift;
+	} elsif ($arg eq "-d") {
+		$domain = shift;
+	} elsif ($arg eq "-f") {
+		$force = 1;
+	} elsif ($arg eq "-h") {
+		&usage;
+	} elsif ($arg eq "-M") {
+		$dumpmaps = 1;
+	} elsif ($arg eq "-m") {
+		$master = shift;
+	} elsif ($arg eq "-n") {
+		$noinstall = 1;
+	} elsif ($arg eq "-S") {
+		$dumpsources = 1;
+	} elsif ($arg eq "-v") {
+		&version;
+	} elsif ($arg eq "-x") {
+		$debug = 1;
+	} else {
+		&usage("unknown option $arg.");
+	}
+}
+
+# Use long map names by default
+%mapname = %longnames;
+
+# parse the configuration file
+if ($confname eq '') {
+	&parse_config("$ypmapdir/ypmake.conf", 1);
+} else {
+	&parse_config($confname, 0);
+}
+
+if ($dumpmaps) {
+	printf "Supported maps for domain $domain:\n";
+	foreach (sort (values %mapname)) {
+		printf "\t$_\n";
+	}
+}
+if ($dumpaliases) {
+	printf "Supported aliases for domain $domain:\n";
+	foreach $alias (sort (keys %mapalias)) {
+		printf("\t%-20s", $alias);
+		foreach (split(/:/, $mapalias{$alias})) {
+			if ($mapname{$_} ne '') {
+				printf("$mapname{$_} ");
+			} else {
+				printf("$_ ");
+			}
+		}
+		printf("\n");
+	}
+}
+if ($dumpsources) {
+	printf "Map sources for domain $domain:\n";
+	foreach (sort (keys %source)) {
+		next if ($mapname{$_} eq '');
+		printf("\t%-20s%s\n", $mapname{$_}, $source{$_});
+	}
+}
+exit 0 if ($dumpmaps || $dumpaliases || $dumpsources);
+
+if ($#ARGV >= 0) {
+	while ($arg = shift) {
+		&process($arg);
+	}
+} else {
+	&process(default);
+}
+
+if ($needclear) {
+	system("$makedbm -c");
+}
+
+#
+# Recreate a target
+#
+sub process {
+	local($target) = @_;
+	local($_, $alias, $done, $cmd);
+
+	$done = 0;
+	if ($mapname{$target} ne '') {
+		# return if ($processed{$target});
+		print "$mapname{$target}... ";
+		if (&mustrebuild($mapname{$target}, $target) || $force) {
+			if ($noinstall) {
+				print "will be rebuilt.\n";
+				return;
+			}
+			print "processing\n";
+			require "$ypmoddir/$implementation{$target}";
+			&openout($target) unless ($specmap{$target});
+			$cmd = $builder{$target};
+			if ($cmd eq '') {
+				$cmd = "&$target";
+			}
+			eval "$cmd";
+			&closeout unless ($specmap{$target});
+			$needclear++;
+		} else {
+			print "up-to-date\n";
+		}
+		# $processed{$target} = 1;
+		$done++;
+	}
+	$alias = $mapalias{$target};
+	if ($alias ne '') {
+		foreach (split(/:/, $alias)) {
+			&process($_);
+			$done++;
+		}
+	}
+	die "ypmake: unknown target \"$target\"!\n"
+		unless($done);
+}
+
+#
+# DBM file I/O
+# File creation is not atomic for now...
+#
+sub openout {
+	local($map) = @_;
+	local($mapfile, $lock);
+
+	$mapfile = $mapname{$map};
+	die "ypmake: no mapfile defined for map $map!\n"
+		if ($mapfile eq '');
+
+	$lock = "$ypmapdir/$domain/$mapfile.lock";
+
+	die "ypmake: DBM file $mapfile already locked!\n"
+		if (-f $lock);
+
+	# XXX: Should open lock file with specified mode and O_EXCL?
+	# OTOH, /var/yp/* should not be writable by anyone but root...
+	$debug && open(OUT, ">&STDOUT") ||
+	open(OUT, "|$makedbm -c -m $master -i \"$source{$map}\" -o $mapfile - $lock")
+		|| &fatal("can't open DBM file $lock: $!");
+	select((select(OUT), $| = 1)[0]);
+
+	if ($mapmode{$map} != 0) {
+		chmod($mapmode{$map}, $lock);
+	} else {
+		chmod($mapmode{$map}, 0644);
+	}
+
+	# Only privileged ports may access this map
+	if ($mapprot{$map} != 0) {
+		printf OUT "YP_SECURE\tYP_SECURE\n";
+	}
+	# DES authentication required for this map
+	if ($mapsecure{$map} != 0) {
+		printf OUT "YP_AUTHDES\tYP_AUTHDES\n";
+	}
+
+	$current_mapfile = $mapfile;
+}
+
+sub closeout {
+	local($lock) = "$ypmapdir/$domain/$current_mapfile.lock";
+	local($data) = "$ypmapdir/$domain/$current_mapfile";
+
+	return if ($current_mapfile eq '');
+
+	close OUT;
+	if ($?) {
+		printf STDERR "ypmake: couldn't create $current_mapfile!\n";
+		unlink $lock;
+	} elsif (!$debug) {
+		rename("$lock", "$data") ||
+			&fatal("can't rename $lock to $data: $!");
+		if ($pushmaps) {
+			system("$yppush -d $domain $current_mapfile");
+		}
+		# XXX: Should push the modified map to the client
+		# However, this may badly slow down rebuilds after a
+		# passwd change.
+	} else {
+		if ($pushmaps) {
+			print "$yppush -d $domain $current_mapfile\n";
+		}
+	}
+	$current_mapfile = '';
+}
+
+sub abortout {
+	local($lock) = "$ypmapdir/$domain/$current_mapfile.lock";
+
+	return if ($current_mapfile eq '');
+
+	close OUT;
+	$debug || unlink $lock;
+	$current_mapfile = '';
+}
+
+sub mustrebuild {
+	local($depmap, $premap) = @_;
+	local($mapsrc, $_);
+	local($mapdbm);
+
+	# print "(dep $depmap -> $premap [src $source{$premap}]) ";
+	$mapdbm = "$ypmapdir/$domain/$depmap";
+	return 1 unless (-f $mapdbm);
+
+	$mapsrc = $source{$premap};
+	if ($mapsrc eq '') {
+		$mapsrc = $mapdepend{$premap};
+		&fatal("no dependencies for map $premap")
+			if ($mapsrc eq '');
+		foreach (split(/:/, $mapsrc)) {
+			return 1 if (&mustrebuild($depmap, $_));
+		}
+		return 0;
+	}
+
+	return (-M $mapdbm > -M $mapsrc);
+}
+
+sub fatal {
+	local($msg) = @_;
+
+	printf STDERR "ypmake: $msg\n";
+	&abortout;
+	exit 1;
+}
+
+sub version {
+	print STDOUT "ypmake version @(VERSION)\n";
+	exit 0;
+}
+
+sub usage {
+	local($msg) = @_;
+
+	printf STDERR "ypmake: $msg\n"
+		if ($msg ne "");
+	printf STDERR <<EOF
+Options:
+-h	Print this message.
+-c      Specify configuration file other than @(YPMAPDIR)/ypmake.conf.
+-d	Specify a NIS domain other than the system default.
+-f      Force the map(s) to be rebuilt.
+-m	Specify NIS master other than local host.
+-n	Just tell the user which maps would be rebuilt.
+-v	Print version number and exit.
+-x      Debug mode; dump maps to stdout.
+-A	Dump list of map aliases.
+-M	Dump list of supported maps.
+-S	Dump list of map sources.
+EOF
+	;
+	exit ($msg ne "");
+}

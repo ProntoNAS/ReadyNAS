@@ -1,0 +1,592 @@
+#! /bin/sh -e
+
+# DP: Allow transformations on info file names. Reference the
+# DP: transformed info file names in the texinfo files.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+
+diff -ur gcc.old/Makefile.in gcc/Makefile.in
+--- gcc.old/Makefile.in	2004-01-29 05:42:13.000000000 +0100
++++ gcc/Makefile.in	2004-02-28 16:02:14.000000000 +0100
+@@ -2172,6 +2172,7 @@
+ intl.o: intl.c $(CONFIG_H) system.h intl.h Makefile
+ 	$(CC) $(ALL_CFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) \
+ 	  -DLOCALEDIR=\"$(localedir)\" \
++	  -DPACKAGE=\"$(PACKAGE)\" \
+ 	  -c $(srcdir)/intl.c $(OUTPUT_OPTION)
+ 
+ $(top_builddir)/intl/libintl.a: intl.all
+@@ -2479,9 +2480,17 @@
+ # Remake the info files.
+ 
+ docdir = $(srcdir)/doc
++iv := -$(shell echo $(version) | awk -F. '{printf "%s.%s",$$1,$$2}')
+ 
+ doc: $(BUILD_INFO) $(GENERATED_MANPAGES) gccbug
+-info: $(docdir)/cpp.info $(docdir)/gcc.info $(docdir)/gccint.info $(docdir)/gccinstall.info lang.info $(docdir)/cppinternals.info
++info: $(docdir)/cpp$(iv).info $(docdir)/gcc$(iv).info $(docdir)/gccint$(iv).info $(docdir)/gccinstall$(iv).info lang.info $(docdir)/cppinternals$(iv).info
++
++MAKEINFODEFS = -D 'fncpp cpp$(iv)' -D 'fngcc gcc$(iv)' \
++               -D 'fngccint gccint$(iv)' \
++               -D 'fngccinstall gccinstall$(iv)' \
++               -D 'fncppint cppinterals$(iv)' \
++               -D 'fng77 g77$(iv)' -D 'fngcj gcj$(iv)' \
++               -D 'fntreelang fntreelang$(iv)' \
+ 
+ TEXI_CPP_FILES = $(docdir)/cpp.texi $(docdir)/include/fdl.texi \
+   $(docdir)/cppenv.texi $(docdir)/cppopts.texi
+@@ -2515,20 +2524,20 @@
+ 
+ TEXI_CPPINT_FILES = $(docdir)/cppinternals.texi
+ 
+-$(docdir)/cpp.info: $(TEXI_CPP_FILES)
+-	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) -I doc -I doc/include -o doc/cpp.info doc/cpp.texi
++$(docdir)/cpp$(iv).info: $(TEXI_CPP_FILES)
++	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) $(MAKEINFODEFS) -I doc -I doc/include -o doc/cpp$(iv).info doc/cpp.texi
+ 
+-$(docdir)/gcc.info: $(TEXI_GCC_FILES)
+-	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) -I doc -I doc/include -o doc/gcc.info doc/gcc.texi
++$(docdir)/gcc$(iv).info: $(TEXI_GCC_FILES)
++	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) $(MAKEINFODEFS) -I doc -I doc/include -o doc/gcc$(iv).info doc/gcc.texi
+ 
+-$(docdir)/gccint.info: $(TEXI_GCCINT_FILES)
+-	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) -I doc -I doc/include -o doc/gccint.info doc/gccint.texi
++$(docdir)/gccint$(iv).info: $(TEXI_GCCINT_FILES)
++	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) $(MAKEINFODEFS) -I doc -I doc/include -o doc/gccint$(iv).info doc/gccint.texi
+ 
+-$(docdir)/gccinstall.info: $(TEXI_GCCINSTALL_FILES)
+-	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) -I doc -I doc/include -o doc/gccinstall.info doc/install.texi
++$(docdir)/gccinstall$(iv).info: $(TEXI_GCCINSTALL_FILES)
++	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) $(MAKEINFODEFS) -I doc -I doc/include -o doc/gccinstall$(iv).info doc/install.texi
+ 
+-$(docdir)/cppinternals.info: $(TEXI_CPPINT_FILES)
+-	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) -I doc -I doc/include -o doc/cppinternals.info \
++$(docdir)/cppinternals$(iv).info: $(TEXI_CPPINT_FILES)
++	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) $(MAKEINFODEFS) -I doc -I doc/include -o doc/cppinternals$(iv).info \
+ 		doc/cppinternals.texi
+ 
+ dvi: gcc.dvi gccint.dvi gccinstall.dvi cpp.dvi lang.dvi cppinternals.dvi
+@@ -2871,26 +2880,26 @@
+ # $(INSTALL_DATA) might be a relative pathname, so we can't cd into srcdir
+ # to do the install.
+ install-info: doc installdirs lang.install-info
+-	-rm -f $(DESTDIR)$(infodir)/cpp.info* $(DESTDIR)$(infodir)/gcc.info*
+-	-rm -f $(DESTDIR)$(infodir)/cppinternals.info* $(DESTDIR)$(infodir)/gccint.info*
+-	if [ -f $(docdir)/gcc.info ]; then \
+-	  for f in $(docdir)/cpp.info* $(docdir)/gcc.info* \
+-		$(docdir)/cppinternals.info* $(docdir)/gccint.info*; do \
++	-rm -f $(DESTDIR)$(infodir)/cpp$(iv).info* $(DESTDIR)$(infodir)/gcc$(iv).info*
++	-rm -f $(DESTDIR)$(infodir)/cppinternals$(iv).info* $(DESTDIR)$(infodir)/gccint$(iv).info*
++	if [ -f $(docdir)/gcc$(iv).info ]; then \
++	  for f in $(docdir)/cpp$(iv).info* $(docdir)/gcc$(iv).info* \
++		$(docdir)/cppinternals$(iv).info* $(docdir)/gccint$(iv).info*; do \
+ 	    realfile=`echo $$f | sed -e 's|.*/\([^/]*\)$$|\1|'`; \
+ 	    $(INSTALL_DATA) $$f $(DESTDIR)$(infodir)/$$realfile; \
+ 	  done; \
+ 	else true; fi
+ 	-if $(SHELL) -c 'install-info --version' >/dev/null 2>&1; then \
+ 	  if [ -f $(DESTDIR)$(infodir)/dir ] ; then \
+-	    for f in cpp.info gcc.info gccint.info cppinternals.info; do \
++	    for f in cpp$(iv).info gcc$(iv).info gccint$(iv).info cppinternals$(iv).info; do \
+ 		if [ -f $(DESTDIR)$(infodir)/$$f ]; then \
+ 		  install-info --dir-file=$(DESTDIR)$(infodir)/dir $(DESTDIR)$(infodir)/$$f; \
+ 		else true; fi; \
+ 	    done; \
+ 	  else true; fi; \
+ 	else true; fi;
+-	-chmod a-x $(DESTDIR)$(infodir)/cpp.info* $(DESTDIR)$(infodir)/gcc.info*
+-	-chmod a-x $(DESTDIR)$(infodir)/cppinternals.info* $(DESTDIR)$(infodir)/gccint.info*
++	-chmod a-x $(DESTDIR)$(infodir)/cpp$(iv).info* $(DESTDIR)$(infodir)/gcc$(iv).info*
++	-chmod a-x $(DESTDIR)$(infodir)/cppinternals$(iv).info* $(DESTDIR)$(infodir)/gccint$(iv).info*
+ 
+ # Install the man pages.
+ install-man: installdirs $(GENERATED_MANPAGES) lang.install-man
+@@ -3082,8 +3091,11 @@
+ 	-rm -rf $(DESTDIR)$(man1dir)/cpp$(man1ext)
+ 	-rm -rf $(DESTDIR)$(man1dir)/protoize$(man1ext)
+ 	-rm -rf $(DESTDIR)$(man1dir)/unprotoize$(man1ext)
+-	-rm -f $(DESTDIR)$(infodir)/cpp.info* $(DESTDIR)$(infodir)/gcc.info*
+-	-rm -f $(DESTDIR)$(infodir)/cppinternals.info* $(DESTDIR)$(infodir)/gccint.info*
++	-rm -f $(DESTDIR)$(infodir)/$(INFO_CPP_NAME).info*
++	-rm -f $(DESTDIR)$(infodir)/$(INFO_GCC_NAME).info*
++	-rm -f $(DESTDIR)$(infodir)/$(INFO_CPPINT_NAME).info*
++	-rm -f $(DESTDIR)$(infodir)/$(INFO_GCCINT_NAME).info*
++	-rm -f $(DESTDIR)$(infodir)/$(INFO_GCCINSTALL_NAME).info*
+ #
+ # These targets are for the dejagnu testsuites. The file site.exp
+ # contains global variables that all the testsuites will use.
+@@ -3690,7 +3702,7 @@
+ GMSGFMT = @GMSGFMT@
+ MSGMERGE = msgmerge
+ 
+-PACKAGE = @PACKAGE@
++PACKAGE = @PACKAGE@$(iv)
+ CATALOGS = @CATALOGS@
+ 
+ .PHONY: build- install- build-po install-po update-po
+diff -ur gcc.old/doc/cpp.texi gcc/doc/cpp.texi
+--- gcc.old/doc/cpp.texi	2004-01-02 13:21:49.000000000 +0100
++++ gcc/doc/cpp.texi	2004-02-28 15:51:23.000000000 +0100
+@@ -54,7 +54,7 @@
+ @ifinfo
+ @dircategory Programming
+ @direntry
+-* Cpp: (cpp).		       The GNU C preprocessor.
++* @value{fncpp}: (@value{fncpp}).		       The GNU C preprocessor.
+ @end direntry
+ @end ifinfo
+ 
+diff -ur gcc.old/doc/cppinternals.texi gcc/doc/cppinternals.texi
+--- gcc.old/doc/cppinternals.texi	2002-01-07 20:03:36.000000000 +0100
++++ gcc/doc/cppinternals.texi	2004-02-28 15:51:57.000000000 +0100
+@@ -5,7 +5,7 @@
+ @ifinfo
+ @dircategory Programming
+ @direntry
+-* Cpplib: (cppinternals).      Cpplib internals.
++* @value{fncppint}: (@value{fncppint}).      Cpplib internals.
+ @end direntry
+ @end ifinfo
+ 
+diff -ur gcc.old/doc/extend.texi gcc/doc/extend.texi
+--- gcc.old/doc/extend.texi	2004-02-06 20:43:32.000000000 +0100
++++ gcc/doc/extend.texi	2004-02-28 15:52:43.000000000 +0100
+@@ -6943,7 +6943,7 @@
+ test for the GNU compiler the same way as for C programs: check for a
+ predefined macro @code{__GNUC__}.  You can also use @code{__GNUG__} to
+ test specifically for GNU C++ (@pxref{Common Predefined Macros,,
+-Predefined Macros,cpp,The GNU C Preprocessor}).
++Predefined Macros,@value{fncpp},The GNU C Preprocessor}).
+ 
+ @menu
+ * Min and Max::		C++ Minimum and maximum operators.
+diff -ur gcc.old/doc/gcc.texi gcc/doc/gcc.texi
+--- gcc.old/doc/gcc.texi	2003-06-04 01:36:32.000000000 +0200
++++ gcc/doc/gcc.texi	2004-02-28 15:53:30.000000000 +0100
+@@ -85,7 +85,7 @@
+ @ifnottex
+ @dircategory Programming
+ @direntry
+-* gcc: (gcc).                  The GNU Compiler Collection.
++* @value{fngcc}: (@value{fngcc}).                  The GNU Compiler Collection.
+ @end direntry
+ This file documents the use of the GNU compilers.
+ @sp 1
+@@ -137,7 +137,7 @@
+ The internals of the GNU compilers, including how to port them to new
+ targets and some information about how to write front ends for new
+ languages, are documented in a separate manual.  @xref{Top,,
+-Introduction, gccint, GNU Compiler Collection (GCC) Internals}.
++Introduction, @value{fngccint}, GNU Compiler Collection (GCC) Internals}.
+ 
+ @menu
+ * G++ and GCC::     You can compile C or C++ programs.
+diff -ur gcc.old/doc/gccint.texi gcc/doc/gccint.texi
+--- gcc.old/doc/gccint.texi	2003-02-04 02:55:36.000000000 +0100
++++ gcc/doc/gccint.texi	2004-02-28 15:54:08.000000000 +0100
+@@ -71,7 +71,7 @@
+ @ifnottex
+ @dircategory Programming
+ @direntry
+-* gccint: (gccint).            Internals of the GNU Compiler Collection.
++* @value{fngccint}: (@value{fngccint}).            Internals of the GNU Compiler Collection.
+ @end direntry
+ This file documents the internals of the GNU compilers.
+ @sp 1
+@@ -120,7 +120,7 @@
+ how to port them to new targets and some information about how to
+ write front ends for new languages.  It corresponds to GCC version
+ @value{version-GCC}.  The use of the GNU compilers is documented in a
+-separate manual.  @xref{Top,, Introduction, gcc, Using the GNU
++separate manual.  @xref{Top,, Introduction, @value{fngcc}, Using the GNU
+ Compiler Collection (GCC)}.
+ 
+ This manual is mainly a reference manual rather than a tutorial.  It
+diff -ur gcc.old/doc/invoke.texi gcc/doc/invoke.texi
+--- gcc.old/doc/invoke.texi	2004-02-06 20:43:33.000000000 +0100
++++ gcc/doc/invoke.texi	2004-02-28 15:39:25.000000000 +0100
+@@ -747,7 +747,7 @@
+ Fortran source code which must be preprocessed with a RATFOR
+ preprocessor (not included with GCC)@.
+ 
+-@xref{Overall Options,,Options Controlling the Kind of Output, g77,
++@xref{Overall Options,,Options Controlling the Kind of Output, @value{fng77},
+ Using and Porting GNU Fortran}, for more details of the handling of
+ Fortran input files.
+ 
+@@ -4608,7 +4608,7 @@
+ @option{-nodefaultlibs} is @file{libgcc.a}, a library of internal subroutines
+ that GCC uses to overcome shortcomings of particular machines, or special
+ needs for some languages.
+-(@xref{Interface,,Interfacing to GCC Output,gccint,GNU Compiler
++(@xref{Interface,,Interfacing to GCC Output,@value{fngccint},GNU Compiler
+ Collection (GCC) Internals},
+ for more discussion of @file{libgcc.a}.)
+ In most cases, you need @file{libgcc.a} even when you want to avoid
+@@ -4616,7 +4616,7 @@
+ or @option{-nodefaultlibs} you should usually specify @option{-lgcc} as well.
+ This ensures that you have no unresolved references to internal GCC
+ library subroutines.  (For example, @samp{__main}, used to ensure C++
+-constructors will be called; @pxref{Collect2,,@code{collect2}, gccint,
++constructors will be called; @pxref{Collect2,,@code{collect2}, @value{fngccint},
+ GNU Compiler Collection (GCC) Internals}.)
+ 
+ @item -s
+@@ -10927,7 +10927,7 @@
+ @option{-B}, @option{-I} and @option{-L} (@pxref{Directory Options}).  These
+ take precedence over places specified using environment variables, which
+ in turn take precedence over those specified by the configuration of GCC@.
+-@xref{Driver,, Controlling the Compilation Driver @file{gcc}, gccint,
++@xref{Driver,, Controlling the Compilation Driver @file{gcc}, @value{fngccint},
+ GNU Compiler Collection (GCC) Internals}.
+ 
+ @table @env
+diff -ur gcc.old/doc/passes.texi gcc/doc/passes.texi
+--- gcc.old/doc/passes.texi	2003-03-25 14:31:27.000000000 +0100
++++ gcc/doc/passes.texi	2004-02-28 15:39:25.000000000 +0100
+@@ -42,7 +42,7 @@
+ definition's compilation is entirely freed, unless it is an inline
+ function, or was deferred for some reason (this can occur in
+ templates, for example).
+-(@pxref{Inline,,An Inline Function is As Fast As a Macro,gcc,Using the
++(@pxref{Inline,,An Inline Function is As Fast As a Macro,@value{fngcc},Using the
+ GNU Compiler Collection (GCC)}).
+ 
+ Here is a list of all the passes of the compiler and their source files.
+@@ -71,7 +71,7 @@
+ C preprocessing, for language front ends, that want or require it, is
+ performed by cpplib, which is covered in separate documentation.  In
+ particular, the internals are covered in @xref{Top, ,Cpplib internals,
+-cppinternals, Cpplib Internals}.
++@value{fncppinternals}, Cpplib Internals}.
+ 
+ @c Avoiding overfull is tricky here.
+ The source files to parse C are
+diff -ur gcc.old/doc/standards.texi gcc/doc/standards.texi
+--- gcc.old/doc/standards.texi	2003-01-24 16:52:55.000000000 +0100
++++ gcc/doc/standards.texi	2004-02-28 15:39:25.000000000 +0100
+@@ -185,8 +185,8 @@
+ GNAT Reference Manual}, for information on standard
+ conformance and compatibility of the Ada compiler.
+ 
+-@xref{Language,,The GNU Fortran Language, g77, Using and Porting GNU
++@xref{Language,,The GNU Fortran Language, @value{fng77}, Using and Porting GNU
+ Fortran}, for details of the Fortran language supported by GCC@.
+ 
+-@xref{Compatibility,,Compatibility with the Java Platform, gcj, GNU gcj},
++@xref{Compatibility,,Compatibility with the Java Platform, @value{fngcj}, GNU gcj},
+ for details of compatibility between @command{gcj} and the Java Platform.
+diff -ur gcc.old/doc/trouble.texi gcc/doc/trouble.texi
+--- gcc.old/doc/trouble.texi	2003-07-19 17:15:08.000000000 +0200
++++ gcc/doc/trouble.texi	2004-02-28 15:39:25.000000000 +0100
+@@ -88,7 +88,7 @@
+ as @code{REAL_VALUE_TYPE}.  But doing so is a substantial amount of
+ work for each target machine.
+ @xref{Cross-compilation,,Cross Compilation and Floating Point,
+-gccint, GNU Compiler Collection (GCC) Internals}.
++@value{fngccint}, GNU Compiler Collection (GCC) Internals}.
+ 
+ @item
+ At present, the program @file{mips-tfile} which adds debug
+diff -ur gcc.old/f/Make-lang.in gcc/f/Make-lang.in
+--- gcc.old/f/Make-lang.in	2003-07-08 15:28:40.000000000 +0200
++++ gcc/f/Make-lang.in	2004-02-28 15:59:40.000000000 +0100
+@@ -143,12 +143,12 @@
+ f77.start.encap: g77$(exeext)
+ f77.rest.encap:
+ 
+-f77.info: $(srcdir)/f/g77.info
++f77.info: $(srcdir)/f/g77$(iv).info
+ f77.dvi: f/g77.dvi
+ f77.generated-manpages: $(srcdir)/f/g77.1
+ 
+ # g77 documentation.
+-$(srcdir)/f/g77.info: $(srcdir)/f/g77.texi $(srcdir)/f/bugs.texi \
++$(srcdir)/f/g77$(iv).info: $(srcdir)/f/g77.texi $(srcdir)/f/bugs.texi \
+ 		$(srcdir)/f/ffe.texi $(srcdir)/f/invoke.texi \
+ 		$(srcdir)/f/news.texi  $(srcdir)/f/intdoc.texi \
+ 		$(srcdir)/f/root.texi $(srcdir)/doc/include/fdl.texi \
+@@ -156,8 +156,8 @@
+ 		$(srcdir)/doc/include/funding.texi \
+ 		$(srcdir)/doc/include/gcc-common.texi
+ 	if [ x$(BUILD_INFO) = xinfo ]; then \
+-	  rm -f $(srcdir)/f/g77.info-*; \
+-	  cd $(srcdir)/f && $(MAKEINFO) -I../doc/include -o g77.info g77.texi; \
++	  rm -f $(srcdir)/f/g77$(iv).info-*; \
++	  cd $(srcdir)/f && $(MAKEINFO) $(MAKEINFOFLAGS) $(MAKEINFODEFS) -I../doc/include -o g77$(iv).info g77.texi; \
+ 	else true; fi
+ 
+ f/g77.dvi: $(srcdir)/f/g77.texi $(srcdir)/f/bugs.texi \
+@@ -232,7 +232,7 @@
+ 	cd $(srcdir)/f; $(MAKEINFO) -D NEWSONLY --no-header --no-split \
+ 	  --no-validate -I../doc/include -o NEWS news0.texi
+ 
+-f77.rebuilt: f/g77.info $(srcdir)/f/BUGS \
++f77.rebuilt: f/g77$(iv).info $(srcdir)/f/BUGS \
+   $(srcdir)/f/NEWS 
+ 
+ #
+@@ -268,18 +268,18 @@
+ # $(INSTALL_DATA) might be a relative pathname, so we can't cd into srcdir
+ # to do the install.  The sed rule was copied from stmp-int-hdrs.
+ f77.install-info: f77.info installdirs
+-	if [ -f $(srcdir)/f/g77.info ] ; then \
+-	  rm -f $(DESTDIR)$(infodir)/g77.info*; \
+-	  for f in $(srcdir)/f/g77.info*; do \
++	if [ -f $(srcdir)/f/g77$(iv).info ] ; then \
++	  rm -f $(DESTDIR)$(infodir)/g77$(iv).info*; \
++	  for f in $(srcdir)/f/g77$(iv).info*; do \
+ 	      realfile=`echo $$f | sed -e 's|.*/\([^/]*\)$$|\1|'`; \
+ 	      $(INSTALL_DATA) $$f $(DESTDIR)$(infodir)/$$realfile; \
+ 	  done; \
+-	  chmod a-x $(DESTDIR)$(infodir)/g77.info*; \
++	  chmod a-x $(DESTDIR)$(infodir)/g77$(iv).info*; \
+ 	else true; fi
+-	@if [ -f $(srcdir)/f/g77.info ] ; then \
++	@if [ -f $(srcdir)/f/g77$(iv).info ] ; then \
+ 	  if $(SHELL) -c 'install-info --version | sed 1q | fgrep -s -v -i debian' >/dev/null 2>&1; then \
+-	    echo " install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/g77.info"; \
+-	    install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/g77.info || : ; \
++	    echo " install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/g77$(iv).info"; \
++	    install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/g77$(iv).info || : ; \
+ 	  else : ; fi; \
+ 	else : ; fi
+ 
+@@ -298,14 +298,14 @@
+ 
+ f77.uninstall: installdirs
+ 	if $(SHELL) -c 'install-info --version | sed 1q | fgrep -s -v -i debian' >/dev/null 2>&1; then \
+-	  echo " install-info --delete --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/g77.info"; \
+-	  install-info --delete --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/g77.info || : ; \
++	  echo " install-info --delete --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/g77$(iv).info"; \
++	  install-info --delete --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/g77$(iv).info || : ; \
+ 	else : ; fi
+ 	rm -rf $(DESTDIR)$(bindir)/$(G77_INSTALL_NAME)$(exeext); \
+ 	rm -rf $(DESTDIR)$(bindir)/$(G77_CROSS_NAME)$(exeext); \
+ 	rm -rf $(DESTDIR)$(man1dir)/$(G77_INSTALL_NAME)$(man1ext); \
+ 	rm -rf $(DESTDIR)$(man1dir)/$(G77_CROSS_NAME)$(man1ext); \
+-	rm -rf $(DESTDIR)$(infodir)/g77.info*
++	rm -rf $(DESTDIR)$(infodir)/g77$(iv).info*
+ #
+ # Clean hooks:
+ # A lot of the ancillary files are deleted by the main makefile.
+@@ -324,7 +324,7 @@
+ 	-rm -f f/Makefile
+ f77.extraclean:
+ f77.maintainer-clean:
+-	-rm -f f/g77.info* f/g77.*aux f/TAGS f/BUGS f/NEWS f/intdoc.texi
++	-rm -f f/g77$(iv).info* f/g77.*aux f/TAGS f/BUGS f/NEWS f/intdoc.texi
+ #
+ # Stage hooks:
+ # The main makefile has already created stage?/f.
+diff -ur gcc.old/f/g77.texi gcc/f/g77.texi
+--- gcc.old/f/g77.texi	2003-05-16 17:08:37.000000000 +0200
++++ gcc/f/g77.texi	2004-02-28 16:04:22.000000000 +0100
+@@ -88,7 +88,7 @@
+ @ifinfo
+ @dircategory Programming
+ @direntry
+-* g77: (g77).                  The GNU Fortran compiler.
++* * @value{fng77}: (@value{fng77}).          The GNU Fortran compiler.
+ @end direntry
+ @ifset INTERNALS
+ @ifset USING
+diff -ur gcc.old/intl.c gcc/intl.c
+--- gcc.old/intl.c	2002-01-08 20:03:18.000000000 +0100
++++ gcc/intl.c	2004-02-28 15:38:52.000000000 +0100
+@@ -39,8 +39,8 @@
+   setlocale (LC_ALL, "");
+ #endif
+ 
+-  (void) bindtextdomain ("gcc", LOCALEDIR);
+-  (void) textdomain ("gcc");
++  (void) bindtextdomain (PACKAGE, LOCALEDIR);
++  (void) textdomain (PACKAGE);
+ }
+ 
+ #endif
+diff -ur gcc.old/java/Make-lang.in gcc/java/Make-lang.in
+--- gcc.old/java/Make-lang.in	2003-07-08 15:28:41.000000000 +0200
++++ gcc/java/Make-lang.in	2004-02-28 16:00:12.000000000 +0100
+@@ -154,7 +154,7 @@
+ java.start.encap: $(GCJ)$(exeext)
+ java.rest.encap:
+ 
+-java.info: $(srcdir)/java/gcj.info
++java.info: $(srcdir)/java/gcj$(iv).info
+ java.dvi: java/gcj.dvi
+ java.generated-manpages: $(srcdir)/java/gcj.1 $(srcdir)/java/gcjh.1 \
+ 	$(srcdir)/java/jv-scan.1 $(srcdir)/java/jcf-dump.1 \
+@@ -207,18 +207,18 @@
+ 
+ java.install-info: installdirs
+ 	if [ -f jc1$(exeext) ] ; then \
+-	  if [ -f $(srcdir)/java/gcj.info ]; then \
+-	    rm -f $(DESTDIR)$(infodir)/gcj.info*; \
+-	    for f in $(srcdir)/java/gcj.info*; do \
++	  if [ -f $(srcdir)/java/gcj$(iv).info ]; then \
++	    rm -f $(DESTDIR)$(infodir)/gcj$(iv).info*; \
++	    for f in $(srcdir)/java/gcj$(iv).info*; do \
+ 	      realfile=`echo $$f | sed -e 's|.*/\([^/]*\)$$|\1|'`; \
+ 	      $(INSTALL_DATA) $$f $(DESTDIR)$(infodir)/$$realfile; \
+ 	    done; \
+-	    chmod a-x $(DESTDIR)$(infodir)/gcj.info*; \
++	    chmod a-x $(DESTDIR)$(infodir)/gcj$(iv).info*; \
+ 	  else true; fi; \
+ 	else true; fi
+-	-if [ -f jc1$(exeext) ] && [ -f $(DESTDIR)$(infodir)/gcj.info ]; then \
++	-if [ -f jc1$(exeext) ] && [ -f $(DESTDIR)$(infodir)/gcj$(iv).info ]; then \
+ 	  if $(SHELL) -c 'install-info --version' >/dev/null 2>&1; then \
+-	    install-info --dir-file=$(DESTDIR)$(infodir)/dir $(DESTDIR)$(infodir)/gcj.info; \
++	    install-info --dir-file=$(DESTDIR)$(infodir)/dir $(DESTDIR)$(infodir)/gcj$(iv).info; \
+ 	  else true; fi; \
+ 	else true; fi
+ 
+@@ -338,12 +338,12 @@
+ 	  $(srcdir)/java/jcf-path.c $(OUTPUT_OPTION)
+ 
+ # Documentation
+-$(srcdir)/java/gcj.info: $(srcdir)/java/gcj.texi \
++$(srcdir)/java/gcj$(iv).info: $(srcdir)/java/gcj.texi \
+ 	 $(srcdir)/doc/include/fdl.texi $(srcdir)/doc/include/gpl.texi \
+ 	 $(srcdir)/doc/include/gcc-common.texi
+ 	if test "x$(BUILD_INFO)" = xinfo; then \
+-	  rm -f $(srcdir)/java/gcc.info*; \
+-	  cd $(srcdir)/java && $(MAKEINFO) -I../doc/include -o gcj.info gcj.texi; \
++	  rm -f $(srcdir)/java/gcj$(iv).info*; \
++	  cd $(srcdir)/java && $(MAKEINFO) $(MAKEINFOFLAGS) $(MAKEINFODEFS) -I../doc/include -o gcj$(iv).info gcj.texi; \
+ 	else true; fi
+ 
+ java/gcj.dvi: $(srcdir)/java/gcj.texi $(srcdir)/doc/include/fdl.texi \
+diff -ur gcc.old/java/gcj.texi gcc/java/gcj.texi
+--- gcc.old/java/gcj.texi	2003-03-30 19:01:58.000000000 +0200
++++ gcc/java/gcj.texi	2004-02-28 16:03:08.000000000 +0100
+@@ -52,7 +52,7 @@
+ @format
+ @dircategory Programming
+ @direntry
+-* Gcj: (gcj).               Ahead-of-time compiler for the Java language
++* @value{fngcj}: (@value{fngcj}).               Ahead-of-time compiler for the Java language
+ @end direntry
+ 
+ @dircategory Individual utilities
+@@ -151,7 +151,7 @@
+ 
+ As @command{gcj} is just another front end to @command{gcc}, it supports many
+ of the same options as gcc.  @xref{Option Summary, , Option Summary,
+-gcc, Using the GNU Compiler Collection (GCC)}.  This manual only documents the
++@value{fngcc}, Using the GNU Compiler Collection (GCC)}.  This manual only documents the
+ options specific to @command{gcj}.
+ 
+ @c man end
+diff -ur gcc.old/treelang/Make-lang.in gcc/treelang/Make-lang.in
+--- gcc.old/treelang/Make-lang.in	2003-07-08 15:28:41.000000000 +0200
++++ gcc/treelang/Make-lang.in	2004-02-28 16:00:37.000000000 +0100
+@@ -132,15 +132,15 @@
+ treelang.rest.encap: 
+ 
+ .phony:treelang.info
+-treelang.info: $(srcdir)/treelang/treelang.info
++treelang.info: $(srcdir)/treelang/treelang$(iv).info
+ 
+-$(srcdir)/treelang/treelang.info: $(srcdir)/treelang/treelang.texi \
++$(srcdir)/treelang/treelang$(iv).info: $(srcdir)/treelang/treelang.texi \
+ 	 $(srcdir)/doc/include/gcc-common.texi \
+ 	 $(srcdir)/doc/include/gpl.texi \
+ 	 $(srcdir)/doc/include/fdl.texi \
+ 	 $(srcdir)/doc/include/funding.texi
+-	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) -Idoc/include \
+-	-o treelang/treelang.info treelang/treelang.texi
++	cd $(srcdir) && $(MAKEINFO) $(MAKEINFOFLAGS) $(MAKEINFODEFS) -Idoc/include \
++	-o treelang/treelang$(iv).info treelang/treelang.texi
+ 
+ treelang.dvi: $(srcdir)/treelang/treelang.texi \
+ 	 $(srcdir)/doc/include/gcc-common.texi \
+@@ -177,19 +177,19 @@
+ 	done
+ 	$(STAMP) treelang.install.common.done
+ 
+-treelang.install-info: $(srcdir)/treelang/treelang.info
+-	if [ -f $(srcdir)/treelang/treelang.info ] ; then \
+-	  rm -f $(DESTDIR)$(infodir)/treelang.info*; \
+-	  for f in $(srcdir)/treelang/treelang.info*; do \
++treelang.install-info: $(srcdir)/treelang/treelang$(iv).info
++	if [ -f $(srcdir)/treelang/treelang$(iv).info ] ; then \
++	  rm -f $(DESTDIR)$(infodir)/treelang$(iv).info*; \
++	  for f in $(srcdir)/treelang/treelang$(iv).info*; do \
+ 	      realfile=`echo $$f | sed -e 's|.*/\([^/]*\)$$|\1|'`; \
+ 	      $(INSTALL_DATA) $$f $(DESTDIR)$(infodir)/$$realfile; \
+ 	  done; \
+-	  chmod a-x $(DESTDIR)$(infodir)/treelang.info*; \
++	  chmod a-x $(DESTDIR)$(infodir)/treelang$(iv).info*; \
+ 	else true; fi
+-	@if [ -f $(srcdir)/treelang/treelang.info ] ; then \
++	@if [ -f $(srcdir)/treelang/treelang$(iv).info ] ; then \
+ 	  if $(SHELL) -c 'install-info --version | sed 1q | fgrep -s -v -i debian' >/dev/null 2>&1; then \
+-	    echo " install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/treelang.info"; \
+-	    install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/treelang.info || : ; \
++	    echo " install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/treelang$(iv).info"; \
++	    install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/treelang$(iv).info || : ; \
+ 	  else : ; fi; \
+ 	else : ; fi
+ 
+@@ -204,6 +204,7 @@
+ 	  echo -rm -rf $(DESTDIR)$(bindir)/$$name2$(exeext); \
+ 	  rm -rf $(DESTDIR)$(bindir)/$$name2$(exeext); \
+ 	done
++	-rm -f $(DESTDIR)$(infodir)/$(INFO_TREELANG_NAME).info*
+ 	-rm treelang.install.common.done
+ 
+ #
+diff -ur gcc.old/treelang/treelang.texi gcc/treelang/treelang.texi
+--- gcc.old/treelang/treelang.texi	2003-02-04 02:55:43.000000000 +0100
++++ gcc/treelang/treelang.texi	2004-02-28 16:01:43.000000000 +0100
+@@ -106,7 +106,7 @@
+ @ifnottex
+ @dircategory Programming
+ @direntry
+-* treelang: (treelang).                  The GNU Treelang compiler.
++* @value{fntreelang}: (@value{fntreelang}).                  The GNU Treelang compiler.
+ @end direntry
+ @ifset INTERNALS
+ @ifset USING
+@@ -278,7 +278,7 @@
+ @item
+ The packaging and compiler portions of GNU Treelang are based largely
+ on the GCC compiler.
+-@xref{Contributors,,Contributors to GCC,GCC,Using and Maintaining GCC},
++@xref{Contributors,,Contributors to GCC,@value{fngcc},Using and Maintaining GCC},
+ for more information.
+ 
+ @item
+@@ -865,7 +865,7 @@
+ command-line options that are designed to cater to Treelang users
+ but apply to other languages as well.
+ 
+-@xref{G++ and GCC,,Compile C; C++; or Objective-C,GCC,Using and Porting GCC},
++@xref{G++ and GCC,,Compile C; C++; or Objective-C,@value{fngcc},Using and Porting GCC},
+ for information on the way different languages are handled
+ by the GCC compiler (@code{gcc}).
+ 

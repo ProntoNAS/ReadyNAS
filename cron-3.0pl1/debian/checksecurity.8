@@ -1,0 +1,145 @@
+.\" -*- nroff -*-
+.TH CHECKSECURITY 8 "2 February 1997" "Debian Linux"
+.SH NAME
+checksecurity \- check for changes to setuid programs
+.SH SYNOPSIS
+.B checksecurity
+.SH DESCRIPTION
+The
+.B checksecurity
+command scans the mounted files systems (subject to the filter defined
+in /etc/checksecurity.conf) and compares the list of setuid programs to the
+list created on the previous run. Any changes are printed to standard
+output. Also, it generates a list of 
+.I nfs
+and 
+.I afs
+filesystems that are mounted insecurely (i.e. they are missing the 
+.I nodev 
+and either the
+.I noexec
+or
+.I nosuid 
+flags).
+.PP
+.B checksecurity
+is run by 
+.B cron
+on a daily basis, and the output stored in /var/log/setuid.changes.
+.SH CONFIGURATION
+The
+.B checksecurity.conf
+file defines several configuration variables:
+.BR CHECKSECURITY_FILTER ,
+.BR CHECKSECURITY_NOFINDERRORS ,
+.BR CHECKSECURITY_DISABLE ,
+.BR CHECKSECURITY_NONFSAFS ,
+.BR CHECKSECURITY_EMAIL ,
+.BR CHECKSECURITY_DEVICEFILTER ,
+.BR CHECKSECURITY_PATHFILTER , 
+and
+.BR LOGDIR .
+Each is described below.
+.PP
+The 
+.B CHECKSECURITY_FILTER
+environment variable which is the argument of 'grep -vE' applied to
+the output of the  
+.B mount
+command. In other words, the value of
+.B CHECKSECURITY_FILTER
+is a regular expression that removes matching lines from those
+file systems that will be scanned. The default value removes
+all file systems of type 
+.I proc, msdos, iso9660, ncpfs, nfs, afs,
+.I smbfs, auto, ntfs, coda
+file systems, 
+anything mounted on /dev/fd*, anything mounted
+on /mnt or /amd, and anything mounted with option nosuid or noexec.
+.PP
+The
+.B checksecurity.conf
+file is sourced from 
+.B checksecurity,
+so you could do some fairly tricky things to define 
+.BR CHECKSECURITY_FILTER .
+.PP
+The 
+.B CHECKSECURITY_NOFINDERRORS 
+environment variable, if set to the literal "TRUE", disables
+find errors from checksecurity (actually, it re-routes them to 
+.B /dev/null
+).
+.PP
+The
+.B CHECKSECURITY_DISABLE  
+environment variable, if set to the literal "TRUE", disables
+checksecurity entirely, as a sop to those who think it's safe to allow
+random mounting of NFS and AFS disks without the nosuid or noexec flags.
+.PP
+The
+.B CHECKSECURITY_NONFSAFS
+environment variable, if set to the literal "TRUE", disables the message about 
+.I nfs
+and
+.I afs
+file systems that are mounted without the
+.I nodev 
+and either the
+.I noexec
+or
+.I nosuid 
+options.
+.PP
+If set, the 
+.B CHECKSECURITY_EMAIL
+variable defines who is sent a copy of the setuid.changes file.
+.PP
+The
+.B CHECKSECURITY_DEVICEFILTER
+variable specifies a 
+.B find
+clause for which matching block and character device files will not be
+monitored for changing owners and permissions. For example, if you
+didn't want to check for permission changes on tty device files
+beneath /dev, you could set the following:
+.PP
+.RS
+CHECKSECURITY_DEVICEFILTER='-path /dev/tty*'
+.RE
+.PP
+Note that any added or modified suid programs under that path would
+still be detected. If you want to specify multiple expressions,
+separate them with '-o', but there is no need to surround the whole
+clause with parentheses. To disable this filter, specify it as
+'-false' (which is the default).
+.PP
+The
+.B CHECKSECURITY_PATHFILTER
+variable specifies a 
+.B find
+clause which will be pruned from the search path.
+.B This means that the entire subtree will be completely skipped.
+Thus, specifying  
+.PP
+.RS
+CHECKSECURITY_PATHFILTER='-path /var/ftp'
+.RE
+.PP
+then the entire /var/ftp tree will be skipped. To disable this filter,
+specify it as '-false' (which is the default).
+.PP
+.B LOGDIR
+sets the name of the directory which stores the files which track
+the permission and ownership changes. By default, they are in 
+.BR /var/log .
+.SH FILES
+.TP
+.I /etc/checksecurity.conf
+checksecurity configuration file
+.TP
+.I /var/log/setuid.today
+setuid files from the most recent run
+.TP
+.I /var/log/setuid.yesterday
+setuid files from the previous run

@@ -1,0 +1,47 @@
+--- db-2.7.7.orig/log/log_rec.c
++++ db-2.7.7/log/log_rec.c
+@@ -125,12 +125,8 @@
+ 		LOCK_LOGTHREAD(logp);
+ 		if (argp->id < logp->dbentry_cnt) {
+ 			dbe = &logp->dbentry[argp->id];
+-			if (dbe->dbp != NULL && --dbe->refcount == 0) {
++			if (dbe->dbp != NULL && dbe->refcount == 1) {
+ 				ret = dbe->dbp->close(dbe->dbp, 0);
+-				if (dbe->name != NULL) {
+-					__os_freestr(dbe->name);
+-					dbe->name = NULL;
+-				}
+ 				(void)__log_rem_logid(logp, argp->id);
+ 			}
+ 		}
+@@ -201,9 +197,6 @@
+ 
+ 	if (dbe != NULL && dbe->dbp != NULL) {
+                 (void)dbe->dbp->close(dbe->dbp, 0);
+-		if (dbe->name != NULL)
+-			__os_freestr(dbe->name);
+-                dbe->name = NULL;
+ 		(void)__log_rem_logid(lp, argp->id);
+         }
+ 
+@@ -399,6 +392,10 @@
+ 			logp->dbentry[i].dbp->close(logp->dbentry[i].dbp, 0);
+ 			logp->dbentry[i].dbp = NULL;
+ 			logp->dbentry[i].deleted = 0;
++                        if (logp->dbentry[i].name != NULL)
++                            __os_freestr(logp->dbentry[i].name);
++                        logp->dbentry[i].name = NULL;
++			logp->dbentry[i].refcount = 0;
+ 		}
+ 	F_CLR(logp, DBC_RECOVER);
+ 	UNLOCK_LOGTHREAD(logp);
+@@ -416,6 +413,9 @@
+ 	if (--logp->dbentry[ndx].refcount == 0) {
+ 		logp->dbentry[ndx].dbp = NULL;
+ 		logp->dbentry[ndx].deleted = 0;
++                if (logp->dbentry[ndx].name != NULL)
++                    __os_freestr(logp->dbentry[ndx].name);
++                logp->dbentry[ndx].name = NULL;
+ 	}
+ 	UNLOCK_LOGTHREAD(logp);
+ }

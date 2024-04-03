@@ -1,0 +1,59 @@
+From: Raphael Geissert <geissert@debian.org>
+Description: make X509_verify_cert indicate that any certificate whose
+ name contains "DigiNotar" is revoked.
+Origin: vendor
+Forwarded: not-needed
+Last-Update: 2011-09-07
+Bug: http://bugs.debian.org/639744
+
+diff -urpN openssl-0.9.8o-4squeeze1.orig/crypto/x509/x509_vfy.c openssl-0.9.8o-4squeeze1/crypto/x509/x509_vfy.c
+--- openssl-0.9.8o-4squeeze1.orig/crypto/x509/x509_vfy.c	2009-06-26 06:34:21.000000000 -0500
++++ openssl-0.9.8o-4squeeze1/crypto/x509/x509_vfy.c	2011-09-07 21:23:58.000000000 -0500
+@@ -78,6 +78,7 @@ static int check_trust(X509_STORE_CTX *c
+ static int check_revocation(X509_STORE_CTX *ctx);
+ static int check_cert(X509_STORE_CTX *ctx);
+ static int check_policy(X509_STORE_CTX *ctx);
++static int check_ca_blacklist(X509_STORE_CTX *ctx);
+ static int internal_verify(X509_STORE_CTX *ctx);
+ const char X509_version[]="X.509" OPENSSL_VERSION_PTEXT;
+ 
+@@ -312,6 +313,9 @@ int X509_verify_cert(X509_STORE_CTX *ctx
+ 		ok=internal_verify(ctx);
+ 	if(!ok) goto end;
+ 
++	ok = check_ca_blacklist(ctx);
++	if(!ok) goto end;
++
+ #ifndef OPENSSL_NO_RFC3779
+ 	/* RFC 3779 path validation, now that CRL check has been done */
+ 	ok = v3_asid_validate_path(ctx);
+@@ -661,6 +665,29 @@ static int check_crl_time(X509_STORE_CTX
+ 	return 1;
+ 	}
+ 
++static int check_ca_blacklist(X509_STORE_CTX *ctx)
++	{
++	X509 *x;
++	int i;
++	/* Check all certificates against the blacklist */
++	for (i = sk_X509_num(ctx->chain) - 1; i >= 0; i--)
++		{
++		x = sk_X509_value(ctx->chain, i);
++		/* Mark DigiNotar certificates as revoked, no matter                                                                            
++		 * where in the chain they are.                                                                                                 
++		 */
++		if (x->name && strstr(x->name, "DigiNotar"))
++			{
++			ctx->error = X509_V_ERR_CERT_REVOKED;
++			ctx->error_depth = i;
++			ctx->current_cert = x;
++			if (!ctx->verify_cb(0,ctx))
++				return 0;
++			}
++		}
++	return 1;
++	}
++
+ /* Lookup CRLs from the supplied list. Look for matching isser name
+  * and validity. If we can't find a valid CRL return the last one
+  * with matching name. This gives more meaningful error codes. Otherwise

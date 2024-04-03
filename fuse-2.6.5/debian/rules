@@ -1,0 +1,154 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# Dpatch system
+include /usr/share/dpatch/dpatch.make
+
+# Some variables I'll use below
+DESTDIR	 = $(CURDIR)/debian/tmp
+KDESTDIR = $(CURDIR)/debian/fuse-source
+DOCS	 = Filesystems FAQ NEWS README README.NFS doc/* debian/README.Debian debian/NEWS.Debian
+
+# Module-assistant stuff
+PACKAGE = fuse-modules
+MA_DIR ?= /usr/share/modass
+-include $(MA_DIR)/include/generic.make
+-include $(MA_DIR)/include/common-rules.make
+
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+CFLAGS += -Wall -g
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2
+endif
+
+config.status: configure patch-stamp
+	dh_testdir
+ifneq "$(wildcard /usr/share/misc/config.sub)" ""
+	cp -f /usr/share/misc/config.sub config.sub
+endif
+ifneq "$(wildcard /usr/share/misc/config.guess)" ""
+	cp -f /usr/share/misc/config.guess config.guess
+endif
+	CFLAGS="$(CFLAGS)" \
+	./configure --host=$(DEB_HOST_GNU_TYPE) \
+	            --build=$(DEB_BUILD_GNU_TYPE) \
+		    --prefix=/usr \
+		    --mandir=\$${prefix}/share/man \
+		    --infodir=\$${prefix}/share/info \
+		    --disable-kernel-module \
+		    --disable-example
+
+# Modass targets
+kdist_configure: prep-deb-files
+kdist_clean:
+	-$(MAKE) distclean
+binary-modules: prep-deb-files
+	dh_testroot
+	dh_clean -k
+	./configure --enable-kernel-module --with-kernel=$(KSRC)
+	$(MAKE)
+	install -D -m0644 fuse.ko debian/$(PACKAGE)-$(KVERS)/lib/modules/$(KVERS)/kernel/fs/fuse/fuse.ko
+	dh_installchangelogs ChangeLog
+	dh_installdocs $(DOCS)
+	dh_installmodules
+	sed -e "s/@KERNEL@/$(KVERS)/g" debian/preinst.modules.in > debian/preinst
+	sed -e "s/@KERNEL@/$(KVERS)/g" debian/postrm.modules.in > debian/postrm
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_gencontrol -- -v$(VERSION)
+	dh_md5sums
+	dh_builddeb --destdir=$(DEB_DESTDIR)
+	dh_clean -k
+
+build: build-stamp
+build-stamp: config.status
+	$(MAKE)
+	touch $@
+
+clean: unpatch
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp config.log
+	-$(MAKE) distclean -C example
+	-$(MAKE) distclean
+	dh_clean config.guess config.sub
+
+install-arch:
+	dh_testdir
+	dh_testroot
+	dh_clean -k -s
+	dh_installdirs -s
+	$(MAKE) install DESTDIR=$(DESTDIR)
+	dh_installdirs -pfuse-utils usr/share/lintian/overrides
+	cp $(CURDIR)/debian/fuse-utils.lintian \
+	   $(CURDIR)/debian/fuse-utils/usr/share/lintian/overrides/fuse-utils
+	dh_install -s --source=debian/tmp
+	install -D -m0640 $(CURDIR)/debian/fuse.conf \
+			  $(CURDIR)/debian/fuse-utils/etc/fuse.conf
+
+install-indep:
+	dh_testdir
+	dh_testroot
+	dh_clean -k -i
+	mkdir -p $(KDESTDIR)/usr/src/modules/fuse/debian
+	cp -a kernel/* $(KDESTDIR)/usr/src/modules/fuse
+	cp debian/control.modules.in $(KDESTDIR)/usr/src/modules/fuse/debian
+	cp debian/postrm.modules.in $(KDESTDIR)/usr/src/modules/fuse/debian
+	cp debian/preinst.modules.in $(KDESTDIR)/usr/src/modules/fuse/debian
+	cp debian/rules debian/changelog debian/copyright debian/compat debian/control \
+	  $(KDESTDIR)/usr/src/modules/fuse/debian
+	cp --parents $(DOCS) $(KDESTDIR)/usr/src/modules/fuse/
+	cp ChangeLog $(KDESTDIR)/usr/src/modules/fuse/
+	cd $(KDESTDIR)/usr/src && tar c modules | bzip2 -9 > fuse.tar.bz2 && rm -rf modules
+
+binary-arch: build install-arch
+	dh_testdir -s
+	dh_testroot -s
+	dh_installchangelogs -s ChangeLog
+	dh_installdocs -plibfuse2 $(DOCS)
+	dh_installdocs -plibfuse-dev $(DOCS)
+	dh_installexamples -s
+	for PKG in fuse-utils; do \
+		rm -rf debian/$$PKG/usr/share/doc/$$PKG; \
+		cd debian/$$PKG/usr/share/doc/ && ln -s libfuse2 $$PKG; \
+	done
+	dh_installman -s -pfuse-utils debian/fusermount.1
+	dh_link -s
+	dh_strip -s
+	dh_compress -s -Xusr/share/doc/libfuse-dev/examples/
+	dh_fixperms -s
+	dh_installdebconf -s
+	dh_installinit -s --name=fuse -- start 34 S . stop 41 0 6 .
+	dh_makeshlibs -s -V "libfuse2 (>= 2.6)"
+	dh_installdeb -s
+	dh_shlibdeps -s
+	dh_gencontrol -s
+	dh_md5sums -s
+	chmod 4755 debian/fuse-utils/usr/bin/fusermount
+	dh_builddeb -s
+
+binary-indep: install-indep
+	dh_testdir -i
+	dh_testroot -i
+	dh_installchangelogs -i ChangeLog
+	dh_installdocs -i -pfuse-source $(DOCS)
+	dh_link -i
+	dh_compress -i
+	dh_fixperms -i
+	dh_installdeb -i
+	dh_shlibdeps -i
+	dh_gencontrol -i
+	dh_md5sums -i
+	dh_builddeb -i
+
+binary: binary-arch binary-indep
+.PHONY: build clean binary-indep binary-arch binary install binary-modules kdist kdist_configure kdist_image kdist_clean

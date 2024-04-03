@@ -1,0 +1,90 @@
+#!/bin/sh
+#
+# source:
+#   /var/cvs/projects/debian/dpkg.common/clean,v
+#
+# revision:
+#   @(#) clean,v 1.9 1999/03/08 04:34:57 jplejacq Exp
+#
+# copyright:
+#   Copyright (C) 1999 Jean Pierre LeJacq <jplejacq@quoininc.com>
+#
+#   Distributed under the GNU GENERAL PUBLIC LICENSE.
+#
+# synopsis:
+#   clean
+#
+# description:
+#   Cleans directory of all generated files except scheme-*.
+#
+#   I change the ownership of the files before removing them to limit
+#   the set of commands that require root priveleges.  chown is
+#   necessary but rm is not.
+#
+#   This program is careful about not removing CVS directories when
+#   using the non-exported version of the package.
+#
+#   This program is package independent and should work unmodified
+#   with any package.
+
+
+# main:
+  set -e
+
+
+  echo "${0}: getting package list..."
+    readonly DH_DOPACKAGES="$(./debian/dpkg.common/getpackages)"
+
+
+  echo "${0}: removing generated debian supplemental files..."
+    find debian/dpkg.src\
+      \( -type d -name CVS -prune \)\
+      -o\
+      \(\
+        \(\
+          -type d\
+          -o\
+          -name "*.in"\
+          -o\
+          -name changelog\
+          -o\
+          -name control\
+        \)\
+        -o\
+        \(\
+          -exec chown "$(id -r -u):$(id -r -g)" {} \;\
+          -exec rm -f {} \;\
+        \)\
+      \)
+
+
+
+  echo "${0}: removing source and build directories..."
+    for srcdir in ${DH_DOPACKAGES}
+    do
+      if [ -d "${srcdir}.src" ]
+      then
+        chown -R "$(id -r -u):$(id -r -g)" ${srcdir}.src
+        rm -r -f ${srcdir}.src
+      fi
+
+      if [ -d "${srcdir}.tmp" ]
+      then
+        chown -R "$(id -r -u):$(id -r -g)" ${srcdir}.tmp
+        rm -r -f ${srcdir}.tmp
+      fi
+    done
+
+
+  echo "${0}: removing makefile stamps..."
+    find . \
+      -maxdepth 1\
+      -name "*.stamp-*"\
+      -exec chown -R "$(id -r -u):$(id -r -g)" {} \;\
+      -exec rm -r -f {} \;
+
+
+  dh_clean
+
+
+  exit 0

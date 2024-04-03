@@ -1,0 +1,111 @@
+#! /bin/sh -e
+
+dir=.
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir=$3
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+	patch $pdir -f --no-backup-if-mismatch -p1 < $0
+	echo '2.05' > $dir/_distribution
+	echo '0' > $dir/_patchlevel
+	cd $dir && autoconf
+	rm -f $dir/_distribution $dir/_patchlevel
+	;;
+    -unpatch)
+	patch $pdir -f --no-backup-if-mismatch -R -p1 < $0
+	rm -f $dir/configure $dir/_distribution $dir/_patchlevel
+	;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# DP: use the system random functions
+
+--- bash-2.05-old/configure.in	Mon Nov  6 14:21:35 2000
++++ bash-2.05/configure.in	Sun Nov 26 20:42:06 2000
+@@ -479,6 +479,9 @@
+ 		siginterrupt memmove ttyname gethostbyname getservbyname \
+ 		inet_aton strpbrk setvbuf pathconf)
+ 
++dnl checks for random functions
++AC_CHECK_FUNCS(random srandom)
++
+ dnl checks for locale functions
+ AC_CHECK_HEADERS(libintl.h)
+ AC_CHECK_FUNCS(gettext textdomain bindtextdomain)
+--- bash-2.05-old/config.h.in	Mon Oct  2 15:44:22 2000
++++ bash-2.05/config.h.in	Sun Nov 26 21:51:18 2000
+@@ -462,6 +462,9 @@
+ /* Define if you have the putenv function.  */
+ #undef HAVE_PUTENV
+ 
++/* Define if you have the random function.  */
++#undef HAVE_RANDOM
++
+ /* Define if you have the readlink function. */
+ #undef HAVE_READLINK
+ 
+@@ -524,6 +527,9 @@
+ 
+ /* Define if you have the strsignal function or macro. */
+ #undef HAVE_STRSIGNAL
++
++/* Define if you have the srandom function.  */
++#undef HAVE_SRANDOM
+ 
+ /* Define if you have the sysconf function. */
+ #undef HAVE_SYSCONF
+--- bash-2.05b/variables.c~	2002-06-25 15:43:33.000000000 +0200
++++ bash-2.05b/variables.c	2004-04-14 08:26:10.000000000 +0200
+@@ -1038,17 +1038,26 @@
+ /* The random number seed.  You can change this by setting RANDOM. */
+ static unsigned long rseed = 1;
+ static int last_random_value;
++#if defined(HAVE_RANDOM)
++static char random_state[32];
++#endif
+ 
+-/* A linear congruential random number generator based on the example
+-   one in the ANSI C standard.  This one isn't very good, but a more
+-   complicated one is overkill. */
++/* Use the random number genrator provided by the standard C library,
++   else use a linear congruential random number generator based on the
++   ANSI C standard.  This one isn't very good (the values are alternately
++   odd and even, for example), but a more complicated one is overkill. */
+ 
+ /* Returns a pseudo-random number between 0 and 32767. */
+ static int
+ brand ()
+ {
++#if defined(HAVE_RANDOM)
++  rseed = (unsigned int) ((32767.0 * random()) / (RAND_MAX + 1.0));
++  return rseed;
++#else
+   rseed = rseed * 1103515245 + 12345;
+   return ((unsigned int)((rseed >> 16) & 32767));	/* was % 32768 */
++#endif
+ }
+ 
+ /* Set the random number generator seed to SEED. */
+@@ -1056,8 +1065,14 @@
+ sbrand (seed)
+      unsigned long seed;
+ {
++#if defined(HAVE_SRANDOM)
++  initstate((unsigned int) seed, random_state, sizeof(random_state));
++  setstate(random_state);
++  srandom((unsigned int) seed);
++#else
+   rseed = seed;
+   last_random_value = 0;
++#endif
+ }
+ 
+ static SHELL_VAR *

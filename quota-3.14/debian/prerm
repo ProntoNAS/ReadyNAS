@@ -1,0 +1,41 @@
+#! /bin/sh
+# prerm script for quota
+#
+# see: dh_installdeb(1)
+
+# summary of how this script can be called:
+#        * <prerm> `remove'
+#        * <old-prerm> `upgrade' <new-version>
+#        * <new-prerm> `failed-upgrade' <old-version>
+#        * <conflictor's-prerm> `remove' `in-favour' <package> <new-version>
+#        * <deconfigured's-prerm> `deconfigure' `in-favour'
+#          <package-being-installed> <version> `removing'
+#          <conflicting-package> <version>
+# for details, see /usr/doc/packaging-manual/
+
+case "$1" in
+    remove|deconfigure)
+	#DEBHELPER#	
+	[ -f /var/lib/quota/off ] && rm -f /var/lib/quota/off
+	[ -f /var/lib/quota/new ] && rm -f /var/lib/quota/new
+        ;;
+    upgrade)
+	if [ -L /usr/doc/quota ]; then
+	        rm -f /usr/doc/quota
+	fi
+
+	# stop quota server
+	start-stop-daemon --stop --quiet --oknodo --exec /usr/sbin/rpc.rquotad        
+        ;;
+    failed-upgrade)
+	if [ -L /usr/doc/quota ]; then
+	        rm -f /usr/doc/quota
+	fi
+	;;
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 0
+    ;;
+esac
+
+exit 0

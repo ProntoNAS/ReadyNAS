@@ -1,0 +1,72 @@
+#!/usr/bin/make -f
+
+package = adduser
+version = $(shell dpkg-parsechangelog | awk '/^Version/{print $$2}')
+
+build:
+	$(checkdir)
+	$(MAKE) -C po all
+	touch build
+
+clean:
+	$(checkdir)
+	$(MAKE) -C po $@
+	-rm -rf build *~ debian/tmp debian/*~ debian/files* debian/substvars
+
+binary-indep:	checkroot build
+	$(checkdir)
+	-rm -rf debian/tmp
+	#install -d debian/tmp/{DEBIAN,etc,usr/{sbin,share/{doc/adduser/examples,perl5/Debian,man/{,ru_RU/}man{5,8}}}}
+	install -d debian/tmp/DEBIAN debian/tmp/etc debian/tmp/usr/sbin \
+		debian/tmp/usr/share/doc/adduser/examples \
+		debian/tmp/usr/share/perl5/Debian \
+		debian/tmp/usr/share/man/man5 \
+		debian/tmp/usr/share/man/man8 \
+		debian/tmp/usr/share/man/ru_RU/man5 \
+		debian/tmp/usr/share/man/ru_RU/man8
+	sed -e s/VERSION/$(version)/g adduser > debian/tmp/usr/sbin/adduser
+	sed -e s/VERSION/$(version)/g deluser > debian/tmp/usr/sbin/deluser
+	sed -e s/VERSION/$(version)/g AdduserCommon.pm > debian/tmp/usr/share/perl5/Debian/AdduserCommon.pm
+	chmod 755 debian/tmp/usr/sbin/*
+	ln -s adduser debian/tmp/usr/sbin/addgroup
+	ln -s deluser debian/tmp/usr/sbin/delgroup
+
+	./debian/scripts/install-manpages.pl $(version) doc/ debian/tmp/usr/share/man/
+
+	install -m644 TODO debian/tmp/usr/share/doc/adduser/
+	install -m644 debian/changelog debian/tmp/usr/share/doc/adduser/
+	find debian/tmp/usr/share/doc -type f | xargs gzip -9f
+	install -m644 deluser.conf debian/tmp/etc
+	install -m644 adduser.conf examples/* debian/tmp/usr/share/doc/adduser/examples
+	install -m644 debian/copyright debian/tmp/usr/share/doc/adduser/ 
+	install -m644 debian/conffiles debian/templates debian/tmp/DEBIAN
+	install -m755 debian/postinst debian/prerm debian/postrm debian/config debian/tmp/DEBIAN
+	$(MAKE) -C po DESTDIR=`pwd`/debian/tmp install 
+
+	find debian/tmp/usr -type f -print | xargs md5sum | \
+		sed s,debian/tmp/,, > debian/tmp/DEBIAN/md5sums
+	chmod 644 debian/tmp/DEBIAN/md5sums
+	
+	dpkg-gencontrol -isp
+	dpkg --build debian/tmp ..
+
+binary-arch:	checkroot build
+	$(checkdir)
+
+define checkdir
+	test -f $(package) -a -f debian/rules
+endef
+
+binary:		binary-indep binary-arch
+
+source diff:
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+checkroot:
+	$(checkdir)
+	test root = "`whoami`"
+
+.PHONY: binary binary-arch binary-indep clean checkroot
+
+# Local Variables:
+# mode:Makefile

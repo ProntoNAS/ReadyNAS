@@ -1,0 +1,144 @@
+#! /usr/bin/make -f
+#
+#	debian/rules file for nis
+#
+
+# Package name.
+p = nis
+
+DEBDIR=$(shell pwd)/debian/tmp
+
+YPSERV=ypserv-1.3.12
+YPTOOLS=yp-tools-2.5
+YPBIND=ypbind-mt-1.8
+
+# Set CFLAGS to -O2, because higher gives
+# problems on the Alpha.
+CFLAGS = "-O2 -Wall"
+SHELL=/bin/bash
+ARCH    = $(shell dpkg --print-architecture)
+
+define checkdir
+	test -f $(YPBIND)/README
+endef
+
+all: build
+
+build:
+# Builds the binary package.
+	#
+	#	Kludge to prevent configure from being rebuilt
+	#
+	sh debian/fix-up-autoconf
+	#
+	-(cd $(YPTOOLS) && [ ! -f config.status ] && \
+		CFLAGS=$(CFLAGS) ./configure \
+		--prefix=/usr --mandir=/usr/share/man \
+		$(ARCH)-debian-linux )
+	(cd $(YPTOOLS) && make)
+	-(cd $(YPBIND) && [ ! -f config.status ] && \
+		CFLAGS=$(CFLAGS) ./configure \
+		--prefix=/usr --mandir=/usr/share/man \
+		--sysconfdir=/etc --libexecdir=/usr/lib/yp \
+		$(ARCH)-debian-linux )
+	(cd $(YPBIND) && make )
+	rm -f $(YPSERV)/sedscript
+	-(cd $(YPSERV) && [ ! -f config.status ] && \
+		AWK=/usr/bin/awk CFLAGS=$(CFLAGS) ./configure \
+		--prefix=/usr --mandir=/usr/share/man \
+		--sysconfdir=/etc \
+		--libexecdir=/usr/lib/yp --enable-checkroot \
+		$(ARCH)-debian-linux )
+	(cd $(YPSERV) && make SECURENETS=/etc/ypserv.securenets )
+	## ( cd debian; cc -Wall -s -o domainname domainname.c )
+	touch build
+
+# Undoes the effect of `make -f debian/rules build'.
+clean:
+	-(cd $(YPTOOLS) && [ -f Makefile ] && make distclean)
+	-(cd $(YPBIND)  && [ -f Makefile ] && make distclean)
+	-(cd $(YPSERV)  && [ -f Makefile ] && make distclean)
+	rm -rf $(YPBIND)/rpcsvc
+	-rm -rf $(DEBDIR)
+	rm -f build debian/{files,substvars}
+	find . -name '*.bak' -o -name '*~' | xargs -r rm --
+	rm -f */config.cache
+
+# Architecture independant files.
+binary-indep:	build
+	$(checkdir)
+
+# Make a binary package.
+binary-arch:	build checkroot
+	-rm -rf $(DEBDIR)
+	install -d -g root -m 755 $(DEBDIR)
+	install -d -g root -m 755 $(DEBDIR)/DEBIAN
+	install -d -g root -m 755 $(DEBDIR)/bin
+	install -d -g root -m 755 $(DEBDIR)/etc/init.d
+	install -d -g root -m 755 $(DEBDIR)/usr/{bin,sbin}
+	install -d -g root -m 755 $(DEBDIR)/usr/lib/yp
+	install -d -g root -m 755 $(DEBDIR)/var/yp
+	install -d -g root -m 755 -o root $(DEBDIR)/usr/share/doc/nis
+	install -d -g root -m 755 -o root $(DEBDIR)/usr/share/doc/nis/examples
+	install -d -g root -m 755 -o root $(DEBDIR)/usr/share/man/man{1,5,8}
+	#
+	(cd $(YPSERV) && make install ROOT=$(DEBDIR))
+	rm -rf $(DEBDIR)/usr/include
+	rm -f $(DEBDIR)/var/yp/securenets
+	rm -f $(DEBDIR)/etc/{locale,netmasks,timezone}
+	chown -R root:root $(DEBDIR)
+	#
+	(umask 022; cd $(YPTOOLS) && make install DESTDIR=$(DEBDIR))
+	(umask 022; cd $(YPBIND)  && make install DESTDIR=$(DEBDIR))
+	#
+	#install -g root -m 755 $(YPBIND)/ypbind $(DEBDIR)/usr/sbin
+	#install -g root -m 644 $(YPBIND)/ypbind.8 $(DEBDIR)/usr/share/man/man8
+	install -g root -m 644 debian/yp.conf $(DEBDIR)/etc/yp.conf
+	#
+	chown -R root:root $(DEBDIR)
+	chmod -R u+rw,o=u-w $(DEBDIR)
+	#
+	##install -g root -m 755 debian/domainname $(DEBDIR)/bin/domainname
+	##ln -s domainname $(DEBDIR)/bin/nisdomainname
+	##install -g root -m 644 debian/*domainname.8 $(DEBDIR)/usr/share/man/man8
+	#
+	install -g root -m 755 debian/ypxfr_1perhour $(DEBDIR)/usr/lib/yp
+	install -g root -m 755 debian/ypxfr_1perday $(DEBDIR)/usr/lib/yp
+	install -g root -m 755 debian/ypxfr_2perday $(DEBDIR)/usr/lib/yp
+	install -g root -m 755 debian/rc.nis $(DEBDIR)/etc/init.d/nis
+	install -g root -m 644 debian/netgroup.sample $(DEBDIR)/etc/netgroup
+	install -g root -m 644 debian/ypserv.securenets $(DEBDIR)/etc
+	install -g root -m 644 debian/ypserv.conf.debian $(DEBDIR)/etc/ypserv.conf
+	# Documentation.
+	gzip -9f $(DEBDIR)/usr/share/man/man*/*
+	install -g root -m 644 debian/nis.debian.howto $(DEBDIR)/usr/share/doc/nis
+	install -g root -m 644 debian/changelog \
+		$(DEBDIR)/usr/share/doc/nis/changelog.Debian
+	install -g root -m 644 $(YPSERV)/ChangeLog \
+		$(DEBDIR)/usr/share/doc/nis/changelog
+	gzip -9f $(DEBDIR)/usr/share/doc/nis/* || true
+	install -g root -m 644 debian/COPYRIGHT \
+	  $(DEBDIR)/usr/share/doc/$(p)/copyright
+	install -g root -m 644 debian/nis.default \
+	  $(DEBDIR)/usr/share/doc/$(p)/examples/nis.default
+	#
+	install -g root -m 644 debian/conffiles $(DEBDIR)/DEBIAN/conffiles
+	install -g root -m 755 debian/preinst $(DEBDIR)/DEBIAN/preinst
+	install -g root -m 755 debian/prerm $(DEBDIR)/DEBIAN/prerm
+	install -g root -m 755 debian/postinst $(DEBDIR)/DEBIAN/postinst
+	install -g root -m 755 debian/postrm $(DEBDIR)/DEBIAN/postrm
+	install -g root -m 755 debian/templates $(DEBDIR)/DEBIAN/templates
+	# Use some binaries to generate the dependencies.
+	dpkg-shlibdeps $(YPSERV)/ypserv
+	dpkg-gencontrol
+	dpkg --build $(DEBDIR) ..
+	rm -rf $(DEBDIR)
+
+binary:	binary-indep binary-arch
+
+checkroot:
+	$(checkdir)
+	test root = "`whoami`"
+
+dist:
+	dpkg-source -b

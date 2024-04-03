@@ -1,0 +1,94 @@
+# -*- makefile -*-
+# rules to unpack the source tarballs in $(srcdir); if the source dir already
+# exists, the rule exits with an error to prevent deletion of modified
+# source files. It has to be deleted manually.
+
+gcc_srcdir		:= gcc-3.3.5
+#gcc_srcdir		:= gcc-20040214
+gcc_tarball		:= $(gcc_srcdir).tar.bz2
+
+gpc_srcdir		:= gpc-20040516
+gpc_tarball		:= gpc-20040516-minimal.tar.bz2
+gpc_tarball		:= gpc-20040516.tar.gz
+
+#testsuite_srcdir	:= testsuite-3.3-20030118
+#testsuite_tarball	:= $(testsuite_srcdir).tar.bz2
+
+tarballs = $(gcc_tarball)
+ifeq ($(with_check),yes)
+  tarballs += $(testsuite_tarball)
+endif
+ifeq ($(with_pascal),yes)
+  tarballs += $(gpc_tarball)
+endif
+
+unpack_stamps = $(foreach i,$(tarballs),$(unpack_stamp)-$(i))
+
+unpack: stamp-dir $(unpack_stamp) debian-chmod
+$(unpack_stamp): $(unpack_stamps)
+$(unpack_stamp): $(foreach p,$(debian_tarballs),unpacked-$(p))
+	echo -e "\nBuilt from Debian source package $(PKGSOURCE)-$(SOURCE_VERSION)" \
+		> pxxx
+	echo -e "Integrated upstream packages in this version:\n" >> pxxx
+	for i in $(tarballs); do echo "  $$i" >> pxxx; done
+	mv -f pxxx $@
+
+debian-chmod:
+	@chmod 755 debian/dh_*
+
+# ---------------------------------------------------------------------------
+$(unpack_stamp)-$(gcc_tarball): $(gcc_tarball)
+	: # unpack gcc tarball
+	-mkdir $(stampdir)
+	if [ -d $(srcdir) ]; then \
+	  echo >&2 "Source directory $(srcdir) exists. Delete by hand"; \
+	  false; \
+	fi
+	rm -rf $(gcc_srcdir)
+	case $(gcc_tarball) in \
+	  *.bz2) tar -x --bzip2 -f $(gcc_tarball);; \
+	  *.gz)  tar -x --gzip  -f $(gcc_tarball);; \
+	  *)     false; \
+	esac
+	mv $(gcc_srcdir) $(srcdir)
+	echo "$(gcc_tarball) unpacked." > $@
+
+# ---------------------------------------------------------------------------
+$(unpack_stamp)-$(gpc_tarball): $(gpc_tarball)
+	: # unpack gpc tarball
+	-mkdir $(stampdir)
+	if [ -d $(srcdir)/gcc/p ]; then \
+	  echo >&2 "Source directory $(srcdir)/gcc/p exists. Delete by hand";\
+	  false; \
+	fi
+	#rm -rf $(gpc_srcdir)
+	rm -rf p
+	case $(gpc_tarball) in \
+	  *.bz2) tar -x --bzip2 -f $(gpc_tarball);; \
+	  *.gz)  tar -x --gzip  -f $(gpc_tarball);; \
+	  *)     false; \
+	esac
+	if [ -d p ]; then \
+	  mv p $(srcdir)/gcc/. ; \
+	else \
+	  mv $(gpc_srcdir)/p $(srcdir)/gcc/. ; \
+	  rmdir $(gpc_srcdir); \
+	fi
+	echo "$(gpc_tarball) unpacked." > $@
+
+# ---------------------------------------------------------------------------
+$(unpack_stamp)-$(testsuite_tarball): $(testsuite_tarball)
+	: # unpack testsuite tarball
+	-mkdir $(stampdir)
+	rm -rf $(testsuite_srcdir)
+	case $(testsuite_tarball) in \
+	  *.bz2) tar -x -p --bzip2 -f $(testsuite_tarball);; \
+	  *.gz)  tar -x -p --gzip  -f $(testsuite_tarball);; \
+	  *)     false; \
+	esac
+	for t in gcc libjava libstdc++-v3; do \
+	  rm -rf $(srcdir)/$$t/testsuite; \
+	  mv $(testsuite_srcdir)/$$t/testsuite $(srcdir)/$$t/.; \
+	done
+	rm -rf $(testsuite_srcdir)
+	echo "$(testsuite_tarball) unpacked." > $@

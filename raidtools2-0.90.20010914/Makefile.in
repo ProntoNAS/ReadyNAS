@@ -1,0 +1,113 @@
+#
+# Makefile : Utilities for the Linux Multiple Devices driver
+#            Copyright (C) 1996 Marc Zyngier
+#            Copyright (C) 1997 Ingo Molnar, Miguel de Icaza, Gadi Oxman
+#
+# this is the main Makefile for the the MD tools
+#
+# This source is covered by the GNU GPL, the same as all Linux kernel
+# sources.
+#
+MAKEFLAGS    = @MAKEFLAGS@
+MFLAGS    = @MFLAGS@
+VERS    = @VERS@
+
+srcdir  = @srcdir@
+VPATH   = @srcdir@
+
+SBIN    = @sbindir@
+USR     = @prefix@
+MAN     = $(mandir)
+
+SOURCES = 	raidstart.c raidlib.c mkraid.c mkpv.c version.c \
+		parser.c raid_io.c scsi.c configure.in Makefile.in \
+		detect_multipath.c
+
+INTERNAL_LIBS =	parser.o raidlib.o version.o raid_io.o scsi.o
+
+HEADERS = 	common.h config.h parser.h raid_io.h version.h md-int.h \
+		lvm-int.h raidlib.h scsi.h
+
+MANUALS = 	raidstart.8 raidstop.8 raidrun.8 mkraid.8 raid0run.8 mkpv.8 \
+		raidtab.5 raidadd.8 ckraid.8
+
+MISC	= 	COPYING configure raid0.conf.sample raid1.conf.sample \
+		raid4.conf.sample raid5.conf.sample raidtab.sample \
+		README Software-RAID.HOWTO .olddocs autogen.sh acconfig.h \
+		config.h.in multipath.conf.sample
+
+
+DISTFILES = $(SOURCES) $(HEADERS) $(MANUALS) $(MISC)
+
+BINARIES = raidstart mkraid mkpv detect_multipath
+CC = @CC@
+CFLAGS = -O2 -Wall -DMD_VERSION=\""raidtools-@VERS@"\"
+LDFLAGS = @LDFLAGS@ -lpopt
+RAIDSTARTLINKS = raidstop raidhotadd raidhotremove raidhotgenerateerror
+MKRAIDLINKS = raid0run
+
+all: $(BINARIES)
+
+install: dummy
+	for N in all install_bin install_doc install_dev; do make $$N; done
+
+%.o: %.c $(HEADERS) Makefile
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BINARIES): %: %.o $(INTERNAL_LIBS)
+	$(CC) -o $@ $< $(INTERNAL_LIBS) $(LDFLAGS)
+
+clean:
+	rm -f $(BINARIES) $(LINKS) *.o core *~ config.status config.cache Makefile config.h config.log
+
+realclean: clean
+	rm -f configure config.h.in
+
+configure: configure.in 
+	autoconf --localdir=$(srcdir) $(srcdir)/configure.in > configure
+	chmod 755 configure
+
+install_dev:
+	[ -d $(ROOTDIR)/dev ] || mkdir -p $(ROOTDIR)/dev
+	for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+		if [ ! -e $(ROOTDIR)/dev/md$$i ]; then \
+			mknod -m 0600 $(ROOTDIR)/dev/md$$i b 9 $$i; \
+		fi; \
+	done
+
+install_doc:
+	for i in $(MANUALS); do \
+	    EXT=`echo $$i | sed 's/.*\.//'` ;\
+	    [ -d $(ROOTDIR)/$(MAN)/man$$EXT ] || \
+		mkdir -p $(ROOTDIR)/$(MAN)/man$$EXT; \
+	    install -m644 $$i $(ROOTDIR)/$(MAN)/man$$EXT/$$i ;\
+	done
+
+install_bin: 
+	[ -d $(ROOTDIR)/$(SBIN) ] || mkdir -p $(ROOTDIR)/$(SBIN)
+	for n in $(BINARIES); do \
+	    install -s -m755 $$n $(ROOTDIR)/$(SBIN)/$$n ;\
+	done
+	for i in $(RAIDSTARTLINKS); do \
+	    rm -f $(ROOTDIR)/$(SBIN)/$$i ;\
+	    ln -sf raidstart $(ROOTDIR)$(SBIN)/$$i ;\
+	done
+	for i in $(MKRAIDLINKS); do \
+	    rm -f $(ROOTDIR)/$(SBIN)/$$i ;\
+	    ln -sf mkraid $(ROOTDIR)$(SBIN)/$$i ;\
+	done
+
+dep depend:
+	$(CPP) -M $(CPPFLAGS) $(CFLAGS) $(srcdir)/*.c > .depend
+
+dist: 
+	make realclean
+	./autogen.sh
+	rm -f Makefile
+	rm -rf ../raidtools-$(VERS)
+	-mkdir ../raidtools-$(VERS)
+	cp -r $(DISTFILES) ../raidtools-$(VERS)
+	cd ..; tar czvf raidtools-$(VERS).tar.gz raidtools-$(VERS)
+
+dummy:
+

@@ -1,0 +1,1794 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <?xml version="1.0" encoding="ISO-8859-1"?>
+  <!DOCTYPE html
+            PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+            "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+ 
+
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+     <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+  
+  
+   <head>
+ 
+    <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
+    <link rev="made" href="mailto:gcc@gcc.gnu.org" />
+    <link rel="shortcut icon" href="http://gcc.gnu.org/favicon.ico" />
+  
+ <title>
+GCC 3.4 Release Series &mdash; Changes, New Features, and Fixes
+- GNU Project - Free Software Foundation (FSF)</title>
+   </head>
+ 
+
+<!-- GCC maintainers, please do not hesitate to update/contribute entries
+     concerning those part of GCC you maintain!  2002-03-23, Gerald.
+-->
+
+<body bgcolor="#FFFFFF" text="#000000" link="#1F00FF" alink="#FF0000" vlink="#9900DD">
+
+
+
+<h1 align="center">
+GCC 3.4 Release Series<br />Changes, New Features, and Fixes
+</h1>
+
+<p>The latest release in the 3.4 release series is
+<a href="#3.4.3">GCC 3.4.3</a>.</p>
+
+<p><em>GCC 3.4 has <a href="#cplusplus">many improvements in the C++
+frontend</a>.  Before reporting a bug, please make sure it's really GCC,
+and not your code, that is broken.</em></p>
+
+<h2>Caveats</h2>
+
+  <ul>
+    <li>GNU Make is now required to build GCC.</li>
+    <li>With <code>-nostdinc</code> the preprocessor used to ignore
+        both standard include paths <strong>and</strong> include paths
+        contained in environment variables.  It was neither documented
+        nor intended that environment variable paths be ignored, so
+        this has been corrected.</li>
+    <li>GCC no longer accepts the options <code>-fvolatile</code>,
+	<code>-fvolatile-global</code> and <code>-fvolatile-static</code>.
+	It is unlikely that they worked correctly in any 3.x release.</li>
+    <li>GCC no longer ships <code>&lt;varargs.h&gt;</code>.  Use
+        <code>&lt;stdarg.h&gt;</code> instead.</li>
+    <li>Support for all the systems <a
+        href="../gcc-3.3/changes.html#obsolete_systems">obsoleted in
+        GCC 3.3</a> has been removed from GCC 3.4.  See below for a
+        <a href="#obsolete_systems">list of systems which are obsoleted
+        in this release</a>.</li>
+    <li>GCC now requires an ISO C90 (ANSI C89) C compiler to build.
+        K&amp;R C compilers will not work.</li>
+    <li>The implementation of the <a href="mips-abi.html">MIPS ABIs has
+	changed</a>.  As a result, the code generated for certain MIPS
+	targets will not be binary compatible with earlier releases.</li>
+    <li>In previous releases, the MIPS port had a fake "hilo" register
+	with the user-visible name <code>accum</code>.  This register
+	has been removed.</li>
+    <li>The implementation of the <a href="sparc-abi.html">SPARC ABIs has
+	changed</a>.  As a result, the code generated will not be binary
+	compatible with earlier releases in certain cases.</li>
+    <li>The configure option <code>--enable-threads=pthreads</code> has
+        been removed; use <code>--enable-threads=posix</code> instead,
+        which should have the same effect.</li>
+    <li>Code size estimates used by inlining heuristics for C, Objective-C, C++
+        and Java have been redesigned significantly.  As a result the parameters
+	of <code>-finline-insns</code>,
+	<code>--param max-inline-insns-single</code>
+	and <code>--param max-inline-insns-auto</code> need to be
+	reconsidered.</li>
+    <li><code>--param max-inline-slope</code>
+        and <code>--param min-inline-insns</code>
+        have been removed; they are not needed for the new bottom-up inlining
+        heuristics.</li>
+    <li>The new unit-at-a-time compilation scheme has several compatibility
+    issues:
+    <ul>
+      <li>The order in which functions, variables, and top-level
+	  <code>asm</code> statements are emitted may have changed.  Code
+	  relying on some particular ordering needs to be updated.  The
+	  majority of such top-level asm statements can be replaced by section
+	  attributes.</li>
+      <li>Unreferenced static variables and functions are removed.
+	  This may result in undefined references when an <code>asm</code>
+	  statement refers to the variable/function directly.  In that
+	  case either the variable/function shall be listed in asm statement
+	  operand or in the case of top-level asm statements the attribute
+	  <code>used</code> shall be used to force function/variable to be
+	  always output and considered as a possibly used by unknown code.
+
+	  <p>For variables the attribute is accepted only by GCC 3.4 and newer,
+	  while for earlier versions it is sufficient to use
+	  <code>unused</code> to silence warnings about the variables not being
+	  referenced.
+	  To keep code portable across different GCC versions, you can use
+	  appropriate preprocessor conditionals.</p></li>
+      <li>Static functions now can use non-standard passing conventions that may
+	  break <code>asm</code> statements calling functions directly.  Again
+	  the attribute <code>used</code> shall be used to prevent this
+	  behavior.</li>
+    </ul>
+    As a temporary workaround, <code>-fno-unit-at-a-time</code> can be used,
+    but this scheme may not be supported by future releases of GCC.
+    </li>
+    <li>GCC 3.4 automatically places zero-initialized variables in
+        the <code>.bss</code> section on some operating systems.
+        Versions of GNU Emacs up to (and including) 21.3 will not work
+        correctly when using this optimization; you can use
+        <code>-fno-zero-initialized-in-bss</code> to disable it.</li>
+    <li>If GCC 3.4 is configured with <code>--enable-threads=posix</code>
+        (the default on most targets that support pthreads) then
+        <code>_REENTRANT</code> will be defined unconditionally by
+        some libstdc++ headers. C++ code which relies on that macro to
+        detect whether multi-threaded code is being compiled might
+        change in meaning, possibly resulting in linker errors for
+        single-threaded programs.
+        Affected users of <a href='http://www.boost.org/'>Boost</a> should
+        compile single-threaded code with <code>-DBOOST_DISABLE_THREADS</code>.
+        See Bugzilla for
+        <a href='http://gcc.gnu.org/bugzilla/show_bug.cgi?id=11953'>more
+        information</a>.
+    </li>
+  </ul>
+
+<h2>General Optimizer Improvements</h2>
+
+  <ul>
+    <li>Usability of the profile feedback and coverage testing has been improved.
+    <ul>
+      <li>Performance of profiled programs has been improved by faster profile
+          merging code.</li>
+      <li>Better use of the profile feedback for optimization (loop unrolling
+          and loop peeling).</li>
+      <li>File locking support allowing <code>fork()</code> calls and parallel
+          runs of profiled programs.</li>
+      <li>Coverage file format has been redesigned.</li>
+      <li><code>gcov</code> coverage tool has been improved.</li>
+      <li><code>make profiledbootstrap</code> available to build a faster
+          compiler.
+
+	  <p>Experiments made on i386 hardware showed an 11% speedup on
+	  <code>-O0</code> and a 7.5% speedup on <code>-O2</code> compilation of a
+	  <a href="http://gcc.gnu.org/bugzilla/show_bug.cgi?id=8361">large C++
+	  testcase.</a></p></li>
+      <li>New value profiling pass enabled via
+          <code>-fprofile-values</code></li>
+      <li>New value profile transformations pass enabled via <code>-fvpt</code>
+	  aims to optimize some code sequences by exploiting knowledge about
+	  value ranges or other properties of the operands.  At the moment a
+	  conversion of expensive divisions into cheaper operations has been
+	  implemented.</li>
+      <li>New <code>-fprofile-generate</code> and <code>-fprofile-use</code>
+          command line options to simplify the use of profile feedback.</li>
+    </ul>
+    </li>
+    <li>A new unit-at-a-time compilation scheme for C, Objective-C, C++ and
+	Java which is enabled via <code>-funit-at-a-time</code> (and implied by
+	<code>-O2</code>).  In this scheme a whole file is parsed first and
+	optimized later.  The following basic inter-procedural optimizations
+	are implemented:
+    <ul>
+      <li>Removal of unreachable functions and variables</li>
+      <li>Discovery of local functions (functions with static linkage whose
+          address is never taken)</li>
+      <li>On i386, these local functions use register parameter passing
+          conventions.</li>
+      <li>Reordering of functions in topological order of the call graph to
+	  enable better propagation of optimizing hints (such as the stack
+	  alignments needed by functions) in the back end.</li>
+      <li>Call graph based out-of-order inlining heuristics which allows to
+	  limit overall compilation unit growth (<code>--param
+	  inline-unit-growth</code>).</li>
+    </ul>
+      Overall, the unit-at-a-time scheme produces a 1.3% improvement for the
+      SPECint2000 benchmark on the i386 architecture (AMD Athlon CPU).
+    </li>
+    <li>More realistic code size estimates used by inlining for C, Objective-C,
+        C++ and Java.  The growth of large functions can now be limited via
+	<code>--param large-function-insns</code>
+	and <code>--param large-function-growth</code>.</li>
+    <li>A new cfg-level loop optimizer pass replaces the old loop unrolling
+	pass and adds two other loop transformations -- loop peeling and loop
+	unswitching -- and also uses the profile feedback to limit code growth.
+	(The three optimizations are enabled by <code>-funroll-loops</code>,
+	<code>-fpeel-loops</code> and <code>-funswitch-loops</code> flags,
+	respectively).
+
+	<p>The old loop unroller still can be enabled by
+	<code>-fold-unroll-loops</code> and may produce better code in some
+	cases, especially when the webizer optimization pass is not
+	run.</p></li>
+    <li>A new web construction pass enabled via <code>-fweb</code> (and implied
+        by <code>-O3</code>) improves the quality of register allocation, CSE,
+	first scheduling pass and some other optimization passes by avoiding
+	re-use of pseudo registers with non-overlapping live ranges.  The pass
+	almost always improves code quality but does make debugging difficult
+	and thus is not enabled by default by <code>-O2</code>
+	<p>The pass is especially effective as cleanup after code duplication
+	passes, such as the loop unroller or the tracer.</p></li>
+    <li>Experimental implementations of superblock or trace scheduling in the
+	second scheduling pass can be enabled via
+	<code>-fsched2-use-superblocks</code> and
+	<code>-fsched2-use-traces</code>, respectively.</li>
+  </ul>
+
+
+<h2>New Languages and Language specific improvements</h2>
+
+<h3>Ada</h3>
+  <ul>
+    <li>The Ada front end has been updated to include numerous
+        bug fixes and enhancements.  These include:
+    <ul>
+       <li>Improved project file support </li>
+       <li>Additional set of warnings about potential wrong code </li>
+       <li>Improved error messages </li>
+       <li>Improved code generation </li>
+       <li>Improved cross reference information </li>
+       <li>Improved inlining </li>
+       <li>Better run-time check elimination </li>
+       <li>Better error recovery </li>
+       <li>More efficient implementation of unbounded strings </li>
+       <li>Added features in <code>GNAT.Sockets</code>,
+           <code>GNAT.OS_Lib</code>, <code>GNAT.Debug_Pools</code>, ... </li>
+       <li>New <code>GNAT.xxxx</code> packages (e.g. <code>GNAT.Strings</code>,
+           <code>GNAT.Exception_Action</code>) </li>
+       <li>New pragmas</li>
+       <li>New <code>-gnatS</code> switch replacing <code>gnatpsta</code></li>
+       <li>Implementation of new Ada features (in particular limited with,
+           limited aggregates)</li>
+     </ul>
+     </li>
+  </ul>
+
+<h3>C/Objective-C/C++</h3>
+
+  <ul>
+
+    <li>Precompiled headers are now supported.  Precompiled headers
+        can dramatically speed up compilation of some projects.  There
+        are some known defects in the current precompiled header
+        implementation that will result in compiler crashes in
+        relatively rare situations.  Therefore, precompiled headers
+        should be considered a &quot;technology preview&quot; in this
+        release.  Read the manual for details about how to use
+        precompiled headers.</li>
+    <li>File handling in the preprocessor has been rewritten.  GCC no
+        longer gets confused by symlinks and hardlinks, and now has
+	a correct implementation of <code>#import</code> and
+        <code>#pragma once</code>.
+	These two directives have therefore been un-deprecated.</li>
+    <li>The undocumented extension that allowed C programs to have a
+        label at the end of a compound statement, which has been
+        deprecated since GCC 3.0, has been removed.</li>
+    <li>The cast-as-lvalue extension has been removed for C++ and
+        deprecated for C and Objective-C.  In particular,
+        code like this:
+        <pre>
+        int i;
+        (char) i = 5;
+        </pre>
+        <p>or this:</p>
+        <pre>
+        char *p;
+        ((int *) p)++;
+        </pre>
+        <p>is no longer accepted for C++ and will not be accepted for
+        C and Objective-C in a future version.</p></li>
+    <li>The conditional-expression-as-lvalue extension has been
+        deprecated for C and Objective-C.  In particular, code like
+        this:
+        <pre>
+        int a, b, c;
+        (a ? b : c) = 2;
+        </pre>
+        <p>will not be accepted for C and Objective-C in a future
+        version.</p></li>
+    <li>The compound-expression-as-lvalue extension has been
+        deprecated for C and Objective-C.  In particular, code like
+        this:
+        <pre>
+        int a, b;
+        (a, b) = 2;
+        </pre>
+        <p>will not be accepted for C and Objective-C in a future
+        version. A possible non-intrusive workaround is the following:</p>
+        <pre>
+        (*(a, &amp;b)) = 2;
+        </pre></li>
+    <li>Several
+	<a href="http://gcc.gnu.org/onlinedocs/gcc/Other-Builtins.html#Other%20Builtins">
+	built-in functions</a> such as <code>__builtin_popcount</code>
+	for counting bits, finding the highest and lowest bit in a
+	word, and parity have been added.</li>
+    <li>The <code>-fwritable-strings</code> option has been deprecated
+        and will be removed.</li>
+    <li>Many C math library functions are now recognized as built-ins and
+	optimized.</li>
+    <li>The C, C++, and Objective-C compilers can now handle source files
+        written in any character encoding supported by the host C library.
+        The default input character set is taken from the current locale,
+        and may be overridden with the <code>-finput-charset</code> command
+        line option.  In the future we will add support for inline encoding
+        markers.</li>
+  </ul>
+
+<h3 id="cplusplus">C++</h3>
+
+  <ul>
+    <li>G++ is now <strong>much</strong> closer to full conformance to 
+	the ISO/ANSI C++ standard. This means, among other things, that a lot
+	of invalid constructs which used to be accepted in previous versions
+	will now be rejected. It is very likely that existing C++ code will 
+	need to be fixed. This document lists some of the most common 
+	issues.</li>
+
+    <li>A hand-written recursive-descent C++ parser has replaced the
+        YACC-derived C++ parser from previous GCC releases.  The new
+        parser contains much improved infrastructure needed for better
+        parsing of C++ source codes, handling of extensions, and clean
+        separation (where possible) between proper semantics analysis
+        and parsing.  The new parser fixes many bugs that were found
+        in the old parser.</li>
+
+    <li>You must now use the <code>typename</code> and
+	<code>template</code> keywords to disambiguate dependent names,
+	as required by the C++ standard.
+	
+	<pre>
+	struct K {
+	  typedef int mytype_t;
+	};
+	
+	template &lt;class T1&gt; struct A {
+	  template &lt;class T2&gt; struct B { 
+	      void callme(void);
+	    };
+
+	  template &lt;int N&gt; void bar(void) 
+	  {
+	    // Use 'typename' to tell the parser that T1::mytype_t names
+	    //  a type. This is needed because the name is dependent (in
+	    //  this case, on template parameter T1).
+	    typename T1::mytype_t x;
+	    x = 0;
+	  }
+	};
+
+	template &lt;class T&gt; void template_func(void)
+	{
+	  // Use 'template' to prefix member templates within 
+	  //  dependent types (a has type A&lt;T&gt;, which depends on
+	  //  the template parameter T).
+	  A&lt;T&gt; a;
+	  a.template bar&lt;0&gt;();
+
+	  // Use 'template' to tell the parser that B is a nested 
+	  //  template class (dependent on template parameter T), and 
+	  //  'typename' because the whole A&lt;T&gt;::B&lt;int&gt; is 
+	  //  the name of a type (again, dependent).
+	  typename A&lt;T&gt;::template B&lt;int&gt; b;
+	  b.callme();
+	}
+	
+	void non_template_func(void)
+	{
+	  // Outside of any template class or function, no names can be
+	  //  dependent, so the use of the keyword 'typename' and 'template'
+	  //  is not needed (and actually forbidden).
+	  A&lt;K&gt; a;
+	  a.bar&lt;0&gt;();
+	  A&lt;K&gt;::B&lt;float&gt; b;
+	  b.callme();
+	}</pre></li>
+
+
+	
+	<li>In a template definition, unqualified names will no longer
+	find members of a dependent base. For example,
+	<pre>
+	template &lt;typename T&gt; struct B {
+	  int m;
+	  int n;
+	  int f ();
+	  int g ();
+	};
+	int n;
+	int g ();
+	template &lt;typename T&gt; struct C : B&lt;T&gt; {
+	  void h ()
+	  {
+		m = 0; // error
+		f ();  // error
+		n = 0; // ::n is modified
+		g ();  // ::g is called
+	  }
+	};</pre>
+	<p>You must make the names dependent, e.g. by prefixing them
+	with <code>this-&gt;</code>. Here is the corrected definition
+	of <code>C&lt;T&gt;::h</code>,</p>
+	<pre>
+	template &lt;typename T&gt; void C&lt;T&gt;::h ()
+	{
+	  this-&gt;m = 0;
+	  this-&gt;f ();
+	  this-&gt;n = 0
+	  this-&gt;g ();
+	}</pre>
+	<p>As an alternative solution, you may use <code>using</code>
+	declarations instead of <code>this-&gt;</code>:</p>
+	<pre>
+	template &lt;typename T&gt; struct C : B&lt;T&gt; {
+	  using B&lt;T&gt;::m;
+	  using B&lt;T&gt;::f;
+	  using B&lt;T&gt;::n;
+	  using B&lt;T&gt;::g;
+	  void h ()
+	  {
+		m = 0;
+		f ();
+		n = 0;
+		g ();
+	  }
+	};</pre></li>
+
+    <li>In templates, all non-dependent names are now looked up and bound 
+	at definition time (while parsing the code), instead of later when
+	the template is instantiated. For instance:
+
+	<pre>
+	void foo(int);
+
+	template &lt;int&gt; struct A {
+	  static void bar(void){
+	    foo('a');
+	  }
+	};
+
+	void foo(char);
+
+	int main()
+	{
+	  A&lt;0&gt;::bar();    // Calls foo(int), used to call foo(char).
+	}
+	</pre></li>
+
+    <li>In an explicit instantiation of a class template, you must use 
+	<code>class</code> or <code>struct</code> before the template-id:
+	
+	<pre>
+	template &lt;int N&gt;
+	class A {};
+	
+	template A&lt;0&gt;;         // error, not accepted anymore
+	template class A&lt;0&gt;;   // OK</pre></li>
+
+    <li>The "named return value" and "implicit typename"
+	extensions have been removed.</li>
+
+    <li>Default arguments in function types have been deprecated and
+        will be removed.</li>
+
+    <li>ARM-style name-injection of friend declarations has been
+        deprecated and will be removed.  For example:
+
+          struct S {
+            friend void f();
+          };
+
+          void g() { f(); }
+
+        will not be accepted by future versions of G++; instead a
+        declaration of "f" will need to be present outside of the
+        scope of "S".</li>
+
+    <li>Covariant returns are implemented for all but varadic
+        functions that require an adjustment.</li>
+
+    <li>When -pedantic is used, G++ now issues errors about spurious
+	semicolons. For example,
+        <pre>
+        namespace N {}; // Invalid semicolon.
+        void f() {}; // Invalid semicolon.</pre></li>
+
+    <li>G++ no longer accepts attributes for a declarator after the
+        initializer associated with that declarator.  For example,
+        <pre>
+        X x(1) __attribute__((...));</pre>
+        is no longer accepted.  Instead, use:
+        <pre>
+        X x __attribute__((...)) (1);</pre></li>
+
+    <li>Inside the scope of a template class, the name of the class
+        itself can be treated as either a class or a template.  So
+        GCC used to accept the class name as argument of type template,
+        and template template parameter.  However this is not C++ standard
+        compliant.  Now the name is not treated as a valid template template
+        argument unless you qualify the name by its scope.  For example,
+        the code below no longer compiles.
+        <pre>
+        template &lt;template &lt;class&gt; class TT&gt; class X {};
+        template &lt;class T&gt; class Y {
+          X&lt;Y&gt; x; // Invalid, Y is always a type template parameter.
+        };</pre>
+        <p>The valid code for the above example is</p>
+        <pre>
+          X&lt; ::Y&gt; x; // Valid.</pre>
+        <p>(Notice the space between <code>&lt;</code> and <code>:</code> to
+        prevent GCC to interpret this as a digraph for
+	<code>[</code>.)</p></li>
+
+    <li>Friend declarations that refer to template specializations are
+	rejected if the template has not already been declared. For example,
+	<pre>
+	template &lt;typename T&gt;
+	class C {
+	  friend void f&lt;&gt; (C&amp;);
+	};</pre>
+	<p>is rejected. You must first declare <code>f</code> as a
+	template,</p>
+	<pre>
+	template &lt;typename T&gt;
+	void f(T);</pre></li>
+
+    <li>In case of friend declarations, every name used in the friend
+        declaration must be accessible at the point of that declaration.
+        Previous versions of G++ used to be less strict about this and
+        allowed friend declarations for <code>private</code> class members,
+        for example.  See the ISO C++ Standard Committee's <a
+        href="http://www.open-std.org/jtc1/sc22/wg21/docs/cwg_closed.html#209">defect
+        report #209</a> for details.</li>
+
+    <li>Declaration of member functions of class templates as friends are
+	supported.  For example,
+	<pre>
+	template &lt;typename T&gt; struct A {
+	  void f();
+	};
+	class C {
+	  template &lt;typename T&gt; friend void A&lt;T&gt;::f();
+	};</pre></li>
+
+    <li>You must use <code>template &lt;&gt;</code> to introduce template
+	specializations, as required by the standard.  For example,
+	<pre>
+	template &lt;typename T&gt;
+	struct S;
+
+	struct S&lt;int&gt; { };</pre>
+	<p>is rejected. You must write,</p>
+	<pre>
+	template &lt;&gt; struct S&lt;int&gt; {};</pre></li>
+
+    <li>G++ used to accept code like this,
+	<pre>
+	struct S {
+	  int h();
+	  void f(int i = g());
+	  int g(int i = h());
+	};</pre>
+	<p>This behavior is not mandated by the standard. Now G++ issues
+        an error about this code.  To avoid the error, you must move
+        the declaration of <code>g</code> before the declaration of
+	<code>f</code>.  The default arguments for <code>g</code> must
+	be visible at the point where it is called.</p></li>
+
+    <li>The C++ ABI Section 3.3.3 specifications for the array
+        construction routines <code>__cxa_vec_new2</code> and
+        <code>__cxa_vec_new3</code> were changed to return
+        <code>NULL</code> when the allocator argument returns
+        <code>NULL</code>.  These changes are incorporated into the
+        libstdc++ runtime library.</li>
+
+    <li>Using a name introduced by a typedef in a friend declaration or in an
+	explicit instantiation is now rejected, as specified by the ISO C++
+	standard.
+	<pre>
+	class A;
+	typedef A B;
+	class C { 
+	  friend class B;      // error, no typedef name here
+	  friend B;            // error, friend always needs class/struct/enum
+	  friend class A;      // OK
+	};
+	
+	template &lt;int&gt; class Q {};
+	typedef Q&lt;0&gt; R;
+	template class R;      // error, no typedef name here
+	template class Q&lt;0&gt;;   // OK</pre></li>
+	
+    <li>When allocating an array with a new expression, GCC used to allow
+	parentheses around the type name. This is actually ill-formed and it is
+	now rejected:
+	<pre>
+	int* a = new (int)[10];    // error, not accepted anymore
+	int* a = new int[10];      // OK</pre></li>
+    
+    <li>When binding an rvalue of class type to a reference, the copy 
+	constructor of the class must be accessible. For instance, consider 
+	the following code:
+	<pre>
+	class A 
+	{
+	public:
+	  A();
+	  
+	private:
+	  A(const A&amp;);   // private copy ctor
+	};
+	
+	A makeA(void);
+	void foo(const A&amp;);
+	
+	void bar(void)
+	{
+	  foo(A());       // error, copy ctor is not accessible
+	  foo(makeA());   // error, copy ctor is not accessible
+	  
+	  A a1;
+	  foo(a1);        // OK, a1 is a lvalue
+	}</pre>
+	
+	<p>This might be surprising at first sight, especially since most 
+	popular compilers do not correctly implement this rule
+	(<a href="../bugs.html#cxx_rvalbind">further details</a>).</p></li>
+
+	<li>When forming a pointer to member or a pointer to member function,
+	access checks for class visibility (public, protected, private)
+	are now performed using the qualifying scope of the name itself.
+	This is better explained with an example:
+
+	<pre>
+	class A
+	{
+	public:
+	  void pub_func();
+	protected:
+	  void prot_func();
+	private:
+	  void priv_func();
+	};
+
+	class B : public A
+	{
+	public:
+	  void foo()
+	  {
+	    &amp;A::pub_func;   // OK, pub_func is accessible through A
+	    &amp;A::prot_func;  // error, cannot access prot_func through A
+	    &amp;A::priv_func;  // error, cannot access priv_func through A
+
+	    &amp;B::pub_func;   // OK, pub_func is accessible through B
+	    &amp;B::prot_func;  // OK, can access prot_func through B (within B)
+	    &amp;B::priv_func;  // error, cannot access priv_func through B
+	  }
+	};</pre></li>
+  </ul>
+
+  <h4>Runtime Library (libstdc++)</h4>
+
+  <ul>
+    <li>Optimization work:
+      <ul>
+        <li>Streamlined <code>streambuf</code>, <code>filebuf</code>, separate
+	    synched with C Standard I/O <code>streambuf</code>.</li>
+        <li>All formatted I/O now uses cached locale information.</li>
+        <li>STL optimizations (memory/speed for list, red-black trees as used
+            by sets and maps).</li>
+        <li>More use of GCC builtins.</li>
+        <li>String optimizations (avoid contention on increment/decrement-and-test
+	    of the reference count in the empty-string object, constructor from
+	    input_iterators speedup).</li>
+      </ul></li>
+    <li>Static linkage size reductions.</li>
+    <li>Large File Support (files larger than 2 GB on 32-bit systems).</li>
+    <li>Wide character and variable encoding <code>filebuf</code> work
+        (UTF-8, Unicode).</li>
+    <li>Generic character traits.</li>
+    <li>Also support <code>wchar_t</code> specializations on Mac OS 10.3.x,
+        FreeBSD 5.x, Solaris 2.7 and above, AIX 5.x, Irix 6.5.</li>
+    <li>The allocator class is now standard-conformant, and two additional
+        extension allocators have been added, mt_alloc and bitmap_allocator.</li>
+    <li>PCH support: -include bits/stdc++.h (2x compile speedup).</li>
+    <li>Rewrote <code>__cxa_demangle</code> with support for C++ style
+        allocators.</li>
+    <li>New debug modes for STL containers and iterators.</li>
+    <li>Testsuite rewrite: five times as many tests, plus increasingly
+        sophisticated tests, including I/O, MT, multi-locale, wide and
+        narrow characters.</li>
+    <li>Use current versions of GNU "autotools" for build/configuration.</li>
+  </ul>
+
+<h3>Objective-C</h3>
+
+  <ul>
+    <li>The Objective-C front end has been updated to include the numerous
+        bug fixes and enhancements previously available only in Apple's
+        version of GCC.  These include:
+    <ul>
+       <li>Structured exception (<code>@try</code>... <code>@catch</code>...
+           <code>@finally</code>, <code>@throw</code>) and synchronization
+           (<code>@synchronized</code>) support.  These are accessible via
+           the <code>-fobjc-exceptions</code> switch; as of this writing,
+           they may only be used in conjunction with <code>-fnext-runtime
+           </code> on Mac OS X 10.3 and later. See <a href=
+           "http://gcc.gnu.org/onlinedocs/gcc/Objective-C-Dialect-Options.html"
+           >Options Controlling Objective-C Dialect</a> for more
+           information.</li>
+       <li>An overhaul of <code>@encode</code> logic.  The C99 <code>_Bool
+           </code> and C++ <code>bool</code> type may now be encoded as
+           '<code>B</code>'. In addition, the back-end/codegen dependencies
+           have been removed.</li>
+       <li>An overhaul of message dispatch construction, ensuring that the
+           various receiver types (and casts thereof) are handled properly,
+           and that correct diagnostics are issued.</li>
+       <li>Support for "Zero-Link" (<code>-fzero-link</code>) and
+           "Fix-and-Continue" (<code>-freplace-objc-classes</code>) debugging
+           modes, currently available on Mac OS X 10.3 and later. See <a href=
+           "http://gcc.gnu.org/onlinedocs/gcc/Objective-C-Dialect-Options.html"
+           >Options Controlling Objective-C Dialect</a> for more
+           information.</li>
+       <li>Access to optimized runtime entry points (<code>-fno-nil-receivers
+           </code>) on the assumption that message receivers are never <code>
+           nil</code>.  This is currently available on Mac OS X 10.3 and
+           later. See <a href=
+           "http://gcc.gnu.org/onlinedocs/gcc/Objective-C-Dialect-Options.html"
+           >Options Controlling Objective-C Dialect</a> for more
+           information.</li>
+    </ul></li>
+  </ul>
+
+<h3>Java</h3>
+
+  <ul>
+    <li>Compiling a .jar file will now cause non-.class entries to be
+      automatically compiled as resources.</li>
+    <li>libgcj has been ported to Darwin.</li>
+    <li>Jeff Sturm has adapted Jan Hubicka's call graph optimization
+      code to gcj.</li>
+    <li>libgcj has a new <code>gcjlib</code> URL type; this
+      lets <code>URLClassLoader</code> load code from shared
+      libraries.</li>
+    <li>libgcj has been much more completely merged with <a
+      href="http://www.gnu.org/software/classpath/">GNU Classpath</a>.</li>
+    <li>Class loading is now much more correct; in particular the
+      caller's class loader is now used when that is required.</li>
+    <li><a href="http://www.eclipse.org/">Eclipse 2.x</a> will run
+      out of the box using <code>gij</code>.</li>
+    <li>Parts of <code>java.nio</code> have been implemented.
+      Direct and indirect buffers work, as do fundamental file and
+      socket operations.</li>
+    <li><code>java.awt</code> has been improved, though it is still
+      not ready for general use.</li>
+    <li>The HTTP protocol handler now uses HTTP/1.1 and can handle
+      the POST method.</li>
+    <li>The MinGW port has matured. Enhancements include socket
+      timeout support, thread interruption, improved
+      <code>Runtime.exec()</code> handling and support for accented
+      characters in filenames.</li>
+  </ul>
+
+<h3>Fortran</h3>
+
+  <ul>
+    <li>Fortran improvements are listed in the
+    <a href="http://gcc.gnu.org/onlinedocs/g77/News.html">
+    Fortran documentation</a>.</li>
+  </ul>
+
+<h2>New Targets and Target Specific Improvements</h2>
+
+<h3>Alpha</h3>
+  <ul>
+    <li>Several
+    <a href="http://gcc.gnu.org/onlinedocs/gcc/Alpha-Built-in-Functions.html#Alpha%20Built-in%20Functions">
+    built-in functions</a> have been added such as
+    <code>__builtin_alpha_zap</code> to allow utilizing the more
+    obscure instructions of the CPU.</li>
+
+    <li>Parameter passing of complex arguments has changed to match the
+    <a href="http://h30097.www3.hp.com/docs/base_doc/DOCUMENTATION/V51A_HTML/ARH9MBTE/DTMNPLTN.HTM#normal-argument-list-structure">
+    ABI</a>.  This change is incompatible with previous GCC versions, but
+    does fix compatibility with the Tru64 compiler and several corner cases
+    where GCC was incompatible with itself.</li>
+  </ul>
+
+<h3>ARM</h3>
+  <ul>
+    <li>Nicolas Pitre has contributed his hand-coded floating-point support
+    code for ARM.  It is both significantly smaller and faster than the
+    existing C-based implementation, even when building applications for
+    Thumb.  The <code>arm-elf</code> configuration has been converted to use
+    the new code.</li>
+
+    <li>Support for the Intel's iWMMXt architecture, a second
+    generation XScale processor, has been added.
+    Enabled at run time with the <code>-mcpu=iwmmxt</code> command
+    line switch.</li>
+
+    <li>A new ARM target has been added: <code>arm-wince-pe</code>.  This is
+    similar to the <code>arm-pe</code> target, but it defaults to using the
+    APCS32 ABI.</li>
+
+    <li>The existing ARM pipeline description has been converted to
+    the use the <a
+    href="http://gcc.gnu.org/onlinedocs/gccint/Processor-pipeline-description.html">DFA
+    processor pipeline model</a>. There is not much change in code
+    performance, but the description is now <a
+    href="http://gcc.gnu.org/onlinedocs/gccint/Comparison-of-the-two-descriptions.html">easier
+    to understand</a>.</li>
+
+    <li>Support for the Cirrus EP9312 Maverick floating point
+    co-processor added.  Enabled at run time with the
+    <code>-mcpu=ep9312</code> command line switch.  Note however that
+    the multilibs to support this chip are currently disabled in
+    <code>gcc/config/arm/t-arm-elf</code>, so if you want to enable their
+    production you will have to uncomment the entries in that
+    file.</li>
+  </ul>
+
+<h3>H8/300</h3>
+  <ul>
+    <li>Support for <code>long long</code> has been added.</li>
+
+    <li>Support for <code>saveall</code> attribute has been added.</li>
+
+    <li>Pavel Pisa contributed hand-written 32-bit-by-32-bit division
+    code for H8/300H and H8S, which is much faster than the previous
+    implementation.</li>
+
+    <li>A lot of small performance improvements.</li>
+  </ul>
+
+<h3>IA-32/AMD64 (x86-64)</h3>
+  <ul>
+    <li>Tuning for K8 (AMD Opteron/Athlon64) core is available via
+        <code>-march=k8</code> and <code>-mcpu=k8</code>.</li>
+    <li>Scalar SSE code generation carefully avoids reformatting penalties,
+        hidden dependencies and minimizes the number of uops generated on
+        both Intel and AMD CPUs.</li>
+    <li>Vector MMX and SSE operands are now passed in registers to improve
+	performance and match the argument passing convention used by the Intel
+	C++ Compiler.  As a result it is not possible to call functions
+	accepting vector arguments compiled by older GCC version.</li>
+    <li>Conditional jump elimination is now more aggressive on modern CPUs.</li>
+    <li>The Athlon ports has been converted to use the DFA
+        processor pipeline description.</li>
+    <li>Optimization of indirect tail calls is now possible in a similar
+      fashion as direct sibcall optimization.</li>
+    <li>Further small performance improvements.</li>
+    <li><code>-m128bit-long-double</code> is now less buggy.</li>
+    <li><code>__float128</code> support in 64-bit compilation.</li>
+    <li>Support for data structures exceeding 2GB in 64-bit mode.</li>
+    <li><code>-mcpu</code> has been renamed to <code>-mtune</code>.</li>
+  </ul>
+
+<h3>IA-64</h3>
+  <ul>
+    <li>Tuning code for the Itanium 2 processor has been added.  The
+        generation of code tuned for Itanium 2 (option
+        <code>-mtune=itanium2</code>) is enabled by default now.  To
+        generate code tuned for Itanium 1 the option
+        <code>-mtune=itanium1</code> should be used.</li>
+
+    <li><a
+        href="http://gcc.gnu.org/onlinedocs/gccint/Processor-pipeline-description.html">DFA
+        processor pipeline descriptions</a> for the IA-64 processors
+        have been added.  This resulted in about 3% improvement on the
+        SPECInt2000 benchmark for Itanium 2.</li>
+
+    <li>Instruction bundling for the IA-64 processors has been
+        rewritten using the DFA pipeline hazard recognizer.  It
+        resulted in about 60% compiler speedup on the SPECInt2000 C
+        programs.</li>
+  </ul>
+
+<h3>M32R</h3>
+  <ul>
+    <li>Support for the M32R/2 processor has been added by Renesas.</li>
+    <li>Support for an M32R Linux target and PIC code generation has
+        been added by Renesas.</li>
+  </ul>
+
+<h3>M68000</h3>
+  <ul>
+    <li>Bernardo Innocenti (Develer&nbsp;S.r.l.) has contributed
+    the <code>m68k-uclinux</code> target, based on former work done
+    by Paul Dale (SnapGear&nbsp;Inc.).  Code generation for the
+    <code>ColdFire</code> processors family has been enhanced and extended
+    to support the MCF&nbsp;53xx and MCF&nbsp;54xx cores, integrating
+    former work done by Peter Barada (Motorola).</li>
+  </ul>
+
+<h3>MIPS</h3>
+  <h4>Processor-specific changes</h4>
+    <ul>
+      <li>Support for the RM7000 and RM9000 processors has been added.
+	  It can be selected using the <code>-march</code> compiler option
+	  and should work with any MIPS I (<code>mips-*</code>) or MIPS III
+	  (<code>mips64-*</code>) configuration.</li>
+      <li>Support for revision 2 of the MIPS32 ISA has been added.
+	  It can be selected with the command-line option
+	  <code>-march=mips32r2</code>.</li>
+      <li>There is a new option, <code>-mfix-sb1</code>, to work around
+	  certain SB-1 errata.</li>
+    </ul>
+  <h4>Configuration</h4>
+    <ul>
+      <li>It is possible to customize GCC using the following configure-time
+	  options:
+	  <ul>
+	    <li><code>--with-arch</code>, which specifies the default
+		value of the <code>-march</code> option.</li>
+	    <li><code>--with-tune</code>, which specifies the default
+	        value of the <code>-mtune</code> option.</li>
+	    <li><code>--with-abi</code>, which specifies the default ABI.</li>
+	    <li><code>--with-float=soft</code>, which tells GCC to
+		use software floating point by default.</li>
+	    <li><code>--with-float=hard</code>, which tells GCC to
+		use hardware floating point by default.</li>
+	  </ul></li>
+      <li>A 64-bit GNU/Linux port has been added.  The associated
+	  configurations are <code>mips64-linux-gnu</code> and
+	  <code>mips64el-linux-gnu</code>.</li>
+      <li>The 32-bit GNU/Linux port now supports Java.</li>
+      <li>The IRIX 6 configuration now supports the o32 ABI and will
+	  build o32 multilibs by default.  This support is compatible with
+	  both binutils and the SGI tools, but note that several features,
+	  including debugging information and DWARF2 exception handling,
+	  are only available when using the GNU assembler.  Use of the
+	  GNU assembler and linker (version 2.15 or above) is strongly
+	  recommended.</li>
+      <li>The IRIX 6 configuration now supports 128-bit long doubles.</li>
+      <li>There are two new RTEMS-specific configurations,
+	  <code>mips-rtems</code> and <code>mipsel-rtems</code>.</li>
+      <li>There are two new <code>*-elf</code> configurations,
+	  <code>mipsisa32r2-elf</code> and <code>mipsisa32r2el-elf</code>.</li>
+    </ul>
+  <h4>General</h4>
+    <ul>
+      <li>Several <a href="mips-abi.html">ABI bugs</a> have been fixed.
+	  Unfortunately, these changes will break binary compatibility
+	  with earlier releases.</li>
+      <li>GCC can now use explicit relocation operators when generating
+	  <code>-mabicalls</code> code.  This behavior is controlled by
+	  <code>-mexplicit-relocs</code> and can have several performance
+	  benefits.  For example:
+	  <ul>
+	    <li>It allows for more optimization of GOT accesses, including
+		better scheduling and redundancy elimination.</li>
+	    <li>It allows sibling calls to be implemented as jumps.</li>
+	    <li>n32 and n64 leaf functions can use a call-clobbered
+		global pointer instead of <code>$28</code>.</li>
+	    <li>The code to set up <code>$gp</code> can be removed from
+		functions that don't need it.</li>
+          </ul></li>
+      <li>A new option, <code>-mxgot</code>, allows the GOT to be bigger
+	  than 64k.  This option is equivalent to the assembler's
+	  <code>-xgot</code> option and should be used instead of
+	  <code>-Wa,-xgot</code>.</li>
+      <li>Frame pointer elimination is now supported when generating 64-bit
+	  MIPS16 code.</li>
+      <li>Inline block moves have been optimized to take more account of
+	  alignment information.</li>
+      <li>Many internal changes have been made to the MIPS port, mostly
+	  aimed at reducing the reliance on assembler macros.</li>
+    </ul>
+
+<h3>PowerPC Darwin</h3>
+  <ul>
+    <li>Support for shared/dylib gcc libraries has been added. It is
+      enabled by default on <code>powerpc-apple-darwin7.0.0</code>
+      and up.</li>
+
+    <li>Libgcj is enabled by default. On systems older than <code>
+      powerpc-apple-darwin7.0.0</code> you need to install <a
+      href="http://www.opendarwin.org/projects/dlcompat/">dlcompat</a>.
+      </li>
+  </ul>
+
+<h3>S/390 and zSeries</h3>
+  <ul>
+    <li>New command-line options allow to specify the intended execution
+	environment for generated code:
+	<ul>
+	  <li><code>-mesa</code>/<code>-mzarch</code> allows to specify 
+	      whether to generate code running in ESA/390 mode or in 
+	      z/Architecture mode (this is applicable to 31-bit code 
+	      only).</li>
+	  <li><code>-march</code> allows to specify a minimum processor 
+	      architecture level (<code>g5</code>, <code>g6</code>,
+	      <code>z900</code>, or <code>z990</code>).</li>
+	  <li><code>-mtune</code> allows to specify which processor to tune
+	      for.</li>
+	</ul></li>
+    <li>It is possible to customize GCC using the following configure-time
+	options:
+	<ul>
+	  <li><code>--with-mode</code>, which specifies whether to
+		default to assuming ESA/390 or z/Architecture mode.</li>
+	  <li><code>--with-arch</code>, which specifies the default
+		value of the <code>-march</code> option.</li>
+	  <li><code>--with-tune</code>, which specifies the default
+	        value of the <code>-mtune</code> option.</li>
+	  </ul></li>
+    <li>Support for the z990 processor has been added, and can be selected
+	using <code>-march=z990</code> or <code>-mtune=z990</code>.  This 
+	includes instruction scheduling tuned for the superscalar instruction
+	pipeline of the z990 processor as well as support for all new 
+	instructions provided by the long-displacement facility.</li>
+    <li>Support to generate 31-bit code optimized for zSeries processors
+        (running in ESA/390 or in z/Architecture mode) has been added.
+	This can be selected using <code>-march=z900</code> and
+	<code>-mzarch</code> respectively.</li>
+    <li>Instruction scheduling for the <code>z900</code> and <code>z990</code>
+	processors now uses the DFA pipeline hazard recognizer.</li>
+    <li>GCC no longer generates code to maintain a stack backchain,
+	previously used to generate stack backtraces for debugging
+	purposes.  As replacement that does not incur runtime overhead,
+	DWARF-2 call frame information is provided by GCC;
+	this is supported by GDB 6.1.  The old behavior can
+	be restored using the <code>-mbackchain</code> option.</li>
+    <li>The stack frame size of functions may now exceed 2 GB in 64-bit
+	code.</li>
+    <li>A port for the 64-bit IBM TPF operating system has been added;
+	the configuration is <code>s390x-ibm-tpf</code>.  This
+	configuration is supported as cross-compilation target only.</li>
+    <li>Various changes to improve the generated code have been implemented,
+	including:
+	<ul>
+	  <li>GCC now uses the <code>MULTIPLY AND ADD</code> and
+	      <code>MULTIPLY AND SUBTRACT</code> instructions to 
+	      significantly speed up many floating-point applications.</li>
+	  <li>GCC now uses the <code>ADD LOGICAL WITH CARRY</code> and 
+	      <code>SUBTRACT LOGICAL WITH BORROW</code> instructions to 
+	      speed up <code>long long</code> arithmetic.</li>
+          <li>GCC now uses the <code>SEARCH STRING</code> instruction to 
+	      implement <code>strlen()</code>.</li>
+          <li>In many cases, function call overhead for 31-bit code has 
+	      been reduced by placing the literal pool after the function 
+	      code instead of after the function prolog.</li>
+	  <li>Register 14 is no longer reserved in 64-bit code.</li>
+	  <li>Handling of global register variables has been improved.</li>
+	</ul></li>
+  </ul>
+
+<h3>SPARC</h3>
+  <ul>
+    <li>The option <code>-mflat</code> is deprecated.</li>
+
+    <li>Support for large (&gt; 2GB) frames has been added to the
+    64-bit port.</li>
+
+    <li>Several <a href="sparc-abi.html">ABI bugs</a> have been fixed.
+    Unfortunately, these changes will break binary compatibility with
+    earlier releases.</li>
+
+    <li>The default debugging format has been switched from STABS to
+    DWARF-2 for 32-bit code on Solaris 7 and later.  DWARF-2 is already
+    the default debugging format for 64-bit code on Solaris.</li>
+  </ul>
+
+<h3>SuperH</h3>
+  <ul>
+    <li>Support for the SH2E processor has been added.
+    Enabled at run time with the <code>-m2e</code> command line
+    switch, or at configure time by specifying sh2e as the machine
+    part of the target triple.</li>
+  </ul>
+
+<h3>V850</h3>
+  <ul>
+    <li>Support for the Mitsubishi V850E1 processor has been added.
+    This is a variant of the V850E processor with some additional
+    debugging instructions.</li>
+  </ul>
+
+<h3>Xtensa</h3>
+  <ul>
+    <li>Several ABI bugs have been fixed.  Unfortunately, these changes
+    break binary compatibility with earlier releases.
+    <ul>
+      <li>For big-endian processors, the padding of aggregate return values
+      larger than a word has changed.  If the size of an aggregate return
+      value is not a multiple of 32 bits, previous versions of GCC inserted
+      padding in the most-significant bytes of the first return value
+      register.  Aggregates larger than a word are now padded in the
+      least-significant bytes of the last return value register used.
+      Aggregates smaller than a word are still padded in the most-significant
+      bytes.  The return value padding has not changed for little-endian
+      processors.</li>
+      <li>Function arguments with 16-byte alignment are now properly
+      aligned.</li>
+      <li>The implementation of the <code>va_list</code> type has changed.
+      A <code>va_list</code> value created by <code>va_start</code> from a
+      previous release cannot be used with <code>va_arg</code> from this
+      release, or vice versa.</li>
+    </ul></li>
+    <li>More processor configuration options for Xtensa processors are
+    supported:
+    <ul>
+      <li>the <code>ABS</code> instruction is now optional;</li>
+      <li>the <code>ADDX*</code> and <code>SUBX*</code> instructions are
+      now optional;</li>
+      <li>an experimental <code>CONST16</code> instruction can be used to
+      synthesize constants instead of loading them from constant pools.</li>
+    </ul>
+    These and other Xtensa processor configuration options can no longer
+    be enabled or disabled by command-line options; the processor
+    configuration must be specified by the <code>xtensa-config.h</code>
+    header file when building GCC.  Additionally, the
+    <code>-mno-serialize-volatile</code> option is no longer supported.</li>
+  </ul>
+
+<h2><a name="obsolete_systems">Obsolete Systems</a></h2>
+
+  <p>Support for a number of older systems has been declared obsolete in
+  GCC 3.4.  Unless there is activity to revive them, the next release of
+  GCC will have their sources permanently <strong>removed</strong>.</p>
+
+  <p>All configurations of the following processor architectures have
+  been declared obsolete:</p>
+
+  <ul>
+    <li>Mitsubishi D30V, <code>d30v-*</code></li>
+    <li>AT&amp;T DSP1600 and DSP1610, <code>dsp16xx-*</code></li>
+    <li>Intel 80960, <code>i960</code></li>
+  </ul>
+
+  <p>Also, some individual systems have been obsoleted:</p>
+
+  <ul>
+    <li>ARM Family
+      <ul>
+	<li>Support for generating code for operation in APCS/26 mode
+	    (<code>-mapcs-26</code>).</li>
+      </ul></li>
+    <li>IBM ESA/390
+      <ul>
+        <li>"Bigfoot" port, <code>i370-*</code>.  (The other port,
+            <code>s390-*</code>, is actively maintained and
+            supported.)</li>
+      </ul></li>
+    <li>Intel 386 family
+      <ul>
+	<li>MOSS, <code>i?86-moss-msdos</code> and
+            <code>i?86-*-moss*</code></li>
+	<li>NCR 3000 running System V r.4, <code>i?86-ncr-sysv4*</code></li>
+	<li>FreeBSD with a.out object format, <code>i?86-*-freebsd*aout*</code>
+            and <code>i?86-*-freebsd2*</code></li>
+	<li>Linux with a.out object format, <code>i?86-linux*aout*</code></li>
+	<li>Linux with libc5, a.k.a. glibc1, <code>i?86-linux*libc1*</code></li>
+	<li>Interix versions before Interix 3, <code>i?86-*-interix</code></li>
+        <li>Mach microkernel, <code>i?86-mach*</code></li>
+        <li>SCO UnixWare with UDK, <code>i?86-*-udk*</code></li>
+        <li>Generic System V releases 1, 2, and 3,
+            <code>i?86-*-sysv[123]*</code></li>
+        <li>VSTa microkernel, <code>i386-*-vsta</code></li>
+      </ul></li>
+    <li>Motorola M68000 family
+      <ul>
+	<li>HPUX, <code>m68k-hp-hpux*</code> and
+            <code>m68000-hp-hpux*</code></li>
+	<li>NetBSD with a.out object format (before NetBSD 1.4),
+            <code>m68k-*-*-netbsd*</code> except
+            <code>m68k-*-*-netbsdelf*</code></li>
+	<li>Generic System V r.4, <code>m68k-*-sysv4*</code></li>
+      </ul></li>
+    <li>VAX
+      <ul>
+	<li>Generic VAX, <code>vax-*-*</code> (This is generic VAX only;
+            we have not obsoleted any VAX triples for specific operating
+            systems.)</li>
+      </ul></li>
+  </ul>
+
+
+<h2>Documentation improvements</h2>
+
+
+<h2>Other significant improvements</h2>
+
+  <ul>
+    <li>The build system has undergone several significant cleanups.
+        Subdirectories will only be configured if they are being built,
+        and all subdirectory configures are run from the <code>make</code>
+        command.  The top level has been autoconfiscated.</li>
+    <li>Building GCC no longer writes to its source directory.  This
+        should help those wishing to share a read-only source directory
+        over NFS or build from a CD.  The exceptions to this feature are
+        if you configure with either <code>--enable-maintainer-mode</code>
+        or <code>--enable-generated-files-in-srcdir</code>.</li>
+    <li>The <code>-W</code> warning option has been renamed to
+        <code>-Wextra</code>, which is more easily understood.  The older
+        spelling will be retained for backwards compatibility.</li>
+    <li>Substantial improvements in compile time have been made, particularly
+        for non-optimizing compilations.</li>
+  </ul>
+
+<hr />
+<h2><a name="3.4.0">GCC 3.4.0</a></h2>
+
+<h3>Bug Fixes</h3>
+
+<p>
+A vast number of bugs have been fixed in 3.4.0, too many to publish a
+complete list here.
+<a
+href="http://gcc.gnu.org/bugzilla/buglist.cgi?short_desc_type=notregexp&amp;short_desc=%5C%5B3%5C.4.*%5BRr%5Degression&amp;target_milestone=3.4.0&amp;bug_status=RESOLVED&amp;resolution=FIXED">Follow
+this link</a> to query the Bugzilla database for the list of over 900 bugs
+fixed in 3.4.0.  This is the list of all bugs marked as resolved and fixed
+in 3.4.0 that are not flagged as 3.4 regressions.</p>
+
+<hr />
+<h2><a name="3.4.1">GCC 3.4.1</a></h2>
+
+
+<h3>Bug Fixes</h3>
+
+<p>This section lists the problem reports (PRs) from GCC's bug tracking
+system that
+are known to be fixed in the 3.4.1 release. This list might not be complete
+(that is, it is possible that some PRs that have been fixed are not listed
+here).</p>
+
+<h4>Bootstrap failures</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR10129">10129</a> Ada bootstrap fails on PPC-Darwin - invalid assembler emitted - PIC related</li>
+<li><a href="http://gcc.gnu.org/PR14576">14576</a> [ARM] ICE in libiberty when building gcc-3.4 for arm-elf</li>
+<li><a href="http://gcc.gnu.org/PR14760">14760</a> A bug in configure.in prevents using both <code>--program-suffix</code> and <code>--program-prefix</code></li>
+<li><a href="http://gcc.gnu.org/PR14671">14671</a> [hppa64] bootstrap fails: ICE in <code>save_call_clobbered_regs</code>, in <code>caller_save.c</code></li>
+<li><a href="http://gcc.gnu.org/PR15093">15093</a> [alpha][Java] make bootstrap fails to configure libffi on Alpha</li>
+<li><a href="http://gcc.gnu.org/PR15178">15178</a> Solaris 9/x86 fails linking after stage 3</li>
+</ul>
+<h4>Multi-platform internal compiler errors (ICEs)</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR12753">12753</a> (preprocessor) Memory corruption in preprocessor on bad input</li>
+<li><a href="http://gcc.gnu.org/PR13985">13985</a> ICE in <code>gcc.c-torture/compile/930621-1.c</code></li>
+<li><a href="http://gcc.gnu.org/PR14810">14810</a> (c++) tree check failures with invalid code involving templates</li>
+<li><a href="http://gcc.gnu.org/PR14883">14883</a> (c++) ICE on invalid code, in cp_parser_lookup_name, in <code>cp/parser.c</code></li>
+<li><a href="http://gcc.gnu.org/PR15044">15044</a> (c++) ICE on syntax error, template header</li>
+<li><a href="http://gcc.gnu.org/PR15057">15057</a> (c++) Compiling of conditional value throw constructs cause a segmentation violation</li>
+<li><a href="http://gcc.gnu.org/PR15064">15064</a> (c++) typeid of template parameter gives ICE</li>
+<li><a href="http://gcc.gnu.org/PR15142">15142</a> (c++) ICE when passing a string where a <code>char*</code> is expected in a throw statement</li>
+<li><a href="http://gcc.gnu.org/PR15159">15159</a> ICE in <code>rtl_verify_flow_info_1</code></li>
+<li><a href="http://gcc.gnu.org/PR15165">15165</a> (c++) ICE in <code>instantiate_template</code></li>
+<li><a href="http://gcc.gnu.org/PR15193">15193</a> Unary minus using pointer to V4SF vector causes <code>-fforce-mem</code> to exhaust all memory</li>
+<li><a href="http://gcc.gnu.org/PR15209">15209</a> (c++) Runs out of memory with packed structs</li>
+<li><a href="http://gcc.gnu.org/PR15227">15227</a> (c++) Trouble with invalid function definition</li>
+<li><a href="http://gcc.gnu.org/PR15285">15285</a> (c++) instantiate_type ICE when forming pointer to template function</li>
+<li><a href="http://gcc.gnu.org/PR15299">15299</a> (c++) ICE in <code>resolve_overloaded_unification</code></li>
+<li><a href="http://gcc.gnu.org/PR15329">15329</a> (c++) ICE on constructor of member template</li>
+<li><a href="http://gcc.gnu.org/PR15550">15550</a> ICE in <code>extract_insn</code>, in <code>recog.c</code></li>
+<li><a href="http://gcc.gnu.org/PR15554">15554</a> (c++) ICE in <code>tsubst_copy</code>, in <code>cp/pt.c</code></li>
+<li><a href="http://gcc.gnu.org/PR15640">15640</a> (c++) ICE on invalid code in arg_assoc, in cp/name-<code>lookup.c</code></li>
+<li><a href="http://gcc.gnu.org/PR15666">15666</a> [unit-at-a-time] Gcc abort on valid code</li>
+<li><a href="http://gcc.gnu.org/PR15696">15696</a> (c++) ICE with bad pointer-to-member code</li>
+<li><a href="http://gcc.gnu.org/PR15701">15701</a> (c++) ICE with friends and template template parameter</li>
+<li><a href="http://gcc.gnu.org/PR15761">15761</a> ICE in <code>do_SUBST</code>, in <code>combine.c</code></li>
+<li><a href="http://gcc.gnu.org/PR15829">15829</a> (c++) ICE on Botan-1.3.13 due to <code>-funroll-loops</code></li>
+</ul>
+<h4>Ada</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR14538">14538</a> All RTEMS targets broken for gnat</li>
+</ul>
+<h4>C front end</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR12391">12391</a> missing warning about assigning to an incomplete type</li>
+<li><a href="http://gcc.gnu.org/PR14649">14649</a> atan(1.0) should not be a constant expression</li>
+<li><a href="http://gcc.gnu.org/PR15004">15004</a> [unit-at-a-time] no warning for unused paramater in static function</li>
+<li><a href="http://gcc.gnu.org/PR15749">15749</a> <code>--pedantic-errors</code> behaves differently from <code>--pedantic</code> with C-compiler on GNU/Linux</li>
+</ul>
+<h4>C++ compiler and library</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR10646">10646</a> non-<code>const</code> reference is incorrectly matched in a "<code>const</code> T" partial specialization</li>
+<li><a href="http://gcc.gnu.org/PR12077">12077</a> <code>wcin.rdbuf()-&gt;in_avail()</code> return value too high</li>
+<li><a href="http://gcc.gnu.org/PR13598">13598</a> <code>enc_filebuf</code> doesn't work</li>
+<li><a href="http://gcc.gnu.org/PR14211">14211</a> <code>const_cast</code> returns lvalue but should be rvalue</li>
+<li><a href="http://gcc.gnu.org/PR14220">14220</a> <code>num_put::do_put()</code> undesired float/double behavior</li>
+<li><a href="http://gcc.gnu.org/PR14245">14245</a> problem with user-defined allocators in std::basic_string</li>
+<li><a href="http://gcc.gnu.org/PR14340">14340</a> libstdc++ Debug mode: failure to convert iterator to const_iterator</li>
+<li><a href="http://gcc.gnu.org/PR14600">14600</a> <code>__gnu_cxx::stdio_sync_filebuf</code> should expose internal <code>FILE*</code></li>
+<li><a href="http://gcc.gnu.org/PR14668">14668</a> no warning anymore for reevaluation of declaration</li>
+<li><a href="http://gcc.gnu.org/PR14775">14775</a> LFS (large file support) tests missing</li>
+<li><a href="http://gcc.gnu.org/PR14821">14821</a> Duplicate namespace alias declaration should not conflict</li>
+<li><a href="http://gcc.gnu.org/PR14930">14930</a> Friend declaration ignored</li>
+<li><a href="http://gcc.gnu.org/PR14932">14932</a> cannot use <code>offsetof</code> to get offsets of array elements in g++ 3.4.0</li>
+<li><a href="http://gcc.gnu.org/PR14950">14950</a> [non unit-at-a-time] always_inline does not mix with templates and <code>-O0</code></li>
+<li><a href="http://gcc.gnu.org/PR14962">14962</a> g++ ignores <code>#pragma redefine_extname</code></li>
+<li><a href="http://gcc.gnu.org/PR14975">14975</a> Segfault on low-level write error during imbue</li>
+<li><a href="http://gcc.gnu.org/PR15002">15002</a> Linewise stream input is unusably slow (<code>std::string</code> slow)</li>
+<li><a href="http://gcc.gnu.org/PR15025">15025</a> compiler accepts redeclaration of template as non-template</li>
+<li><a href="http://gcc.gnu.org/PR15046">15046</a> [arm] Math functions misdetected by cross configuration</li>
+<li><a href="http://gcc.gnu.org/PR15069">15069</a> a bit test on a variable of <code>enum</code> type is miscompiled</li>
+<li><a href="http://gcc.gnu.org/PR15074">15074</a> g++ <code>-lsupc++</code> still links against libstdc++</li>
+<li><a href="http://gcc.gnu.org/PR15083">15083</a> spurious "statement has no effect" warning</li>
+<li><a href="http://gcc.gnu.org/PR15096">15096</a> parse error with templates and pointer to <code>const</code> member</li>
+<li><a href="http://gcc.gnu.org/PR15287">15287</a> combination of operator[] and operator .* fails in templates</li>
+<li><a href="http://gcc.gnu.org/PR15317">15317</a> <code>__attribute__</code> unused in first parameter of constructor gives error</li>
+<li><a href="http://gcc.gnu.org/PR15337">15337</a> <code>sizeof</code> on incomplete type diagnostic</li>
+<li><a href="http://gcc.gnu.org/PR15361">15361</a> <code>bitset&lt;&gt;::_Find_next</code> fails</li>
+<li><a href="http://gcc.gnu.org/PR15412">15412</a> _GLIBCXX_ symbols symbols defined and used in different namespaces</li>
+<li><a href="http://gcc.gnu.org/PR15427">15427</a> valid code results in incomplete type error</li>
+<li><a href="http://gcc.gnu.org/PR15471">15471</a> Incorrect member pointer offsets in anonymous structs/unions</li>
+<li><a href="http://gcc.gnu.org/PR15503">15503</a> nested template problem</li>
+<li><a href="http://gcc.gnu.org/PR15507">15507</a> compiler hangs while laying out union</li>
+<li><a href="http://gcc.gnu.org/PR15542">15542</a> <code>operator &amp;</code> and template definitions</li>
+<li><a href="http://gcc.gnu.org/PR15565">15565</a> SLES9: leading + sign for unsigned <code>int</code> with showpos</li>
+<li><a href="http://gcc.gnu.org/PR15625">15625</a> friend defined inside a template fails to find static function</li>
+<li><a href="http://gcc.gnu.org/PR15629">15629</a> Function templates, overloads, and friend name injection</li>
+<li><a href="http://gcc.gnu.org/PR15742">15742</a> 'noreturn' attribute ignored in method of template functions.</li>
+<li><a href="http://gcc.gnu.org/PR15775">15775</a> Allocator::pointer consistently ignored</li>
+<li><a href="http://gcc.gnu.org/PR15821">15821</a> Duplicate namespace alias within namespace rejected</li>
+<li><a href="http://gcc.gnu.org/PR15862">15862</a> '<code>enum yn</code>' fails (confict with undeclared builtin)</li>
+<li><a href="http://gcc.gnu.org/PR15875">15875</a> rejects pointer to member in template</li>
+<li><a href="http://gcc.gnu.org/PR15877">15877</a> valid code using templates and anonymous enums is rejected</li>
+<li><a href="http://gcc.gnu.org/PR15947">15947</a> Puzzling error message for wrong destructor declaration in template class</li>
+<li><a href="http://gcc.gnu.org/PR16020">16020</a> cannot copy <code>__gnu_debug::bitset</code></li>
+<li><a href="http://gcc.gnu.org/PR16154">16154</a> input iterator concept too restrictive</li>
+<li><a href="http://gcc.gnu.org/PR16174">16174</a> deducing top-level consts</li>
+</ul>
+<h4>Java</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR14315">14315</a> Java compiler is not parallel make safe</li>
+</ul>
+<h4>Fortran</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15151">15151</a> [g77] incorrect logical i/o in 64-bit mode</li>
+</ul>
+<h4>Objective-C</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR7993">7993</a> private variables cannot be shadowed in subclasses</li>
+</ul>
+<h4>Optimization bugs</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15228">15228</a> useless copies of floating point operands</li>
+<li><a href="http://gcc.gnu.org/PR15345">15345</a> [non-unit-at-a-time] unreferenced nested inline functions not optimized away</li>
+<li><a href="http://gcc.gnu.org/PR15945">15945</a> Incorrect floating point optimization</li>
+<li><a href="http://gcc.gnu.org/PR15526">15526</a> ftrapv aborts on 0 * (<code>-1</code>)</li>
+<li><a href="http://gcc.gnu.org/PR14690">14690</a> Miscompiled POOMA tests</li>
+<li><a href="http://gcc.gnu.org/PR15112">15112</a> GCC generates code to write to unchanging memory</li>
+</ul>
+<h4>Preprocessor</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15067">15067</a> Minor glitch in the source of cpp</li>
+</ul>
+<h4>Main driver program bugs</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR1963">1963</a> collect2 interprets <code>-oldstyle_liblookup</code> as <code>-o ldstyle_liblookup</code></li>
+</ul>
+<h4>x86-specific (Intel/AMD)</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15717">15717</a> Error: can't resolve `L0' {*ABS* section} - `xx' {*UND* section}</li>
+</ul>
+<h4>HPPA-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR14782">14782</a> GCC produces an unaligned data access at <code>-O2</code></li>
+<li><a href="http://gcc.gnu.org/PR14828">14828</a> FAIL: <code>gcc.c</code><code>-torture/execute/20030408-1.c</code> execution,  <code>-O2</code></li>
+<li><a href="http://gcc.gnu.org/PR15202">15202</a> ICE in <code>reload_cse_simplify_operands</code>, in <code>postreload.c</code></li>
+</ul>
+<h4>IA64-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR14610">14610</a> __float80 constants incorrectly emitted</li>
+<li><a href="http://gcc.gnu.org/PR14813">14813</a> init_array sections are initialized in the wrong order</li>
+<li><a href="http://gcc.gnu.org/PR14857">14857</a> GCC segfault on duplicated asm statement</li>
+<li><a href="http://gcc.gnu.org/PR15598">15598</a> Gcc 3.4 ICE on valid code</li>
+<li><a href="http://gcc.gnu.org/PR15653">15653</a> Gcc 3.4 ICE on valid code</li>
+</ul>
+<h4>MIPS-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15189">15189</a> wrong filling of delay slot with <code>-march=mips1 -G0</code> <code>-mno-split-addresses</code> <code>-mno-explicit-relocs</code></li>
+<li><a href="http://gcc.gnu.org/PR15331">15331</a> Assembler error building gnatlib on IRIX 6.5 with GNU as 2.14.91</li>
+<li><a href="http://gcc.gnu.org/PR16144">16144</a> Bogus reference to <code>__divdf3</code> when <code>-O1</code></li>
+<li><a href="http://gcc.gnu.org/PR16176">16176</a> Miscompilation of unaligned data in MIPS backend</li>
+</ul>
+<h4>PowerPC-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR11591">11591</a> ICE in <code>gcc.dg/altivec-5.c</code></li>
+<li><a href="http://gcc.gnu.org/PR12028">12028</a> powerpc-eabispe produces bad sCOND operation</li>
+<li><a href="http://gcc.gnu.org/PR14478">14478</a> rs6000 geu/ltu patterns generate incorrect code</li>
+<li><a href="http://gcc.gnu.org/PR14567">14567</a> long double and va_arg complex args</li>
+<li><a href="http://gcc.gnu.org/PR14715">14715</a> Altivec stack layout may overlap gpr save with stack temps</li>
+<li><a href="http://gcc.gnu.org/PR14902">14902</a> (libstdc++) Stream checking functions fail when <code>-pthread</code> option is used.</li>
+<li><a href="http://gcc.gnu.org/PR14924">14924</a> Compiler ICE on valid code</li>
+<li><a href="http://gcc.gnu.org/PR14960">14960</a> <code>-maltivec</code> affects vector return with <code>-mabi=no-altivec</code></li>
+<li><a href="http://gcc.gnu.org/PR15106">15106</a> vector varargs failure passing from altivec to non-altivec code for <code>-m32</code></li>
+<li><a href="http://gcc.gnu.org/PR16026">16026</a> ICE in <code>function</code>.c:4804, assign_parms, when <code>-mpowerpc64</code> &amp; half-word operation</li>
+<li><a href="http://gcc.gnu.org/PR15191">15191</a> <code>-maltivec</code> <code>-mabi=no-altivec</code> results in mis-aligned lvx and stvx</li>
+<li><a href="http://gcc.gnu.org/PR15662">15662</a> Segmentation fault when an exception is thrown - even if try and catch are specified</li>
+</ul>
+<h4>s390-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15054">15054</a> Bad code due to overlapping stack temporaries</li>
+</ul>
+<h4>SPARC-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15783">15783</a> ICE with union assignment in 64-bit mode</li>
+<li><a href="http://gcc.gnu.org/PR15626">15626</a> GCC 3.4 emits "ld: warning: relocation error: R_SPARC_UA32"</li>
+</ul>
+<h4>x86-64-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR14326">14326</a> boehm-gc hardcodes to 3DNow! prefetch for x86_64</li>
+<li><a href="http://gcc.gnu.org/PR14723">14723</a> Backported <code>-march</code>=nocona from mainline</li>
+<li><a href="http://gcc.gnu.org/PR15290">15290</a> __float128 failed to pass to function properly</li>
+</ul>
+<h4>Cygwin/Mingw32-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15250">15250</a> Option <code>-mms-bitfields</code> support on GCC 3.4 is not conformant to MS layout</li>
+<li><a href="http://gcc.gnu.org/PR15551">15551</a> <code>-mtune=pentium4 -O2</code> with sjlj EH breaks stack probe worker on windows32 targets</li>
+</ul>
+<h4>Bugs specific to embedded processors</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR8309">8309</a> [m68k] <code>-m5200</code> produces erroneous SImode set of short varaible on stack</li>
+<li><a href="http://gcc.gnu.org/PR13250">13250</a> [SH] Gcc code for rotation clobbers the register, but gcc continues to use the register as if it was not clobbered</li>
+<li><a href="http://gcc.gnu.org/PR13803">13803</a> [coldfire] movqi operand constraints too restrictivefor TARGET_COLDFIRE</li>
+<li><a href="http://gcc.gnu.org/PR14093">14093</a> [SH] ICE for code when using <code>-mhitachi</code> option in SH</li>
+<li><a href="http://gcc.gnu.org/PR14457">14457</a> [m6811hc] ICE with simple c++ source</li>
+<li><a href="http://gcc.gnu.org/PR14542">14542</a> [m6811hc] ICE on simple source</li>
+<li><a href="http://gcc.gnu.org/PR15100">15100</a> [SH] cc1plus got hang-up on libstdc++-<code>v3/testsuite/abi_check.c</code>c</li>
+<li><a href="http://gcc.gnu.org/PR15296">15296</a> [CRIS] Delayed branch scheduling causing invalid code on cris-*</li>
+<li><a href="http://gcc.gnu.org/PR15396">15396</a> [SH] ICE with <code>-O2</code> <code>-fPIC</code></li>
+<li><a href="http://gcc.gnu.org/PR15782">15782</a> [coldfire] m68k_output_mi_thunk emits wrong code for ColdFire</li>
+</ul>
+<h4>Testsuite problems (compiler not affected)</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR11610">11610</a> libstdc++	testcases 27_io/* don't work properly remotely</li>
+<li><a href="http://gcc.gnu.org/PR15488">15488</a> (libstdc++) possibly insufficient file permissions for executing test suite</li>
+<li><a href="http://gcc.gnu.org/PR15489">15489</a> (libstdc++) testsuite_files determined incorrectly</li>
+</ul>
+<h4>Documentation bugs</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR13928">13928</a> (libstdc++) no whatis info in some man pages generated by doxygen</li>
+<li><a href="http://gcc.gnu.org/PR14150">14150</a> Ada documentation out of date</li>
+<li><a href="http://gcc.gnu.org/PR14949">14949</a> (c++) Need to document method visibility changes</li>
+<li><a href="http://gcc.gnu.org/PR15123">15123</a> libstdc++<code>-doc</code>: Allocators.3 manpage is empty</li>
+</ul>
+
+<hr />
+<h2><a name="3.4.2">GCC 3.4.2</a></h2>
+
+
+<h3>Bug Fixes</h3>
+
+<p>This section lists the problem reports (PRs) from GCC's bug tracking
+system that
+are known to be fixed in the 3.4.2 release. This list might not be complete
+(that is, it is possible that some PRs that have been fixed are not listed
+here).</p>
+
+<h4>Bootstrap failures and issues</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR16469">16469</a> [mips-sgi-irix5.3] bootstrap fails in libstdc++<code>-v3</code>/testsuite</li>
+<li><a href="http://gcc.gnu.org/PR16344">16344</a> [hppa-linux-gnu] libstdc++'s PCH built by profiledbootstrap does not work with the built compiler</li>
+<li><a href="http://gcc.gnu.org/PR16842">16842</a> [Solaris/x86] mkheaders can not find <code>mkheaders.c</code>onf</li>
+</ul>
+<h4>Multi-platform internal compiler errors (ICEs)</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR12608">12608</a> (c++) ICE: expected class 't', have 'x' (error_mark) in cp_parser_class_specifier, in <code>cp/parser.c</code></li>
+<li><a href="http://gcc.gnu.org/PR14492">14492</a> ICE in <code>loc_descriptor_from_tree</code>, in <code>dwarf2out.c</code></li>
+<li><a href="http://gcc.gnu.org/PR15461">15461</a> (c++) ICE due to NRV and inlining</li>
+<li><a href="http://gcc.gnu.org/PR15890">15890</a> (c++) ICE in <code>c_expand_expr</code>, in <code>c-common.c</code></li>
+<li><a href="http://gcc.gnu.org/PR16180">16180</a> ICE: segmentation fault in RTL optimization</li>
+<li><a href="http://gcc.gnu.org/PR16224">16224</a> (c++) ICE in <code>write_unscoped_name</code> (template/namespace)</li>
+<li><a href="http://gcc.gnu.org/PR16408">16408</a> ICE: in <code>delete_insn</code>, in <code>cfgrtl.c</code></li>
+<li><a href="http://gcc.gnu.org/PR16529">16529</a> (c++) ICE for: namespace-alias shall not be declared as the name of any other entity</li>
+<li><a href="http://gcc.gnu.org/PR16698">16698</a> (c++) ICE with exceptions and declaration of <code>__cxa_throw</code></li>
+<li><a href="http://gcc.gnu.org/PR16706">16706</a> (c++) ICE in <code>finish_member_declaration</code>, in <code>cp/semantics.c</code></li>
+<li><a href="http://gcc.gnu.org/PR16810">16810</a> (c++) Legal C++ program with cast gives ICE in <code>build_ptrmemfunc</code></li>
+<li><a href="http://gcc.gnu.org/PR16851">16851</a> (c++) ICE when throwing a comma expression</li>
+<li><a href="http://gcc.gnu.org/PR16870">16870</a> (c++) Boost.Spirit causes ICE in <code>tsubst</code>, in <code>cp/pt.c</code></li>
+<li><a href="http://gcc.gnu.org/PR16904">16904</a> (c++) ICE in <code>finish_class_member_access_expr</code>, in <code>cp/typeck.c</code></li>
+<li><a href="http://gcc.gnu.org/PR16905">16905</a> (c++) ICE (segfault) with exceptions</li>
+<li><a href="http://gcc.gnu.org/PR16964">16964</a> (c++) ICE in <code>cp_parser_class_specifier</code> due to redefinition</li>
+<li><a href="http://gcc.gnu.org/PR17068">17068</a> (c++) ICE: tree check: expected class 'd', have 'x' (identifier_node) in <code>dependent_template_p</code>, in <code>cp/pt.c</code></li>
+</ul>
+<h4>Preprocessor bugs</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR16366">16366</a> Preprocessor option <code>-remap</code> causes memory corruption</li>
+</ul>
+<h4>Optimization</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15345">15345</a> unreferenced nested inline functions not optimized away</li>
+<li><a href="http://gcc.gnu.org/PR16590">16590</a> Incorrect execution when compiling with <code>-O2</code></li>
+<li><a href="http://gcc.gnu.org/PR16693">16693</a> Bitwise AND is lost when used within a cast to an <code>enum</code> of the same precision</li>
+<li><a href="http://gcc.gnu.org/PR17078">17078</a> Jump into <code>if(0)</code> substatement fails</li>
+</ul>
+<h4>Problems in generated debug information</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR13956">13956</a> incorrect stabs for nested local variables</li>
+</ul>
+<h4>C front end bugs</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR16684">16684</a> GCC should not warn about redundant redeclarations of built-ins</li>
+</ul>
+<h4>C++ compiler and library</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR12658">12658</a> Thread safety problems in <code>locale::global()</code> and <code>locale::locale()</code></li>
+<li><a href="http://gcc.gnu.org/PR13092">13092</a> g++ accepts invalid pointer-to-member conversion</li>
+<li><a href="http://gcc.gnu.org/PR15320">15320</a> Excessive memory consumption</li>
+<li><a href="http://gcc.gnu.org/PR16246">16246</a> Incorrect template argument deduction</li>
+<li><a href="http://gcc.gnu.org/PR16273">16273</a> Memory exhausted when using nested classes and virtual functions</li>
+<li><a href="http://gcc.gnu.org/PR16401">16401</a> <code>ostringstream</code> in gcc 3.4.x very slow for big data</li>
+<li><a href="http://gcc.gnu.org/PR16411">16411</a> undefined reference to <code>__gnu_cxx::stdio_sync_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::file()</code></li>
+<li><a href="http://gcc.gnu.org/PR16489">16489</a> G++ incorrectly rejects use of a null constant integral expression as a null constant pointer</li>
+<li><a href="http://gcc.gnu.org/PR16618">16618</a> <code>offsetof</code> fails with constant member</li>
+<li><a href="http://gcc.gnu.org/PR16637">16637</a> syntax error reported for valid input code</li>
+<li><a href="http://gcc.gnu.org/PR16717">16717</a> <code>__attribute__((constructor))</code> broken in C++</li>
+<li><a href="http://gcc.gnu.org/PR16813">16813</a> compiler error in DEBUG version of range insertion <code>std::map::insert</code></li>
+<li><a href="http://gcc.gnu.org/PR16853">16853</a> pointer-to-member initialization from incompatible one accepted</li>
+<li><a href="http://gcc.gnu.org/PR16889">16889</a> ambiguity is not detected</li>
+<li><a href="http://gcc.gnu.org/PR16959">16959</a> Segmentation fault in <code>ios_base::sync_with_stdio</code></li>
+</ul>
+<h4>Java compiler and library</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR7587">7587</a> direct threaded interpreter not thread-safe</li>
+<li><a href="http://gcc.gnu.org/PR16473">16473</a> ServerSocket <code>accept()</code> leaks file descriptors</li>
+<li><a href="http://gcc.gnu.org/PR16478">16478</a> Hash synchronization deadlock with finalizers</li>
+</ul>
+<h4>Alpha-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR10695">10695</a> ICE in <code>dwarf2out_frame_debug_expr</code>, in <code>dwarf2out.c</code></li>
+<li><a href="http://gcc.gnu.org/PR16974">16974</a> could not split insn (ice in <code>final_scan_insn</code>, in <code>final.c</code>)</li>
+</ul>
+<h4>x86-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR16298">16298</a> ICE in <code>output_operand</code></li>
+<li><a href="http://gcc.gnu.org/PR17113">17113</a> ICE with SSE2 intrinsics</li>
+</ul>
+<h4>x86-64 specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR14697">14697</a> libstdc++ couldn't find 32bit libgcc_s</li>
+</ul>
+<h4>MIPS-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15869">15869</a> [mips64] No NOP after LW (with <code>-mips1</code> <code>-O0</code>)</li>
+<li><a href="http://gcc.gnu.org/PR16325">16325</a> [mips64] value profiling clobbers gp on mips</li>
+<li><a href="http://gcc.gnu.org/PR16357">16357</a> [mipsisa64-elf] ICE copying 7 bytes between extern char[]s</li>
+<li><a href="http://gcc.gnu.org/PR16380">16380</a> [mips64] Use of uninitialised register after dbra conversion</li>
+<li><a href="http://gcc.gnu.org/PR16407">16407</a> [mips64] Unaligned access to local variables</li>
+<li><a href="http://gcc.gnu.org/PR16643">16643</a> [mips64] verify_local_live_at_start ICE after crossjumping &amp; cfgcleanup</li>
+</ul>
+<h4>ARM-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15927">15927</a> THUMB <code>-O2</code>: strength-reduced iteration variable ends up off by 1</li>
+<li><a href="http://gcc.gnu.org/PR15948">15948</a> THUMB: ICE with non-commutative cbranch</li>
+<li><a href="http://gcc.gnu.org/PR17019">17019</a> THUMB: bad switch statement in md code for addsi3_cbranch_scratch</li>
+</ul>
+<h4>IA64-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR16130">16130</a> ICE on valid code: in bundling, in <code>config/ia64/ia64.c</code> (<code>-mtune=merced</code>)</li>
+<li><a href="http://gcc.gnu.org/PR16142">16142</a> ICE on valid code: in bundling, in <code>config/ia64/ia64.c</code> (<code>-mtune=itanium</code>)</li>
+<li><a href="http://gcc.gnu.org/PR16278">16278</a> Gcc failed to build Linux kernel with <code>-mtune=merced</code></li>
+<li><a href="http://gcc.gnu.org/PR16414">16414</a> ICE on valid code: typo in comparison of <code>asm_noperands</code> result</li>
+<li><a href="http://gcc.gnu.org/PR16445">16445</a> ICE on valid code: don't count ignored insns</li>
+<li><a href="http://gcc.gnu.org/PR16490">16490</a> ICE (segfault) while compiling with <code>-fprofile-use</code></li>
+<li><a href="http://gcc.gnu.org/PR16683">16683</a> ia64 does not honor SUBTARGET_EXTRA_SPECS</li>
+</ul>
+<h4>PowerPC-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR16195">16195</a> (ppc64): Miscompilation of GCC 3.3.x by 3.4.x</li>
+<li><a href="http://gcc.gnu.org/PR16239">16239</a> ICE on ppc64 (mozilla 1.7 compile, <code>-O1</code> <code>-fno-exceptions</code> issue)</li>
+</ul>
+<h4>SPARC-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR16199">16199</a> ICE while compiling apache 2.0.49</li>
+<li><a href="http://gcc.gnu.org/PR16416">16416</a> <code>-m64</code> doesn't imply <code>-mcpu=v9</code> anymore</li>
+<li><a href="http://gcc.gnu.org/PR16430">16430</a> ICE when returning non-C aggregates larger than 16 bytes</li>
+</ul>
+<h4>Bugs specific to embedded processors</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR16379">16379</a> [m32r] can't output large model function call of <code>memcpy</code></li>
+<li><a href="http://gcc.gnu.org/PR17093">17093</a> [m32r] ICE with <code>-msdata=use</code> <code>-O0</code></li>
+<li><a href="http://gcc.gnu.org/PR17119">17119</a> [m32r] ICE at switch case 0x8000</li>
+</ul>
+<h4>DJGPP-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15928">15928</a> libstdc++ in 3.4.x doesn't cross-compile for djgpp</li>
+</ul>
+<h4>Alpha Tru64-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR16210">16210</a> libstdc++ gratuitously omits "<code>long long</code>" I/O</li>
+</ul>
+<h4>Testsuite, documentation issues (compiler is not affected):</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15488">15488</a> (libstdc++) possibly insufficient file permissions for executing test suite</li>
+<li><a href="http://gcc.gnu.org/PR16250">16250</a> ada/doctools runs makeinfo even in release tarball</li>
+</ul>
+
+<hr />
+<h2><a name="3.4.3">GCC 3.4.3</a></h2>
+
+<p>This is the <a
+href="http://gcc.gnu.org/bugzilla/buglist.cgi?bug_status=RESOLVED&amp;resolution=FIXED&amp;target_milestone=3.4.3">list
+of problem reports (PRs)</a> from GCC's bug tracking system that are
+known to be fixed in the 3.4.3 release. This list might not be
+complete (that is, it is possible that some PRs that have been fixed
+are not listed here).</p>
+
+<h4>Bootstrap failures</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR17369">17369</a> [ia64] Bootstrap failure with binutils-2.15.90.0.1.1</li>
+<li><a href="http://gcc.gnu.org/PR17850">17850</a> [arm-elf] bootstrap failure - libstdc++ uses strtold when undeclared</li>
+</ul>
+<h4>Internal compiler errors (ICEs) affecting multiple platforms</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR13948">13948</a> (java) GCJ segmentation fault while compiling GL4Java .class files</li>
+<li><a href="http://gcc.gnu.org/PR14492">14492</a> ICE in <code>loc_descriptor_from_tree</code>, in <code>dwarf2out.c</code></li>
+<li><a href="http://gcc.gnu.org/PR16301">16301</a> (c++) ICE when "strong" attribute is attached to a <code>using</code> directive</li>
+<li><a href="http://gcc.gnu.org/PR16566">16566</a> ICE with flexible arrays</li>
+<li><a href="http://gcc.gnu.org/PR17023">17023</a> ICE with nested functions in parameter declaration</li>
+<li><a href="http://gcc.gnu.org/PR17027">17027</a> ICE with noreturn function in loop at <code>-O2</code></li>
+<li><a href="http://gcc.gnu.org/PR17524">17524</a> ICE in <code>grokdeclarator</code>, in <code>cp/decl.c</code></li>
+<li><a href="http://gcc.gnu.org/PR17826">17826</a> (c++) ICE in <code>cp_tree_equal</code></li>
+</ul>
+<h4>C and optimization bugs</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15526">15526</a> <code>-ftrapv</code> aborts on <code>0 * (-1)</code></li>
+<li><a href="http://gcc.gnu.org/PR16999">16999</a> <code>#ident</code> stopped working</li>
+<li><a href="http://gcc.gnu.org/PR17503">17503</a> quadratic behaviour in invalid_mode_change_p</li>
+<li><a href="http://gcc.gnu.org/PR17581">17581</a> Long long arithmetic fails inside a switch/case statement when compiled with <code>-O2</code></li>
+<li><a href="http://gcc.gnu.org/PR18129">18129</a> <code>-fwritable-strings</code> doesn't work</li>
+</ul>
+<h4>C++ compiler and library bugs</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR10975">10975</a> incorrect initial <code>ostringstream::tellp()</code></li>
+<li><a href="http://gcc.gnu.org/PR11722">11722</a> Unbuffered <code>filebuf::sgetn</code> is slow</li>
+<li><a href="http://gcc.gnu.org/PR14534">14534</a> Unrecognizing static function as a template parameter when its return value is also templated</li>
+<li><a href="http://gcc.gnu.org/PR15172">15172</a> Copy constructor optimization in aggregate initialization</li>
+<li><a href="http://gcc.gnu.org/PR15786">15786</a> Bad error message for frequently occuring error.</li>
+<li><a href="http://gcc.gnu.org/PR16162">16162</a> Rejects valid member-template-definition</li>
+<li><a href="http://gcc.gnu.org/PR16612">16612</a> empty basic_strings can't live in shared memory</li>
+<li><a href="http://gcc.gnu.org/PR16715">16715</a> <code>std::basic_iostream</code> is instantiated when used, even though instantiations are already contained in libstdc++</li>
+<li><a href="http://gcc.gnu.org/PR16848">16848</a> code in <code>/ext/demangle.h</code> appears broken</li>
+<li><a href="http://gcc.gnu.org/PR17132">17132</a> GCC fails to eliminate function template specialization when argument deduction fails</li>
+<li><a href="http://gcc.gnu.org/PR17259">17259</a> One more <code>_S_leaf</code> incorrectly qualified with <code>_RopeRep::</code> in <code>ropeimpl.h</code></li>
+<li><a href="http://gcc.gnu.org/PR17327">17327</a> use of `enumeral_type' in template type unification</li>
+<li><a href="http://gcc.gnu.org/PR17393">17393</a> "unused variable '._0'" warning with <code>-Wall</code></li>
+<li><a href="http://gcc.gnu.org/PR17501">17501</a> Confusion with member templates</li>
+<li><a href="http://gcc.gnu.org/PR17537">17537</a> g++ not passing <code>-lstdc</code>++ to linker when all command line arguments are libraries</li>
+<li><a href="http://gcc.gnu.org/PR17585">17585</a> usage of unqualified name of static member from within class not allowed</li>
+<li><a href="http://gcc.gnu.org/PR17821">17821</a> Poor diagnostic for using "." instead of "-&gt;"</li>
+<li><a href="http://gcc.gnu.org/PR17829">17829</a> wrong error: call of overloaded function is ambiguous</li>
+<li><a href="http://gcc.gnu.org/PR17851">17851</a> Misleading diagnostic for invalid function declarations with undeclared types</li>
+<li><a href="http://gcc.gnu.org/PR17976">17976</a> Destructor is called twice</li>
+<li><a href="http://gcc.gnu.org/PR18020">18020</a> rejects valid definition of <code>enum</code> value in template</li>
+<li><a href="http://gcc.gnu.org/PR18093">18093</a> bogus conflict in namespace aliasing</li>
+<li><a href="http://gcc.gnu.org/PR18140">18140</a> C++ parser bug when using &gt;&gt; in templates</li>
+</ul>
+<h4>Fortran</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR17541">17541</a> data statements with double precision constants fail</li>
+</ul>
+<h4>x86-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR17853">17853</a> <code>-O2</code> ICE for MMX testcase</li>
+</ul>
+<h4>Sparc-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR17245">17245</a> ICE compiling gsl-1.5 <code>statistics/lag1.c</code></li>
+</ul>
+<h4>Darwin-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR17167">17167</a> FATAL:Symbol <code>L_foo$stub</code> already defined.</li>
+</ul>
+<h4>AIX-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR17277">17277</a> could not catch an exception when specified <code>-maix64</code></li>
+</ul>
+<h4>Solaris-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR17505">17505</a> <code>&lt;cmath&gt;</code> calls <code>acosf()</code>, <code>ceilf()</code>, and other functions missing from system libraries</li>
+</ul>
+<h4>HP/UX specific:</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR17684">17684</a> /usr/ccs/bin/ld: Can't create <code>libgcc_s.sl</code></li>
+</ul>
+<h4>ARM-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR17384">17384</a> ICE with mode attribute on structures</li>
+</ul>
+<h4>MIPS-specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR17770">17770</a> No NOP after LWL with <code>-mips1</code></li>
+</ul>
+<h4>Other embedded target specific</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR11476">11476</a> [arc-elf] gcc ICE on newlib's <code>vfprintf.c</code></li>
+<li><a href="http://gcc.gnu.org/PR14064">14064</a> [avr-elf] <code>-fdata-sections</code> triggers ICE</li>
+<li><a href="http://gcc.gnu.org/PR14678">14678</a> [m68hc11-elf] gcc ICE</li>
+<li><a href="http://gcc.gnu.org/PR15583">15583</a> [powerpc-rtems] powerpc-rtems lacks <code>__USE_INIT_FINI__</code></li>
+<li><a href="http://gcc.gnu.org/PR15790">15790</a> [i686-coff] Alignment error building gcc with i686-coff target</li>
+<li><a href="http://gcc.gnu.org/PR15886">15886</a> [SH] Miscompilation with <code>-O2</code> <code>-fPIC</code></li>
+<li><a href="http://gcc.gnu.org/PR16884">16884</a> [avr-elf] [fweb related] bug while initializing variables</li>
+</ul>
+<h4>Bugs relating to debugger support</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR13841">13841</a> missing debug info for <code>_Complex</code> function arguments</li>
+<li><a href="http://gcc.gnu.org/PR15860">15860</a> [big-endian targets] No <code>DW_AT_location</code> debug info is emitted for formal arguments to a function that uses "register" qualifiers</li>
+</ul>
+<h4>Testsuite issues (compiler not affected)</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR17465">17465</a> Testsuite in libffi overrides LD_LIBRARY_PATH</li>
+<li><a href="http://gcc.gnu.org/PR17469">17469</a> Testsuite in libstdc++ overrides LD_LIBRARY_PATH</li>
+<li><a href="http://gcc.gnu.org/PR18138">18138</a> [mips-sgi-irix6.5] <code>libgcc_s.so.1</code> not found by 64-bit testsuite</li>
+</ul>
+<h4>Documentation</h4>
+<ul>
+<li><a href="http://gcc.gnu.org/PR15498">15498</a> typo in gcc manual: non-existing locale example en_UK, should be en_GB</li>
+<li><a href="http://gcc.gnu.org/PR15747">15747</a> [mips-sgi-irix5.3] /bin/sh hangs during bootstrap: document broken shell</li>
+<li><a href="http://gcc.gnu.org/PR16406">16406</a> USE_LD_AS_NEEDED undocumented</li>
+</ul>
+
+
+
+
+<hr />
+
+<p>Please send FSF &amp; GNU inquiries &amp; questions to
+<a href="mailto:gnu@gnu.org">gnu@gnu.org</a>.
+There are also <a href="http://www.gnu.org/home.html#ContactInfo">other ways
+to contact</a> the FSF.</p>
+
+<p>These pages are maintained by
+<a href="http://gcc.gnu.org/about.html">the GCC team</a>.</p>
+
+<address>For questions related to the use of GCC, please consult these web
+pages and the <a href="http://gcc.gnu.org/onlinedocs/">GCC manuals</a>. If
+that fails, the <a href="mailto:gcc-help@gcc.gnu.org">gcc-help@gcc.gnu.org</a>
+mailing list might help.<br />
+Please send comments on these web pages and the development of GCC to our
+developer mailing list at <a href="mailto:gcc@gnu.org">gcc@gnu.org</a>
+or <a href="mailto:gcc@gcc.gnu.org">gcc@gcc.gnu.org</a>.  All of our lists
+have <a href="http://gcc.gnu.org/lists.html">public archives</a>.
+</address>
+
+<p>Copyright (C) Free Software Foundation, Inc.,
+59 Temple Place - Suite 330, Boston, MA  02111,  USA.</p>
+
+<p>Verbatim copying and distribution of this entire article is
+permitted in any medium, provided this notice is preserved.</p>
+
+<table width="100%" border="0"><tr><td>
+  <!-- IGNORE DIFF -->Last modified 2004-11-09
+</td><td align="right" valign="bottom">
+  <a href="http://validator.w3.org/check/referer">
+      <img src="http://www.w3.org/Icons/valid-xhtml10"
+     alt="Valid XHTML 1.0" border="0" width="88" height="31" />
+   
+  </a>
+</td></tr></table>
+
+</body>
+     </html>
+  
+ 

@@ -1,0 +1,127 @@
+--- net-snmp-5.1.2.orig/man/mib2c.1.def
++++ net-snmp-5.1.2/man/mib2c.1.def
+@@ -72,8 +72,9 @@
+ .TP
+ .BI -c " CONFIGFILE"
+ Use CONFIGFILE when generating code.  These files will be searched for
+-first in the current directory and then in the DATADIR directory
+-(which is where the default mib2c configuration files can be found).
++first in the current directory and then in /etc/snmp
++(which is where the default mib2c configuration files can be found)
++and finally in the DATADIR directory.
+ Running mib2c without the -c CONFIGFILE option will display
+ a description of the valid values for CONFIGFILE, that is,
+ the available config files, including new ones that you might
+--- net-snmp-5.1.2.orig/man/snmpset.1.def
++++ net-snmp-5.1.2/man/snmpset.1.def
+@@ -73,7 +73,7 @@
+ .PD
+ .RE
+ Most of these will use the obvious corresponding ASN.1 type.
+-'s', 'x', 'd' and 'b' are all different ways of specifying an OCTET STRING
++\&'s', 'x', 'd' and 'b' are all different ways of specifying an OCTET STRING
+ value, and the 'u' unsigned type is also used for handling Gauge32 values.
+ .PP
+ If you have the proper MIB file loaded, you can, in most cases, replace the
+--- net-snmp-5.1.2.orig/man/snmp_trap_api.3.def
++++ net-snmp-5.1.2/man/snmp_trap_api.3.def
+@@ -1,8 +1,7 @@
+ .TH SNMP_TRAP_API 3 "7 Mar 2002" VVERSIONINFO "Net-SNMP"
+ .UC 5
+ .SH NAME
+-send_easy_trap, send_trap_vars, send_v2trap - send TRAPs or INFORMs
+-from a Net-SNMP MIB module
++send_easy_trap, send_trap_vars, send_v2trap - send TRAPs or INFORMs from a Net-SNMP MIB module
+ .SH SYNOPSIS
+ .B #include <net-snmp/agent/agent_trap.h>
+ .PP
+--- net-snmp-5.1.2.orig/man/snmp_config.5.def
++++ net-snmp-5.1.2/man/snmp_config.5.def
+@@ -11,7 +11,7 @@
+ found and read from.  By default, the applications look for
+ configuration files in the following 4 directories, in order:
+ SYSCONFDIR/snmp,
+-DATADIR/snmp, LIBDIR/snmp, and $HOME/.snmp.  In each of these
++/etc/snmp, LIBDIR/snmp, and $HOME/.snmp.  In each of these
+ directories, it looks for files with the extension of both
+ .IR conf " and " local.conf
+ (reading the second ones last).  In this manner, there are
+--- net-snmp-5.1.2.orig/FAQ
++++ net-snmp-5.1.2/FAQ
+@@ -104,7 +104,7 @@
+    I don't understand the new access control stuff - what does it mean?
+    How do I configure SNMPv3 users?
+    The 'createUser' line disappears when I start the agent.  Why?
+-   What's the difference between /var/ucd-snmp and /usr/local/share/snmp?
++   What's the difference between /var/ucd-snmp and /usr/share/snmp?
+    My new agent is ignoring the old snmpd.conf file. Why?
+    Why am I getting "Connection refused"?
+    I'm getting errors about "bad security model" - why?
+@@ -620,7 +620,7 @@
+ 
+   Firstly,
+ 
+-	cp MY-MIB.txt /usr/local/share/snmp/mibs
++	cp MY-MIB.txt /usr/share/snmp/mibs
+ 
+           or
+ 
+@@ -639,7 +639,7 @@
+   Note that you need *both* steps.
+   The first command copies the file defining the new MIB to a
+   expected location for MIB files.  This defaults to
+-  /usr/local/share/snmp/mibs (or PREFIX/share/snmp/mibs if the the
++  /usr/share/snmp/mibs (or PREFIX/share/snmp/mibs if the the
+   suite was installed into a different base location).  Some
+   ready-packaged distributions (such as Linux RPM packages) may look
+   for MIB files in a different location, such as /etc/snmp/mibs - put
+@@ -1111,7 +1111,7 @@
+   If this is the case, then you can specify this interpreter
+   explicitly as part of the trap handle directive:
+ 
+-	traphandle default /usr/bin/perl /usr/local/bin/log_it
++	traphandle default /usr/bin/perl /usr/bin/log_it
+ 
+   Note that in this case, it's almost certain that you'll also
+   need to give the full path to the traphandle script (as shown)
+@@ -1263,7 +1263,7 @@
+   (if appropriate) the community string to use.
+ 
+     Some of these (such as the MIB file location), might belong in a
+-  shared snmp.conf file (typically /usr/local/share/snmp/snmp.conf or
++  shared snmp.conf file (typically /usr/share/snmp/snmp.conf or
+   /etc/snmp/snmp.conf) to apply to all users of the system.  Others
+   (particularly the SNMPv3 security settings), are more likely to refer
+   to a particular user, and should go in a personal snmp.conf file
+@@ -1522,7 +1522,7 @@
+ 
+ 
+     Alternatively, the tools may be looking in the wrong place.
+-  The default location for the mib files is /usr/local/share/snmp/mibs.
++  The default location for the mib files is /usr/share/snmp/mibs.
+   Again, this is set when the suite is first configured and compiled.
+   This can be changed using the environmental variable 'MIBDIRS'
+   or the snmp.conf directive 'mibdirs'.
+@@ -2507,11 +2507,11 @@
+ 
+ 
+ 
+-What's the difference between /var/ucd-snmp and /usr/local/share/snmp?
++What's the difference between /var/ucd-snmp and /usr/share/snmp?
+ ---------------------------------------------------------------------
+ 
+     Most "static" agent configuration should go in the traditional location
+-  (typically /usr/local/share/snmp/snmpd.conf or /etc/snmp).   The
++  (typically /usr/share/snmp/snmpd.conf or /etc/snmp).   The
+   /var/ucd-snmp (or /var/net-snmp) location is used for information set during
+   the running of the agent, which needs to be persistent between one run of
+   the agent and the next.
+@@ -2531,7 +2531,7 @@
+   distribution), with the current release installed from the source.
+ 
+     The default location for this file with the basic distribution is
+-  /usr/local/share/snmp/snmpd.conf (or PREFIX/share/snmp/snmpd.conf).
++  /usr/share/snmp/snmpd.conf (or PREFIX/share/snmp/snmpd.conf).
+   Ready-installed versions often look for the file as /etc/snmpd.conf,
+   or /etc/snmp/snmpd.conf.  Try moving the old config file to the new
+   location, and restart the agent.

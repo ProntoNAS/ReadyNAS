@@ -1,0 +1,31 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 001_dbm_read_hash_or_btree by Adam Conrad <adconrad@0c3.net>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Be more liberal in the types of DBM files we accept.
+
+@DPATCH@
+--- apr-util/dbm/apr_dbm_berkeleydb.c	2004-02-13 02:52:42.000000000 -0700
++++ apr-util/dbm/apr_dbm_berkeleydb.c	2004-09-28 00:21:37.000000000 -0600
+@@ -172,6 +172,21 @@
+                                            apr_posix_perms2mode(perm))) != 0) {
+                 /* close the DB handler */
+                 (void) (*file.bdb->close)(file.bdb, 0);
++                if (dberr == EINVAL) {
++                   if ((dberr = db_create(&file.bdb, NULL, 0)) == 0) {
++                       if ((dberr = (*file.bdb->open)(file.bdb,
++#if DB_VER == 4
++                                               NULL,
++#endif
++                                               pathname, NULL,
++                                               DB_BTREE, dbmode,
++                                               apr_posix_perms2mode(perm))) != 0) {
++
++                            /* close the DB handler */
++                            (void) (*file.bdb->close)(file.bdb, 0);
++                       }
++		    }
++                }
+             }
+         }
+         file.curs = NULL;

@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>The Software-RAID HOWTO: Hardware issues</TITLE>
+ <LINK HREF="Software-RAID.HOWTO-4.html" REL=next>
+ <LINK HREF="Software-RAID.HOWTO-2.html" REL=previous>
+ <LINK HREF="Software-RAID.HOWTO.html#toc3" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="Software-RAID.HOWTO-4.html">Next</A>
+<A HREF="Software-RAID.HOWTO-2.html">Previous</A>
+<A HREF="Software-RAID.HOWTO.html#toc3">Contents</A>
+<HR>
+<H2><A NAME="s3">3. Hardware issues</A></H2>
+
+<P>This section will mention some of the hardware concerns involved when
+running software RAID.
+<P>
+<H2><A NAME="ss3.1">3.1 IDE Configuration</A>
+</H2>
+
+<P>It is indeed possible to run RAID over IDE disks. And excellent
+performance can be achieved too. In fact, today's price on IDE drives
+and controllers does make IDE something to be considered, when setting
+up new RAID systems.
+<UL>
+<LI><B>Physical stability:</B> IDE drives has traditionally
+been of lower mechanical quality than SCSI drives. Even today, the
+warranty on IDE drives is typically one year, whereas it is often
+three to five years on SCSI drives.  Although it is not fair to say,
+that IDE drives are per definition poorly made, one should be aware
+that IDE drives of <EM>some</EM> brand <EM>may</EM> fail more often
+that similar SCSI drives. However, other brands use the exact same
+mechanical setup for both SCSI and IDE drives. It all boils down to:
+All disks fail, sooner or later, and one should be prepared for that.</LI>
+<LI><B>Data integrity:</B> Earlier, IDE had no way of assuring
+that the data sent onto the IDE bus would be the same as the data
+actually written to the disk. This was due to total lack of parity,
+checksums, etc.  With the Ultra-DMA standard, IDE drives now do a
+checksum on the data they receive, and thus it becomes highly unlikely
+that data get corrupted.</LI>
+<LI><B>Performance:</B> I'm not going to write thoroughly about
+IDE performance here. The really short story is:
+<UL>
+<LI>IDE drives are fast (12 MB/s and beyond)</LI>
+<LI>IDE has more CPU overhead than SCSI (but who cares?)</LI>
+<LI>Only use <B>one</B> IDE drive per IDE bus, slave disks spoil
+performance</LI>
+</UL>
+</LI>
+<LI><B>Fault survival:</B> The IDE driver usually survives a failing
+IDE device. The RAID layer will mark the disk as failed, and if you
+are running RAID levels 1 or above, the machine should work just fine
+until you can take it down for maintenance.</LI>
+</UL>
+<P>It is <B>very</B> important, that you only use <B>one</B> IDE disk
+per IDE bus. Not only would two disks ruin the performance, but the
+failure of a disk often guarantees the failure of the bus, and
+therefore the failure of all disks on that bus.  In a fault-tolerant
+RAID setup (RAID levels 1,4,5), the failure of one disk can be
+handled, but the failure of two disks (the two disks on the bus that
+fails due to the failure of the one disk) will render the array
+unusable. Also, when the master drive on a bus fails, the slave or the
+IDE controller may get awfully confused. One bus, one drive, that's
+the rule.
+<P>There are cheap PCI IDE controllers out there. You often get two or
+four busses for around $80. Considering the much lower price of IDE
+disks versus SCSI disks, I'd say an IDE disk array could be a really
+nice solution if one can live with the relatively low (around 8
+probably) disks one can attach to a typical system (unless of course,
+you have a lot of PCI slots for those IDE controllers).  
+<P>IDE has major cabling problems though when it comes to large
+arrays. Even if you had enough PCI slots, it's unlikely that you could
+fit much more than 8 disks in a system and still get it running
+without data corruption (caused by too long IDE cables).
+<P>
+<P>
+<H2><A NAME="ss3.2">3.2 Hot Swap</A>
+</H2>
+
+<P>This has been a hot topic on the linux-kernel list for some
+time. Although hot swapping of drives is supported to some extent, it
+is still not something one can do easily.
+<P>
+<H3>Hot-swapping IDE drives</H3>
+
+<P><B>Don't !</B> IDE doesn't handle hot swapping at all.  Sure, it may
+work for you, if your IDE driver is compiled as a module (only
+possible in the 2.2 series of the kernel), and you re-load it after
+you've replaced the drive.  But you may just as well end up with a
+fried IDE controller, and you'll be looking at a lot more down-time
+than just the time it would have taken to replace the drive on a
+downed system.
+<P>The main problem, except for the electrical issues that can destroy
+your hardware, is that the IDE bus must be re-scanned after disks are
+swapped. The current IDE driver can't do that.  If the new disk is
+100% identical to the old one (wrt. geometry etc.), it <EM>may</EM>
+work even without re-scanning the bus, but really, you're walking the
+bleeding edge here.
+<P>
+<H3>Hot-swapping SCSI drives</H3>
+
+<P>Normal SCSI hardware is not hot-swappable either. It <B>may</B>
+however work. If your SCSI driver supports re-scanning the bus, and
+removing and appending devices, you may be able to hot-swap
+devices. However, on a normal SCSI bus you probably shouldn't unplug
+devices while your system is still powered up. But then again, it may
+just work (and you may end up with fried hardware).
+<P>The SCSI layer <B>should</B> survive if a disk dies, but not all
+SCSI drivers handle this yet. If your SCSI driver dies when a disk
+goes down, your system will go with it, and hot-plug isn't really
+interesting then.
+<P>
+<H3>Hot-swapping with SCA</H3>
+
+<P>With SCA, it should be possible to hot-plug devices. However, I don't
+have the hardware to try this out, and I haven't heard from anyone
+who's tried, so I can't really give any recipe on how to do this.
+<P>If you want to play with this, you should know about SCSI and RAID
+internals anyway. So I'm not going to write something here that I
+can't verify works, instead I can give a few clues:
+<UL>
+<LI>Grep for <B>remove-single-device</B> in
+<B>linux/drivers/scsi/scsi.c</B></LI>
+<LI>Take a look at <B>raidhotremove</B> and <B>raidhotadd</B></LI>
+</UL>
+<P>Not all SCSI drivers support appending and removing devices. In the
+2.2 series of the kernel, at least the Adaptec 2940 and Symbios
+NCR53c8xx drivers seem to support this, others may and may not. I'd
+appreciate if anyone has additional facts here...
+<P>
+<P>
+<P>
+<HR>
+<A HREF="Software-RAID.HOWTO-4.html">Next</A>
+<A HREF="Software-RAID.HOWTO-2.html">Previous</A>
+<A HREF="Software-RAID.HOWTO.html#toc3">Contents</A>
+</BODY>
+</HTML>

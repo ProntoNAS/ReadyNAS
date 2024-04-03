@@ -1,0 +1,33 @@
+#! /bin/sh -e
+
+# DP: Very bad hack to avoid BUG line in libc.so on arm
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p0 < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p0 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+Index: scripts/output-format.sed
+===================================================================
+RCS file: /cvs/glibc/libc/scripts/output-format.sed,v
+retrieving revision 1.2
+diff -u -r1.2 output-format.sed
+--- scripts/output-format.sed	8 Dec 2002 08:13:16 -0000	1.2
++++ scripts/output-format.sed	26 Aug 2003 15:01:13 -0000
+@@ -18,7 +18,7 @@
+ s/\n//
+ s/^\([^,]*\),\([^,]*\),B/OUTPUT_FORMAT(\1)/p
+ s/^\([^,]*\),\([^,]*\),L/OUTPUT_FORMAT(\2)/p
+-/,/s|^|*** BUG in libc/scripts/output-format.sed *** |p
++/,/Q
+ q
+ : q
+ s/"//g

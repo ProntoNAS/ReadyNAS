@@ -1,0 +1,27 @@
+The EPIC (Eclipse Perl Integration) folks are reporting a problem
+running the debugger via a remote socket:
+
+  http://sourceforge.net/forum/forum.php?thread_id=1528954&forum_id=258688
+
+modify perl5db.pl to read up to a newline from a remote socket.
+
+diff -Naur --exclude=debian perl-5.8.8.orig/lib/perl5db.pl perl-5.8.8/lib/perl5db.pl
+--- perl-5.8.8.orig/lib/perl5db.pl	2005-10-29 10:03:21.000000000 +1000
++++ perl-5.8.8/lib/perl5db.pl	2006-07-08 13:35:17.000000000 +1000
+@@ -6354,9 +6354,13 @@
+         $OUT->write( join( '', @_ ) );
+ 
+         # Receive anything there is to receive.
+-        my $stuff;
+-        $IN->recv( $stuff, 2048 );    # XXX "what's wrong with sysread?"
+-                                      # XXX Don't know. You tell me.
++        $stuff;
++        my $stuff = '';
++        my $buf;
++        do {
++            $IN->recv( $buf = '', 2048 );   # XXX "what's wrong with sysread?"
++                                            # XXX Don't know. You tell me.
++        } while length $buf and ($stuff .= $buf) !~ /\n/;
+ 
+         # What we got.
+         $stuff;

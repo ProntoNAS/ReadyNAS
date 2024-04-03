@@ -1,0 +1,218 @@
+#!/bin/sh
+
+exec 3>&1
+
+PROGRAMS='perl yppush makedbm'
+FILES='passwd group hosts networks protocols services rpc'
+OPTFILES='aliases auto.master amd.master ethers shadow gshadow
+	netgroup publickey ypservers'
+
+# Search path for programs
+BINPATH=$PATH:/usr/bin:/bin:/usr/ucb:/usr/local/bin:/usr/contrib/bin:/opt/bin
+BINPATH=$BINPATH:/usr/sbin:/usr/etc:/usr/etc/yp:/usr/lib/yp:/etc
+BINPATH=$BINPATH:/usr/etc/nis:/usr/lib/nis
+
+# Search path for map source files
+FILEPATH="/etc/yp/master /etc/master /etc /usr/etc/yp /var/yp /usr/lib"
+
+# Directory defaults
+MAPDIR="/var/yp /var/nis /etc/yp /etc/nis /usr/etc/yp /usr/etc/nis"
+BINDIR="/usr/sbin /usr/etc/yp /usr/etc/nis /usr/etc"
+LIBDIR="/usr/lib/yp /usr/lib/nis /usr/etc/yp /usr/etc/nis /etc/yp /etc/nis"
+MANDIR="/usr/share/man /usr/man /usr/local/man"
+MODDIR=""
+
+function print {
+
+	echo "$*" >&3
+}
+
+function echo_nonl {
+
+	if $have_echo_n; then
+		echo -n "$*" >/dev/tty
+	else
+		echo "$*\c" >/dev/tty
+	fi
+}
+
+function read_input {
+
+	while true; do
+		echo_nonl "$*"
+		read ans
+		if test "$ans"; then
+			echo $ans
+			return
+		fi
+	done
+}
+
+function find_program {
+
+	path=`PATH=$BINPATH type -p $1`
+	case $path in
+	/*)	print "$1 is $path"
+		echo $path
+		return;;
+	esac
+	print "Can't find program $1."
+	prompt="Please enter full pathname: "
+	while true; do
+		path=`read_input "$prompt"`
+		case $path in
+		/*)	if test -x $path; then
+				print "$1 is $path"
+				echo $path
+				return
+			fi
+			print "$path does not exist or is not executable"
+			;;
+		*)	print "$path is not a full pathname"
+		esac
+	done
+}
+
+function find_file {
+
+	for dir in $FILEPATH; do
+		path=$dir/$1
+		if test -f $path; then
+			print "$1 is $path"
+			echo $path
+			return
+		fi
+	done
+	if test "$2"; then
+		print "$1 not found, ignoring"
+		echo notthere
+		return
+	fi
+	print "Can't find file $1."
+	prompt="Please enter full pathname: "
+	while true; do
+		path=`read_input "$prompt"`
+		case $path in
+		/*)	if test -r $path; then
+				print "$1 is $path"
+				echo $path
+				return
+			fi
+			print "$path does not exist or is not readable"
+			;;
+		*)	print "$path is not a full pathname"
+		esac
+	done
+}
+
+function find_directory {
+
+	default=$1;
+	for dir; do
+		if test -d $dir; then
+			echo $dir
+			return;
+		fi
+	done
+	echo $dir
+	return;
+}
+
+function translate {
+
+	echo "s|@(`echo $1|tr [a-z.] [A-Z_]`)|$2|g" >> defs.sed
+}
+
+while test $# -ne 0; do
+	case "$1" in
+	--basedir)
+		basedir=$2
+		shift;;
+	--mapdir)
+		mapdir=$2
+		shift;;
+	--etcdir)
+		etcdir=$2
+		shift;;
+	*)	print "Unknown option $1. Exiting"
+		exit 1;;
+	esac
+	shift
+done
+
+case `echo -n foobar` in
+-n*)	have_echo_n=false;;
+*)	have_echo_n=true;;
+esac
+
+rm -f defs.sed
+
+for prog in $PROGRAMS; do
+	path=`find_program $prog`
+	translate $prog $path
+	eval $prog=$path
+done
+for file in $FILES; do
+	path=`find_file $file`
+	translate $file $path
+	eval $file=$path
+done
+for file in $OPTFILES; do
+	path=`find_file $file optional`
+	case $path in
+	notthere)	path="/etc/$file";;
+	esac
+	translate $file $path
+	file=`echo $file|tr . _`
+	eval $file=$path
+done
+
+ypbindir=`dirname $yppush`
+yplibdir=`find_directory $LIBDIR`
+ypmapdir=`find_directory $MAPDIR`
+if test -f $yplibdir/ypmake; then
+	ypmoddir=$yplibdir/ypmake-lib
+else
+	ypmoddir=$yplibdir/ypmake
+fi
+ypmandir=`find_directory $MANDIR`
+
+if test -d $ypmandir/man1m -o -d $ypmapdir/man1m.Z; then
+	man5ext=4
+	man8ext=1m
+else
+	man5ext=5
+	man8ext=8
+fi
+set -- `ls -ld $ypmandir/man$man5ext`
+manuser=$3
+mangroup=$4
+translate man5ext  $man5ext
+translate man8ext  $man8ext
+translate man5dir  $ypmandir/man$man5ext
+translate man8dir  $ypmandir/man$man8ext
+translate manuser  $manuser
+translate mangroup $mangroup
+
+print "Binaries will be installed in $ypbindir"
+print "Modules  will be installed in $ypmoddir"
+print "NIS maps will be installed in $ypmapdir"
+
+translate ypmapdir $ypmapdir
+translate ypbindir $ypbindir
+translate yplibdir $yplibdir
+translate ypmoddir $ypmoddir
+
+version=`cat .version`
+version="ypmake `cat .version|tr -d '\012'; date '+ (built %c)'`"
+translate version "$version"
+
+print "Generating Makefile"
+sed -f defs.sed Makefile.in > Makefile
+
+cat <<"EOF"
+
+Configuration is now complete. Before running `make install', please
+review the settings in Makefile.
+
+EOF

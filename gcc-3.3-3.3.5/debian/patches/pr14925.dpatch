@@ -1,0 +1,1057 @@
+#! /bin/sh -e
+
+# DP: Backport of PR14925 to the gcc-3.3 branch
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p1 < $0
+        cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p1 < $0
+        rm -f ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+2004-09-03  H.J. Lu  <hongjiu.lu@intel.com>
+
+	PR target/14925:
+	Makefile.in (LIB2ADDEHSTATIC): New.
+	(LIB2ADDEHSHARED): New.
+	(LIBUNWIND): New.
+	(LIBUNWINDDEP): New.
+	(SHLIBUNWIND_LINK): New.
+	(SHLIBUNWIND_INSTALL): New.
+	(libgcc.mk): Pass LIB2ADDEHSTATIC, LIB2ADDEHSHARED, LIBUNWIND,
+	LIBUNWINDDEP, SHLIBUNWIND_LINK and SHLIBUNWIND_INSTALL.
+	(clean): Remove libunwind*
+	(stage1-start): Remove and copy stage1/libunwind*.
+	(stage2-start): Remove and copy stage2/libunwind*.
+	(stage3-start): Remove and copy stage3/libunwind*.
+	(stage4-start): Remove and copy stage4/libunwind*.
+	(stageprofile-start): Remove and copy stageprofile/libunwind*.
+	(stagefeedback-start): Remove and copy stagefeedback/libunwind*.
+
+	* config.gcc (ia64*-*-linux*): Always add t-libunwind to
+	tmake_file. Add t-libunwind-elf and ia64/t-glibc-libunwind to
+	tmake_file if --with-system-libunwind isn't used.
+
+	* config/ia64/t-glibc-libunwind: New file.
+	* config/t-libunwind-elf: Likewise.
+	* unwind-compat.c: Likewise.
+	* unwind-compat.h: Likewise.
+	* unwind-dw2-fde-compat.c: Likewise.
+
+	* config/ia64/t-glibc (LIB2ADDEH): Updated.
+	* config/ia64/t-hpux (T_CFLAGS): Add -DUSE_LIBUNWIND_EXCEPTIONS.
+
+	* config/ia64/unwind-ia64.c: Include "unwind-compat.h". Define
+	aliases if needed.
+	* unwind-dw2-fde-glibc.c: Likewise.
+	* unwind-dw2.c: Likewise.
+
+	* config/t-libunwind (LIB2ADDEH): Updated.
+	(LIB2ADDEHSTATIC): New.
+	(T_CFLAGS): Add -DUSE_LIBUNWIND_EXCEPTIONS.
+	(TARGET_LIBGCC2_CFLAGS): Set to -DUSE_GAS_SYMVER.
+
+	* configure.in: Change --enable-libunwind-exceptions to
+	--with-system-libunwind. Don't define USE_LIBUNWIND_EXCEPTIONS.
+	* configure: Regenerated.
+	* config.in: Updated.
+
+	* doc/install.texi (ia64-*-linux): Require libunwind 0.98 or
+	above and mention --with-system-libunwind.
+	(ia64-*-hpux*): Mention --enable-libunwind-exceptions is
+	removed in gcc 3.4.2 and later.
+
+	* gcc.c (init_spec): Add -lunwind to -lgcc_s if
+	USE_LIBUNWIND_EXCEPTIONS is defined.
+
+	* mklibgcc.in: Support libunwind.
+
+diff -urN src.old/gcc/Makefile.in src/gcc/Makefile.in
+--- src.old/gcc/Makefile.in	2004-04-01 18:55:23.000000000 +0200
++++ src/gcc/Makefile.in	2004-12-10 13:28:49.000000000 +0100
+@@ -408,8 +408,16 @@
+ # Additional sources to handle exceptions; overridden by targets as needed.
+ LIB2ADDEH = $(srcdir)/unwind-dw2.c $(srcdir)/unwind-dw2-fde.c \
+   $(srcdir)/unwind-sjlj.c $(srcdir)/unwind-c.c
++LIB2ADDEHSTATIC = $(LIB2ADDEH)
++LIB2ADDEHSHARED = $(LIB2ADDEH)
+ LIB2ADDEHDEP = unwind.inc unwind-dw2-fde.h
+ 
++# Don't build libunwind by default.
++LIBUNWIND =
++LIBUNWINDDEP =
++SHLIBUNWIND_LINK =
++SHLIBUNWIND_INSTALL =
++
+ # nm flags to list global symbols in libgcc object files.
+ SHLIB_NM_FLAGS = -pg
+ 
+@@ -1034,7 +1042,13 @@
+ 	LIB2ADD='$(LIB2ADD)' \
+ 	LIB2ADD_ST='$(LIB2ADD_ST)' \
+ 	LIB2ADDEH='$(LIB2ADDEH)' \
++	LIB2ADDEHSTATIC='$(LIB2ADDEHSTATIC)' \
++	LIB2ADDEHSHARED='$(LIB2ADDEHSHARED)' \
+ 	LIB2ADDEHDEP='$(LIB2ADDEHDEP)' \
++	LIBUNWIND='$(LIBUNWIND)' \
++	LIBUNWINDDEP='$(LIBUNWINDDEP)' \
++	SHLIBUNWIND_LINK='$(SHLIBUNWIND_LINK)' \
++	SHLIBUNWIND_INSTALL='$(SHLIBUNWIND_INSTALL)' \
+ 	FPBIT='$(FPBIT)' \
+ 	FPBIT_FUNCS='$(FPBIT_FUNCS)' \
+ 	LIB2_DIVMOD_FUNCS='$(LIB2_DIVMOD_FUNCS)' \
+@@ -2665,6 +2679,7 @@
+ INTL_CLEAN = intl.clean
+ clean: mostlyclean $(INTL_CLEAN) lang.clean
+ 	-rm -f libgcc.a libgcc_eh.a libgcc_s$(SHLIB_EXT) libgcc_s$(SHLIB_EXT).1
++	-rm -f libunwind*
+ 	-rm -f config.h tconfig.h hconfig.h tm_p.h
+ 	-rm -f cs-*
+ 	-rm -rf libgcc
+@@ -3561,6 +3576,7 @@
+ 	-if [ -f ld$(exeext) ] ; then (cd stage1 && $(LN_S) ../ld$(exeext) .) ; else true ; fi
+ 	-if [ -f collect-ld$(exeext) ] ; then (cd stage1 && $(LN_S) ../collect-ld$(exeext) .) ; else true ; fi
+ 	-rm -f stage1/libgcc.a stage1/libgcc_eh.a stage1/libgcc_s*$(SHLIB_EXT)
++	-rm -f stage1/libunwind*
+ 	-cp libgcc.a stage1
+ 	-if $(RANLIB_TEST_FOR_TARGET) ; then \
+ 	  $(RANLIB_FOR_TARGET) stage1/libgcc.a; \
+@@ -3570,6 +3586,7 @@
+ 	   $(RANLIB_FOR_TARGET) stage1/libgcc_eh.a; \
+ 	  else true; fi; fi
+ 	-cp libgcc_s*$(SHLIB_EXT) stage1/
++	-cp libunwind* stage1/
+ 	-for f in .. $(EXTRA_MULTILIB_PARTS); do if [ x$${f} != x.. ]; then \
+ 	  cp stage1/$${f} . ; \
+ 	else true; \
+@@ -3591,6 +3608,7 @@
+ 	-if [ -f ld$(exeext) ] ; then (cd stage2 && $(LN_S) ../ld$(exeext) .) ; else true ; fi
+ 	-if [ -f collect-ld$(exeext) ] ; then (cd stage2 && $(LN_S) ../collect-ld$(exeext) .) ; else true ; fi
+ 	-rm -f stage2/libgcc.a stage2/libgcc_eh.a stage2/libgcc_s*$(SHLIB_EXT)
++	-rm -f stage2/libunwind*
+ 	-cp libgcc.a stage2
+ 	-if $(RANLIB_TEST_FOR_TARGET) ; then \
+ 	  $(RANLIB_FOR_TARGET) stage2/libgcc.a; \
+@@ -3600,6 +3618,7 @@
+ 	   $(RANLIB_FOR_TARGET) stage2/libgcc_eh.a; \
+ 	  else true; fi; fi
+ 	-cp libgcc_s*$(SHLIB_EXT) stage2/
++	-cp libunwind* stage2/
+ 	-for f in .. $(EXTRA_MULTILIB_PARTS); do if [ x$${f} != x.. ]; then \
+ 	  cp stage2/$${f} . ; \
+ 	else true; \
+@@ -3621,6 +3640,7 @@
+ 	-if [ -f ld$(exeext) ] ; then (cd stage3 && $(LN_S) ../ld$(exeext) .) ; else true ; fi
+ 	-if [ -f collect-ld$(exeext) ] ; then (cd stage3 && $(LN_S) ../collect-ld$(exeext) .) ; else true ; fi
+ 	-rm -f stage3/libgcc.a stage3/libgcc_eh.a stage3/libgcc_s*$(SHLIB_EXT)
++	-rm -f stage3/libunwind*
+ 	-cp libgcc.a stage3
+ 	-if $(RANLIB_TEST_FOR_TARGET) ; then \
+ 	  $(RANLIB_FOR_TARGET) stage3/libgcc.a; \
+@@ -3630,6 +3650,7 @@
+ 	   $(RANLIB_FOR_TARGET) stage3/libgcc_eh.a; \
+ 	  else true; fi; fi
+ 	-cp libgcc_s*$(SHLIB_EXT) stage3/
++	-cp libunwind* stage3/
+ 	-for f in .. $(EXTRA_MULTILIB_PARTS); do if [ x$${f} != x.. ]; then \
+ 	  cp stage3/$${f} . ; \
+ 	else true; \
+@@ -3651,6 +3672,7 @@
+ 	-if [ -f ld$(exeext) ] ; then (cd stage4 && $(LN_S) ../ld$(exeext) .) ; else true ; fi
+ 	-if [ -f collect-ld$(exeext) ] ; then (cd stage4 && $(LN_S) ../collect-ld$(exeext) .) ; else true ; fi
+ 	-rm -f stage4/libgcc.a stage4/libgcc_eh.a stage4/libgcc_s*$(SHLIB_EXT)
++	-rm -f stage4/libunwind*
+ 	-cp libgcc.a stage4
+ 	-if $(RANLIB_TEST_FOR_TARGET) ; then \
+ 	  $(RANLIB_FOR_TARGET) stage4/libgcc.a; \
+@@ -3660,6 +3682,7 @@
+ 	   $(RANLIB_FOR_TARGET) stage4/libgcc_eh.a; \
+ 	  else true; fi; fi
+ 	-cp libgcc_s*$(SHLIB_EXT) stage4/
++	-cp libunwind* stage4/
+ 	-for f in .. $(EXTRA_MULTILIB_PARTS); do if [ x$${f} != x.. ]; then \
+ 	  cp stage4/$${f} . ; \
+ 	else true; \
+diff -urN src.old/gcc/config/ia64/t-glibc src/gcc/config/ia64/t-glibc
+--- src.old/gcc/config/ia64/t-glibc	2001-05-12 08:03:20.000000000 +0200
++++ src/gcc/config/ia64/t-glibc	2004-12-10 13:17:36.000000000 +0100
+@@ -1 +1,3 @@
+-LIB2ADDEH += $(srcdir)/config/ia64/fde-glibc.c
++# Use system libunwind library on IA-64 GLIBC based system.
++LIB2ADDEH = $(srcdir)/unwind-sjlj.c $(srcdir)/unwind-c.c \
++  $(srcdir)/unwind-compat.c
+diff -urN src.old/gcc/config/ia64/t-glibc-libunwind src/gcc/config/ia64/t-glibc-libunwind
+--- src.old/gcc/config/ia64/t-glibc-libunwind	1970-01-01 01:00:00.000000000 +0100
++++ src/gcc/config/ia64/t-glibc-libunwind	2004-12-10 13:17:36.000000000 +0100
+@@ -0,0 +1,4 @@
++# Build libunwind for IA-64 GLIBC based system.
++LIBUNWIND = $(srcdir)/config/ia64/fde-glibc.c \
++  $(srcdir)/config/ia64/unwind-ia64.c
++LIBUNWINDDEP = unwind.inc
+diff -urN src.old/gcc/config/ia64/t-hpux src/gcc/config/ia64/t-hpux
+--- src.old/gcc/config/ia64/t-hpux	2003-01-26 12:35:08.000000000 +0100
++++ src/gcc/config/ia64/t-hpux	2004-12-10 13:17:36.000000000 +0100
+@@ -30,6 +30,8 @@
+ # We do not want to include the EH stuff that linux uses, we want to use
+ # the HP-UX libunwind library.
+ 
++T_CFLAGS += -DUSE_LIBUNWIND_EXCEPTIONS
++
+ LIB2ADDEH =
+ 
+ SHLIB_EXT = .so
+diff -urN src.old/gcc/config/ia64/unwind-ia64.c src/gcc/config/ia64/unwind-ia64.c
+--- src.old/gcc/config/ia64/unwind-ia64.c	2003-12-12 17:10:09.000000000 +0100
++++ src/gcc/config/ia64/unwind-ia64.c	2004-12-10 13:17:36.000000000 +0100
+@@ -35,6 +35,7 @@
+ #include "tsystem.h"
+ #include "unwind.h"
+ #include "unwind-ia64.h"
++#include "unwind-compat.h"
+ #include "ia64intrin.h"
+ 
+ /* This isn't thread safe, but nice for occasional tests.  */
+@@ -2284,4 +2285,24 @@
+ }
+ 
+ #include "unwind.inc"
++
++#if defined (USE_GAS_SYMVER) && defined (SHARED) && defined (USE_LIBUNWIND_EXCEPTIONS)
++alias (_Unwind_Backtrace);
++alias (_Unwind_DeleteException);
++alias (_Unwind_FindEnclosingFunction);
++alias (_Unwind_FindTableEntry);
++alias (_Unwind_ForcedUnwind);
++alias (_Unwind_GetBSP);
++alias (_Unwind_GetCFA);
++alias (_Unwind_GetGR);
++alias (_Unwind_GetIP);
++alias (_Unwind_GetLanguageSpecificData);
++alias (_Unwind_GetRegionStart);
++alias (_Unwind_RaiseException);
++alias (_Unwind_Resume);
++alias (_Unwind_Resume_or_Rethrow);
++alias (_Unwind_SetGR);
++alias (_Unwind_SetIP);
++#endif
++
+ #endif
+diff -urN src.old/gcc/config/t-libunwind src/gcc/config/t-libunwind
+--- src.old/gcc/config/t-libunwind	2003-12-04 03:18:22.000000000 +0100
++++ src/gcc/config/t-libunwind	2004-12-10 13:45:23.000000000 +0100
+@@ -1,6 +1,14 @@
++# Use the system libunwind library.
++#
+ # Override the default value from t-slibgcc-elf-ver and mention -lunwind
+ # so that the resulting libgcc_s.so has the necessary DT_NEEDED entry for
+ # libunwind.
+ SHLIB_LC = -lunwind -lc
+ LIB2ADDEH = $(srcdir)/unwind-libunwind.c $(srcdir)/unwind-sjlj.c \
+ 	    $(srcdir)/unwind-c.c
++LIB2ADDEH = $(srcdir)/unwind-sjlj.c $(srcdir)/unwind-c.c \
++  $(srcdir)/unwind-compat.c $(srcdir)/unwind-dw2-fde-compat.c
++LIB2ADDEHSTATIC = $(srcdir)/unwind-sjlj.c $(srcdir)/unwind-c.c
++
++T_CFLAGS += -DUSE_LIBUNWIND_EXCEPTIONS
++TARGET_LIBGCC2_CFLAGS += -DUSE_GAS_SYMVER
+diff -urN src.old/gcc/config/t-libunwind-elf src/gcc/config/t-libunwind-elf
+--- src.old/gcc/config/t-libunwind-elf	1970-01-01 01:00:00.000000000 +0100
++++ src/gcc/config/t-libunwind-elf	2004-12-10 13:17:36.000000000 +0100
+@@ -0,0 +1,26 @@
++# Build libunwind for ELF with the GNU linker.
++
++# Use unwind-dw2-fde-glibc
++LIBUNWIND = $(srcdir)/unwind-dw2.c $(srcdir)/unwind-dw2-fde-glibc.c
++LIBUNWINDDEP = unwind.inc unwind-dw2-fde.h unwind-dw2-fde.c
++
++SHLIBUNWIND_SOVERSION = 7
++SHLIBUNWIND_SONAME = @shlib_so_name@.so.$(SHLIBUNWIND_SOVERSION)
++SHLIBUNWIND_NAME = @shlib_dir@@shlib_so_name@.so.$(SHLIBUNWIND_SOVERSION)
++
++SHLIBUNWIND_LINK = $(GCC_FOR_TARGET) $(LIBGCC2_CFLAGS) -shared \
++	-nodefaultlibs -Wl,-h,$(SHLIBUNWIND_SONAME) \
++	-Wl,-z,text -Wl,-z,defs \
++	-o $(SHLIBUNWIND_NAME) @multilib_flags@ $(SHLIB_OBJS) -lc && \
++	rm -f $(SHLIB_SOLINK) && \
++	$(LN_S) $(SHLIBUNWIND_NAME) $(SHLIB_SOLINK)
++
++# $(slibdir) double quoted to protect it from expansion while building
++# libgcc.mk.  We want this delayed until actual install time.
++SHLIBUNWIND_INSTALL = \
++	$$(SHELL) $$(srcdir)/mkinstalldirs $$(DESTDIR)$$(slibdir)$(SHLIB_SLIBDIR_QUAL); \
++	$(INSTALL_DATA) $(SHLIBUNWIND_NAME) \
++	  $$(DESTDIR)$$(slibdir)$(SHLIB_SLIBDIR_QUAL)/$(SHLIBUNWIND_SONAME); \
++	rm -f $$(DESTDIR)$$(slibdir)$(SHLIB_SLIBDIR_QUAL)/$(SHLIB_SOLINK); \
++	$(LN_S) $(SHLIBUNWIND_SONAME) \
++	  $$(DESTDIR)$$(slibdir)$(SHLIB_SLIBDIR_QUAL)/$(SHLIB_SOLINK)
+diff -urN src.old/gcc/config.gcc src/gcc/config.gcc
+--- src.old/gcc/config.gcc	2004-04-29 06:42:47.000000000 +0200
++++ src/gcc/config.gcc	2004-12-10 13:36:11.000000000 +0100
+@@ -1475,12 +1475,12 @@
+ 	;;
+ ia64*-*-linux*)
+ 	tm_file="${tm_file} dbxelf.h elfos.h svr4.h linux.h ia64/sysv4.h ia64/linux.h"
+-	tmake_file="t-slibgcc-elf-ver t-linux ia64/t-ia64 ia64/t-glibc"
++	tmake_file="t-slibgcc-elf-ver t-linux ia64/t-ia64 t-libunwind ia64/t-glibc"
++	if test x$with_system_libunwind != xyes ; then
++	  tmake_file="t-slibgcc-elf-ver t-linux ia64/t-ia64 t-libunwind-elf ia64/t-glibc-libunwind"
++	fi
+ 	target_cpu_default="MASK_GNU_AS|MASK_GNU_LD"
+ 	extra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o crtfastmath.o"
+-	if test x"$use_libunwind_exceptions" = xyes; then
+-	  tmake_file="$tmake_file t-libunwind"
+-	fi
+ 	;;
+ ia64*-*-hpux*)
+ 	tm_file="${tm_file} dbxelf.h elfos.h svr4.h ia64/sysv4.h ia64/hpux.h ia64/hpux_longdouble.h"
+diff -urN src.old/gcc/config.in src/gcc/config.in
+--- src.old/gcc/config.in	2004-09-30 19:34:19.000000000 +0200
++++ src/gcc/config.in	2004-12-10 13:38:35.000000000 +0100
+@@ -507,9 +507,6 @@
+ /* Define 0/1 to force the choice for exception handling model. */
+ #undef CONFIG_SJLJ_EXCEPTIONS
+ 
+-/* Define if gcc should use -lunwind. */
+-#undef USE_LIBUNWIND_EXCEPTIONS
+-
+ /* Define to the name of a file containing a list of extra machine modes
+    for this architecture. */
+ #undef EXTRA_MODES_FILE
+diff -urN src.old/gcc/configure.in src/gcc/configure.in
+--- src.old/gcc/configure.in	2004-04-01 18:55:22.000000000 +0200
++++ src/gcc/configure.in	2004-12-10 13:48:59.000000000 +0100
+@@ -854,16 +854,10 @@
+ AC_DEFINE_UNQUOTED(CONFIG_SJLJ_EXCEPTIONS, $sjlj,
+   [Define 0/1 to force the choice for exception handling model.])])
+ 
+-AC_CHECK_LIB(unwind, main, use_libunwind_default=yes, use_libunwind_default=no)
+-# Use libunwind based exception handling.
+-AC_ARG_ENABLE(libunwind-exceptions,
+-[  --enable-libunwind-exceptions  force use libunwind for exceptions],
+-use_libunwind_exceptions=$enableval,
+-use_libunwind_exceptions=$use_libunwind_default)
+-if test x"$use_libunwind_exceptions" = xyes; then
+-   AC_DEFINE(USE_LIBUNWIND_EXCEPTIONS, 1,
+-	[Define if gcc should use -lunwind.])
+-fi
++# For platforms with the unwind ABI which includes an unwind library,
++# libunwind, we can choose to use the system libunwind.
++AC_ARG_WITH(system-libunwind,
++[  --with-system-libunwind use installed libunwind])
+ 
+ target_gtfiles=
+ build_xm_file=
+diff -urN src.old/gcc/doc/install.texi src/gcc/doc/install.texi
+--- src.old/gcc/doc/install.texi	2004-05-08 19:37:31.000000000 +0200
++++ src/gcc/doc/install.texi	2004-12-10 13:51:02.000000000 +0100
+@@ -2433,6 +2433,10 @@
+ IA-64 processor (also known as IPF, or Itanium Processor Family)
+ running GNU/Linux.
+ 
++If you are using the installed system libunwind library with
++@option{--with-system-libunwind}, then you must use libunwind 0.98 or
++later.
++
+ The toolchain is not completely finished, so requirements will continue
+ to change.
+ GCC 3.0.1 and later require glibc 2.2.4.
+@@ -2461,6 +2465,8 @@
+ The GCC libunwind library has not been ported to HPUX. This means that for
+ GCC versions 3.2.3 and earlier, @option{--enable-libunwind-exceptions}
+ is required to build GCC. For GCC 3.3 and later, this is the default.
++For gcc 3.4.3 and later, @option{--enable-libunwind-exceptions} is
++removed and the system libunwind library will always be used.
+ 
+ @html
+ <hr />
+diff -urN src.old/gcc/gcc.c src/gcc/gcc.c
+--- src.old/gcc/gcc.c	2004-04-01 18:55:17.000000000 +0200
++++ src/gcc/gcc.c	2004-12-10 13:17:41.000000000 +0100
+@@ -1577,6 +1577,9 @@
+ #else
+ 			    "-lgcc_s%M"
+ #endif
++#ifdef USE_LIBUNWIND_EXCEPTIONS
++			    " -lunwind"
++#endif
+ 			    ,
+ 			    "-lgcc",
+ 			    "-lgcc_eh"
+diff -urN src.old/gcc/mklibgcc.in src/gcc/mklibgcc.in
+--- src.old/gcc/mklibgcc.in	2003-12-24 23:42:28.000000000 +0100
++++ src/gcc/mklibgcc.in	2004-12-10 14:19:28.000000000 +0100
+@@ -15,7 +15,13 @@
+ # LIB2ADD
+ # LIB2ADD_ST 
+ # LIB2ADDEH
++# LIB2ADDEHSTATIC
++# LIB2ADDEHSHARED
+ # LIB2ADDEHDEP
++# LIBUNWIND
++# LIBUNWINDDEP
++# SHLIBUNWIND_LINK
++# SHLIBUNWIND_INSTALL
+ # FPBIT
+ # FPBIT_FUNCS
+ # LIB2_DIVMOD_FUNCS
+@@ -105,7 +111,8 @@
+ 
+ libgcc2_objs=""
+ libgcc2_st_objs=""
+-libgcc2_eh_objs=""
++libgcc2_eh_static_objs=""
++libgcc2_eh_shared_objs=""
+ 
+ for name in $LIB2FUNCS_1 $LIB2FUNCS_2; do
+   for ml in $MULTILIBS; do
+@@ -224,13 +231,27 @@
+     echo $out: stmp-dirs $file
+     echo "	$gcc_compile" $flags -fexceptions -c $file -o $out
+   done
+-  if [ "$SHLIB_LINK" ]; then
+-    libgcc2_eh_objs="$libgcc2_eh_objs ${oname}${objext}"
+-  else
++  if [ -z "$SHLIB_LINK" ]; then
+     libgcc2_objs="$libgcc2_objs ${oname}${objext}"
+   fi
+ done
+ 
++if [ "$SHLIB_LINK" ]; then
++  # Those should be in libgcc_eh.a.
++  for file in $LIB2ADDEHSTATIC; do
++    name=`echo $file | sed -e 's/[.][cSo]$//' -e 's/[.]asm$//' -e 's/[.]txt$//'`
++    oname=`echo $name | sed -e 's,.*/,,'`
++    libgcc2_eh_static_objs="$libgcc2_eh_static_objs ${oname}${objext}"
++  done
++
++  # Those should be in libgcc.so.
++  for file in $LIB2ADDEHSHARED; do
++    name=`echo $file | sed -e 's/[.][cSo]$//' -e 's/[.]asm$//' -e 's/[.]txt$//'`
++    oname=`echo $name | sed -e 's,.*/,,'`
++    libgcc2_eh_shared_objs="$libgcc2_eh_shared_objs ${oname}${objext}"
++  done
++fi
++
+ for file in $LIB2ADD_ST; do
+   name=`echo $file | sed -e 's/[.][cSo]$//' -e 's/[.]asm$//' -e 's/[.]txt$//'`
+   oname=`echo $name | sed -e 's,.*/,,'`
+@@ -249,6 +270,31 @@
+   libgcc2_st_objs="$libgcc2_st_objs ${oname}${objext}"
+ done
+ 
++if [ "$LIBUNWIND" ]; then
++  libunwind_static_objs=""
++  libunwind_shared_objs=""
++  for file in $LIBUNWIND; do
++    name=`echo $file | sed -e 's/[.][cSo]$//' -e 's/[.]asm$//' -e 's/[.]txt$//'`
++    oname=`echo $name | sed -e 's,.*/,,'`
++
++    for ml in $MULTILIBS; do
++      dir=`echo ${ml} | sed -e 's/;.*$//' -e 's/=/$(EQ)/g'`
++      flags=`echo ${ml} | sed -e 's/^[^;]*;//' -e 's/@/ -/g'`;
++      out="libgcc/${dir}/${oname}${objext}"
++      if [ ${name}.asm = ${file} ]; then
++	flags="$flags -xassembler-with-cpp"
++      fi
++
++      echo $out: stmp-dirs $file $LIBUNWINDDEP
++      echo "	$gcc_compile" $flags -fexceptions -c $file -o $out
++      echo ${out}s: stmp-dirs $file $LIBUNWINDDEP
++      echo "	$gcc_compile" $flags -fexceptions -DSHARED -c $file -o ${out}s
++    done
++    libunwind_static_objs="$libunwind_static_objs ${oname}${objext}"
++    libunwind_shared_objs="$libunwind_shared_objs ${oname}${objext}s"
++  done
++fi
++
+ # SHLIB_MKMAP
+ # SHLIB_MKMAP_OPTS
+ # SHLIB_MAPFILES
+@@ -257,17 +303,21 @@
+   flags=`echo ${ml} | sed -e 's/^[^;]*;//' -e 's/@/ -/g'`;
+ 
+   libgcc_objs=""
+-  libgcc_eh_objs=""
++  libgcc_eh_static_objs=""
++  libgcc_eh_shared_objs=""
+   for o in $libgcc1_objs; do
+     libgcc_objs="$libgcc_objs libgcc/${dir}/$o"
+   done
+   for o in $libgcc2_objs; do
+     libgcc_objs="$libgcc_objs libgcc/${dir}/$o"
+   done
+-  for o in $libgcc2_eh_objs; do
+-    libgcc_eh_objs="$libgcc_eh_objs libgcc/${dir}/$o"
++  for o in $libgcc2_eh_static_objs; do
++    libgcc_eh_static_objs="$libgcc_eh_static_objs libgcc/${dir}/$o"
+   done
+-  libgcc_sh_objs="$libgcc_objs $libgcc_eh_objs"
++  for o in $libgcc2_eh_shared_objs; do
++    libgcc_eh_shared_objs="$libgcc_eh_shared_objs libgcc/${dir}/$o"
++  done
++  libgcc_sh_objs="$libgcc_objs $libgcc_eh_shared_objs"
+   shlib_deps="$libgcc_sh_objs"
+ 
+   libgcc_st_objs=""
+@@ -275,6 +325,18 @@
+     libgcc_st_objs="$libgcc_st_objs libgcc/${dir}/$o"
+   done
+ 
++  if [ "$LIBUNWIND" ]; then
++    libunwind_a_objs=""
++    for o in $libunwind_static_objs; do
++      libunwind_a_objs="$libunwind_a_objs libgcc/${dir}/$o"
++    done
++    libunwind_sh_objs=""
++    for o in $libunwind_shared_objs; do
++      libunwind_sh_objs="$libunwind_sh_objs libgcc/${dir}/$o"
++    done
++    shlibunwind_deps="$libunwind_sh_objs"
++  fi
++
+   if [ "$SHLIB_LINK" -a "$SHLIB_MKMAP" ]; then
+     mapfile="libgcc/${dir}/libgcc.map"
+     tmpmapfile="libgcc/${dir}/tmp-libgcc.map"
+@@ -326,12 +388,22 @@
+   echo '	  $(RANLIB_FOR_TARGET)' ${dir}/libgcc.a ';' \\
+   echo '	else true; fi;'
+ 
++  if [ "$LIBUNWIND" ]; then
++    echo ""
++    echo "${dir}/libunwind.a: stmp-dirs $libunwind_a_objs"
++    echo "	-rm -rf ${dir}/libunwind.a"
++    echo '	$(AR_CREATE_FOR_TARGET)' ${dir}/libunwind.a $libunwind_a_objs
++    echo '	$(RANLIB_FOR_TARGET)' ${dir}/libunwind.a
++    echo ""
++    echo "${dir}/libgcc.a: ${dir}/libunwind.a"
++  fi
++
+   if [ "$SHLIB_LINK" ]; then
+ 
+     echo ""
+-    echo "${dir}/libgcc_eh.a: stmp-dirs $libgcc_eh_objs"
++    echo "${dir}/libgcc_eh.a: stmp-dirs $libgcc_eh_static_objs"
+     echo "	-rm -rf ${dir}/libgcc_eh.a"
+-    echo '	$(AR_CREATE_FOR_TARGET)' ${dir}/libgcc_eh.a $libgcc_eh_objs
++    echo '	$(AR_CREATE_FOR_TARGET)' ${dir}/libgcc_eh.a $libgcc_eh_static_objs
+     echo '	if $(RANLIB_TEST_FOR_TARGET) ; then' \\
+     echo '	  $(RANLIB_FOR_TARGET)' ${dir}/libgcc_eh.a ';' \\
+     echo '	else true; fi;'
+@@ -339,10 +411,16 @@
+     if [ -z "$SHLIB_MULTILIB" ]; then
+       if [ "$dir" = . ]; then
+ 	shlib_base_name=libgcc_s
++	shlibunwind_base_name=libunwind
+       else
+ 	shlib_base_name=libgcc_s_`echo $dir | sed s,/,_,g`
++	shlibunwind_base_name=libunwind_`echo $dir | sed s,/,_,g`
+       fi
+       shlib_so_name="$shlib_base_name"
++      shlibunwind_so_name="$shlibunwind_base_name"
++      if [ "$LIBUNWIND" ]; then
++	shlib_deps="$shlib_deps ${dir}/${shlibunwind_base_name}${SHLIB_EXT}"
++      fi
+       shlib_dir=
+       if [ -n "$MULTILIB_OSDIRNAMES" ]; then
+ 	if [ "$dir" != . ]; then
+@@ -353,8 +431,10 @@
+ 	  os_multilib_base=`echo $os_multilib_dir | sed -n "s~/${gcc_multilib_sup}\$~~p"`
+ 	  if [ -z "$os_multilib_base" ]; then
+ 	    shlib_so_name=libgcc_s
++	    shlibunwind_so_name=libunwind
+ 	  else
+ 	    shlib_so_name=libgcc_s_`echo $gcc_multilib_sup | sed s,/,_,g`
++	    shlibunwind_so_name=libunwind_`echo $gcc_multilib_sup | sed s,/,_,g`
+ 	  fi
+ 	fi
+       fi
+@@ -368,8 +448,21 @@
+ 	       -e "s%@shlib_map_file@%$mapfile%g" \
+ 	       -e "s%@shlib_so_name@%$shlib_so_name%g" \
+ 	       -e "s%@shlib_dir@%$shlib_dir%g"
++      if [ "$LIBUNWIND" ]; then
++	echo ""
++	echo "${dir}/${shlibunwind_base_name}${SHLIB_EXT}: $shlibunwind_deps"
++	echo "	$SHLIBUNWIND_LINK" \
++	   | sed -e "s%@multilib_flags@%$flags%g" \
++		 -e "s%@multilib_dir@%$dir%g" \
++		 -e "s%@shlib_objs@%$libunwind_sh_objs%g" \
++		 -e "s%@shlib_base_name@%$shlibunwind_base_name%g" \
++		 -e "s%@shlib_so_name@%$shlibunwind_so_name%g" \
++		 -e "s%@shlib_dir@%$shlib_dir%g" \
++		 -e "s%@shlib_slibdir_qual@%%g"
++      fi
+     elif [ "$SHLIB_MULTILIB" = "$dir" ]; then
+       shlib_base_name="libgcc_s";
++      shlibunwind_base_name="libunwind";
+       echo ""
+       echo "${shlib_base_name}${SHLIB_EXT}: $shlib_deps"
+       echo "	$SHLIB_LINK" \
+@@ -380,6 +473,18 @@
+ 	       -e "s%@shlib_map_file@%$mapfile%g" \
+ 	       -e "s%@shlib_so_name@%$shlib_base_name%g" \
+ 	       -e "s%@shlib_dir@%%g"
++      if [ "$LIBUNWIND" ]; then
++	echo ""
++	echo "${shlibunwind_base_name}${SHLIB_EXT}: $shlibunwind_deps"
++	echo "	$SHLIBUNWIND_LINK" \
++	   | sed -e "s%@multilib_flags@%$flags%g" \
++		 -e "s%@multilib_dir@%$dir%g" \
++		 -e "s%@shlib_objs@%$libgcc_sh_objs%g" \
++		 -e "s%@shlib_base_name@%$shlibunwind_base_name%g" \
++		 -e "s%@shlib_so_name@%$shlibunwind_base_name%g" \
++		 -e "s%@shlib_dir@%%g" \
++		 -e "s%@shlib_slibdir_qual@%%g"
++      fi
+     fi
+   fi
+ done
+@@ -411,6 +516,9 @@
+     dirs="$dirs ${dir} libgcc/${dir}"
+   fi
+   all="$all ${dir}/libgcc.a"
++  if [ "$LIBUNWIND" ]; then
++    all="$all ${dir}/libunwind.a"
++  fi
+   if [ "$SHLIB_LINK" ]; then
+     all="$all ${dir}/libgcc_eh.a"
+     if [ -z "$SHLIB_MULTILIB" ]; then
+@@ -420,8 +528,14 @@
+ 	suff=_`echo $dir | sed s,/,_,g`
+       fi
+       all="$all ${dir}/libgcc_s${suff}${SHLIB_EXT}"
++      if [ "$LIBUNWIND" ]; then
++	all="$all ${dir}/${dir}/libunwind${suff}${SHLIB_EXT}"
++      fi
+     elif [ "$SHLIB_MULTILIB" = "$dir" ]; then
+       all="$all libgcc_s${SHLIB_EXT}"
++      if [ "$LIBUNWIND" ]; then
++	all="$all ${dir}/${dir}/libunwind${SHLIB_EXT}"
++      fi
+     fi
+   fi
+ done
+@@ -479,10 +593,13 @@
+     if [ -z "$SHLIB_MULTILIB" ]; then
+       if [ "$dir" = . ]; then
+ 	shlib_base_name=libgcc_s
++	shlibunwind_base_name=libunwind
+       else
+ 	shlib_base_name=libgcc_s_`echo $dir | sed s,/,_,g`
++	shlibunwind_base_name=libunwind_`echo $dir | sed s,/,_,g`
+       fi
+       shlib_so_name="$shlib_base_name"
++      shlibunwind_so_name="$shlibunwind_base_name"
+       shlib_dir=
+       shlib_slibdir_qual=
+       if [ -n "$MULTILIB_OSDIRNAMES" ]; then
+@@ -495,11 +612,13 @@
+ 	os_multilib_base=`echo $os_multilib_dir | sed -n "s~/${gcc_multilib_sup}\$~~p"`
+ 	if [ -z "$os_multilib_base" ]; then
+ 	  shlib_so_name=libgcc_s
++	  shlibunwind_so_name=libunwind
+ 	  if [ "$os_multilib_dir" != "." ]; then
+ 	    shlib_slibdir_qual="/$os_multilib_dir"
+ 	  fi
+ 	else
+ 	  shlib_so_name=libgcc_s_`echo $gcc_multilib_sup | sed s,/,_,g`
++	  shlibunwind_so_name=libunwind_`echo $gcc_multilib_sup | sed s,/,_,g`
+ 	  shlib_slibdir_qual="/$os_multilib_base"
+ 	fi
+       fi
+@@ -508,6 +627,16 @@
+ 	      -e "s%@shlib_so_name@%$shlib_so_name%g" \
+ 	      -e "s%@shlib_dir@%$shlib_dir%g" \
+ 	      -e "s%@shlib_slibdir_qual@%$shlib_slibdir_qual%g"
++      if [ "$LIBUNWIND" ]; then
++	echo "	$SHLIBUNWIND_INSTALL" \
++	   | sed -e "s%@shlib_base_name@%$shlibunwind_base_name%g" \
++		 -e "s%@shlib_so_name@%$shlibunwind_so_name%g" \
++		 -e "s%@shlib_dir@%$shlib_dir%g" \
++		 -e "s%@shlib_slibdir_qual@%$shlib_slibdir_qual%g"
++	libunwinddir='$(DESTDIR)$(slibdir)$(shlib_slibdir_qual)/$(shlib_dir)'
++	echo '	$(INSTALL_DATA)' ${dir}/libunwind.a ${libunwinddir}/
++	echo '	$(RANLIB_FOR_TARGET)' ${libunwinddir}/libunwind.a
++      fi
+     elif [ "$SHLIB_MULTILIB" = "$dir" ]; then
+       shlib_base_name="libgcc_s";
+       echo "	$SHLIB_INSTALL" \
+@@ -515,6 +644,16 @@
+ 	      -e "s%@shlib_so_name@%$shlib_base_name%g" \
+ 	      -e "s%@shlib_dir@%%g" \
+ 	      -e "s%@shlib_slibdir_qual@%%g"
++      if [ "$LIBUNWIND" ]; then
++	echo "	$SHLIBUNWIND_INSTALL" \
++	   | sed -e "s%@shlib_base_name@%$shlibunwind_base_name%g" \
++		 -e "s%@shlib_so_name@%$shlibunwind_base_name%g" \
++		 -e "s%@shlib_dir@%%g" \
++		 -e "s%@shlib_slibdir_qual@%%g"
++	libunwinddir='$(DESTDIR)$(slibdir)'
++	echo '	$(INSTALL_DATA)' ${dir}/libunwind.a ${libunwinddir}/
++	echo '	$(RANLIB_FOR_TARGET)' ${libunwinddir}/libunwind.a
++      fi
+     fi
+   fi
+ done
+diff -urN src.old/gcc/unwind-compat.c src/gcc/unwind-compat.c
+--- src.old/gcc/unwind-compat.c	1970-01-01 01:00:00.000000000 +0100
++++ src/gcc/unwind-compat.c	2004-12-10 13:17:42.000000000 +0100
+@@ -0,0 +1,206 @@
++/* Backward compatibility unwind routines.
++   Copyright (C) 2004
++   Free Software Foundation, Inc.
++
++   This file is part of GCC.
++
++   GCC is free software; you can redistribute it and/or modify it
++   under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 2, or (at your option)
++   any later version.
++
++   In addition to the permissions in the GNU General Public License, the
++   Free Software Foundation gives you unlimited permission to link the
++   compiled version of this file into combinations with other programs,
++   and to distribute those combinations without any restriction coming
++   from the use of this file.  (The General Public License restrictions
++   do apply in other respects; for example, they cover modification of
++   the file, and distribution when not linked into a combined
++   executable.)
++
++   GCC is distributed in the hope that it will be useful, but WITHOUT
++   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
++   License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with GCC; see the file COPYING.  If not, write to the Free
++   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
++   02111-1307, USA.  */
++
++#if defined (USE_GAS_SYMVER) && defined (USE_LIBUNWIND_EXCEPTIONS)
++#include "unwind.h"
++#include "unwind-dw2-fde.h"
++#include "unwind-compat.h"
++
++extern _Unwind_Reason_Code __libunwind_Unwind_Backtrace
++  (_Unwind_Trace_Fn, void *);
++
++_Unwind_Reason_Code
++_Unwind_Backtrace (_Unwind_Trace_Fn trace, void *trace_argument)
++{
++  return __libunwind_Unwind_Backtrace (trace, trace_argument);
++}
++symver (_Unwind_Backtrace, GCC_3.3);
++
++extern void __libunwind_Unwind_DeleteException
++  (struct _Unwind_Exception *);
++
++void
++_Unwind_DeleteException (struct _Unwind_Exception *exc)
++{
++  return __libunwind_Unwind_DeleteException (exc);
++}
++symver (_Unwind_DeleteException, GCC_3.0);
++
++extern void * __libunwind_Unwind_FindEnclosingFunction (void *);
++
++void *
++_Unwind_FindEnclosingFunction (void *pc)
++{
++  return __libunwind_Unwind_FindEnclosingFunction (pc);
++}
++symver (_Unwind_FindEnclosingFunction, GCC_3.3);
++
++extern _Unwind_Reason_Code __libunwind_Unwind_ForcedUnwind
++  (struct _Unwind_Exception *, _Unwind_Stop_Fn, void *);
++
++_Unwind_Reason_Code
++_Unwind_ForcedUnwind (struct _Unwind_Exception *exc,
++		      _Unwind_Stop_Fn stop, void * stop_argument)
++{
++  return __libunwind_Unwind_ForcedUnwind (exc, stop, stop_argument);
++}
++symver (_Unwind_ForcedUnwind, GCC_3.0);
++
++extern _Unwind_Word __libunwind_Unwind_GetCFA
++  (struct _Unwind_Context *);
++
++_Unwind_Word
++_Unwind_GetCFA (struct _Unwind_Context *context)
++{
++  return __libunwind_Unwind_GetCFA (context);
++}
++symver (_Unwind_GetCFA, GCC_3.3);
++
++#ifdef __ia64__
++extern _Unwind_Word __libunwind_Unwind_GetBSP
++  (struct _Unwind_Context *);
++
++_Unwind_Word
++_Unwind_GetBSP (struct _Unwind_Context * context)
++{
++  return __libunwind_Unwind_GetBSP (context);
++}
++symver (_Unwind_GetBSP, GCC_3.3.2);
++#else
++extern _Unwind_Ptr __libunwind_Unwind_GetDataRelBase
++  (struct _Unwind_Context *);
++
++_Unwind_Ptr
++_Unwind_GetDataRelBase (struct _Unwind_Context *context)
++{
++  return __libunwind_Unwind_GetDataRelBase (context);
++}
++symver (_Unwind_GetDataRelBase, GCC_3.0);
++
++extern _Unwind_Ptr __libunwind_Unwind_GetTextRelBase
++  (struct _Unwind_Context *);
++
++_Unwind_Ptr
++_Unwind_GetTextRelBase (struct _Unwind_Context *context)
++{
++  return __libunwind_Unwind_GetTextRelBase (context);
++}
++symver (_Unwind_GetTextRelBase, GCC_3.0);
++#endif
++
++extern _Unwind_Word __libunwind_Unwind_GetGR
++  (struct _Unwind_Context *, int );
++
++_Unwind_Word
++_Unwind_GetGR (struct _Unwind_Context *context, int index)
++{
++  return __libunwind_Unwind_GetGR (context, index);
++}
++symver (_Unwind_GetGR, GCC_3.0);
++
++extern _Unwind_Ptr __libunwind_Unwind_GetIP (struct _Unwind_Context *);
++
++_Unwind_Ptr
++_Unwind_GetIP (struct _Unwind_Context *context)
++{
++  return __libunwind_Unwind_GetIP (context);
++}
++symver (_Unwind_GetIP, GCC_3.0);
++
++extern void *__libunwind_Unwind_GetLanguageSpecificData
++  (struct _Unwind_Context *);
++
++void *
++_Unwind_GetLanguageSpecificData (struct _Unwind_Context *context)
++{
++  return __libunwind_Unwind_GetLanguageSpecificData (context);
++}
++symver (_Unwind_GetLanguageSpecificData, GCC_3.0);
++
++extern _Unwind_Ptr __libunwind_Unwind_GetRegionStart
++  (struct _Unwind_Context *);
++
++_Unwind_Ptr
++_Unwind_GetRegionStart (struct _Unwind_Context *context)
++{
++  return __libunwind_Unwind_GetRegionStart (context);
++}
++symver (_Unwind_GetRegionStart, GCC_3.0);
++
++extern _Unwind_Reason_Code __libunwind_Unwind_RaiseException
++  (struct _Unwind_Exception *);
++
++_Unwind_Reason_Code
++_Unwind_RaiseException(struct _Unwind_Exception *exc)
++{
++  return __libunwind_Unwind_RaiseException (exc);
++}
++symver (_Unwind_RaiseException, GCC_3.0);
++
++extern void __libunwind_Unwind_Resume (struct _Unwind_Exception *);
++
++void
++_Unwind_Resume (struct _Unwind_Exception *exc)
++{
++  __libunwind_Unwind_Resume (exc);
++}
++symver (_Unwind_Resume, GCC_3.0);
++
++extern _Unwind_Reason_Code __libunwind_Unwind_Resume_or_Rethrow
++   (struct _Unwind_Exception *);
++
++_Unwind_Reason_Code
++_Unwind_Resume_or_Rethrow (struct _Unwind_Exception *exc)
++{
++  return __libunwind_Unwind_Resume_or_Rethrow (exc);
++}
++symver (_Unwind_Resume_or_Rethrow, GCC_3.3);
++
++extern void __libunwind_Unwind_SetGR
++  (struct _Unwind_Context *, int, _Unwind_Word);
++
++void
++_Unwind_SetGR (struct _Unwind_Context *context, int index,
++	       _Unwind_Word val) 
++{
++  __libunwind_Unwind_SetGR (context, index, val);
++}
++symver (_Unwind_SetGR, GCC_3.0);
++
++extern void __libunwind_Unwind_SetIP
++  (struct _Unwind_Context *, _Unwind_Ptr);
++
++void
++_Unwind_SetIP (struct _Unwind_Context *context, _Unwind_Ptr val)
++{
++  return __libunwind_Unwind_SetIP (context, val);
++}
++symver (_Unwind_SetIP, GCC_3.0);
++#endif
+diff -urN src.old/gcc/unwind-compat.h src/gcc/unwind-compat.h
+--- src.old/gcc/unwind-compat.h	1970-01-01 01:00:00.000000000 +0100
++++ src/gcc/unwind-compat.h	2004-12-10 13:17:42.000000000 +0100
+@@ -0,0 +1,35 @@
++/* Backward compatibility unwind routines.
++   Copyright (C) 2004
++   Free Software Foundation, Inc.
++
++   This file is part of GCC.
++
++   GCC is free software; you can redistribute it and/or modify it
++   under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 2, or (at your option)
++   any later version.
++
++   In addition to the permissions in the GNU General Public License, the
++   Free Software Foundation gives you unlimited permission to link the
++   compiled version of this file into combinations with other programs,
++   and to distribute those combinations without any restriction coming
++   from the use of this file.  (The General Public License restrictions
++   do apply in other respects; for example, they cover modification of
++   the file, and distribution when not linked into a combined
++   executable.)
++
++   GCC is distributed in the hope that it will be useful, but WITHOUT
++   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
++   License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with GCC; see the file COPYING.  If not, write to the Free
++   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
++   02111-1307, USA.  */
++
++#define symver(name, version) \
++  __asm__ (".symver " #name"," #name "@" #version)
++
++#define alias(name) \
++  __typeof(name) __libunwind##name __attribute__ ((alias (#name)))
+diff -urN src.old/gcc/unwind-dw2-fde-compat.c src/gcc/unwind-dw2-fde-compat.c
+--- src.old/gcc/unwind-dw2-fde-compat.c	1970-01-01 01:00:00.000000000 +0100
++++ src/gcc/unwind-dw2-fde-compat.c	2004-12-10 13:17:42.000000000 +0100
+@@ -0,0 +1,46 @@
++/* Backward compatibility unwind routines.
++   Copyright (C) 2004
++   Free Software Foundation, Inc.
++
++   This file is part of GCC.
++
++   GCC is free software; you can redistribute it and/or modify it
++   under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 2, or (at your option)
++   any later version.
++
++   In addition to the permissions in the GNU General Public License, the
++   Free Software Foundation gives you unlimited permission to link the
++   compiled version of this file into combinations with other programs,
++   and to distribute those combinations without any restriction coming
++   from the use of this file.  (The General Public License restrictions
++   do apply in other respects; for example, they cover modification of
++   the file, and distribution when not linked into a combined
++   executable.)
++
++   GCC is distributed in the hope that it will be useful, but WITHOUT
++   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++   or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
++   License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with GCC; see the file COPYING.  If not, write to the Free
++   Software Foundation, 59 Temple Place - Suite 330, Boston, MA
++   02111-1307, USA.  */
++
++#if defined (USE_GAS_SYMVER) && defined (USE_LIBUNWIND_EXCEPTIONS)
++#include "unwind.h"
++#include "unwind-dw2-fde.h"
++#include "unwind-compat.h"
++
++extern const fde * __libunwind__Unwind_Find_FDE
++  (void *, struct dwarf_eh_bases *);
++
++const fde *
++_Unwind_Find_FDE (void *pc, struct dwarf_eh_bases *bases)
++{
++  __libunwind__Unwind_Find_FDE (pc, bases);
++}
++
++symver (_Unwind_Find_FDE, GCC_3.0);
++#endif
+diff -urN src.old/gcc/unwind-dw2-fde-glibc.c src/gcc/unwind-dw2-fde-glibc.c
+--- src.old/gcc/unwind-dw2-fde-glibc.c	2002-11-07 07:00:04.000000000 +0100
++++ src/gcc/unwind-dw2-fde-glibc.c	2004-12-10 13:17:42.000000000 +0100
+@@ -46,6 +46,7 @@
+ #define NO_BASE_OF_ENCODED_VALUE
+ #include "unwind-pe.h"
+ #include "unwind-dw2-fde.h"
++#include "unwind-compat.h"
+ #include "gthr.h"
+ 
+ #if !defined(inhibit_libc) && defined(HAVE_LD_EH_FRAME_HDR) \
+@@ -297,3 +298,7 @@
+ #define _Unwind_Find_FDE _Unwind_Find_FDE
+ #include "unwind-dw2-fde.c"
+ #endif
++
++#if defined (USE_GAS_SYMVER) && defined (SHARED) && defined (USE_LIBUNWIND_EXCEPTIONS)
++alias (_Unwind_Find_FDE);
++#endif
+diff -urN src.old/gcc/unwind-dw2.c src/gcc/unwind-dw2.c
+--- src.old/gcc/unwind-dw2.c	2004-05-08 23:52:42.000000000 +0200
++++ src/gcc/unwind-dw2.c	2004-12-10 13:17:42.000000000 +0100
+@@ -1271,4 +1271,24 @@
+ 
+ #include "unwind.inc"
+ 
++#if defined (USE_GAS_SYMVER) && defined (SHARED) && defined (USE_LIBUNWIND_EXCEPTIONS)
++alias (_Unwind_Backtrace);
++alias (_Unwind_DeleteException);
++alias (_Unwind_FindEnclosingFunction);
++alias (_Unwind_FindTableEntry);
++alias (_Unwind_ForcedUnwind);
++alias (_Unwind_GetDataRelBase);
++alias (_Unwind_GetTextRelBase);
++alias (_Unwind_GetCFA);
++alias (_Unwind_GetGR);
++alias (_Unwind_GetIP);
++alias (_Unwind_GetLanguageSpecificData);
++alias (_Unwind_GetRegionStart);
++alias (_Unwind_RaiseException);
++alias (_Unwind_Resume);
++alias (_Unwind_Resume_or_Rethrow);
++alias (_Unwind_SetGR);
++alias (_Unwind_SetIP);
++#endif
++
+ #endif /* !USING_SJLJ_EXCEPTIONS */

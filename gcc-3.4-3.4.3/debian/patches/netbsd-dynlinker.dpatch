@@ -1,0 +1,47 @@
+#! /bin/sh -e
+ 
+# JB: Dynamic linker patches for netbsd.
+ 
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p1 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p1 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+diff -ur src.orig/gcc/config/i386/netbsd-elf.h src/gcc/config/i386/netbsd-elf.h
+--- src.orig/gcc/config/i386/netbsd-elf.h	2002-03-01 23:38:15.000000000 +0000
++++ src/gcc/config/i386/netbsd-elf.h	2003-01-21 19:44:46.000000000 +0000
+@@ -35,7 +35,7 @@
+ 	%{!e*:-e __start}}}						\
+     %{!static:								\
+       %{rdynamic:-export-dynamic}					\
+-      %{!dynamic-linker:-dynamic-linker /usr/libexec/ld.elf_so}}	\
++      %{!dynamic-linker:-dynamic-linker /lib/ld.elf_so}}		\
+     %{static:-static}}"
+ 
+ /* Names to predefine in the preprocessor for this target machine.  */
+diff -ur src.orig/gcc/config/netbsd-elf.h src/gcc/config/netbsd-elf.h
+--- src.orig/gcc/config/netbsd-elf.h	2002-01-22 04:23:02.000000000 +0000
++++ src/gcc/config/netbsd-elf.h	2003-01-21 19:44:27.000000000 +0000
+@@ -72,5 +72,5 @@
+ 	 %{!e*:-e __start}}}						\
+      %{!static:								\
+        %{rdynamic:-export-dynamic}					\
+-       %{!dynamic-linker:-dynamic-linker /usr/libexec/ld.elf_so}}	\
++       %{!dynamic-linker:-dynamic-linker /lib/ld.elf_so}}		\
+      %{static:-static}}"

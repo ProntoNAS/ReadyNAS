@@ -1,0 +1,114 @@
+I think this also contains a patch to 
+  * Block SIGCHLD when calling unix password verification program, patch from mdz@debian.org, fixes pam part of #97977
+
+
+  * Patch from Volker Stolz to fix bug in previous pam_group patch,
+    closes: #111854 
+  * Add support for credential reinitialization in pam_group, closes: #108697
+  * Only log unknown user at warning, not alert, closes: #95220
+  * By default do complete matches not substring matches for pam_time.
+    You can include explicit wildcard for substring, closes: #66152 
+
+Index: Linux-PAM/modules/pam_group/pam_group.c
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/modules/pam_group/pam_group.c,v
+retrieving revision 1.5
+diff -u -r1.5 pam_group.c
+--- Linux-PAM/modules/pam_group/pam_group.c	15 Sep 2002 21:42:29 -0000	1.5
++++ Linux-PAM/modules/pam_group/pam_group.c	21 Sep 2002 18:34:18 -0000
+@@ -767,9 +767,12 @@
+     unsigned setting;
+ 
+     /* only interested in establishing credentials */
++    /* PAM docs say that an empty flag is to be treated as PAM_ESTABLISH_CRED.
++       Some people just pass PAM_SILENT, so cope with it, too. */
+ 
+     setting = flags;
+-    if (!(setting & PAM_ESTABLISH_CRED)) {
++    if (!((setting & PAM_ESTABLISH_CRED) || (setting & PAM_REINITIALIZE_CRED)
++	  || (setting == 0) || (setting == PAM_SILENT) )) {
+ 	D(("ignoring call - not for establishing credentials"));
+ 	return PAM_SUCCESS;            /* don't fail because of this */
+     }
+Index: Linux-PAM/modules/pam_time/pam_time.c
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/modules/pam_time/pam_time.c,v
+retrieving revision 1.3
+diff -u -r1.3 pam_time.c
+--- Linux-PAM/modules/pam_time/pam_time.c	15 Sep 2002 20:18:00 -0000	1.3
++++ Linux-PAM/modules/pam_time/pam_time.c	21 Sep 2002 18:34:18 -0000
+@@ -334,7 +334,11 @@
+ 		    return FALSE;
+ 	  }
+      }
+-     return ( !len );
++     /* By this point we know that we didn't treat a * in b as a wildcard.
++	the only way we got done with the loop is if we consumed every
++	character in b.  Thus the strings are equal if their
++	lengths are the same otherwise not equal. */
++     return (strlen (a) == strlen (b));
+ }
+ 
+ typedef struct {
+Index: Linux-PAM/modules/pam_unix/support.c
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/modules/pam_unix/support.c,v
+retrieving revision 1.5
+diff -u -r1.5 support.c
+--- Linux-PAM/modules/pam_unix/support.c	15 Sep 2002 20:51:53 -0000	1.5
++++ Linux-PAM/modules/pam_unix/support.c	21 Sep 2002 18:34:18 -0000
+@@ -442,6 +442,7 @@
+ 				   unsigned int ctrl, const char *user)
+ {
+     int retval, child, fds[2];
++    sigset_t sigset;
+ 
+     D(("called."));
+     /* create a pipe for the password */
+@@ -450,6 +451,11 @@
+ 	return PAM_AUTH_ERR;
+     }
+ 
++    /* Block SIGCHLD */
++    sigemptyset(&sigset);
++    sigaddset(&sigset, SIGCHLD);
++    sigprocmask(SIG_BLOCK, &sigset, 0);
++
+     /* fork */
+     child = fork();
+     if (child == 0) {
+@@ -494,6 +500,9 @@
+ 	retval = PAM_AUTH_ERR;
+     }
+ 
++    /* Unblock SIGCHLD */
++    sigprocmask(SIG_BLOCK, &sigset, 0);
++
+     D(("returning %d", retval));
+     return retval;
+ }
+@@ -588,7 +597,7 @@
+ 			if (on(UNIX_AUDIT, ctrl)) {
+ 				/* this might be a typo and the user has given a password
+ 				   instead of a username. Careful with this. */
+-				_log_err(LOG_ALERT, pamh,
++				_log_err(LOG_WARNING, pamh,
+ 				         "check pass; user (%s) unknown", name);
+ 			} else {
+ 				name = NULL;
+Index: Linux-PAM/modules/pam_unix/unix_chkpwd.c
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/modules/pam_unix/unix_chkpwd.c,v
+retrieving revision 1.9
+diff -u -r1.9 unix_chkpwd.c
+--- Linux-PAM/modules/pam_unix/unix_chkpwd.c	21 Sep 2002 18:18:43 -0000	1.9
++++ Linux-PAM/modules/pam_unix/unix_chkpwd.c	21 Sep 2002 18:34:18 -0000
+@@ -135,7 +135,7 @@
+ 		}
+ 	}
+ 	if (pwd == NULL || salt == NULL) {
+-		_log_err(LOG_ALERT, "check pass; user unknown");
++		_log_err(LOG_WARNING, "check pass; user unknown");
+ 		p = NULL;
+ 		return retval;
+ 	}

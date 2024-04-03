@@ -1,0 +1,85 @@
+#! /bin/sh
+#
+# debian.preinst
+#		Saves the GMT setting from /etc/init.d/boot.
+#		This should really be set from a seperate
+#		configfile, like /etc/sysconfig.
+#
+# Version:	debian.preinst  2.74  16-Mar-1998  miquels@cistron.nl
+#
+
+case "$1" in
+	install|upgrade)
+		;;
+	abort-upgrade)
+		exit 0
+		;;
+esac
+
+umask 022
+
+# First see if we have a new enough version of dpkg.
+dpkg --assert-support-predepends >/dev/null 2>&1
+if [ $? != 0 ]
+then
+	cat <<EOF
+Your dpkg version does not support the "Pre-depends" field. Upgrade your
+version of dpkg first (to 1.1.0 or later) and reinstall.
+EOF
+	exit 1
+fi
+
+
+#
+#	Save /etc/init.d/network if needed. This file has been removed from
+#	sysvinit but we don't want it to be _actually_ removed.
+#
+#	(For compat with sysvinit <= 2.66, Debian 1.1)
+#
+if [ -f /etc/init.d/network ]
+then
+	cp -a /etc/init.d/network /etc/init.d/network.saved
+fi
+#	Inittab - same story.
+if [ -f /etc/inittab ]
+then
+	cp -a /etc/inittab /etc/inittab.saved
+fi
+
+#
+#	If there's an /etc/init.d/boot file, extract the variables from
+#	it and rename it.
+#
+#	(Started in 2.72-1, Debian 2.0 unstable)
+#
+if [ -f /etc/init.d/boot ]
+then
+	echo "Saving variables from /etc/init.d/boot .."
+	[ ! -d /etc/default ] && mkdir /etc/default
+	rm -f /etc/default/rcS.sed
+	grep '^[A-Z]*=' /etc/init.d/boot | (
+		while read line
+		do
+			var=`echo $line | sed 's/=.*$//'`
+			echo "s!^$var=.*\$!$line!" >> /etc/default/rcS.sed
+		done
+	)
+	mv /etc/init.d/boot /etc/init.d/boot.OLD
+	cat <<EOF
+
+The file /etc/init.d/boot has been replaced with a collection of smaller files
+located in /etc/init.d and linked into /etc/rc.S. The customization variables
+are now located in the file /etc/default/rcS.
+
+EOF
+fi
+
+cat <<EOF
+
+  The package manager might ask you if you want to install new versions
+  of the /etc/init.d/whatever files. This is generally a good idea
+  (so reply with \`\`y'') unless you really changed any of these files.
+
+EOF
+
+exit 0

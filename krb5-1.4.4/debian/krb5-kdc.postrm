@@ -1,0 +1,22 @@
+#!/bin/sh
+
+set -e
+
+if [ $1 = "purge" ] ; then
+    rm -f /etc/krb5kdc/kdc.conf 2>/dev/null || true
+    rm -f /etc/default/krb5-kdc 2>/dev/null || true
+    rm -f /etc/krb5kdc/kadm5.keytab 2>/dev/null || true
+    rm -f /etc/krb5kdc/kadm5.acl 2>/dev/null || true
+    rm -f /etc/krb5kdc/stash 2>/dev/null || true
+
+    if [ -d /var/lib/krb5kdc ] && [ -f /usr/share/debconf/confmodule ] ; then
+        . /usr/share/debconf/confmodule || true
+        db_version 2.0 || true
+        db_get krb5-kdc/purge_data_too || true
+        if [ "$RET" = true ] ; then
+            rm -rf /var/lib/krb5kdc
+        fi
+    fi
+fi
+
+#DEBHELPER#

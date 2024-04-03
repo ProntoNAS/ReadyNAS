@@ -1,0 +1,215 @@
+#!/usr/bin/make -f
+
+rootdir		:= $(shell pwd)
+tmpdir		:= $(rootdir)/debian/tmp
+builddir	:= $(rootdir)/debian/build
+
+$(builddir)/Makefile:
+	mkdir -p $(builddir)
+	cd $(builddir) ; $(rootdir)/configure \
+		--enable-debug --enable-syslog --enable-proctitle \
+		--enable-cache --enable-referrals --enable-ipv6 \
+		--enable-local --with-cyrus-sasl --with-readline \
+		--with-threads --enable-slapd --enable-cleartext \
+		--enable-crypt --enable-passwd --enable-spasswd \
+		--enable-multimaster --enable-phonetic --enable-rlookups \
+		--enable-wrappers --enable-dynamic --disable-dnssrv \
+		--enable-ldap --enable-ldbm --enable-shell --enable-sql \
+		--enable-slurpd --enable-shared --without-tls \
+		--prefix=/usr --localstatedir=/var/lib \
+		--sysconfdir=/etc --libexecdir='$${prefix}'/sbin \
+		--mandir='$${prefix}'/share/man --with-subdir=ldap
+	$(MAKE) -C $(builddir) depend
+
+build: $(builddir)/Makefile
+	$(MAKE) -C $(builddir)
+
+binary: binary-arch
+
+binary-indep:
+
+binary-arch: build
+	rm -rf $(tmpdir) debian/ldap-gateways debian/ldap-utils 
+	rm -rf debian/libldap2-dev debian/libldap2 debian/slapd
+
+	install -d -o root -g root -m 755 $(tmpdir)
+	$(MAKE) -C $(builddir) DESTDIR=$(tmpdir) install
+	mv $(tmpdir)/usr/bin/ud $(tmpdir)/usr/bin/ud-ldap
+	mv $(tmpdir)/usr/share/man/man1/ud.1 \
+		$(tmpdir)/usr/share/man/man1/ud-ldap.1
+	mv $(tmpdir)/usr/sbin/in.xfingerd $(tmpdir)/usr/sbin/in.ldapfingerd
+	mv $(tmpdir)/usr/share/man/man8/in.xfingerd.8 \
+			$(tmpdir)/usr/share/man/man8/in.ldapfingerd.8
+	find $(tmpdir) -type f -a -name \*.default | xargs rm
+	chmod -R u+w $(tmpdir)
+	chmod -R g-w $(tmpdir)
+
+# Split off ldap-gateways
+	install -d -o root -g root -m 755 debian/ldap-gateways/usr/sbin
+	install -d -o root -g root -m 755 debian/ldap-gateways/usr/share/man/man8
+	install -d -o root -g root -m 755 debian/ldap-gateways/usr/share/ldap
+
+	set -e ; for cmd in go500 go500gw mail500 rp500 fax500 xrpcomp \
+		rcpt500 maildap in.ldapfingerd ; do \
+		mv $(tmpdir)/usr/sbin/$$cmd debian/ldap-gateways/usr/sbin ; \
+		if [ -e $(tmpdir)/usr/share/man/man8/$$cmd.8 -o -L $(tmpdir)/usr/share/man/man8/$$cmd.8 ] ; then \
+			mv  $(tmpdir)/usr/share/man/man8/$$cmd.8 \
+				debian/ldap-gateways/usr/share/man/man8/ ; \
+		fi ; \
+		if [ -e $(tmpdir)/usr/share/ldap/$$cmd.help ] ; then \
+			mv  $(tmpdir)/usr/share/ldap/$$cmd.help \
+				debian/ldap-gateways/usr/share/ldap/ ; \
+		fi ; \
+	done 
+
+# Split off ldap-utils
+	install -d -o root -g root -m 755 debian/ldap-utils/usr/bin
+	install -d -o root -g root -m 755 debian/ldap-utils/usr/share/man/man1
+	set -e ; for cmd in ldapsearch ldapmodify ldapdelete ldapmodrdn \
+		ldapadd ldappasswd ud-ldap ; do \
+		mv $(tmpdir)/usr/bin/$$cmd debian/ldap-utils/usr/bin/ ; \
+		if [ -e $(tmpdir)/usr/share/man/man1/$$cmd.1 -o -L $(tmpdir)/usr/share/man/man1/$$cmd.1 ] ; then \
+			mv  $(tmpdir)/usr/share/man/man1/$$cmd.1 \
+				debian/ldap-utils/usr/share/man/man1/ ; \
+		fi ; \
+	done 
+	install -d -o root -g root -m 755 debian/ldap-utils/usr/share/man/man5
+	set -e ; for i in ud.conf ldapfriendly ; do \
+		mv $(tmpdir)/usr/share/man/man5/$$i.5 \
+			debian/ldap-utils/usr/share/man/man5/ ; \
+	done
+	install -d -o root -g root -m 755 debian/ldap-utils/usr/share/ldap
+	mv $(tmpdir)/usr/share/ldap/ldapfriendly \
+		debian/ldap-utils/usr/share/ldap/
+
+# Split off libldap2-dev
+	install -d -o root -g root -m 755 debian/libldap2-dev/usr/share/man
+	mv $(tmpdir)/usr/share/man/man3 debian/libldap2-dev/usr/share/man/
+
+	mv $(tmpdir)/usr/include debian/libldap2-dev/usr/
+
+	install -d -o root -g root -m 755 debian/libldap2-dev/usr/lib
+	mv $(tmpdir)/usr/lib/*.so debian/libldap2-dev/usr/lib/
+	mv $(tmpdir)/usr/lib/*.a debian/libldap2-dev/usr/lib/
+	mv $(tmpdir)/usr/lib/*.la debian/libldap2-dev/usr/lib/
+
+# Split off libldap2
+	install -d -o root -g root -m 755 debian/libldap2/usr/share/man/man5
+	set -e ; for p in ldap.conf.5 ldapfilter.conf.5 \
+		ldapsearchprefs.conf.5 ldaptemplates.conf.5 ; do \
+		mv $(tmpdir)/usr/share/man/man5/$$p \
+			debian/libldap2/usr/share/man/man5/ ; \
+	done
+	install -d -o root -g root -m 755 debian/libldap2/etc/ldap
+	set -e ; for p in ldap.conf ldapfilter.conf \
+		ldapsearchprefs.conf ldaptemplates.conf ; do \
+		mv $(tmpdir)/etc/ldap/$$p debian/libldap2/etc/ldap/ ; \
+	done
+
+	install -d -o root -g root -m 755 debian/libldap2/usr/lib
+	mv $(tmpdir)/usr/lib/liblber.so.* debian/libldap2/usr/lib/
+	mv $(tmpdir)/usr/lib/libldap.so.* debian/libldap2/usr/lib/
+	mv $(tmpdir)/usr/lib/libldap_r.so.* debian/libldap2/usr/lib/
+
+# Split off slapd
+	install -d -o root -g root -m 755 debian/slapd/var/lib/ldap
+	install -d -o root -g root -m 755 debian/slapd/var/spool/slurpd
+	install -d -o root -g root -m 755 debian/slapd/etc/ldap
+	mv $(tmpdir)/etc/ldap/schema debian/slapd/etc/ldap/
+	install -d -o root -g root -m 755 debian/slapd/usr/sbin
+	install -d -o root -g root -m 755 debian/slapd/usr/share/man/man8
+	set -e ; for cmd in slapd slapadd slapcat slapindex slappasswd slurpd ; do \
+		mv $(tmpdir)/usr/sbin/$$cmd debian/slapd/usr/sbin/ ; \
+		if [ -e $(tmpdir)/usr/share/man/man8/$$cmd.8 ] ; then \
+			mv  $(tmpdir)/usr/share/man/man8/$$cmd.8 \
+				debian/slapd/usr/share/man/man8/ ; \
+		fi ; \
+	done 
+	install -d -o root -g root -m 755 debian/slapd/usr/share/man/man5
+	set -e ; for i in ldif slapd.conf slapd.replog ; do \
+		mv $(tmpdir)/usr/share/man/man5/$$i.5 \
+			debian/slapd/usr/share/man/man5/ ; \
+	done
+
+# Install extra stuff
+	install -d -o root -g root -m 755 debian/slapd/usr/share/doc/slapd
+	install -p -o root -g root -m 644 debian/slapd.conf \
+		debian/slapd/usr/share/doc/slapd/
+
+	install -d -o root -g root -m 755 debian/slapd/etc/init.d
+	install -p -o root -g root -m 755 debian/slapd.init \
+		debian/slapd/etc/init.d/slapd
+
+# Do the Debian dance
+	find debian -regex 'debian/[a-z0-9-]*/usr/share/man/.*' -type f \
+		-exec gzip -9 {} \;
+	set -e ; for f in $$(find debian -regex 'debian/[a-z0-9-]*/usr/share/man/.*' -type l ) ; do \
+		t=$$(readlink $$f) ; \
+		rm $$f ; ln -s $$t.gz $$f.gz ; \
+	done
+
+	set -e ; for pkg in ldap-gateways ldap-utils libldap2 libldap2-dev \
+				slapd ; do \
+		install -d -o root -g root -m 755 debian/$$pkg/usr/share/doc/$$pkg ; \
+		install -p -o root -g root -m 644 debian/changelog \
+			debian/$$pkg/usr/share/doc/$$pkg/changelog.Debian ; \
+		gzip -9f debian/$$pkg/usr/share/doc/$$pkg/changelog.Debian ; \
+		install -p -o root -g root -m 644 debian/copyright \
+			debian/$$pkg/usr/share/doc/$$pkg/ ; \
+	done
+
+# Build the packages
+	install -d -o root -g root -m 755 debian/libldap2/DEBIAN
+	install -p -o root -g root -m 644 debian/libldap2.conffiles \
+		debian/libldap2/DEBIAN/conffiles
+	install -p -o root -g root -m 644 debian/libldap2.shlibs \
+		debian/libldap2/DEBIAN/shlibs
+	install -p -o root -g root -m 755 debian/libldap2.postinst \
+		debian/libldap2/DEBIAN/postinst
+	install -p -o root -g root -m 755 debian/libldap2.prerm \
+		debian/libldap2/DEBIAN/prerm
+
+	set -e ; for pkg in ldap-gateways ldap-utils libldap2-dev ; do \
+		install -d -o root -g root -m 755 debian/$$pkg/DEBIAN ; \
+		sed -e "s/@PK@/$$pkg/g" debian/general.postinst > \
+			debian/$$pkg/DEBIAN/postinst ; \
+		sed -e "s/@PK@/$$pkg/g" debian/general.prerm > \
+			debian/$$pkg/DEBIAN/prerm ; \
+		chown root.root debian/$$pkg/DEBIAN/* ; \
+		chmod 755 debian/$$pkg/DEBIAN/* ; \
+	done
+
+	install -d -o root -g root -m 755 debian/slapd/DEBIAN
+	install -p -o root -g root -m 644 debian/slapd.conffiles \
+		debian/slapd/DEBIAN/conffiles
+
+	debconf-mergetemplate debian/slapd.templates.de debian/slapd.templates \
+		> debian/slapd/DEBIAN/templates
+	chmod 644 debian/slapd/DEBIAN/templates
+
+	set -e ; for f in config prerm postinst postrm ; do \
+		install -p -o root -g root -m 755 debian/slapd.$$f \
+			debian/slapd/DEBIAN/$$f ; \
+	done
+
+	set -e ; for pkg in ldap-gateways ldap-utils libldap2-dev libldap2 \
+			slapd ; do \
+		rm -f debian/substvars ; \
+		lst="$$( test -d debian/$$pkg/usr/lib && find debian/$$pkg/usr/lib -type f -a -regex '.*\.so\..*'; \
+			test -d debian/$$pkg/usr/bin && find debian/$$pkg/usr/bin -type f ; \
+			test -d debian/$$pkg/usr/sbin && find debian/$$pkg/usr/sbin -type f ; true )" ; \
+		test -n "$$lst" && ( \
+			strip --strip-unneeded --remove-section=.comment --remove-section=.note $$lst || true ; \
+			dpkg-shlibdeps $$lst ) ; \
+		dpkg-gencontrol -isp -p$$pkg -Pdebian/$$pkg ; \
+		dpkg --build debian/$$pkg .. ; \
+	done
+
+clean:
+	rm -rf debian/build
+	rm -f debian/files debian/substvars
+	rm -rf $(tmpdir) debian/ldap-gateways debian/ldap-utils 
+	rm -rf debian/libldap2-dev debian/libldap2 debian/slapd
+
+.PHONY: binary binary-arch binary-indep build clean
+

@@ -1,0 +1,102 @@
+#!/usr/bin/make -f
+
+# Turn on VERBOSE output
+#export DH_VERBOSE=1
+export DH_OPTIONS
+
+#enable dpatch
+include /usr/share/dpatch/dpatch.make
+
+# These are used for cross-compiling and for saving the configure script
+# # from having to guess our platform (since we know it already)
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+CFLAGS := $(CFLAGS) -pipe -Wall -g -fPIC
+
+# Enable debug builds
+ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+CFLAGS += -O0
+else
+CFLAGS += -O2
+endif
+
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+	INSTALL_PROGRAM += -s
+endif
+
+ifeq (,$(findstring notest,$(DEB_BUILD_OPTIONS)))
+	TEST_TARGET = test
+else
+	TEST_TARGET =
+endif
+
+ifeq ($(DEB_BUILD_ARCH),i386)
+        CONFFLAGS=apr_lock_method=USE_PROC_PTHREAD_SERIALIZE
+else
+        CONFFLAGS=ac_cv_func_pthread_mutexattr_setpshared=no ac_cv_func_sem_open=no
+endif
+
+CONFFLAGS += ac_cv_prog_AWK=mawk
+
+SHELL=/bin/bash
+
+config.status: configure
+	dh_testdir
+	./buildconf --with-apr=$(shell apr-1-config --srcdir)
+	CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" $(CONFFLAGS) ./configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) --enable-layout=Debian --with-apr=/usr/bin/apr-1-config --with-ldap=yes --with-dbm=db43 --with-sqlite3 --with-pgsql=/usr --without-gdbm --without-sqlite2 --with-berkeley-db
+
+build: patch-stamp build-stamp
+
+build-stamp: config.status
+	dh_testdir
+
+	$(MAKE)
+
+	touch $@
+
+clean: unpatch
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp test-stamp
+	-$(MAKE) distclean
+
+	dh_clean
+
+test: test-stamp
+
+test-stamp: build
+	dh_testdir
+	$(MAKE) check
+
+	touch $@
+
+install: build $(TEST_TARGET)
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs -a
+
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp
+
+binary-indep: build install
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs CHANGES
+	dh_installdocs
+	dh_install -a
+	dh_link
+	dh_strip --dbg-package=libaprutil1-dbg
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install

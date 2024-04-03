@@ -1,0 +1,138 @@
+#! /bin/sh
+
+# "set -e" is harmful because this script is failed when mount
+# operation is not succeeded under non-default filesystem layout.
+#set -e
+
+. /etc/default/devpts
+. /etc/default/tmpfs
+
+[ "`uname -s`" = "Linux" ] || exit 0
+
+[ -f /proc/filesystems ] || [ -f /proc/mounts ] || exit 0
+
+### devpts mount
+#
+#	First find out if devpts is available.
+#
+#	As of 2.5.68, devpts is not automounted when using devfs. So we
+#	mount devpts if it is compiled in (older devfs didn't require it
+#	to be compiled in at all).
+#
+devpts_avail=`grep -ci '[<[:space:]]devpts' /proc/filesystems || true`
+devpts_mounted=`grep -ci '[<[:space:]]/dev/pts' /proc/mounts || true`
+
+if [ "$devpts_avail" != 0 ]
+then
+	#
+	#	Create mountpoint and multiplexor device.
+	#
+	[ -d /dev/pts ] || mkdir --mode=755 /dev/pts
+	[ -c /dev/ptmx ] || mknod --mode=666 /dev/ptmx c 5 2
+
+	#
+	#	Mount /dev/pts if needed.
+	#
+	if [ "$devpts_mounted" = 0 ]
+	then
+		mount -t devpts devpts /dev/pts -ogid=${TTYGRP},mode=${TTYMODE}
+	fi
+fi
+
+
+### tmpfs mount
+#
+#	tmpfs is formerly known as shmfs, which is needed to use POSIX
+#	shared memory functions.  shmfs was introduced in kernel 2.3.3x,
+#	but its name was changed in early kernel 2.4.  So we need to 
+#	check both shmfs and tmpfs.
+#
+#	The early days in kernel 2.3.3x, there was only shmfs.  Then 
+#	tmpfs was introduced.  Kernel 2.3.x - 2.5.44 has both shmfs and
+#	tmpfs.  If CONFIG_TMPFS is disabled, shmfs becomes unavailable,
+#	but tmpfs is still listed in /proc/filesystems for SYSV shared
+#	memory and anonymous memory.  As of 2.5.45, shmfs is vanished from
+#	/proc/filesystems entry, and CONFIG_TMPFS is affected only tmpfs.
+#
+#	tmpfs can be used as memory filesystem, so you can limit tmpfs
+#	max size using /etc/default/tmpfs to prevent user from
+#	consuming system memory.
+#
+tmpfs_avail=`grep -ci '[<[:space:]]tmpfs' /proc/filesystems || true`
+shmfs_avail=`grep -ci '[<[:space:]]shm' /proc/filesystems || true`
+tmpfs_mounted=`grep -ci '[<[:space:]]/dev/shm' /proc/mounts || true`
+kernel_ver=`uname -r`
+
+if [ "$tmpfs_avail" != 0 ] || [ "$shmfs_avail" != 0 ]
+then
+	# Create mountpoint
+	[ -d /dev/shm ] || mkdir --mode=755 /dev/shm
+
+	if [ -z ${TMPFS_SIZE} ]; then
+		tmpfs_opt=
+	else
+		tmpfs_opt="-osize=${TMPFS_SIZE}"
+	fi
+
+	if [ "$tmpfs_mounted" = 0 ]
+	then
+		if dpkg --compare-versions "$kernel_ver" ge 2.5.45
+		then
+			if [ "$tmpfs_avail" != 0 ]
+			then
+				mount -t tmpfs $tmpfs_opt tmpfs /dev/shm
+			fi
+		else
+			if [ "$shmfs_avail" != 0 ] && [ "$tmpfs_avail" != 0 ]
+			then
+				mount -t tmpfs $tmpfs_opt tmpfs /dev/shm
+			elif [ "$shmfs_avail" != 0 ] && [ "$tmpfs_avail" = 0 ]
+			then
+				mount -t shmfs $tmpfs_opt shmfs /dev/shm
+			fi
+		fi
+	fi
+fi
+
+
+### sysfs mount
+#
+#	sysfs is introduced in the middle of kernel 2.5.
+#	The current practice is that /sys is used for mounting sysfs.
+#
+sysfs_avail=`grep -ci '[<[:space:]]sysfs' /proc/filesystems || true`
+sysfs_mounted=`grep -ci '[<[:space:]]/sys' /proc/mounts || true`
+
+if [ "$sysfs_avail" != 0 ] && [ "$sysfs_mounted" = 0 ]
+then
+	mount -t sysfs sysfs /sys
+fi
+
+
+### usbfs mount
+#
+#	usbfs/usbdevfs is used for USB related binaries/libraries.
+#	"usbfs" and "usbdevfs" is the exact same filesystem.
+#	"usbdevfs" was renamed to "usbfs" by linux usb developers,
+#	because people sometimes mistook it as a part of devfs.  usbfs
+#	will be altered by other filesystem (e.g. sysfs), and no
+#	package does not use it, then this mount operation should be
+#	dropped.
+#	
+usbfs_avail=`grep -ci '[<[:space:]]usbfs' /proc/filesystems || true`
+usbdevfs_avail=`grep -ci '[<[:space:]]usbdevfs' /proc/filesystems || true`
+usbfs_mounted=`grep -ci '[<[:space:]]/proc/bus/usb' /proc/mounts || true`
+
+if [ "$usbfs_avail" != 0 ] || [ "$usbdevfs_avail" != 0 ]
+then
+	if [ -d /proc/bus/usb ] && [ "$usbfs_mounted" = 0 ]
+	then
+		if [ "$usbfs_avail" != 0 ]
+		then
+			mount -t usbfs usbfs /proc/bus/usb
+		elif [ "$usbdevfs_avail" != 0 ]
+		then
+			mount -t usbdevfs usbdevfs /proc/bus/usb
+		fi
+	fi
+fi

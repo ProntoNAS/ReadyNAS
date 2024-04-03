@@ -1,0 +1,94 @@
+diff -urN db-2.7.7/dist/acconfig.h db-2.7.7-s390/dist/acconfig.h
+--- db-2.7.7/dist/acconfig.h	Mon Dec 14 14:41:38 1998
++++ db-2.7.7-s390/dist/acconfig.h	Fri Oct  5 16:44:26 2001
+@@ -38,6 +38,9 @@
+ /* Define if you want to use x86/gcc assembly spinlocks. */
+ #undef HAVE_ASSEM_X86_GCC
+ 
++/* Define if you want to use s390/gcc assembly spinlocks. */
++#undef HAVE_ASSEM_S390_GCC
++
+ /* Define if you have the AIX _check_lock spinlocks. */
+ #undef HAVE_FUNC_AIX
+ 
+diff -urN db-2.7.7/dist/config.hin db-2.7.7-s390/dist/config.hin
+--- db-2.7.7/dist/config.hin	Mon Apr 19 01:21:40 1999
++++ db-2.7.7-s390/dist/config.hin	Fri Oct  5 16:44:26 2001
+@@ -64,6 +64,9 @@
+ /* Define if you want to use x86/gcc assembly spinlocks. */
+ #undef HAVE_ASSEM_X86_GCC
+ 
++/* Define if you want to use s390/gcc assembly spinlocks. */
++#undef HAVE_ASSEM_S390_GCC
++
+ /* Define if you have the AIX _check_lock spinlocks. */
+ #undef HAVE_FUNC_AIX
+ 
+diff -urN db-2.7.7/dist/configure.in db-2.7.7-s390/dist/configure.in
+--- db-2.7.7/dist/configure.in	Sat Jan 16 14:38:03 1999
++++ db-2.7.7-s390/dist/configure.in	Fri Oct  5 16:44:26 2001
+@@ -278,6 +278,17 @@
+ }], [db_cv_spinlocks=msem-hppa/func])
+ fi
+ 
++dnl s390/gcc: Linux
++if test "$db_cv_spinlocks" = no; then
++AC_TRY_RUN([main(){
++#if defined(__s390__)
++#if defined(__GNUC__)
++exit(0);
++#endif
++#endif
++exit(1);}], [db_cv_spinlocks=s390/gcc])
++fi
++
+ dnl msemaphore: OSF/1
+ if test "$db_cv_spinlocks" = no; then
+ AC_TRY_LINK([#include <sys/types.h>],
+@@ -440,6 +451,10 @@
+ 	AC_DEFINE(HAVE_ASSEM_PARISC_GCC)
+ 	mutex_align="16"
+ 	spin_line1="typedef u_int32_t tsl_t;";;
++s390/gcc)
++	AC_DEFINE(HAVE_ASSEM_S390_GCC)
++	mutex_align="1"
++	spin_line1="typedef unsigned char tsl_t;";;      
+ reliant/func)
+ 	AC_DEFINE(HAVE_FUNC_RELIANT)
+ 	mutex_align="1"
+diff -urN db-2.7.7/mutex/mutex.c db-2.7.7-s390/mutex/mutex.c
+--- db-2.7.7/mutex/mutex.c	Tue Nov 10 16:52:03 1998
++++ db-2.7.7-s390/mutex/mutex.c	Fri Oct  5 16:44:26 2001
+@@ -110,6 +110,10 @@
+ #include "x86.gcc"
+ #endif
+ 
++#ifdef HAVE_ASSEM_S390_GCC
++#include "s390.gcc"
++#endif
++
+ #ifdef WIN16
+ /* Win16 spinlocks are simple because we cannot possibly be preempted. */
+ #define	TSL_INIT(tsl)
+diff -urN db-2.7.7/mutex/s390.gcc db-2.7.7-s390/mutex/s390.gcc
+--- db-2.7.7/mutex/s390.gcc	Thu Jan  1 00:00:00 1970
++++ db-2.7.7-s390/mutex/s390.gcc	Fri Oct  5 16:46:49 2001
+@@ -0,0 +1,18 @@
++/*
++ * @(#)s390.gcc       
++ *
++ * For gcc/s390, 0 is clear, 0xff is set.
++ */
++
++#define TSL_SET(tsl) ({                                                 \
++	tsl_t *__l = (tsl);                                             \
++	int __r;                                                        \
++	asm volatile ("ts  %1\n\t"                                      \
++		      "ipm %0\n\t"                                      \
++		      "srl %0,28"                                       \
++		      : "=&d" (__r), "+m" (*__l) : : "cc" );            \
++	__r;                                                            \
++})
++
++#define        TSL_UNSET(tsl)  (*(tsl) = 0)
++#define        TSL_INIT(tsl)   TSL_UNSET(tsl)

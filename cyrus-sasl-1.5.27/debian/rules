@@ -1,0 +1,141 @@
+#!/usr/bin/make -f
+# Sample debian/rules that uses debhelper.
+# GNU copyright 1997 to 1999 by Joey Hess.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# This is the debhelper compatability version to use.
+export DH_COMPAT=1
+
+# shared library versions, option 1
+#version=2.0.5
+#major=2
+# option 2, assuming the library is created as src/.libs/libfoo.so.2.0.5 or so
+version=`ls lib/.libs/lib*.so.* | \
+ awk '{if (match($$0,/[0-9]+\.[0-9]+\.[0-9]+$$/)) print substr($$0,RSTART)}'`
+major=`ls lib/.libs/lib*.so.* | \
+ awk '{if (match($$0,/\.so\.[0-9]+$$/)) print substr($$0,RSTART+4)}'`
+
+backup=Makefiles.orig.tar.gz
+orig_makefiles=Makefile.in aclocal.m4 configure include/Makefile.in \
+		doc/Makefile.in lib/Makefile.in plugins/Makefile.in \
+		utils/Makefile.in man/Makefile.in sample/Makefile.in \
+		pwcheck/Makefile.in 
+
+config: config-stamp
+config-stamp:
+	dh_testdir
+
+	-test -r $(backup) || tar czf $(backup) $(orig_makefiles) 
+	./configure --prefix=/usr --enable-static --enable-login \
+	--without-des --disable-java \
+	--without-rc4 --disable-gssapi --disable-krb4 \
+	--mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info \
+	--with-pwcheck=/var/run/pwcheck
+
+	# libtool hack to remove -rpath when linking, in order to
+	# comply with debian policy
+	sed < libtool > libtool-2 \
+	-e 's/^hardcode_libdir_flag_spec.*$$/hardcode_libdir_flag_spec=" -D__LIBTOOL_IS_A_FOOL__ "/' \
+	-e '/^archive_cmds="/s/"$$/ \\$$deplibs"/'
+	mv libtool-2 libtool
+	chmod 755 libtool
+	touch config-stamp
+
+build: build-stamp
+build-stamp: config
+	dh_testdir
+	$(MAKE)
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp config-stamp conftest conftest.o
+
+	# Add here commands to clean up after the build process.
+	-$(MAKE) distclean
+
+	-test -r $(backup) && tar xzf $(backup) && rm -f $(backup)
+
+# These Makefiles are not in the originail package, 
+# so we'd better remove them here
+	rm -f pwcheck/Makefile java/Makefile java/CyrusSasl/Makefile \
+	      java/javax/security/auth/callback/Makefile \
+	      java/javax/security/auth/Makefile \
+	      java/javax/security/Makefile ./java/javax/Makefile \
+	      saslauthd/Makefile
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	# Add here commands to install the package into debian/tmp.
+	$(MAKE) install prefix=`pwd`/debian/tmp/usr
+
+	# Cleanup
+	rmdir debian/tmp/usr/man{/man3,}
+	rm debian/tmp/usr/include/md5.h
+
+
+# Build architecture-independent files here.
+binary-indep: build install
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build install
+#	dh_testversion
+	dh_testdir
+	dh_testroot
+
+	# I doubt any of static archives of plugins are required...
+	rm -f debian/tmp/usr/lib/sasl/lib*.a
+	rm -f debian/tmp/usr/lib/sasl/lib*.la
+
+	dh_movefiles -psasl-bin \
+		usr/sbin/pwcheck \
+		usr/sbin/saslpasswd \
+		usr/share/man/man8/saslpasswd.8 \
+		usr/sbin/sasldblistusers \
+		usr/share/man/man8/sasldblistusers.8
+
+	dh_undocumented -psasl-bin pwcheck.8
+
+	dh_movefiles -plibsasl-digestmd5-plain
+	dh_movefiles -plibsasl-modules-plain usr/lib/sasl
+
+        #
+        # build libsasl${major} package by moving files from libsasl-dev
+        #
+	dh_movefiles -plibsasl$(major)             \
+		usr/lib/libsasl.so.$(major)        \
+		usr/lib/libsasl.so.$(version)
+
+	rmdir debian/tmp/usr/{sbin,share/man/man8,/lib/sasl}
+
+	cp pwcheck/README README.pwcheck
+	dh_installdocs -plibsasl$(major) doc/sysadmin.html NEWS README TODO debian/README.Debian README.pwcheck testing.txt doc/*.txt doc/*.html sample/*.c
+	rm -f README.pwcheck
+	dh_installexamples -plibsasl$(major)
+#	dh_installmanpages
+	dh_installchangelogs -plibsasl$(major) ChangeLog
+	dh_link -plibsasl-dev usr/share/doc/libsasl$(major) usr/share/doc/libsasl-dev
+	dh_link -psasl-bin usr/share/doc/libsasl$(major) usr/share/doc/sasl-bin
+	dh_link -plibsasl-modules-plain usr/share/doc/libsasl$(major) usr/share/doc/libsasl-modules-plain
+	dh_link -plibsasl-digestmd5-plain usr/share/doc/libsasl$(major) usr/share/doc/libsasl-digestmd5-plain
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs
+	dh_installdeb
+	dh_shlibdeps -l`pwd`/debian/libsasl$(major)/usr/lib -- -Ldebian/libsasl$(major)/DEBIAN/shlibs
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install

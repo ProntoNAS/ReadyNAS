@@ -1,0 +1,69 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: Use fcntl_not_cancel instead of __fcntl_nocancel.
+# DP: Related bugs: 
+# DP: Author: Alfred M. Szmidt
+# DP: Upstream status: In CVS
+# DP: Status Details: 
+# DP: Date: 2003-12-31
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p0 < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p0 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+2003-09-20  Alfred M. Szmidt  <ams@kemisten.nu>
+
+      * sysdeps/generic/utmp_file.c (setutent_file, LOCK_FILE,
+      UNLOCK_FILE, setutent_file): Use fcntl_not_cancel instead of
+      __fcntl_nocancel.
+
+
+# append the patch here and adjust the -p? flag in the patch calls.
+Index: sysdeps/generic/utmp_file.c
+===================================================================
+RCS file: /cvs/glibc/libc/sysdeps/generic/utmp_file.c,v
+retrieving revision 1.13
+retrieving revision 1.14
+diff -u -p -r1.13 -r1.14
+--- sysdeps/generic/utmp_file.c	4 Sep 2003 14:06:47 -0000	1.13
++++ sysdeps/generic/utmp_file.c	23 Sep 2003 05:49:53 -0000	1.14
+@@ -78,7 +78,7 @@ static void timeout_handler (int signum)
+   memset (&fl, '\0', sizeof (struct flock));				      \
+   fl.l_type = (type);							      \
+   fl.l_whence = SEEK_SET;						      \
+-  if (__fcntl_nocancel ((fd), F_SETLKW, &fl) < 0)
++  if (fcntl_not_cancel ((fd), F_SETLKW, &fl) < 0)
+ 
+ #define LOCKING_FAILED() \
+   goto unalarm_return
+@@ -86,7 +86,7 @@ static void timeout_handler (int signum)
+ #define UNLOCK_FILE(fd) \
+   /* Unlock the file.  */						      \
+   fl.l_type = F_UNLCK;							      \
+-  __fcntl_nocancel ((fd), F_SETLKW, &fl);				      \
++  fcntl_not_cancel ((fd), F_SETLKW, &fl);				      \
+ 									      \
+  unalarm_return:							      \
+   /* Reset the signal handler and alarm.  We must reset the alarm	      \
+@@ -150,9 +150,9 @@ setutent_file (void)
+ 	}
+ 
+       /* We have to make sure the file is `closed on exec'.  */
+-      result = __fcntl_nocancel (file_fd, F_GETFD, 0);
++      result = fcntl_not_cancel (file_fd, F_GETFD, 0);
+       if (result >= 0)
+-	result = __fcntl_nocancel (file_fd, F_SETFD, result | FD_CLOEXEC);
++	result = fcntl_not_cancel (file_fd, F_SETFD, result | FD_CLOEXEC);
+       if (result == -1)
+ 	{
+ 	  close_not_cancel_no_status (file_fd);

@@ -1,0 +1,76 @@
+#! /bin/sh -e
+# 
+#
+# DP: Bug fix of static variable access with GOTOFF
+
+if [ $# -eq 3 ] && [ "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+       -patch) patch $pdir -f --no-backup-if-mismatch -p1 < $0;;
+       -unpatch) patch $pdir -f --no-backup-if-mismatch -R -p1 < $0;;
+	*)
+		echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+		exit 1;;
+esac
+
+exit 0
+
+--- gcc-3.4.1/gcc/config/m32r/m32r.c.orig	2004-09-09 18:26:50.000000000 +0900
++++ gcc-3.4.1/gcc/config/m32r/m32r.c	2004-09-09 18:27:30.000000000 +0900
+@@ -2207,6 +2207,15 @@
+       else
+         address = reg;
+ 
++      current_function_uses_pic_offset_table = 1;
++      if (GET_CODE (orig) == LABEL_REF
++          || GET_CODE (orig) == SYMBOL_REF && SYMBOL_REF_LOCAL_P (orig))
++        {
++          emit_insn (gen_gotoff_load_addr (reg, orig));
++          emit_insn (gen_addsi3 (reg, reg, pic_offset_table_rtx));
++          return reg;
++        }
++
+       emit_insn (gen_pic_load_addr (address, orig));
+ 
+       emit_insn (gen_addsi3 (address, address, pic_offset_table_rtx));
+@@ -2214,8 +2223,7 @@
+ 
+       RTX_UNCHANGING_P (pic_ref) = 1;
+       insn = emit_move_insn (reg, pic_ref);
+-      current_function_uses_pic_offset_table = 1;
+ #if 0
+       /* Put a REG_EQUAL note on this insn, so that it can be optimized
+          by loop.  */
+
+--- gcc-3.4.1/gcc/config/m32r/m32r.md.orig	2004-09-09 18:26:50.000000000 +0900
++++ gcc-3.4.1/gcc/config/m32r/m32r.md	2004-09-09 18:27:30.000000000 +0900
+@@ -31,7 +31,8 @@
+   [(UNSPEC_LOAD_SDA_BASE	2)
+    (UNSPEC_SET_CBIT		3)
+    (UNSPEC_PIC_LOAD_ADDR	4)
+-   (UNSPEC_GET_PC		5)])
++   (UNSPEC_GET_PC		5)
++   (UNSPEC_GOTOFF		6)])
+ 
+ ;; Insn type.  Used to default other attribute values.
+ (define_attr "type"
+@@ -2711,7 +2712,15 @@
+   "ld24 %0,%#%1"
+   [(set_attr "type" "int4")])
+ 
++(define_insn "gotoff_load_addr"
++  [(set (match_operand:SI 0 "register_operand" "=r")
++        (unspec:SI [(match_operand 1 "" "")] UNSPEC_GOTOFF))]
++  "flag_pic"
++  "seth %0,%#shigh(%1@GOTOFF)\;add3 %0,%0,low(%1@GOTOFF)"
++  [(set_attr "type" 	"int4")
++   (set_attr "length"	"8")])
++
+ ;; Load program counter insns.
+ 
+ (define_insn "get_pc"

@@ -1,0 +1,95 @@
+#! /bin/sh
+### BEGIN INIT INFO
+# Provides:          fuse
+# Required-Start:    $local_fs
+# Required-Stop:     $local_fs
+# Default-Start:     S
+# Default-Stop:      0 6
+# Short-Description: Filesystem in userspace
+# Description:       This file load all what's needed to make fuse work fine
+### END INIT INFO
+
+# Author: Adam Cécile (Le_Vert) <gandalf@le-vert.net>
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+DESC="filesystem in userspace"
+NAME=fuse
+SCRIPTNAME=/etc/init.d/$NAME
+MOUNTPOINT=/sys/fs/fuse/connections
+
+# Gracefully exit if the package has been removed.
+test -x `which fusermount` || exit 0
+
+do_start()
+{
+	# Return
+	#   0 if fuse has been started
+	#   1 if kernel module load failed
+	#   2 if fusectl filesystem mount failed
+        if ! grep -qw fuse /proc/filesystems; then
+                modprobe fuse >/dev/null 2>&1 || return 1
+        fi
+        if grep -qw fusectl /proc/filesystems && \
+           ! grep -qw $MOUNTPOINT /proc/mounts; then
+                mount -t fusectl fusectl $MOUNTPOINT >/dev/null 2>&1 || \
+                        return 2
+        fi
+}
+
+do_stop()
+{
+	# Return
+	#   0 if fuse has been stopped
+	#   1 if kernel module unload failed
+	#   2 if fusectl filesystem umount failed
+        if grep -qw $MOUNTPOINT /proc/mounts; then
+                umount $MOUNTPOINT >/dev/null 2>&1 || \
+                        return 1
+        fi
+        if grep -qw "^fuse" /proc/modules; then
+                rmmod fuse >/dev/null 2>&1 || return 2
+        fi
+}
+
+case "$1" in
+  start)
+	[ "$VERBOSE" != no ] && echo "Starting $DESC" "$NAME"
+	do_start
+	case "$?" in
+		0|1) [ "$VERBOSE" != no ] && echo 0 ;;
+		2) [ "$VERBOSE" != no ] && echo 1 ;;
+	esac
+	;;
+  stop)
+	[ "$VERBOSE" != no ] && echo "Stopping $DESC" "$NAME"
+	do_stop
+	case "$?" in
+		0|1) [ "$VERBOSE" != no ] && echo 0 ;;
+		2) [ "$VERBOSE" != no ] && echo 1 ;;
+	esac
+	;;
+  restart|force-reload)
+	echo "Restarting $DESC" "$NAME"
+	do_stop
+	case "$?" in
+	  0|1)
+		do_start
+		case "$?" in
+			0) echo 0 ;;
+			1) echo 1 ;; # Old process is still running
+			*) echo 1 ;; # Failed to start
+		esac
+		;;
+	  *)
+	  	# Failed to stop
+		echo 1
+		;;
+	esac
+	;;
+  *)
+	echo "Usage: $SCRIPTNAME {start|stop|restart|force-reload}" >&2
+	exit 3
+	;;
+esac
+
+:

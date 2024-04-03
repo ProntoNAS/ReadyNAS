@@ -1,0 +1,94 @@
+#! /bin/sh -e
+
+# DP: libffi mips update
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p1 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p1 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- src/libffi/src/mips/ffi.c.old	2004-05-12 21:41:01.000000000 +0200
++++ src/libffi/src/mips/ffi.c	2004-05-12 21:42:52.000000000 +0200
+@@ -27,6 +27,7 @@
+ #include <ffi_common.h>
+ 
+ #include <stdlib.h>
++#include <sgidefs.h>
+ 
+ #if _MIPS_SIM == _ABIN32
+ #define FIX_ARGP \
+@@ -91,7 +92,7 @@ static void ffi_prep_args(char *stack, 
+ 	FIX_ARGP;
+       }
+ 
+-#if _MIPS_SIM == _ABIO32
++#if _MIPS_SIM == _MIPS_SIM_ABI32
+ #define OFFSET 0
+ #else
+ #define OFFSET sizeof(int)
+@@ -145,7 +146,7 @@ static void ffi_prep_args(char *stack, 
+ 	    }
+ 	  else
+ 	    {
+-#if _MIPS_SIM == _ABIO32	      
++#if _MIPS_SIM == _MIPS_SIM_ABI32	      
+ 	      memcpy(argp, *p_argv, z);
+ #else
+ 	      {
+@@ -266,7 +267,7 @@ ffi_status ffi_prep_cif_machdep(ffi_cif 
+ {
+   cif->flags = 0;
+ 
+-#if _MIPS_SIM == _ABIO32
++#if _MIPS_SIM == _MIPS_SIM_ABI32
+   /* Set the flags necessary for O32 processing */
+ 
+   if (cif->rtype->type != FFI_TYPE_STRUCT)
+@@ -440,7 +441,7 @@ void ffi_call(ffi_cif *cif, void (*fn)()
+     
+   switch (cif->abi) 
+     {
+-#if _MIPS_SIM == _ABIO32
++#if _MIPS_SIM == _MIPS_SIM_ABI32
+     case FFI_O32:
+       ffi_call_O32(ffi_prep_args, &ecif, cif->bytes, 
+ 		   cif->flags, ecif.rvalue, fn);
+--- src/libffi/src/mips/ffitarget.h.old	2004-05-12 21:39:33.000000000 +0200
++++ src/libffi/src/mips/ffitarget.h	2004-05-12 21:40:33.000000000 +0200
+@@ -26,9 +26,7 @@
+ #ifndef LIBFFI_TARGET_H
+ #define LIBFFI_TARGET_H
+ 
+-#ifndef LIBFFI_ASM
+ #include <sgidefs.h>
+-#endif
+ 
+ #if !defined(_MIPS_SIM)
+ -- something is very wrong --
+@@ -36,7 +34,7 @@
+ #  if (_MIPS_SIM==_ABIN32 && defined(_ABIN32)) || (_MIPS_SIM==_ABI64 && defined(_ABI64))
+ #    define FFI_MIPS_N32
+ #  else
+-#    if _MIPS_SIM==_ABIO32 && defined(_ABIO32)
++#    if _MIPS_SIM==_MIPS_SIM_ABI32
+ #      define FFI_MIPS_O32
+ #    else
+ -- this is an unsupported platform --

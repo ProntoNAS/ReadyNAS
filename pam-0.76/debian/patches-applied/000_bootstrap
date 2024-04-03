@@ -1,0 +1,80 @@
+Index: Linux-PAM/Makefile
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/Makefile,v
+retrieving revision 1.3
+diff -u -r1.3 Makefile
+--- Linux-PAM/Makefile	15 Sep 2002 20:17:56 -0000	1.3
++++ Linux-PAM/Makefile	15 Sep 2002 20:24:31 -0000
+@@ -18,6 +18,9 @@
+ THINGSTOMAKE = modules libpam libpamc libpam_misc doc examples
+ 
+ all: $(THINGSTOMAKE)
++ # Let's get a dynamic libpam.so first
++ bootstrap-libpam: _pam_aconf.h prep
++	$(MAKE) -C libpam bootstrap-libpam
+ 
+ prep:
+ 	rm -f security
+Index: Linux-PAM/libpam/Makefile
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/libpam/Makefile,v
+retrieving revision 1.4
+diff -u -r1.4 Makefile
+--- Linux-PAM/libpam/Makefile	15 Sep 2002 20:17:58 -0000	1.4
++++ Linux-PAM/libpam/Makefile	15 Sep 2002 20:24:31 -0000
+@@ -10,6 +10,8 @@
+ 
+ ifeq ($(WITH_LIBDEBUG),yes)
+  LIBNAME=libpamd
++ CFLAGS += -D"DEBUG"
++ CFLAGS += -g
+ else
+  LIBNAME=libpam
+ endif
+@@ -88,6 +90,9 @@
+ 
+ static/%.o : %.c
+ 	$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c $< -o $@
++bootstrap-libpam: bootdir $(LIBPAM)
++bootdir:
++	test -d dynamic || mkdir dynamic
+ 
+ $(LIBPAM): $(DLIBOBJECTS)
+ ifeq ($(DYNAMIC_LIBPAM),yes)
+Index: debian/patches-applied/000_bootstrap
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/debian/patches-applied/000_bootstrap,v
+retrieving revision 1.1
+diff -u -r1.1 000_bootstrap
+--- debian/patches-applied/000_bootstrap	29 Apr 2001 14:25:07 -0000	1.1
++++ debian/patches-applied/000_bootstrap	15 Sep 2002 20:24:47 -0000
+@@ -1,10 +1,10 @@
+ Index: Linux-PAM/Makefile
+ ===================================================================
+ RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/Makefile,v
+-retrieving revision 1.1.1.1
+-diff -u -r1.1.1.1 Makefile
+---- Linux-PAM/Makefile	2001/04/29 04:16:21	1.1.1.1
+-+++ Linux-PAM/Makefile	2001/04/29 14:12:29
++retrieving revision 1.3
++diff -u -r1.3 Makefile
++--- Linux-PAM/Makefile	15 Sep 2002 20:17:56 -0000	1.3
+++++ Linux-PAM/Makefile	15 Sep 2002 20:24:31 -0000
+ @@ -18,6 +18,9 @@
+  THINGSTOMAKE = modules libpam libpamc libpam_misc doc examples
+  
+@@ -18,10 +18,10 @@
+ Index: Linux-PAM/libpam/Makefile
+ ===================================================================
+ RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/libpam/Makefile,v
+-retrieving revision 1.1.1.1
+-diff -u -r1.1.1.1 Makefile
+---- Linux-PAM/libpam/Makefile	2001/04/29 04:17:04	1.1.1.1
+-+++ Linux-PAM/libpam/Makefile	2001/04/29 14:15:11
++retrieving revision 1.4
++diff -u -r1.4 Makefile
++--- Linux-PAM/libpam/Makefile	15 Sep 2002 20:17:58 -0000	1.4
+++++ Linux-PAM/libpam/Makefile	15 Sep 2002 20:24:31 -0000
+ @@ -10,6 +10,8 @@
+  
+  ifeq ($(WITH_LIBDEBUG),yes)

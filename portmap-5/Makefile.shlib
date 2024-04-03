@@ -1,0 +1,46 @@
+# @(#) Makefile.shlib 1.1 96/07/06 23:00:53
+#
+# Warning: don't do this unless you are really desperate!!
+#
+# Makefile to build a shared object that forces RPC servers to register
+# and unregister with the portmapper through the loopback interface
+# instead of via the primary network interface address.
+#
+# This is a desperate attempt to prevent an attacker from using source
+# address spoofing to manipulate your portmapper tables. For this to be
+# effective you need to build the portmapper with -DLOOPBACK_SETUNSET,
+# and you need to disable IP source routing in the UNIX kernel.
+#
+# Quick summary of what to do to trick your rpc servers into cooperation:
+#
+# 1 - In the text below, uncomment the SH_CC and SH_LD definitions that are
+# appropriate for your environment. Then type:
+#
+#	make -f Makefile.shcc
+#
+# 2 - Install the get_myaddress.so shared object in a suitable place, for
+# example in the /usr/local/lib directory.
+#
+# 3 - Edit your system startup files so that the rpc servers use the
+# get_myaddress.so shared object. For several environments, the text below
+# gives an example in bourne-shell syntax of how how to start an rpc server.
+
+# SunOS 4
+# /bin/sh syntax: LD_PRELOAD=/some/where/get_myaddress.so rpcserver...
+SH_CC	= cc -pic
+SH_LD	= ld -assert pure-text
+
+# NetBSD, FreeBSD
+# /bin/sh syntax: LD_PRELOAD=/some/where/get_myaddress.so rpcserver...
+#SH_CC	= cc -fpic
+#SH_LD	= ld -Bshareable	
+
+# Digital UNIX
+# /bin/sh syntax: _RLD_LIST=/some/where/get_myaddress.so:DEFAULT rpcserver...
+#SH_CC	= cc -pic
+#SH_LD	= ld -shared
+
+# Build the shared object
+get_myaddress.so: get_myaddress.c
+	$(SH_CC) -c get_myaddress.c
+	$(SH_LD) -o get_myaddress.so get_myaddress.o

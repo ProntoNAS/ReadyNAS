@@ -1,0 +1,82 @@
+--- ./src/truetype/ttgload.c.composite	Mon Jan  6 14:19:44 2003
++++ ./src/truetype/ttgload.c	Mon Jan  6 14:34:13 2003
+@@ -57,6 +57,13 @@
+ #define SCALED_COMPONENT_OFFSET    0x0800
+ #define UNSCALED_COMPONENT_OFFSET  0x1000
+ 
++/* Maximum recursion depth we allow for composite glyphs.
++ * The TrueType spec doesn't say anything about recursion,
++ * so it isn't clear that recursion is allowed at all. But
++ * we'll be generous.
++ */
++#define TT_MAX_COMPOSITE_RECURSE 5
++
+ 
+   /*************************************************************************/
+   /*                                                                       */
+@@ -747,7 +754,8 @@
+   /*                                                                       */
+   static FT_Error
+   load_truetype_glyph( TT_Loader  loader,
+-                       FT_UInt    glyph_index )
++                       FT_UInt    glyph_index,
++		       FT_Int     recurse_count )
+   {
+ 
+ #ifdef TT_CONFIG_OPTION_BYTECODE_INTERPRETER
+@@ -769,6 +777,11 @@
+     FT_Bool               glyph_data_loaded = 0;
+ #endif
+ 
++    if ( recurse_count >= TT_MAX_COMPOSITE_RECURSE )
++    {
++      error = TT_Err_Invalid_Composite;
++      goto Fail;
++    }
+ 
+     /* check glyph index */
+     if ( glyph_index >= (FT_UInt)face->root.num_glyphs )
+@@ -985,7 +998,7 @@
+     /***********************************************************************/
+ 
+     /* otherwise, load a composite! */
+-    else
++    else if ( contours_count == -1 )
+     {
+       TT_GlyphSlot  glyph = (TT_GlyphSlot)loader->glyph;
+       FT_UInt       start_point;
+@@ -1059,7 +1072,9 @@
+ 
+           num_base_points = gloader->base.outline.n_points;
+ 
+-          error = load_truetype_glyph( loader, subglyph->index );
++          error = load_truetype_glyph( loader,
++				       subglyph->index,
++				       recurse_count + 1 );
+           if ( error )
+             goto Fail;
+ 
+@@ -1326,7 +1341,13 @@
+       }
+       /* end of composite loading */
+     }
+-
++    /* invalid contours count */
++    else 
++    {
++      error = TT_Err_Invalid_Outline;
++      goto Fail;
++    }
++      
+     /***********************************************************************/
+     /***********************************************************************/
+     /***********************************************************************/
+@@ -1757,7 +1778,7 @@
+     glyph->format        = FT_GLYPH_FORMAT_OUTLINE;
+     glyph->num_subglyphs = 0;
+ 
+-    error = load_truetype_glyph( &loader, glyph_index );
++    error = load_truetype_glyph( &loader, glyph_index, 0 );
+     if ( !error )
+       compute_glyph_metrics( &loader, glyph_index );
+ 

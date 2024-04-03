@@ -1,0 +1,44 @@
+#!/bin/sh -e
+
+case "$1" in
+	remove)
+		;;
+
+	purge)
+		# On a purge we also...
+		# Remove spool; if it's non-empty, ask user before trying again
+		if rmdir /var/spool/exim/input/ 2>/dev/null
+		then
+			cat <<EOF
+There are mails in the exim spool directory which have not yet
+been delivered. You can keep them in case you decide to re-install 
+exim at a later date, or you can choose to remove them.
+
+Should they be removed (Y/n)?
+EOF
+			read answer
+			case x$answer in
+				x|xy|xY|xYES|xyes|xYes)
+					rm -rf /var/spool/exim
+					echo "Removing spool directory"
+				;;
+			esac
+               else
+			rm -rf /var/spool/exim
+               fi
+
+		# Remove logs, config file etc
+		rm -rf /var/log/exim /var/run/exim /etc/exim/exim.conf
+
+		# Remove links from rc?.d.
+		update-rc.d -f exim remove >/dev/null
+
+		# Remove from inetd.conf
+		if [ -x /usr/sbin/update-inetd ]; then
+		    update-inetd --remove exim
+		fi
+		;;
+
+	upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+		;;
+esac

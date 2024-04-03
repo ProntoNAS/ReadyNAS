@@ -1,0 +1,41 @@
+#! /bin/sh -e
+
+# DP: generate code for architecture i486, tuned for i686 by default.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- gcc/config/i386/i386.c~	2004-02-28 15:10:30.000000000 +0100
++++ gcc/config/i386/i386.c	2004-02-28 15:11:56.000000000 +0100
+@@ -1039,9 +1039,9 @@
+   if (!ix86_cpu_string && ix86_arch_string)
+     ix86_cpu_string = ix86_arch_string;
+   if (!ix86_cpu_string)
+-    ix86_cpu_string = cpu_names [TARGET_CPU_DEFAULT];
++    ix86_cpu_string = cpu_names [TARGET_CPU_DEFAULT_pentiumpro];
+   if (!ix86_arch_string)
+-    ix86_arch_string = TARGET_64BIT ? "x86-64" : "i386";
++    ix86_arch_string = TARGET_64BIT ? "x86-64" : "i486";
+ 
+   if (ix86_cmodel_string != 0)
+     {

@@ -1,0 +1,57 @@
+#! /bin/sh -e
+
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch $pdir -f --no-backup-if-mismatch -p1 < $0;;
+    -unpatch) patch $pdir -f --no-backup-if-mismatch -R -p1 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+On Tue, 29 Oct 2002 19:11:32 +0900
+Fumitoshi UKAI <ukai@debian.or.jp> wrote:
+
+--- bash-2.05b.orig/lib/readline/nls.c	2001-10-16 03:32:29.000000000 +0900
++++ bash-2.05b/lib/readline/nls.c	2002-10-29 19:07:36.000000000 +0900
+@@ -87,7 +87,8 @@
+   char *t;
+ 
+   /* Set the LC_CTYPE locale category from environment variables. */
+-  t = setlocale (LC_CTYPE, "");
++  // t = setlocale (LC_CTYPE, "");
++  t = setlocale (LC_CTYPE, NULL);
+   if (t && *t && (t[0] != 'C' || t[1]) && (STREQ (t, "POSIX") == 0))
+     {
+       _rl_meta_flag = 1;
+
+I explain about this patch.
+
+0) bash invokes with system locale setting configured in /etc/environment
+   or C locale(from login, sshd or others).
+1) eval ~/.bashrc and others. 
+   if there are locale setting, such as LANG=ll_CC, it will call
+   setlocale(LC_ALL, value); in bash/locale.c:set_lang()
+2) after startup script done, bash initializes terminal.
+   while terminal initialization, it checks current locale 
+   in lib/readline/nls.c:_rl_init_eightbit().
+   However, it will call setlocale(LC_CTYPE, ""), so it will
+   *modify* locale category LC_CTYPE according to process environment.
+   Here, bash runs in LANG=C or something configured at starting up - 0).
+   Locale configuration in 1) doesn't change bash's environment, it only
+   call setlocale(LC_ALL, value) and set environment variables for bash's 
+   child process.
+   So, readline consider that bash runs in C locale (configued in 0)), 
+   so that it disable 8bit or multibyte features.
+
+It can be solved with this patch. In lib/readline/nls.c:_rl_init_eightbit(),
+it doesn't need to *modify* LC_CTYPE.  What is required here is to *query*
+locale category LC_CTYPE. So, it should use NULL for locale args for 
+setlocale() here.
+

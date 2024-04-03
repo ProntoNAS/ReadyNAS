@@ -1,0 +1,141 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: TLS fixes for xmms/nvidia crash
+# DP: Related bugs: #219352
+# DP: Dpatch author: Jeff Bailey
+# DP: Patch author: 
+# DP: Upstream status: In CVS
+# DP: Status Details: 
+# DP: Date: 2005-03-22
+
+PATCHLEVEL=1
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p$PATCHLEVEL < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p$PATCHLEVEL < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+2004-12-28  Ulrich Drepper  <drepper@redhat.com>
+
+        [BZ #726]
+        * sysdeps/generic/dl-tls.c (__tls_get_addr): Fix typo.
+
+
+2005-01-10  Ulrich Drepper  <drepper@redhat.com>
+
+        * sysdeps/generic/dl-tls.c (_dl_next_tls_modid): Fix assertion and
+        recognition of last entry.
+
+
+2005-03-15  Jakub Jelinek  <jakub@redhat.com>
+
+	[BZ#786]
+	* sysdeps/generic/dl-tls.c (_dl_next_tls_modid): Handle
+	GL(dl_tls_static_nelem) == GL(dl_tls_max_dtv_idx).
+
+===================================================================
+RCS file: /cvs/glibc/libc/sysdeps/generic/dl-tls.c,v
+retrieving revision 1.44
+retrieving revision 1.44.2.1
+diff -u -r1.44 -r1.44.2.1
+--- libc/sysdeps/generic/dl-tls.c	2004/11/23 22:56:26	1.44
++++ libc/sysdeps/generic/dl-tls.c	2005/02/16 09:23:24	1.44.2.1
+@@ -577,7 +577,7 @@
+ 	    {
+ 	      size_t cnt;
+ 
+-	      for (cnt = total = 0 ? 1 : 0; cnt < listp->len; ++cnt)
++	      for (cnt = total == 0 ? 1 : 0; cnt < listp->len; ++cnt)
+ 		{
+ 		  size_t gen = listp->slotinfo[cnt].gen;
+ 		  struct link_map *map;
+===================================================================
+RCS file: /cvs/glibc/libc/sysdeps/generic/dl-tls.c,v
+retrieving revision 1.44.2.1
+retrieving revision 1.44.2.2
+diff -u -r1.44.2.1 -r1.44.2.2
+--- libc/sysdeps/generic/dl-tls.c	2005/02/16 09:23:24	1.44.2.1
++++ libc/sysdeps/generic/dl-tls.c	2005/02/16 10:23:02	1.44.2.2
+@@ -65,7 +65,10 @@
+       /* Note that this branch will never be executed during program
+ 	 start since there are no gaps at that time.  Therefore it
+ 	 does not matter that the dl_tls_dtv_slotinfo is not allocated
+-	 yet when the function is called for the first times.  */
++	 yet when the function is called for the first times.
++
++	 NB: the offset +1 is due to the fact that DTV[0] is used
++	 for something else.  */
+       result = GL(dl_tls_static_nelem) + 1;
+       /* If the following would not be true we mustn't have assumed
+ 	 there is a gap.  */
+@@ -88,11 +91,11 @@
+ 	}
+       while ((runp = runp->next) != NULL);
+ 
+-      if (result >= GL(dl_tls_max_dtv_idx))
++      if (result > GL(dl_tls_max_dtv_idx))
+ 	{
+ 	  /* The new index must indeed be exactly one higher than the
+ 	     previous high.  */
+-	  assert (result == GL(dl_tls_max_dtv_idx));
++	  assert (result == GL(dl_tls_max_dtv_idx) + 1);
+ 
+ 	  /* There is no gap anymore.  */
+ 	  GL(dl_tls_dtv_gaps) = false;
+--- libc/sysdeps/generic/dl-tls.c.jj	2005-02-25 14:45:06.000000000 +0100
++++ libc/sysdeps/generic/dl-tls.c	2005-03-15 15:36:55.593127093 +0100
+@@ -71,26 +71,24 @@ _dl_next_tls_modid (void)
+ 	 NB: the offset +1 is due to the fact that DTV[0] is used
+ 	 for something else.  */
+       result = GL(dl_tls_static_nelem) + 1;
+-      /* If the following would not be true we mustn't have assumed
+-	 there is a gap.  */
+-      assert (result <= GL(dl_tls_max_dtv_idx));
+-      do
+-	{
+-	  while (result - disp < runp->len)
+-	    {
+-	      if (runp->slotinfo[result - disp].map == NULL)
+-		break;
+-
+-	      ++result;
+-	      assert (result <= GL(dl_tls_max_dtv_idx) + 1);
+-	    }
+-
+-	  if (result - disp < runp->len)
+-	    break;
+-
+-	  disp += runp->len;
+-	}
+-      while ((runp = runp->next) != NULL);
++      if (result <= GL(dl_tls_max_dtv_idx))
++	do
++	  {
++	    while (result - disp < runp->len)
++	      {
++		if (runp->slotinfo[result - disp].map == NULL)
++		  break;
++
++		++result;
++		assert (result <= GL(dl_tls_max_dtv_idx) + 1);
++	      }
++
++	    if (result - disp < runp->len)
++	      break;
++
++	    disp += runp->len;
++	  }
++	while ((runp = runp->next) != NULL);
+ 
+       if (result > GL(dl_tls_max_dtv_idx))
+ 	{

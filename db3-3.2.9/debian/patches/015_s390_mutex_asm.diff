@@ -1,0 +1,89 @@
+diff -urN db-3.2.9/dist/acconfig.h db-3.2.9-s390/dist/acconfig.h
+--- db-3.2.9/dist/acconfig.h	Mon Sep 25 20:11:09 2000
++++ db-3.2.9-s390/dist/acconfig.h	Fri Oct  5 12:22:53 2001
+@@ -38,6 +38,7 @@
+ #undef HAVE_MUTEX_PPC_GCC_ASSEMBLY
+ #undef HAVE_MUTEX_PTHREADS
+ #undef HAVE_MUTEX_RELIANTUNIX_INITSPIN
++#undef HAVE_MUTEX_S390_GCC_ASSEMBLY
+ #undef HAVE_MUTEX_SCO_X86_CC_ASSEMBLY
+ #undef HAVE_MUTEX_SEMA_INIT
+ #undef HAVE_MUTEX_SGI_INIT_LOCK
+diff -urN db-3.2.9/dist/aclocal/mutex.m4 db-3.2.9-s390/dist/aclocal/mutex.m4
+--- db-3.2.9/dist/aclocal/mutex.m4	Thu Jan 11 18:28:31 2001
++++ db-3.2.9-s390/dist/aclocal/mutex.m4	Fri Oct  5 12:24:41 2001
+@@ -276,6 +276,18 @@
+ [db_cv_mutex="PPC/gcc-assembly"])
+ fi
+ 
++dnl s390/gcc: Linux
++if test "$db_cv_mutex" = no; then
++AC_TRY_RUN([main(){
++#if defined(__s390__)
++#if defined(__GNUC__)
++	exit(0);
++#endif
++#endif
++	exit(1);
++}], [db_cv_mutex="s390/gcc-assembly"])
++fi
++
+ dnl Sparc/gcc: SunOS, Solaris
+ dnl The sparc/gcc code doesn't always work, specifically, I've seen assembler
+ dnl failures from the stbar instruction on SunOS 4.1.4/sun4c and gcc 2.7.2.2.
+@@ -368,6 +380,8 @@
+ ReliantUNIX/initspin)	LIBS="$LIBS -lmproc"
+ 			ADDITIONAL_OBJS="mut_tas${o} $ADDITIONAL_OBJS"
+ 			AC_DEFINE(HAVE_MUTEX_RELIANTUNIX_INITSPIN);;
++s390/gcc-assembly)	ADDITIONAL_OBJS="mut_tas${o} $ADDITIONAL_OBJS"
++			AC_DEFINE(HAVE_MUTEX_S390_GCC_ASSEMBLY);;
+ SCO/x86/cc-assembly)	ADDITIONAL_OBJS="mut_tas${o} $ADDITIONAL_OBJS"
+ 			AC_DEFINE(HAVE_MUTEX_SCO_X86_CC_ASSEMBLY);;
+ SGI/init_lock)		ADDITIONAL_OBJS="mut_tas${o} $ADDITIONAL_OBJS"
+diff -urN db-3.2.9/dist/config.hin db-3.2.9-s390/dist/config.hin
+--- db-3.2.9/dist/config.hin	Wed Jan 24 15:16:18 2001
++++ db-3.2.9-s390/dist/config.hin	Fri Oct  5 12:23:22 2001
+@@ -67,6 +67,7 @@
+ #undef HAVE_MUTEX_PPC_GCC_ASSEMBLY
+ #undef HAVE_MUTEX_PTHREADS
+ #undef HAVE_MUTEX_RELIANTUNIX_INITSPIN
++#undef HAVE_MUTEX_S390_GCC_ASSEMBLY
+ #undef HAVE_MUTEX_SCO_X86_CC_ASSEMBLY
+ #undef HAVE_MUTEX_SEMA_INIT
+ #undef HAVE_MUTEX_SGI_INIT_LOCK
+diff -urN db-3.2.9/include/mutex.h db-3.2.9-s390/include/mutex.h
+--- db-3.2.9/include/mutex.h	Thu Jan 11 18:28:56 2001
++++ db-3.2.9-s390/include/mutex.h	Fri Oct  5 12:24:41 2001
+@@ -537,6 +537,32 @@
+ #endif
+ 
+ /*********************************************************************
++ * S/390/gcc assembly.
++ *********************************************************************/
++#ifdef HAVE_MUTEX_S390_GCC_ASSEMBLY
++typedef unsigned char tsl_t;
++
++#ifdef LOAD_ACTUAL_MUTEX_CODE
++/*
++ * For gcc/s390, 0 is clear, 0xff is set.
++ */
++
++#define MUTEX_SET(tsl) ({                                              \
++	tsl_t *__l = (tsl);                                             \
++	int __r;                                                        \
++	asm volatile ("ts  %1\n\t"                                      \
++		      "ipm %0\n\t"                                      \
++		      "srl %0,28"                                       \
++		      : "=&d" (__r), "+m" (*__l) : : "cc" );            \
++	__r;                                                            \
++})
++
++#define MUTEX_UNSET(tsl)  (*(tsl) = 0)
++#define MUTEX_INIT(tsl)   MUTEX_UNSET(tsl)
++#endif
++#endif
++
++/*********************************************************************
+  * Sparc/gcc assembly.
+  *********************************************************************/
+ #ifdef HAVE_MUTEX_SPARC_GCC_ASSEMBLY

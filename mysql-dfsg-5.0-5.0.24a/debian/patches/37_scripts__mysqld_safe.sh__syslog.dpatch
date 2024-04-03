@@ -1,0 +1,124 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 37_scripts__mysqld_safe.sh__syslog.dpatch by  <ch@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: scripts__mysqld_safe.sh__syslog
+
+@DPATCH@
+
+--- old/scripts/mysqld_safe.sh.orig	2005-11-15 01:12:47.000000000 +0100
++++ new/scripts/mysqld_safe.sh	2005-11-22 00:01:38.913802923 +0100
+@@ -13,6 +13,9 @@
+ KILL_MYSQLD=1;
+ MYSQLD=
+ 
++# This command can be used as pipe to syslog. With "-s" it also logs to stderr.
++ERR_LOGGER="logger -p daemon.err -t mysqld_safe -i"
++
+ trap '' 1 2 3 15			# we shouldn't let anyone kill us
+ 
+ umask 007
+@@ -76,7 +79,6 @@
+ 
+       # mysqld_safe-specific options - must be set in my.cnf ([mysqld_safe])!
+       --ledir=*)   ledir=`echo "$arg" | sed -e "s;--ledir=;;"` ;;
+-      --log-error=*) err_log=`echo "$arg" | sed -e "s;--log-error=;;"` ;;
+       --open-files-limit=*) open_files=`echo "$arg" | sed -e "s;--open-files-limit=;;"` ;;
+       --core-file-size=*) core_file_size=`echo "$arg" | sed -e "s;--core-file-size=;;"` ;;
+       --timezone=*) TZ=`echo "$arg" | sed -e "s;--timezone=;;"` ; export TZ; ;;
+@@ -177,7 +179,6 @@
+ 
+ # these rely on $DATADIR by default, so we'll set them later on
+ pid_file=
+-err_log=
+ 
+ # Get first arguments from the my.cnf file, groups [mysqld] and [mysqld_safe]
+ # and then merge with the command line arguments
+@@ -244,7 +245,6 @@
+     * )  pid_file="$DATADIR/$pid_file" ;;
+   esac
+ fi
+-test -z "$err_log"  && err_log=$DATADIR/`@HOSTNAME@`.err
+ 
+ if test -n "$mysql_unix_port"
+ then
+@@ -314,8 +314,6 @@
+   then
+     USER_OPTION="--user=$user"
+   fi
+-  # If we are root, change the err log to the right user.
+-  touch $err_log; chown $user $err_log
+   if test -n "$open_files"
+   then
+     ulimit -n $open_files
+@@ -337,18 +335,16 @@
+   then
+     if @FIND_PROC@
+     then    # The pid contains a mysqld process
+-      echo "A mysqld process already exists"
+-      echo "A mysqld process already exists at " `date` >> $err_log
++      echo "A mysqld process already exists" | $ERR_LOGGER -s
+       exit 1
+     fi
+   fi
+   rm -f $pid_file
+   if test -f $pid_file
+   then
+-    echo "Fatal error: Can't remove the pid file: $pid_file"
+-    echo "Fatal error: Can't remove the pid file: $pid_file at " `date` >> $err_log
+-    echo "Please remove it manually and start $0 again"
+-    echo "mysqld daemon not started"
++    echo "Fatal error: Can't remove the pid file: $pid_file" | $ERR_LOGGER -s
++    echo "Please remove it manually and start $0 again" | $ERR_LOGGER -s
++    echo "mysqld daemon not started" | $ERR_LOGGER -s
+     exit 1
+   fi
+ fi
+@@ -373,15 +369,15 @@
+ #  ulimit -n 256 > /dev/null 2>&1		# Fix for BSD and FreeBSD systems
+ #fi
+ 
+-echo "`date +'%y%m%d %H:%M:%S  mysqld started'`" >> $err_log
++echo "started" | $ERR_LOGGER -s
+ while true
+ do
+   rm -f $safe_mysql_unix_port $pid_file	# Some extra safety
+   if test -z "$args"
+   then
+-    $NOHUP_NICENESS $ledir/$MYSQLD $defaults --basedir=$MY_BASEDIR_VERSION --datadir=$DATADIR $USER_OPTION --pid-file=$pid_file @MYSQLD_DEFAULT_SWITCHES@ >> $err_log 2>&1
++    $NOHUP_NICENESS $ledir/$MYSQLD $defaults --basedir=$MY_BASEDIR_VERSION --datadir=$DATADIR $USER_OPTION --pid-file=$pid_file @MYSQLD_DEFAULT_SWITCHES@ 2>&1 | $ERR_LOGGER -t mysqld
+   else
+-    eval "$NOHUP_NICENESS $ledir/$MYSQLD $defaults --basedir=$MY_BASEDIR_VERSION --datadir=$DATADIR $USER_OPTION --pid-file=$pid_file @MYSQLD_DEFAULT_SWITCHES@ $args >> $err_log 2>&1"
++    eval "$NOHUP_NICENESS $ledir/$MYSQLD $defaults --basedir=$MY_BASEDIR_VERSION --datadir=$DATADIR $USER_OPTION --pid-file=$pid_file @MYSQLD_DEFAULT_SWITCHES@ $args 2>&1 | $ERR_LOGGER -t mysqld"
+   fi
+   if test ! -f $pid_file		# This is removed if normal shutdown
+   then
+@@ -398,7 +394,7 @@
+     # kill -9 is used or the process won't react on the kill.
+     numofproces=`ps xaww | grep -v "grep" | grep "$ledir/$MYSQLD\>" | grep -c "pid-file=$pid_file"`
+ 
+-    echo -e "\nNumber of processes running now: $numofproces" | tee -a $err_log
++    echo "Number of processes running now: $numofproces" | $ERR_LOGGER -s
+     I=1
+     while test "$I" -le "$numofproces"
+     do 
+@@ -411,16 +407,14 @@
+       #    echo "TEST $I - $T **"
+       if kill -9 $T
+       then
+-        echo "$MYSQLD process hanging, pid $T - killed" | tee -a $err_log
++        echo "$MYSQLD process hanging, pid $T - killed" | $ERR_LOGGER -s
+       else 
+         break
+       fi
+       I=`expr $I + 1`
+     done
+   fi
+-  echo "`date +'%y%m%d %H:%M:%S'`  mysqld restarted" | tee -a $err_log
++  echo "restarted" | $ERR_LOGGER -s
+ done
+ 
+-echo "`date +'%y%m%d %H:%M:%S'`  mysqld ended" | tee -a $err_log
+-echo "" | tee -a $err_log
+-
++echo "ended" | $ERR_LOGGER -s

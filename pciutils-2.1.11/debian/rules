@@ -1,0 +1,80 @@
+#!/usr/bin/make -f
+
+BINARY-ARCH-TARGETS = build-pciutils build-pciutils-dev
+
+build: $(BINARY-ARCH-TARGETS)
+
+build-pciutils:
+	dh_testdir
+	$(MAKE) 
+	touch build-pciutils
+
+build-pciutils-dev:
+	dh_testdir
+	(cd lib && $(MAKE))
+	touch build-pciutils-dev	
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-pciutils build-pciutils-dev
+	-$(MAKE) clean
+	dh_clean
+
+
+# Build architecture-independent files here.
+binary-indep: build 
+
+
+# Build architecture-dependent files here.
+binary-arch: build 
+#	dh_testversion
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	# get pci.ids
+	# make update-ids  only by maintainer
+
+	# pciutils
+	$(MAKE) install DESTDIR=`pwd`/debian/tmp
+	# move to /bin
+	#mv `pwd`/debian/tmp/usr/bin/lspci `pwd`/debian/tmp/bin/lspci
+	#(cd `pwd`/debian/tmp/sbin; ln -s ../bin/lspci)
+	(cd `pwd`/debian/tmp/bin; ln -s /usr/bin/lspci .)
+	(cd `pwd`/debian/tmp/bin; ln -s /usr/bin/setpci .)
+	
+
+	# pciutils-dev
+	install -m 644 lib/libpci.a debian/pciutils-dev/usr/lib/libpci.a
+	install -m 644 lib/pci.h debian/pciutils-dev/usr/include/pci/pci.h
+	install -m 644 lib/header.h debian/pciutils-dev/usr/include/pci/header.h
+	install -m 644 lib/config.h debian/pciutils-dev/usr/include/pci/config.h
+
+	# libpci2 (no!)
+	#mv `pwd`/debian/tmp/usr/lib/libpci.so.2 `pwd`/debian/libpci2/usr/lib/
+	(cd `pwd`/debian/tmp/usr/lib; ln -s libpci.so.2 libpci.so)
+
+	dh_installdocs
+	dh_installexamples lib/example.c
+	dh_installmenu
+	dh_installmanpages -ppciutils
+	dh_installchangelogs -a ChangeLog
+	(cd debian/pciutils-dev/usr/share/doc && rm -rf pciutils-dev && ln -sf pciutils pciutils-dev)
+	cp debian/lintian debian/tmp/usr/share/lintian/overrides/pciutils
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs
+	dh_installdeb
+	dh_shlibdeps debian/tmp/usr/bin/lspci debian/tmp/usr/bin/setpci
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb -a
+
+source diff:                                                                  
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary

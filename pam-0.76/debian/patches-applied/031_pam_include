@@ -1,0 +1,95 @@
+Index: Linux-PAM/libpam/pam_handlers.c
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/Linux-PAM/libpam/pam_handlers.c,v
+retrieving revision 1.1.1.2
+diff -u -r1.1.1.2 pam_handlers.c
+--- Linux-PAM/libpam/pam_handlers.c	15 Sep 2002 20:08:37 -0000	1.1.1.2
++++ Linux-PAM/libpam/pam_handlers.c	6 Oct 2002 21:48:24 -0000
+@@ -106,6 +106,61 @@
+ 		module_type = PAM_T_ACCT;
+ 	    } else if (!_pam_strCMP("password", tok)) {
+ 		module_type = PAM_T_PASS;
++	    } else if (!_pam_strCMP("@include", tok)) {
++		/* include a file here
++		 * most of the code adapted from _pam_init_handlers */
++		FILE *inc_f;
++		int retval;
++		int drop_f = 1;
++
++		tok = _pam_StrTok(NULL, " \n\t", &nexttok);
++		if (tok == NULL) {
++			D(("_pam_parse_conf_file: included file name not given"));
++			_pam_system_log(LOG_ERR,
++				"(%s) included file name not given",
++				this_service);
++		} else {
++			char *filename;
++			struct stat test_d;
++
++			if (!_pam_strCMP("/", tok)) {
++				filename = tok;
++				drop_f = 0;
++			} else if ( stat(PAM_CONFIG_D, &test_d) == 0 && S_ISDIR(test_d.st_mode) ) {
++				D(("searching " PAM_CONFIG_D " for included file"));
++				filename = malloc(sizeof(PAM_CONFIG_DF)
++						+strlen(tok));
++				if (filename == NULL) {
++					_pam_system_log(LOG_ERR,
++						"_pam_parse_conf_file: no memory; service %s",
++						this_service);
++					return PAM_BUF_ERR;
++				}
++				sprintf(filename, PAM_CONFIG_DF, tok);
++			}
++			D(("opening %s", filename));
++			inc_f = fopen(filename, "r");
++	    		if (inc_f != NULL) {
++				retval = _pam_parse_conf_file(pamh, inc_f, known_service
++#ifdef PAM_READ_BOTH_CONFS
++							      , not_other
++#endif /* PAM_READ_BOTH_CONFS */
++					 );
++				fclose(inc_f);
++				if (retval != PAM_SUCCESS) {
++				    _pam_system_log(LOG_ERR,
++					    "_pam_parse_conf_file: error reading %s",
++					    filename);
++				    _pam_system_log(LOG_ERR, "_pam_parse_conf_file: [%s]",
++					    pam_strerror(pamh, retval));
++				    return retval;
++				}
++			}
++			if (drop_f)
++				_pam_drop(filename);
++	    	}
++		/* skip dealing with the module; and go to the next line */
++		goto end;
+ 	    } else {
+ 		/* Illegal module type */
+ 		D(("_pam_init_handlers: bad module type: %s", tok));
+@@ -208,6 +263,7 @@
+ 		return PAM_ABORT;
+ 	    }
+ 	}
++end:
+     }
+ 
+     return ( (x < 0) ? PAM_ABORT:PAM_SUCCESS );
+Index: debian/changelog
+===================================================================
+RCS file: /afs/sipb/project/debian/cvs/pam/debian/changelog,v
+retrieving revision 1.9
+diff -u -r1.9 changelog
+--- debian/changelog	22 Sep 2002 21:25:27 -0000	1.9
++++ debian/changelog	30 Sep 2002 03:39:24 -0000
+@@ -1,3 +1,10 @@
++pam (0.76-2) experimental; urgency=low
++
++  * Link against appropriate libraries so we find  the symbols we need,
++    Closes: #162175
++
++ --
++
+ pam (0.76-1) experimental; urgency=low
+ 
+   * New upstream version

@@ -1,0 +1,255 @@
+#!/bin/sh
+#
+# source:
+#   /var/cvs/projects/debian/cracklib/debian/dpkg.scripts/installfiles,v
+#
+# revision:
+#   @(#) installfiles,v 1.2 1999/04/02 14:48:53 jplejacq Exp
+#
+# copyright:
+#   Copyright (C) 1998, 1999 Jean Pierre LeJacq <jplejacq@quoininc.com>
+#
+#   Distributed under the GNU GENERAL PUBLIC LICENSE.
+#
+# synopsis:
+#   . installfiles
+#
+# description:
+#   Install package files
+#
+#
+#   This program is package dependent.
+
+
+install_files_override()
+# postconditions:
+#   Return 0 if successful, non-zero if not.
+#
+# description:
+#   Installs files into final debian location.
+{
+  if   [ "${pkglib}" = "${DH_DOPACKAGES}" ]
+  then
+    #
+    # Install standard files.
+    #
+    (
+      d_pkg_doc="${d_pkglib_doc}"
+      f_pkg_docbase="${f_pkglib_docbase}"
+      f_pkg_menu="${f_pkglib_menu}"
+      l_pkg_menu="${l_pkglib_menu}"
+      l_pkg_doc="${l_pkglib_doc}"
+      l_pkg_docbase="${l_pkglib_docbase}"
+
+      install_files
+    )
+
+
+    readonly rules_srcdir="${DH_DOPACKAGES}.src"
+
+
+    echo "${0}: debian package files: install..."
+      install -m 0644\
+        debian/dpkg.src/${DH_DOPACKAGES}.index.html\
+        ${DH_TMPDIR}${d_pkglib_doc}/index.html
+
+
+    echo "${0}: package files: installing..."
+      install -m 0644\
+        ${rules_srcdir}/HISTORY\
+        ${DH_TMPDIR}${d_pkglib_doc}/changelog
+      install -m 0644\
+        ${rules_srcdir}/README\
+        ${DH_TMPDIR}${d_pkglib_doc}/README
+      install -m 0644\
+        ${rules_srcdir}/cracklib/libcrack.so.${ver}\
+        ${DH_TMPDIR}${d_pkglib_lib}/libcrack.so.${ver}
+
+
+    echo "${0}: package files: linking..."
+      ln -s\
+        libcrack.so.${ver}\
+        ${DH_TMPDIR}${d_pkglib_lib}/libcrack.so.${ver_major}
+
+
+    echo "${0}: package files: compressing..."
+      gzip -9 ${DH_TMPDIR}${d_pkglib_doc}/README
+      gzip -9 ${DH_TMPDIR}${d_pkglib_doc}/changelog
+  elif [ "${pkgdev}" = "${DH_DOPACKAGES}" ]
+  then
+    #
+    # Install standard files.
+    #
+    (
+      d_pkg_doc="${d_pkgdev_doc}"
+      f_pkg_docbase="${f_pkgdev_docbase}"
+      f_pkg_menu="${f_pkgdev_menu}"
+      l_pkg_menu="${l_pkgdev_menu}"
+      l_pkg_doc="${l_pkgdev_doc}"
+      l_pkg_docbase="${l_pkgdev_docbase}"
+
+      install_files
+    )
+
+
+    readonly rules_srcdir="${DH_DOPACKAGES}.src"
+
+
+    echo "${0}: debian package files: install..."
+      install -m 0644\
+      debian/dpkg.src/${DH_DOPACKAGES}.crack.h\
+      ${DH_TMPDIR}${d_pkgdev_include}/crack.h
+
+      install -m 0644\
+        debian/dpkg.src/${DH_DOPACKAGES}.index.html\
+        ${DH_TMPDIR}${d_pkgdev_doc}/index.html
+      install -m 0644\
+        debian/dpkg.src/${DH_DOPACKAGES}.cracklib_example.c\
+        ${DH_TMPDIR}${d_pkgdev_doc_examples}/cracklib_example.c
+      install -m 0644\
+        debian/dpkg.src/${DH_DOPACKAGES}.makefile\
+        ${DH_TMPDIR}${d_pkgdev_doc_examples}/makefile
+
+      install -m 0644\
+        debian/dpkg.src/${DH_DOPACKAGES}.FascistCheck.3\
+        ${DH_TMPDIR}${d_pkgdev_man}/man3/FascistCheck.3
+
+
+    echo "${0}: package files: installing..."
+      install -m 0644\
+        ${rules_srcdir}/HISTORY\
+        ${DH_TMPDIR}${d_pkgdev_doc}/changelog
+
+      install -m 0644\
+        ${rules_srcdir}/cracklib/libcrack.a\
+        ${DH_TMPDIR}${d_pkgdev_lib}/libcrack.a
+
+
+    echo "${0}: package files: linking..."
+      #
+      # I'm not putting the normally directory specifier here but
+      # instead assuming that l_pkgdev_pkglib_relative_lib contains
+      # it.  This is to allow l_pkgdev_pkglib_relative_lib to be
+      # empty.
+      ln -s\
+        ${l_pkgdev_pkglib_relative_lib}libcrack.so.${ver}\
+        ${DH_TMPDIR}${d_pkgdev_lib}/libcrack.so
+
+      ln -f -s\
+        FascistCheck.3.gz\
+        ${DH_TMPDIR}${d_pkgdev_man}/man3/cracklib.3.gz
+
+
+    echo "${0}: package files: compressing..."
+      gzip -9 ${DH_TMPDIR}${d_pkgdev_doc}/changelog
+      gzip -9 ${DH_TMPDIR}${d_pkgdev_man}/man3/FascistCheck.3
+  elif [ "${pkgruntime}" = "${DH_DOPACKAGES}" ]
+  then
+    #
+    # Install standard files.
+    #
+    (
+      d_pkg_doc="${d_pkgruntime_doc}"
+      f_pkg_docbase="${f_pkgruntime_docbase}"
+      f_pkg_menu="${f_pkgruntime_menu}"
+      l_pkg_menu="${l_pkgruntime_menu}"
+      l_pkg_doc="${l_pkgruntime_doc}"
+      l_pkg_docbase="${l_pkgruntime_docbase}"
+
+      install_files
+    )
+
+
+    readonly rules_srcdir="${pkgruntime}.src"
+
+
+    echo "${0}: debian package files: install..."
+      install -m 0755\
+        debian/dpkg.src/${DH_DOPACKAGES}.cron.daily\
+        ${DH_TMPDIR}${f_pkgruntime_etc_crondaily}
+      install -m 0644\
+        debian/dpkg.src/${DH_DOPACKAGES}.conf\
+        ${DH_TMPDIR}${f_pkgruntime_etc_conf}
+
+      install -m 0644\
+        debian/dpkg.src/${DH_DOPACKAGES}.index.html\
+        ${DH_TMPDIR}${d_pkgruntime_doc}/index.html
+
+      install -m 0644\
+        debian/dpkg.src/${DH_DOPACKAGES}.crack_mkdict.8\
+        ${DH_TMPDIR}${d_pkgruntime_man}/man8/crack_mkdict.8
+      install -m 0644\
+        debian/dpkg.src/${DH_DOPACKAGES}.crack_teststr.8\
+        ${DH_TMPDIR}${d_pkgruntime_man}/man8/crack_teststr.8
+
+
+    echo "${0}: package files: installing..."
+      install -m 0644\
+        ${rules_srcdir}/HISTORY\
+        ${DH_TMPDIR}${d_pkgruntime_doc}/changelog
+
+      install -m 0755\
+        ${rules_srcdir}/util/mkdict\
+        ${DH_TMPDIR}${d_pkgruntime_bin_s}/crack_mkdict
+      install -m 0755\
+        ${rules_srcdir}/util/packer\
+        ${DH_TMPDIR}${d_pkgruntime_bin_s}/crack_packer
+      install -m 0755\
+        ${rules_srcdir}/util/testlib\
+        ${DH_TMPDIR}${d_pkgruntime_bin_s}/crack_testlib
+      install -m 0755\
+        ${rules_srcdir}/util/testnum\
+        ${DH_TMPDIR}${d_pkgruntime_bin_s}/crack_testnum
+      install -m 0755\
+        ${rules_srcdir}/util/teststr\
+        ${DH_TMPDIR}${d_pkgruntime_bin_s}/crack_teststr
+      install -m 0755\
+        ${rules_srcdir}/util/unpacker\
+        ${DH_TMPDIR}${d_pkgruntime_bin_s}/crack_unpacker
+
+
+    echo "${0}: package files: linking..."
+      ln -f -s\
+        crack_mkdict.8.gz\
+        ${DH_TMPDIR}${d_pkgruntime_man}/man8/crack_packer.8.gz
+      ln -f -s\
+        crack_mkdict.8.gz\
+        ${DH_TMPDIR}${d_pkgruntime_man}/man8/crack_unpacker.8.gz
+      ln -f -s\
+        crack_teststr.8.gz\
+        ${DH_TMPDIR}${d_pkgruntime_man}/man8/crack_testlib.8.gz
+      ln -f -s\
+        crack_teststr.8.gz\
+        ${DH_TMPDIR}${d_pkgruntime_man}/man8/crack_testnum.8.gz
+
+
+      if [ "${d_pkgruntime_doc}" != "${l_pkgruntime_doc}" ]
+      then
+        ln -f -s ${d_pkgruntime_doc} ${DH_TMPDIR}${l_pkgruntime_doc}
+      fi
+
+      if [ "${f_pkgruntime_docbase}" != "${l_pkgruntime_docbase}" ]
+      then
+        ln -f -s ${f_pkgruntime_docbase} ${DH_TMPDIR}${l_pkgruntime_docbase}
+      fi
+
+      if [ "${f_pkgruntime_etc_crondaily}" != "${l_pkgruntime_etc_crondaily}" ]
+      then
+        ln -f -s\
+          ${f_pkgruntime_etc_crondaily}\
+          ${DH_TMPDIR}${l_pkgruntime_etc_crondaily}
+      fi
+
+
+    echo "${0}: package files: compressing..."
+      gzip -9 ${DH_TMPDIR}${d_pkgruntime_doc}/changelog
+      gzip -9 ${DH_TMPDIR}${d_pkgruntime_man}/man8/crack_mkdict.8
+      gzip -9 ${DH_TMPDIR}${d_pkgruntime_man}/man8/crack_teststr.8
+  else
+    echo "${0}: unknown package..."
+    exit 1
+  fi
+
+
+  return 0
+}

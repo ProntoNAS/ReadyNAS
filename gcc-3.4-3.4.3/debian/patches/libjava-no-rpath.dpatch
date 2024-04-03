@@ -1,0 +1,104 @@
+#! /bin/sh -e
+
+# DP: work around libtool adding ld run path to gcj tools
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- libjava/Makefile.am~	2004-01-26 07:36:06.000000000 +0100
++++ libjava/Makefile.am	2004-02-21 22:39:34.000000000 +0100
+@@ -719,7 +719,7 @@
+ ## need this because we are explicitly using libtool to link using the
+ ## `.la' file.
+ jv_convert_LDFLAGS = --main=gnu.gcj.convert.Convert \
+-	-rpath $(toolexeclibdir) -shared-libgcc $(THREADLDFLAGS)
++	$(shell test $(toolexeclibdir) = /usr/lib || echo -rpath $(toolexeclibdir)) -shared-libgcc $(THREADLDFLAGS)
+ jv_convert_LINK = $(GCJLINK)
+ ## We don't explicitly link in the libraries we need; libgcj.la brings
+ ## in all dependencies.  We need the -L so that gcj can find libgcj
+@@ -738,7 +738,8 @@
+ ## We need -nodefaultlibs because we want to avoid gcj's `-lgcj'.  We
+ ## need this because we are explicitly using libtool to link using the
+ ## `.la' file.
+-gij_LDFLAGS = -rpath $(toolexeclibdir) -shared-libgcc $(THREADLDFLAGS)
++gij_LDFLAGS = $(shell test $(toolexeclibdir) = /usr/lib || echo -rpath $(toolexeclibdir)) -shared-libgcc $(THREADLDFLAGS)
++
+ gij_LINK = $(GCJLINK)
+ ## See jv_convert_LDADD.
+ gij_LDADD = -L$(here)/.libs libgcj.la
+@@ -750,7 +751,7 @@
+ ## This is a dummy definition.
+ EXTRA_rmic_SOURCES = $(rmi_java_source_files)
+ rmic_LDFLAGS = --main=gnu.java.rmi.rmic.RMIC \
+-	-rpath $(toolexeclibdir) -shared-libgcc $(THREADLDFLAGS)
++	$(shell test $(toolexeclibdir) = /usr/lib || echo -rpath $(toolexeclibdir)) -shared-libgcc $(THREADLDFLAGS)
+ rmic_LINK = $(GCJLINK)
+ ## See jv_convert_LDADD.
+ rmic_LDADD = -L$(here)/.libs libgcj.la
+@@ -762,7 +763,7 @@
+ ## This is a dummy definition.
+ EXTRA_rmiregistry_SOURCES = $(rmi_java_source_files)
+ rmiregistry_LDFLAGS = --main=gnu.java.rmi.registry.RegistryImpl \
+-	-rpath $(toolexeclibdir) -shared-libgcc $(THREADLDFLAGS)
++	$(shell test $(toolexeclibdir) = /usr/lib || echo -rpath $(toolexeclibdir)) -shared-libgcc $(THREADLDFLAGS)
+ rmiregistry_LINK = $(GCJLINK)
+ ## See jv_convert_LDADD.
+ rmiregistry_LDADD = -L$(here)/.libs libgcj.la
+--- libjava/Makefile.in~	2004-01-26 07:36:06.000000000 +0100
++++ libjava/Makefile.in	2004-02-21 22:48:12.000000000 +0100
+@@ -499,7 +499,7 @@
+ jv_convert_SOURCES = 
+ EXTRA_jv_convert_SOURCES = $(convert_source_files)
+ jv_convert_LDFLAGS = --main=gnu.gcj.convert.Convert \
+-	-rpath $(toolexeclibdir) -shared-libgcc $(THREADLDFLAGS)
++	$(shell test $(toolexeclibdir) = /usr/lib || echo -rpath $(toolexeclibdir)) -shared-libgcc $(THREADLDFLAGS)
+ 
+ jv_convert_LINK = $(GCJLINK)
+ jv_convert_LDADD = -L$(here)/.libs libgcj.la
+@@ -508,7 +508,7 @@
+ 
+ 
+ gij_SOURCES = gij.cc
+-gij_LDFLAGS = -rpath $(toolexeclibdir) -shared-libgcc $(THREADLDFLAGS)
++gij_LDFLAGS = $(shell test $(toolexeclibdir) = /usr/lib || echo -rpath $(toolexeclibdir)) -shared-libgcc $(THREADLDFLAGS)
+ gij_LINK = $(GCJLINK)
+ gij_LDADD = -L$(here)/.libs libgcj.la
+ gij_DEPENDENCIES = libgcj.la libgcj.spec
+@@ -516,7 +516,7 @@
+ rmic_SOURCES = 
+ EXTRA_rmic_SOURCES = $(rmi_java_source_files)
+ rmic_LDFLAGS = --main=gnu.java.rmi.rmic.RMIC \
+-	-rpath $(toolexeclibdir) -shared-libgcc $(THREADLDFLAGS)
++	$(shell test $(toolexeclibdir) = /usr/lib || echo -rpath $(toolexeclibdir)) -shared-libgcc $(THREADLDFLAGS)
+ 
+ rmic_LINK = $(GCJLINK)
+ rmic_LDADD = -L$(here)/.libs libgcj.la
+@@ -525,7 +525,7 @@
+ rmiregistry_SOURCES = 
+ EXTRA_rmiregistry_SOURCES = $(rmi_java_source_files)
+ rmiregistry_LDFLAGS = --main=gnu.java.rmi.registry.RegistryImpl \
+-	-rpath $(toolexeclibdir) -shared-libgcc $(THREADLDFLAGS)
++	$(shell test $(toolexeclibdir) = /usr/lib || echo -rpath $(toolexeclibdir)) -shared-libgcc $(THREADLDFLAGS)
+ 
+ rmiregistry_LINK = $(GCJLINK)
+ rmiregistry_LDADD = -L$(here)/.libs libgcj.la

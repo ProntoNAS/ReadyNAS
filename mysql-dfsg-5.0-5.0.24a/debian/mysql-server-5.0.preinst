@@ -1,0 +1,80 @@
+#!/bin/bash -e
+#
+# summary of how this script can be called:
+#        * <new-preinst> install
+#        * <new-preinst> install <old-version>
+#        * <new-preinst> upgrade <old-version>
+#        * <old-preinst> abort-upgrade <new-version>
+#
+
+. /usr/share/debconf/confmodule
+
+if [ -n "$DEBIAN_SCRIPT_DEBUG" ]; then set -v -x; DEBIAN_SCRIPT_TRACE=1; fi
+${DEBIAN_SCRIPT_TRACE:+ echo "#42#DEBUG# RUNNING $0 $*" 1>&2 }
+
+export PATH=$PATH:/sbin:/usr/sbin:/bin:/usr/bin
+MYADMIN="/usr/bin/mysqladmin --defaults-file=/etc/mysql/debian.cnf"
+DATADIR=/var/lib/mysql
+LOGDIR=/var/log/mysql
+UPGRADEDIR=/var/lib/mysql-upgrade
+
+# Try to stop the server in a sane way. If it does not success let the admin
+# do it himself. No database directories should be removed while the server
+# is running! Another mysqld in e.g. a different chroot is fine for us.
+stop_server() {
+    return
+    if [ ! -x /etc/init.d/mysql ]; then return; fi
+
+    set +e
+    if [ -x /usr/sbin/invoke-rc.d ]; then
+      cmd="invoke-rc.d mysql stop"
+    else
+      cmd="/etc/init.d/mysql stop"
+    fi
+    $cmd
+    errno=$?
+    set -e
+   
+    # 0=ok, 100=no init script (fresh install)
+    if [ "$errno" != 0 -a "$errno" != 100 ]; then
+      echo "${cmd/ */} returned $errno" 1>&2
+      echo "There is a MySQL server running, but we failed in our attempts to stop it." 1>&2
+      echo "Stop it yourself and try again!" 1>&2
+      db_stop  	
+      exit 1
+    fi
+}
+
+################################ main() ##########################
+
+this_version=5.0
+
+# to be sure
+stop_server
+
+# end of NIS tolerance zone
+set -e
+
+# creating mysql home directory
+if [ ! -d $DATADIR -a ! -L $DATADIR ]; then
+ 	mkdir $DATADIR
+fi
+
+# Since the home directory was created before putting the user into
+# the mysql group and moreover we cannot guarantee that the 
+# permissions were correctly *before* calling this script, we fix them now.
+# In case we use NIS and no mysql user is present then this script should
+# better fail now than later..
+# The "set +e" is necessary as e.g. a ".journal" of a ext3 partition is
+# not chgrp'able (#318435).
+set +e
+chown admin:admin $DATADIR
+find $DATADIR -follow -not -group mysql -print0 2>/dev/null \
+  | xargs -0 --no-run-if-empty chown admin.admin
+set -e
+
+db_stop
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,1377 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## 099_alternate_md4_md5_impl.dpatch by  <tfheen@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad apr-util-1.2.7~/crypto/apr_md4.c apr-util-1.2.7/crypto/apr_md4.c
+--- apr-util-1.2.7~/crypto/apr_md4.c	1970-01-01 01:00:00.000000000 +0100
++++ apr-util-1.2.7/crypto/apr_md4.c	2006-08-18 14:21:41.000000000 +0200
+@@ -0,0 +1,389 @@
++/* Adopted for apr-util by Tollef Fog Heen <tfheen@err.no> */
++
++/*
++ * MD4 (RFC-1320) message digest.
++ * Modified from MD5 code by Andrey Panin <pazke@donpac.ru>
++ *
++ * Written by Solar Designer <solar@openwall.com> in 2001, and placed in
++ * the public domain.  There's absolutely no warranty.
++ *
++ * This differs from Colin Plumb's older public domain implementation in
++ * that no 32-bit integer data type is required, there's no compile-time
++ * endianness configuration, and the function prototypes match OpenSSL's.
++ * The primary goals are portability and ease of use.
++ *
++ * This implementation is meant to be fast, but not as fast as possible.
++ * Some known optimizations are not included to reduce source code size
++ * and avoid compile-time configuration.
++ */
++
++/* Copyright 2001-2005 The Apache Software Foundation or its licensors, as
++ * applicable.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#include "apr_strings.h"
++#include "apr_md4.h"
++#include "apr_lib.h"
++
++#if APR_HAVE_STRING_H
++#include <string.h>
++#endif
++#if APR_HAVE_UNISTD_H
++#include <unistd.h>
++#endif
++
++#if APR_CHARSET_EBCDIC
++static apr_xlate_t *xlate_ebcdic_to_ascii; /* used in apr_md4_encode() */
++#endif
++
++static const void *body(apr_md4_ctx_t *context, const void *data, size_t size);
++
++/*
++ * The basic MD4 functions.
++ */
++#define F(x, y, z)      ((z) ^ ((x) & ((y) ^ (z))))
++#define G(x, y, z)      (((x) & (y)) | ((x) & (z)) | ((y) & (z)))
++#define H(x, y, z)      ((x) ^ (y) ^ (z))
++
++/*
++ * The MD4 transformation for all four rounds.
++ */
++#define STEP(f, a, b, c, d, x, s) \
++        (a) += f((b), (c), (d)) + (x);   \
++        (a) = ((a) << (s)) | ((a) >> (32 - (s)))
++
++
++/*
++ * SET reads 4 input bytes in little-endian byte order and stores them
++ * in a properly aligned word in host byte order.
++ *
++ * The check for little-endian architectures which tolerate unaligned
++ * memory accesses is just an optimization.  Nothing will break if it
++ * doesn't work.
++ */
++/*#if defined(__i386__) || defined(__x86_64__) || defined(__vax__)
++#define SET(n) \
++        (*(const apr_uint32_t *)&ptr[(n) * 4])
++#define GET(n) \
++        SET(n)
++        #else*/
++#define SET(n) \
++        (block[(n)] = \
++        (apr_uint32_t)ptr[(n) * 4] | \
++        ((apr_uint32_t)ptr[(n) * 4 + 1] << 8) | \
++        ((apr_uint32_t)ptr[(n) * 4 + 2] << 16) | \
++        ((apr_uint32_t)ptr[(n) * 4 + 3] << 24))
++#define GET(n) \
++        (block[(n)])
++/*#endif*/
++
++
++
++/* MD4 initialization. Begins an MD4 operation, writing a new context.
++ */
++APU_DECLARE(apr_status_t) apr_md4_init(apr_md4_ctx_t *context)
++{
++    context->count[0] = context->count[1] = 0;
++
++    /* Load magic initialization constants. */
++    context->state[0] = 0x67452301;
++    context->state[1] = 0xefcdab89;
++    context->state[2] = 0x98badcfe;
++    context->state[3] = 0x10325476;
++    
++#if APR_HAS_XLATE
++    context->xlate = NULL;
++#endif
++
++    return APR_SUCCESS;
++}
++
++#if APR_HAS_XLATE
++/* MD4 translation setup.  Provides the APR translation handle
++ * to be used for translating the content before calculating the
++ * digest.
++ */
++APU_DECLARE(apr_status_t) apr_md4_set_xlate(apr_md4_ctx_t *context, 
++                                            apr_xlate_t *xlate)
++{
++    apr_status_t rv;
++    int is_sb;
++
++    /* TODO: remove the single-byte-only restriction from this code
++     */
++    rv = apr_xlate_sb_get(xlate, &is_sb);
++    if (rv != APR_SUCCESS) {
++        return rv;
++    }
++    if (!is_sb) {
++        return APR_EINVAL;
++    }
++    context->xlate = xlate;
++    return APR_SUCCESS;
++}
++#endif /* APR_HAS_XLATE */
++
++/* MD4 block update operation. Continues an MD4 message-digest
++ * operation, processing another message block, and updating the
++ * context.
++ */
++APU_DECLARE(apr_status_t) apr_md4_update(apr_md4_ctx_t *context,
++                                         const unsigned char *input,
++                                         apr_size_t inputLen)
++{
++    apr_uint32_t saved_lo;
++    unsigned long used, free;
++#if APR_HAS_XLATE
++/*    apr_size_t inbytes_left, outbytes_left;*/
++#endif
++
++    /* Update number of bits */
++    saved_lo = context->count[0];
++    if ((context->count[0] = (saved_lo + inputLen) & 0x1fffffff) < saved_lo)
++        context->count[1]++;
++    context->count[1] += (apr_uint32_t)inputLen >> 29;
++
++    /* Compute number of bytes mod 64 */
++    used = saved_lo & 0x3f;
++
++    /* Transform as many times as possible. */
++    if (used) {
++        free = 64 - used;
++        
++        if (inputLen < free) {
++            memcpy(&context->buffer[used], input, inputLen);
++            return APR_SUCCESS;
++        }
++
++        memcpy(&context->buffer[used], input, free);
++        input = (const unsigned char *) input + free;
++        inputLen -= free;
++        body(context, context->buffer, 64);
++    }
++
++    if (inputLen >= 64) {
++        input = body(context, input, inputLen & ~(unsigned long)0x3f);
++        inputLen &= 0x3f;
++    }
++
++    /* Buffer remaining input */
++    memcpy(context->buffer, input, inputLen);
++    return APR_SUCCESS;
++}
++
++/* MD4 finalization. Ends an MD4 message-digest operation, writing the
++ * the message digest and zeroizing the context.
++ */
++APU_DECLARE(apr_status_t) apr_md4_final(
++                                    unsigned char digest[APR_MD4_DIGESTSIZE],
++                                    apr_md4_ctx_t *context)
++{
++    unsigned long used, free;
++
++    used = context->count[0] & 0x3f;
++
++    context->buffer[used++] = 0x80;
++
++    free = 64 - used;
++
++#if APR_HAS_XLATE
++    /* apr_md4_update() should not translate for this final round. */
++    context->xlate = NULL;
++#endif /*APR_HAS_XLATE*/
++
++    if (free < 8) {
++        memset(&context->buffer[used], 0, free);
++        body(context, context->buffer, 64);
++        used = 0;
++        free = 64;
++    }
++
++    memset(&context->buffer[used], 0, free - 8);
++
++    context->count[0] <<= 3;
++    context->buffer[56] = context->count[0];
++    context->buffer[57] = context->count[0] >> 8;
++    context->buffer[58] = context->count[0] >> 16;
++    context->buffer[59] = context->count[0] >> 24;
++    context->buffer[60] = context->count[1];
++    context->buffer[61] = context->count[1] >> 8;
++    context->buffer[62] = context->count[1] >> 16;
++    context->buffer[63] = context->count[1] >> 24;
++
++    body(context, context->buffer, 64);
++
++    digest[0] = context->state[0];
++    digest[1] = context->state[0] >> 8;
++    digest[2] = context->state[0] >> 16;
++    digest[3] = context->state[0] >> 24;
++    digest[4] = context->state[1];
++    digest[5] = context->state[1] >> 8;
++    digest[6] = context->state[1] >> 16;
++    digest[7] = context->state[1] >> 24;
++    digest[8] = context->state[2];
++    digest[9] = context->state[2] >> 8;
++    digest[10] = context->state[2] >> 16;
++    digest[11] = context->state[2] >> 24;
++    digest[12] = context->state[3];
++    digest[13] = context->state[3] >> 8;
++    digest[14] = context->state[3] >> 16;
++    digest[15] = context->state[3] >> 24;
++
++    /* Zeroize sensitive information. */
++    memset(context, 0, sizeof(*context));
++    
++    return APR_SUCCESS;
++}
++
++/* MD4 computation in one step (init, update, final)
++ */
++APU_DECLARE(apr_status_t) apr_md4(unsigned char digest[APR_MD4_DIGESTSIZE],
++                                  const unsigned char *input,
++                                  apr_size_t inputLen)
++{
++    apr_md4_ctx_t ctx;
++    apr_status_t rv;
++
++    apr_md4_init(&ctx);
++
++    if ((rv = apr_md4_update(&ctx, input, inputLen)) != APR_SUCCESS)
++        return rv;
++
++    return apr_md4_final(digest, &ctx);
++}
++
++/*
++ * This processes one or more 64-byte data blocks, but does NOT update
++ * the bit counters.  There're no alignment requirements.
++ */
++static const void *body(apr_md4_ctx_t *context, const void *data, size_t size)
++{
++    const unsigned char *ptr, *convptr;
++    uint32_t a, b, c, d;
++    uint32_t saved_a, saved_b, saved_c, saved_d;
++    apr_uint32_t block[16];
++    
++#ifdef APR_HAS_XLATE
++    apr_size_t inbytes_left, outbytes_left;
++#endif
++
++    ptr = data;
++    
++    a = context->state[0];
++    b = context->state[1];
++    c = context->state[2];
++    d = context->state[3];
++    
++    do {
++        saved_a = a;
++        saved_b = b;
++        saved_c = c;
++        saved_d = d;
++        
++        convptr = ptr;
++#ifdef APR_HAS_XLATE
++        if (context->xlate) {
++            inbytes_left = outbytes_left = 64;
++            unsigned char inp_tmp[64];
++            apr_xlate_conv_buffer(context->xlate, ptr, &inbytes_left,
++                                  inp_tmp, &outbytes_left);
++            convptr = inp_tmp;
++        }
++#endif
++        /* Round 1 */
++        STEP(F, a, b, c, d, SET( 0),  3);
++        STEP(F, d, a, b, c, SET( 1),  7);
++        STEP(F, c, d, a, b, SET( 2), 11);
++        STEP(F, b, c, d, a, SET( 3), 19);
++        
++        STEP(F, a, b, c, d, SET( 4),  3);
++        STEP(F, d, a, b, c, SET( 5),  7);
++        STEP(F, c, d, a, b, SET( 6), 11);
++        STEP(F, b, c, d, a, SET( 7), 19);
++        
++        STEP(F, a, b, c, d, SET( 8),  3);
++        STEP(F, d, a, b, c, SET( 9),  7);
++        STEP(F, c, d, a, b, SET(10), 11);
++        STEP(F, b, c, d, a, SET(11), 19);
++        
++        STEP(F, a, b, c, d, SET(12),  3);
++        STEP(F, d, a, b, c, SET(13),  7);
++        STEP(F, c, d, a, b, SET(14), 11);
++        STEP(F, b, c, d, a, SET(15), 19);
++        /* Round 2 */
++        STEP(G, a, b, c, d, GET( 0) + 0x5A827999,  3);
++        STEP(G, d, a, b, c, GET( 4) + 0x5A827999,  5);
++        STEP(G, c, d, a, b, GET( 8) + 0x5A827999,  9);
++        STEP(G, b, c, d, a, GET(12) + 0x5A827999, 13);
++        
++        STEP(G, a, b, c, d, GET( 1) + 0x5A827999,  3);
++        STEP(G, d, a, b, c, GET( 5) + 0x5A827999,  5);
++        STEP(G, c, d, a, b, GET( 9) + 0x5A827999,  9);
++        STEP(G, b, c, d, a, GET(13) + 0x5A827999, 13);
++        
++        STEP(G, a, b, c, d, GET( 2) + 0x5A827999,  3);
++        STEP(G, d, a, b, c, GET( 6) + 0x5A827999,  5);
++        STEP(G, c, d, a, b, GET(10) + 0x5A827999,  9);
++        STEP(G, b, c, d, a, GET(14) + 0x5A827999, 13);
++        
++        STEP(G, a, b, c, d, GET( 3) + 0x5A827999,  3);
++        STEP(G, d, a, b, c, GET( 7) + 0x5A827999,  5);
++        STEP(G, c, d, a, b, GET(11) + 0x5A827999,  9);
++        STEP(G, b, c, d, a, GET(15) + 0x5A827999, 13);
++        /* Round 3 */
++        STEP(H, a, b, c, d, GET( 0) + 0x6ED9EBA1,  3);
++        STEP(H, d, a, b, c, GET( 8) + 0x6ED9EBA1,  9);
++        STEP(H, c, d, a, b, GET( 4) + 0x6ED9EBA1, 11);
++        STEP(H, b, c, d, a, GET(12) + 0x6ED9EBA1, 15);
++        
++        STEP(H, a, b, c, d, GET( 2) + 0x6ED9EBA1,  3);
++        STEP(H, d, a, b, c, GET(10) + 0x6ED9EBA1,  9);
++        STEP(H, c, d, a, b, GET( 6) + 0x6ED9EBA1, 11);
++        STEP(H, b, c, d, a, GET(14) + 0x6ED9EBA1, 15);
++        
++        STEP(H, a, b, c, d, GET( 1) + 0x6ED9EBA1,  3);
++        STEP(H, d, a, b, c, GET( 9) + 0x6ED9EBA1,  9);
++        STEP(H, c, d, a, b, GET( 5) + 0x6ED9EBA1, 11);
++        STEP(H, b, c, d, a, GET(13) + 0x6ED9EBA1, 15);
++        
++        STEP(H, a, b, c, d, GET( 3) + 0x6ED9EBA1,  3);
++        STEP(H, d, a, b, c, GET(11) + 0x6ED9EBA1,  9);
++        STEP(H, c, d, a, b, GET( 7) + 0x6ED9EBA1, 11);
++        STEP(H, b, c, d, a, GET(15) + 0x6ED9EBA1, 15);
++        
++        a += saved_a;
++        b += saved_b;
++        c += saved_c;
++        d += saved_d;
++        
++        ptr += 64;
++    } while (size -= 64);
++    
++    context->state[0] = a;
++    context->state[1] = b;
++    context->state[2] = c;
++    context->state[3] = d;
++    
++    return ptr;
++}
++
++
++#if APR_CHARSET_EBCDIC
++APU_DECLARE(apr_status_t) apr_MD4InitEBCDIC(apr_xlate_t *xlate)
++{
++    xlate_ebcdic_to_ascii = xlate;
++    return APR_SUCCESS;
++}
++#endif
+diff -urNad apr-util-1.2.7~/crypto/apr_md5.c apr-util-1.2.7/crypto/apr_md5.c
+--- apr-util-1.2.7~/crypto/apr_md5.c	1970-01-01 01:00:00.000000000 +0100
++++ apr-util-1.2.7/crypto/apr_md5.c	2006-08-18 14:21:41.000000000 +0200
+@@ -0,0 +1,686 @@
++/* FIXME: body must handle xlate */
++
++/*
++ * Adopted for apr-util by Tollef Fog Heen <tfheen@err.no>
++ */
++
++/*
++ * This is an OpenSSL-compatible implementation of the RSA Data Security,
++ * Inc. MD5 Message-Digest Algorithm.
++ *
++ * Written by Solar Designer <solar@openwall.com> in 2001, and placed in
++ * the public domain.  See md5.c for more information.
++ */
++
++/* Copyright 2000-2005 The Apache Software Foundation or its licensors, as
++ * applicable.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++/*
++ * The apr_md5_encode() routine uses much code obtained from the FreeBSD 3.0
++ * MD5 crypt() function, which is licenced as follows:
++ * ----------------------------------------------------------------------------
++ * "THE BEER-WARE LICENSE" (Revision 42):
++ * <phk@login.dknet.dk> wrote this file.  As long as you retain this notice you
++ * can do whatever you want with this stuff. If we meet some day, and you think
++ * this stuff is worth it, you can buy me a beer in return.   Poul-Henning Kamp
++ * ----------------------------------------------------------------------------
++ */
++#include "apr_strings.h"
++#include "apr_md5.h"
++#include "apr_lib.h"
++#include "apu_config.h"
++#include "apr_sha1.h"
++
++#if APR_HAVE_STRING_H
++#include <string.h>
++#endif
++#if APR_HAVE_CRYPT_H
++#include <crypt.h>
++#endif
++#if APR_HAVE_UNISTD_H
++#include <unistd.h>
++#endif
++#if APR_HAVE_PTHREAD_H
++#include <pthread.h>
++#endif
++
++static const void *body(apr_md5_ctx_t *context, const void *data, apr_size_t size);
++
++#if APR_CHARSET_EBCDIC
++static apr_xlate_t *xlate_ebcdic_to_ascii; /* used in apr_md5_encode() */
++#endif
++
++/*
++ * The basic MD5 functions.
++ *
++ * F is optimized compared to its RFC 1321 definition just like in Colin
++ * Plumb's implementation.
++ */
++#define F(x, y, z)                      ((z) ^ ((x) & ((y) ^ (z))))
++#define G(x, y, z)                      ((y) ^ ((z) & ((x) ^ (y))))
++#define H(x, y, z)                      ((x) ^ (y) ^ (z))
++#define I(x, y, z)                      ((y) ^ ((x) | ~(z)))
++
++/*
++ * The MD5 transformation for all four rounds.
++ */
++#define STEP(f, a, b, c, d, x, t, s) \
++        (a) += f((b), (c), (d)) + (x) + (t); \
++        (a) = (((a) << (s)) | (((a) & 0xffffffff) >> (32 - (s)))); \
++        (a) += (b);
++
++/*
++ * SET reads 4 input bytes in little-endian byte order and stores them
++ * in a properly aligned word in host byte order.
++ *
++ * The check for little-endian architectures which tolerate unaligned
++ * memory accesses is just an optimization.  Nothing will break if it
++ * doesn't work.
++ */
++#if defined(__i386__) || defined(__x86_64__) || defined(__vax__)
++#define SET(n) \
++        (*(const apr_uint32_t *)&convptr[(n) * 4])
++#define GET(n) \
++        SET(n)
++#else
++#define SET(n) \
++        (block[(n)] = \
++        (apr_uint32_t)convptr[(n) * 4] | \
++        ((apr_uint32_t)convptr[(n) * 4 + 1] << 8) | \
++        ((apr_uint32_t)convptr[(n) * 4 + 2] << 16) | \
++        ((apr_uint32_t)convptr[(n) * 4 + 3] << 24))
++#define GET(n) \
++        (block[(n)])
++#endif
++
++/* MD5 initialization. Begins an MD5 operation, writing a new context.
++ */
++APU_DECLARE(apr_status_t) apr_md5_init(apr_md5_ctx_t *context)
++{
++    context->count[0] = context->count[1] = 0;
++    
++    /* Load magic initialization constants. */
++    context->state[0] = 0x67452301;
++    context->state[1] = 0xefcdab89;
++    context->state[2] = 0x98badcfe;
++    context->state[3] = 0x10325476;
++    context->xlate = NULL;
++    
++    return APR_SUCCESS;
++}
++
++/* MD5 translation setup.  Provides the APR translation handle
++ * to be used for translating the content before calculating the
++ * digest.
++ */
++APU_DECLARE(apr_status_t) apr_md5_set_xlate(apr_md5_ctx_t *context, 
++                                            apr_xlate_t *xlate)
++{
++#if APR_HAS_XLATE
++    apr_status_t rv;
++    int is_sb;
++
++    /* TODO: remove the single-byte-only restriction from this code
++     */
++    rv = apr_xlate_sb_get(xlate, &is_sb);
++    if (rv != APR_SUCCESS) {
++        return rv;
++    }
++    if (!is_sb) {
++        return APR_EINVAL;
++    }
++    context->xlate = xlate;
++    return APR_SUCCESS;
++#else
++    return APR_ENOTIMPL;
++#endif /* APR_HAS_XLATE */
++}
++
++/* MD5 block update operation. Continues an MD5 message-digest
++ * operation, processing another message block, and updating the
++ * context.
++ */
++APU_DECLARE(apr_status_t) apr_md5_update(apr_md5_ctx_t *context,
++                                         const void *_input,
++                                         apr_size_t inputLen)
++{
++    apr_uint32_t saved_lo;
++    unsigned long used, free;
++#if APR_HAS_XLATE
++/*    apr_size_t inbytes_left, outbytes_left;*/
++#endif
++
++    /* Update number of bits */
++    saved_lo = context->count[0];
++    if ((context->count[0] = (saved_lo + inputLen) & 0x1fffffff) < saved_lo)
++        context->count[1]++;
++    context->count[1] += (apr_uint32_t)inputLen >> 29;
++
++    /* Compute number of bytes mod 64 */
++    used = saved_lo & 0x3f;
++
++    /* Transform as many times as possible. */
++    if (used) {
++        free = 64 - used;
++        
++        if (inputLen < free) {
++            memcpy(&context->buffer[used], _input, inputLen);
++            return APR_SUCCESS;
++        }
++
++        memcpy(&context->buffer[used], _input, free);
++        _input = (const unsigned char *) _input + free;
++        inputLen -= free;
++        body(context, context->buffer, 64);
++    }
++
++    if (inputLen >= 64) {
++        _input = body(context, _input, inputLen & ~(unsigned long)0x3f);
++        inputLen &= 0x3f;
++    }
++
++    /* Buffer remaining input */
++    memcpy(context->buffer, _input, inputLen);
++    return APR_SUCCESS;
++}
++
++/* MD5 finalization. Ends an MD5 message-digest operation, writing the
++ * the message digest and zeroizing the context.
++ */
++APU_DECLARE(apr_status_t) apr_md5_final(unsigned char digest[APR_MD5_DIGESTSIZE],
++                                        apr_md5_ctx_t *context)
++{
++    unsigned long used, free;
++
++    used = context->count[0] & 0x3f;
++
++    context->buffer[used++] = 0x80;
++
++    free = 64 - used;
++
++#if APR_HAS_XLATE
++    /* apr_md5_update() should not translate for this final round. */
++    context->xlate = NULL;
++#endif /*APR_HAS_XLATE*/
++
++    if (free < 8) {
++        memset(&context->buffer[used], 0, free);
++        body(context, context->buffer, 64);
++        used = 0;
++        free = 64;
++    }
++
++    memset(&context->buffer[used], 0, free - 8);
++
++    context->count[0] <<= 3;
++    context->buffer[56] = context->count[0];
++    context->buffer[57] = context->count[0] >> 8;
++    context->buffer[58] = context->count[0] >> 16;
++    context->buffer[59] = context->count[0] >> 24;
++    context->buffer[60] = context->count[1];
++    context->buffer[61] = context->count[1] >> 8;
++    context->buffer[62] = context->count[1] >> 16;
++    context->buffer[63] = context->count[1] >> 24;
++
++    body(context, context->buffer, 64);
++
++    digest[0] = context->state[0];
++    digest[1] = context->state[0] >> 8;
++    digest[2] = context->state[0] >> 16;
++    digest[3] = context->state[0] >> 24;
++    digest[4] = context->state[1];
++    digest[5] = context->state[1] >> 8;
++    digest[6] = context->state[1] >> 16;
++    digest[7] = context->state[1] >> 24;
++    digest[8] = context->state[2];
++    digest[9] = context->state[2] >> 8;
++    digest[10] = context->state[2] >> 16;
++    digest[11] = context->state[2] >> 24;
++    digest[12] = context->state[3];
++    digest[13] = context->state[3] >> 8;
++    digest[14] = context->state[3] >> 16;
++    digest[15] = context->state[3] >> 24;
++
++    /* Zeroize sensitive information. */
++    memset(context, 0, sizeof(*context));
++    
++    return APR_SUCCESS;
++}
++
++/* MD5 in one step (init, update, final)
++ */
++APU_DECLARE(apr_status_t) apr_md5(unsigned char digest[APR_MD5_DIGESTSIZE],
++                                  const void *_input,
++                                  apr_size_t inputLen)
++{
++    const unsigned char *input = _input;
++    apr_md5_ctx_t ctx;
++    apr_status_t rv;
++
++    apr_md5_init(&ctx);
++
++    if ((rv = apr_md5_update(&ctx, input, inputLen)) != APR_SUCCESS)
++        return rv;
++
++    return apr_md5_final(digest, &ctx);
++}
++
++/*
++ * This processes one or more 64-byte data blocks, but does NOT update
++ * the bit counters.  There're no alignment requirements.
++ */
++static const void *body(apr_md5_ctx_t *context, const void *data, apr_size_t size)
++{
++    const unsigned char *ptr, *convptr;
++    uint_fast32_t a, b, c, d;
++    uint_fast32_t saved_a, saved_b, saved_c, saved_d;
++    apr_uint32_t block[16];
++    
++#ifdef APR_HAS_XLATE
++    apr_size_t inbytes_left, outbytes_left;
++#endif
++
++    ptr = data;
++
++    a = context->state[0];
++    b = context->state[1];
++    c = context->state[2];
++    d = context->state[3];
++    
++    do {
++        saved_a = a;
++        saved_b = b;
++        saved_c = c;
++        saved_d = d;
++
++        convptr = ptr;
++#ifdef APR_HAS_XLATE
++        if (context->xlate) {
++            inbytes_left = outbytes_left = 64;
++            unsigned char inp_tmp[64];
++            apr_xlate_conv_buffer(context->xlate, ptr, &inbytes_left,
++                                  inp_tmp, &outbytes_left);
++            convptr = inp_tmp;
++        }
++#endif
++
++
++/* Round 1 */
++		STEP(F, a, b, c, d, SET(0), 0xd76aa478, 7)
++		STEP(F, d, a, b, c, SET(1), 0xe8c7b756, 12)
++		STEP(F, c, d, a, b, SET(2), 0x242070db, 17)
++		STEP(F, b, c, d, a, SET(3), 0xc1bdceee, 22)
++		STEP(F, a, b, c, d, SET(4), 0xf57c0faf, 7)
++		STEP(F, d, a, b, c, SET(5), 0x4787c62a, 12)
++		STEP(F, c, d, a, b, SET(6), 0xa8304613, 17)
++		STEP(F, b, c, d, a, SET(7), 0xfd469501, 22)
++		STEP(F, a, b, c, d, SET(8), 0x698098d8, 7)
++		STEP(F, d, a, b, c, SET(9), 0x8b44f7af, 12)
++		STEP(F, c, d, a, b, SET(10), 0xffff5bb1, 17)
++		STEP(F, b, c, d, a, SET(11), 0x895cd7be, 22)
++		STEP(F, a, b, c, d, SET(12), 0x6b901122, 7)
++		STEP(F, d, a, b, c, SET(13), 0xfd987193, 12)
++		STEP(F, c, d, a, b, SET(14), 0xa679438e, 17)
++		STEP(F, b, c, d, a, SET(15), 0x49b40821, 22)
++
++/* Round 2 */
++		STEP(G, a, b, c, d, GET(1), 0xf61e2562, 5)
++		STEP(G, d, a, b, c, GET(6), 0xc040b340, 9)
++		STEP(G, c, d, a, b, GET(11), 0x265e5a51, 14)
++		STEP(G, b, c, d, a, GET(0), 0xe9b6c7aa, 20)
++		STEP(G, a, b, c, d, GET(5), 0xd62f105d, 5)
++		STEP(G, d, a, b, c, GET(10), 0x02441453, 9)
++		STEP(G, c, d, a, b, GET(15), 0xd8a1e681, 14)
++		STEP(G, b, c, d, a, GET(4), 0xe7d3fbc8, 20)
++		STEP(G, a, b, c, d, GET(9), 0x21e1cde6, 5)
++		STEP(G, d, a, b, c, GET(14), 0xc33707d6, 9)
++		STEP(G, c, d, a, b, GET(3), 0xf4d50d87, 14)
++		STEP(G, b, c, d, a, GET(8), 0x455a14ed, 20)
++		STEP(G, a, b, c, d, GET(13), 0xa9e3e905, 5)
++		STEP(G, d, a, b, c, GET(2), 0xfcefa3f8, 9)
++		STEP(G, c, d, a, b, GET(7), 0x676f02d9, 14)
++		STEP(G, b, c, d, a, GET(12), 0x8d2a4c8a, 20)
++
++/* Round 3 */
++		STEP(H, a, b, c, d, GET(5), 0xfffa3942, 4)
++		STEP(H, d, a, b, c, GET(8), 0x8771f681, 11)
++		STEP(H, c, d, a, b, GET(11), 0x6d9d6122, 16)
++		STEP(H, b, c, d, a, GET(14), 0xfde5380c, 23)
++		STEP(H, a, b, c, d, GET(1), 0xa4beea44, 4)
++		STEP(H, d, a, b, c, GET(4), 0x4bdecfa9, 11)
++		STEP(H, c, d, a, b, GET(7), 0xf6bb4b60, 16)
++		STEP(H, b, c, d, a, GET(10), 0xbebfbc70, 23)
++		STEP(H, a, b, c, d, GET(13), 0x289b7ec6, 4)
++		STEP(H, d, a, b, c, GET(0), 0xeaa127fa, 11)
++		STEP(H, c, d, a, b, GET(3), 0xd4ef3085, 16)
++		STEP(H, b, c, d, a, GET(6), 0x04881d05, 23)
++		STEP(H, a, b, c, d, GET(9), 0xd9d4d039, 4)
++		STEP(H, d, a, b, c, GET(12), 0xe6db99e5, 11)
++		STEP(H, c, d, a, b, GET(15), 0x1fa27cf8, 16)
++		STEP(H, b, c, d, a, GET(2), 0xc4ac5665, 23)
++
++/* Round 4 */
++		STEP(I, a, b, c, d, GET(0), 0xf4292244, 6)
++		STEP(I, d, a, b, c, GET(7), 0x432aff97, 10)
++		STEP(I, c, d, a, b, GET(14), 0xab9423a7, 15)
++		STEP(I, b, c, d, a, GET(5), 0xfc93a039, 21)
++		STEP(I, a, b, c, d, GET(12), 0x655b59c3, 6)
++		STEP(I, d, a, b, c, GET(3), 0x8f0ccc92, 10)
++		STEP(I, c, d, a, b, GET(10), 0xffeff47d, 15)
++		STEP(I, b, c, d, a, GET(1), 0x85845dd1, 21)
++		STEP(I, a, b, c, d, GET(8), 0x6fa87e4f, 6)
++		STEP(I, d, a, b, c, GET(15), 0xfe2ce6e0, 10)
++		STEP(I, c, d, a, b, GET(6), 0xa3014314, 15)
++		STEP(I, b, c, d, a, GET(13), 0x4e0811a1, 21)
++		STEP(I, a, b, c, d, GET(4), 0xf7537e82, 6)
++		STEP(I, d, a, b, c, GET(11), 0xbd3af235, 10)
++		STEP(I, c, d, a, b, GET(2), 0x2ad7d2bb, 15)
++		STEP(I, b, c, d, a, GET(9), 0xeb86d391, 21)
++
++		a += saved_a;
++		b += saved_b;
++		c += saved_c;
++		d += saved_d;
++
++		ptr += 64;
++	} while (size -= 64);
++
++	context->state[0] = a;
++	context->state[1] = b;
++	context->state[2] = c;
++	context->state[3] = d;
++
++	return ptr;
++}
++
++#if APR_CHARSET_EBCDIC
++APU_DECLARE(apr_status_t) apr_MD5InitEBCDIC(apr_xlate_t *xlate)
++{
++    xlate_ebcdic_to_ascii = xlate;
++    return APR_SUCCESS;
++}
++#endif
++
++/*
++ * Define the Magic String prefix that identifies a password as being
++ * hashed using our algorithm.
++ */
++static const char *apr1_id = "$apr1$";
++
++/*
++ * The following MD5 password encryption code was largely borrowed from
++ * the FreeBSD 3.0 /usr/src/lib/libcrypt/crypt.c file, which is
++ * licenced as stated at the top of this file.
++ */
++
++static void to64(char *s, unsigned long v, int n)
++{
++    static unsigned char itoa64[] =         /* 0 ... 63 => ASCII - 64 */
++        "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
++
++    while (--n >= 0) {
++        *s++ = itoa64[v&0x3f];
++        v >>= 6;
++    }
++}
++
++APU_DECLARE(apr_status_t) apr_md5_encode(const char *pw, const char *salt,
++                             char *result, apr_size_t nbytes)
++{
++    /*
++     * Minimum size is 8 bytes for salt, plus 1 for the trailing NUL,
++     * plus 4 for the '$' separators, plus the password hash itself.
++     * Let's leave a goodly amount of leeway.
++     */
++
++    char passwd[120], *p;
++    const char *sp, *ep;
++    unsigned char final[APR_MD5_DIGESTSIZE];
++    apr_ssize_t sl, pl, i;
++    apr_md5_ctx_t ctx, ctx1;
++    unsigned long l;
++
++    /* 
++     * Refine the salt first.  It's possible we were given an already-hashed
++     * string as the salt argument, so extract the actual salt value from it
++     * if so.  Otherwise just use the string up to the first '$' as the salt.
++     */
++    sp = salt;
++
++    /*
++     * If it starts with the magic string, then skip that.
++     */
++    if (!strncmp(sp, apr1_id, strlen(apr1_id))) {
++        sp += strlen(apr1_id);
++    }
++
++    /*
++     * It stops at the first '$' or 8 chars, whichever comes first
++     */
++    for (ep = sp; (*ep != '\0') && (*ep != '$') && (ep < (sp + 8)); ep++) {
++        continue;
++    }
++
++    /*
++     * Get the length of the true salt
++     */
++    sl = ep - sp;
++
++    /*
++     * 'Time to make the doughnuts..'
++     */
++    apr_md5_init(&ctx);
++#if APR_CHARSET_EBCDIC
++    apr_md5_set_xlate(&ctx, xlate_ebcdic_to_ascii);
++#endif
++    
++    /*
++     * The password first, since that is what is most unknown
++     */
++    apr_md5_update(&ctx, pw, strlen(pw));
++
++    /*
++     * Then our magic string
++     */
++    apr_md5_update(&ctx, apr1_id, strlen(apr1_id));
++
++    /*
++     * Then the raw salt
++     */
++    apr_md5_update(&ctx, sp, sl);
++
++    /*
++     * Then just as many characters of the MD5(pw, salt, pw)
++     */
++    apr_md5_init(&ctx1);
++    apr_md5_update(&ctx1, pw, strlen(pw));
++    apr_md5_update(&ctx1, sp, sl);
++    apr_md5_update(&ctx1, pw, strlen(pw));
++    apr_md5_final(final, &ctx1);
++    for (pl = strlen(pw); pl > 0; pl -= APR_MD5_DIGESTSIZE) {
++        apr_md5_update(&ctx, final, 
++                      (pl > APR_MD5_DIGESTSIZE) ? APR_MD5_DIGESTSIZE : pl);
++    }
++
++    /*
++     * Don't leave anything around in vm they could use.
++     */
++    memset(final, 0, sizeof(final));
++
++    /*
++     * Then something really weird...
++     */
++    for (i = strlen(pw); i != 0; i >>= 1) {
++        if (i & 1) {
++            apr_md5_update(&ctx, final, 1);
++        }
++        else {
++            apr_md5_update(&ctx, pw, 1);
++        }
++    }
++
++    /*
++     * Now make the output string.  We know our limitations, so we
++     * can use the string routines without bounds checking.
++     */
++    strcpy(passwd, apr1_id);
++    strncat(passwd, sp, sl);
++    strcat(passwd, "$");
++
++    apr_md5_final(final, &ctx);
++
++    /*
++     * And now, just to make sure things don't run too fast..
++     * On a 60 Mhz Pentium this takes 34 msec, so you would
++     * need 30 seconds to build a 1000 entry dictionary...
++     */
++    for (i = 0; i < 1000; i++) {
++        apr_md5_init(&ctx1);
++        if (i & 1) {
++            apr_md5_update(&ctx1, pw, strlen(pw));
++        }
++        else {
++            apr_md5_update(&ctx1, final, APR_MD5_DIGESTSIZE);
++        }
++        if (i % 3) {
++            apr_md5_update(&ctx1, sp, sl);
++        }
++
++        if (i % 7) {
++            apr_md5_update(&ctx1, pw, strlen(pw));
++        }
++
++        if (i & 1) {
++            apr_md5_update(&ctx1, final, APR_MD5_DIGESTSIZE);
++        }
++        else {
++            apr_md5_update(&ctx1, pw, strlen(pw));
++        }
++        apr_md5_final(final,&ctx1);
++    }
++
++    p = passwd + strlen(passwd);
++
++    l = (final[ 0]<<16) | (final[ 6]<<8) | final[12]; to64(p, l, 4); p += 4;
++    l = (final[ 1]<<16) | (final[ 7]<<8) | final[13]; to64(p, l, 4); p += 4;
++    l = (final[ 2]<<16) | (final[ 8]<<8) | final[14]; to64(p, l, 4); p += 4;
++    l = (final[ 3]<<16) | (final[ 9]<<8) | final[15]; to64(p, l, 4); p += 4;
++    l = (final[ 4]<<16) | (final[10]<<8) | final[ 5]; to64(p, l, 4); p += 4;
++    l =                    final[11]                ; to64(p, l, 2); p += 2;
++    *p = '\0';
++
++    /*
++     * Don't leave anything around in vm they could use.
++     */
++    memset(final, 0, sizeof(final));
++
++    apr_cpystrn(result, passwd, nbytes - 1);
++    return APR_SUCCESS;
++}
++
++#if !defined(WIN32) && !defined(BEOS) && !defined(NETWARE)
++#if defined(APU_CRYPT_THREADSAFE) || !APR_HAS_THREADS || \
++    defined(CRYPT_R_CRYPTD) || defined(CRYPT_R_STRUCT_CRYPT_DATA)
++
++#define crypt_mutex_lock()
++#define crypt_mutex_unlock()
++
++#elif APR_HAVE_PTHREAD_H && defined(PTHREAD_MUTEX_INITIALIZER)
++
++static pthread_mutex_t crypt_mutex = PTHREAD_MUTEX_INITIALIZER;
++static void crypt_mutex_lock(void)
++{
++    pthread_mutex_lock(&crypt_mutex);
++}
++
++static void crypt_mutex_unlock(void)
++{
++    pthread_mutex_unlock(&crypt_mutex);
++}
++
++#else
++
++#error apr_password_validate() is not threadsafe.  rebuild APR without thread support.
++
++#endif
++#endif
++
++/*
++ * Validate a plaintext password against a smashed one.  Uses either
++ * crypt() (if available) or apr_md5_encode() or apr_sha1_base64(), depending
++ * upon the format of the smashed input password.  Returns APR_SUCCESS if
++ * they match, or APR_EMISMATCH if they don't.  If the platform doesn't
++ * support crypt, then the default check is against a clear text string.
++ */
++APU_DECLARE(apr_status_t) apr_password_validate(const char *passwd, 
++                                                const char *hash)
++{
++    char sample[120];
++#if !defined(WIN32) && !defined(BEOS) && !defined(NETWARE)
++    char *crypt_pw;
++#endif
++    if (!strncmp(hash, apr1_id, strlen(apr1_id))) {
++        /*
++         * The hash was created using our custom algorithm.
++         */
++        apr_md5_encode(passwd, hash, sample, sizeof(sample));
++    }
++    else if (!strncmp(hash, APR_SHA1PW_ID, APR_SHA1PW_IDLEN)) {
++         apr_sha1_base64(passwd, strlen(passwd), sample);
++    }
++    else {
++        /*
++         * It's not our algorithm, so feed it to crypt() if possible.
++         */
++#if defined(WIN32) || defined(BEOS) || defined(NETWARE)
++        apr_cpystrn(sample, passwd, sizeof(sample) - 1);
++#elif defined(CRYPT_R_CRYPTD)
++        CRYPTD buffer;
++
++        crypt_pw = crypt_r(passwd, hash, &buffer);
++        apr_cpystrn(sample, crypt_pw, sizeof(sample) - 1);
++#elif defined(CRYPT_R_STRUCT_CRYPT_DATA)
++        struct crypt_data buffer;
++
++        /* having to clear this seems bogus... GNU doc is
++         * confusing...  user report found from google says
++         * the crypt_data struct had to be cleared to get
++         * the same result as plain crypt()
++         */
++        memset(&buffer, 0, sizeof(buffer));
++        crypt_pw = crypt_r(passwd, hash, &buffer);
++        apr_cpystrn(sample, crypt_pw, sizeof(sample) - 1);
++#else
++        /* Do a bit of sanity checking since we know that crypt_r()
++         * should always be used for threaded builds on AIX, and
++         * problems in configure logic can result in the wrong
++         * choice being made.
++         */
++#if defined(_AIX) && APR_HAS_THREADS
++#error Configuration error!  crypt_r() should have been selected!
++#endif
++
++        /* Handle thread safety issues by holding a mutex around the
++         * call to crypt().
++         */
++        crypt_mutex_lock();
++        crypt_pw = crypt(passwd, hash);
++        apr_cpystrn(sample, crypt_pw, sizeof(sample) - 1);
++        crypt_mutex_unlock();
++#endif
++    }
++    return (strcmp(sample, hash) == 0) ? APR_SUCCESS : APR_EMISMATCH;
++}
+diff -urNad apr-util-1.2.7~/include/apr_md4.h apr-util-1.2.7/include/apr_md4.h
+--- apr-util-1.2.7~/include/apr_md4.h	1970-01-01 01:00:00.000000000 +0100
++++ apr-util-1.2.7/include/apr_md4.h	2006-08-18 14:22:04.000000000 +0200
+@@ -0,0 +1,135 @@
++/* Copyright 2001-2005 The Apache Software Foundation or its licensors, as
++ * applicable.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++/* This is derived from material copyright RSA Data Security, Inc.
++ * Their notice is reproduced below in its entirety.
++ *
++ * Copyright (C) 1991-2, RSA Data Security, Inc. Created 1991. All
++ * rights reserved.
++ *
++ * License to copy and use this software is granted provided that it
++ * is identified as the "RSA Data Security, Inc. MD4 Message-Digest
++ * Algorithm" in all material mentioning or referencing this software
++ * or this function.
++ *
++ * License is also granted to make and use derivative works provided
++ * that such works are identified as "derived from the RSA Data
++ * Security, Inc. MD4 Message-Digest Algorithm" in all material
++ * mentioning or referencing the derived work.
++ *
++ * RSA Data Security, Inc. makes no representations concerning either
++ * the merchantability of this software or the suitability of this
++ * software for any particular purpose. It is provided "as is"
++ * without express or implied warranty of any kind.
++ *
++ * These notices must be retained in any copies of any part of this
++ * documentation and/or software.
++ */
++
++#ifndef APR_MD4_H
++#define APR_MD4_H
++
++#include "apu.h"
++#include "apr_xlate.h"
++/**
++ * @file apr_md4.h
++ * @brief APR-UTIL MD4 Library
++ */
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/**
++ * @defgroup APR_Util_MD4 MD4 Library
++ * @ingroup APR_Util
++ * @{
++ */
++
++/** The digestsize for MD4 */
++#define APR_MD4_DIGESTSIZE 16
++
++/** @see apr_md4_ctx_t */
++typedef struct apr_md4_ctx_t apr_md4_ctx_t;
++
++/** MD4 context. */
++struct apr_md4_ctx_t {
++    /** state (ABCD) */
++    apr_uint32_t state[4];
++    /** number of bits, modulo 2^64 (lsb first) */
++    apr_uint32_t count[2];
++    /** input buffer */
++    unsigned char buffer[64];
++#if APR_HAS_XLATE
++    /** translation handle */
++    apr_xlate_t *xlate;
++#endif
++};
++
++/**
++ * MD4 Initialize.  Begins an MD4 operation, writing a new context.
++ * @param context The MD4 context to initialize.
++ */
++APU_DECLARE(apr_status_t) apr_md4_init(apr_md4_ctx_t *context);
++
++#if APR_HAS_XLATE
++/**
++ * MDr4 translation setup.  Provides the APR translation handle to be used 
++ * for translating the content before calculating the digest.
++ * @param context The MD4 content to set the translation for.
++ * @param xlate The translation handle to use for this MD4 context 
++ */
++APU_DECLARE(apr_status_t) apr_md4_set_xlate(apr_md4_ctx_t *context,
++                                            apr_xlate_t *xlate);
++#else
++#define apr_md4_set_xlate(context, xlate) APR_ENOTIMPL
++#endif
++
++/**
++ * MD4 block update operation.  Continue an MD4 message-digest operation, 
++ * processing another message block, and updating the context.
++ * @param context The MD4 content to update.
++ * @param input next message block to update
++ * @param inputLen The length of the next message block
++ */
++APU_DECLARE(apr_status_t) apr_md4_update(apr_md4_ctx_t *context,
++                                         const unsigned char *input,
++                                         apr_size_t inputLen);
++
++/**
++ * MD4 finalization.  Ends an MD4 message-digest operation, writing the 
++ * message digest and zeroing the context
++ * @param digest The final MD4 digest
++ * @param context The MD4 content we are finalizing.
++ */
++APU_DECLARE(apr_status_t) apr_md4_final(
++                                    unsigned char digest[APR_MD4_DIGESTSIZE],
++                                    apr_md4_ctx_t *context);
++
++/**
++ * MD4 digest computation
++ * @param digest The MD4 digest
++ * @param input message block to use
++ * @param inputLen The length of the message block
++ */
++APU_DECLARE(apr_status_t) apr_md4(unsigned char digest[APR_MD4_DIGESTSIZE],
++                                  const unsigned char *input,
++                                  apr_size_t inputLen);
++
++/** @} */
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* !APR_MD4_H */
+diff -urNad apr-util-1.2.7~/include/apr_md5.h apr-util-1.2.7/include/apr_md5.h
+--- apr-util-1.2.7~/include/apr_md5.h	1970-01-01 01:00:00.000000000 +0100
++++ apr-util-1.2.7/include/apr_md5.h	2006-08-18 14:22:04.000000000 +0200
+@@ -0,0 +1,144 @@
++/*
++ * Adopted for apr-util by Tollef Fog Heen <tfheen@err.no>
++ */
++
++/*
++ * This is an OpenSSL-compatible implementation of the RSA Data Security,
++ * Inc. MD5 Message-Digest Algorithm.
++ *
++ * Written by Solar Designer <solar@openwall.com> in 2001, and placed in
++ * the public domain.  See md5.c for more information.
++ */
++
++/* Copyright 2000-2005 The Apache Software Foundation or its licensors, as
++ * applicable.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef APR_MD5_H
++#define APR_MD5_H
++
++#include "apu.h"
++#include "apr_xlate.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++/**
++ * @file apr_md5.h
++ * @brief APR MD5 Routines
++ */
++
++/**
++ * @defgroup APR_MD5 MD5 Routines
++ * @ingroup APR
++ * @{
++ */
++
++/** The MD5 digest size */
++#define APR_MD5_DIGESTSIZE 16
++
++/** @see apr_md5_ctx_t */
++typedef struct apr_md5_ctx_t apr_md5_ctx_t;
++
++/** MD5 context. */
++struct apr_md5_ctx_t {
++    /** state (ABCD) */
++    apr_uint32_t state[4];
++    /** number of bits, modulo 2^64 (lsb first) */
++    apr_uint32_t count[2];
++    /** input buffer */
++    unsigned char buffer[64];
++    /** translation handle 
++     *  ignored if xlate is unsupported
++     */
++    apr_xlate_t *xlate;
++};
++
++/**
++ * MD5 Initialize.  Begins an MD5 operation, writing a new context.
++ * @param context The MD5 context to initialize.
++ */
++APU_DECLARE(apr_status_t) apr_md5_init(apr_md5_ctx_t *context);
++
++/**
++ * MD5 translation setup.  Provides the APR translation handle to be used 
++ * for translating the content before calculating the digest.
++ * @param context The MD5 content to set the translation for.
++ * @param xlate The translation handle to use for this MD5 context 
++ */
++APU_DECLARE(apr_status_t) apr_md5_set_xlate(apr_md5_ctx_t *context,
++                                            apr_xlate_t *xlate);
++
++/**
++ * MD5 block update operation.  Continue an MD5 message-digest operation, 
++ * processing another message block, and updating the context.
++ * @param context The MD5 content to update.
++ * @param input next message block to update
++ * @param inputLen The length of the next message block
++ */
++APU_DECLARE(apr_status_t) apr_md5_update(apr_md5_ctx_t *context,
++                                         const void *input,
++                                         apr_size_t inputLen);
++
++/**
++ * MD5 finalization.  Ends an MD5 message-digest operation, writing the 
++ * message digest and zeroing the context
++ * @param digest The final MD5 digest
++ * @param context The MD5 content we are finalizing.
++ */
++APU_DECLARE(apr_status_t) apr_md5_final(unsigned char digest[APR_MD5_DIGESTSIZE],
++                                        apr_md5_ctx_t *context);
++
++/**
++ * MD5 in one step
++ * @param digest The final MD5 digest
++ * @param input The message block to use
++ * @param inputLen The length of the message block
++ */
++APU_DECLARE(apr_status_t) apr_md5(unsigned char digest[APR_MD5_DIGESTSIZE],
++                                  const void *input,
++                                  apr_size_t inputLen);
++
++/**
++ * Encode a password using an MD5 algorithm
++ * @param password The password to encode
++ * @param salt The salt to use for the encoding
++ * @param result The string to store the encoded password in
++ * @param nbytes The size of the result buffer
++ */
++APU_DECLARE(apr_status_t) apr_md5_encode(const char *password, const char *salt,
++                                         char *result, apr_size_t nbytes);
++
++
++/**
++ * Validate hashes created by APR-supported algorithms: md5 and sha1.
++ * hashes created by crypt are supported only on platforms that provide
++ * crypt(3), so don't rely on that function unless you know that your
++ * application will be run only on platforms that support it.  On platforms
++ * that don't support crypt(3), this falls back to a clear text string
++ * comparison.
++ * @param passwd The password to validate
++ * @param hash The password to validate against
++ */
++APU_DECLARE(apr_status_t) apr_password_validate(const char *passwd, 
++                                                const char *hash);
++
++
++/** @} */
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* !APR_MD5_H */

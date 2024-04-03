@@ -1,0 +1,28 @@
+#!/bin/sh
+package=$1
+debiandir=debian/tmp/DEBIAN
+if [ "$2" != "" ]; then
+  debiandir=debian/$2/DEBIAN
+fi
+if [ ! -f $debiandir/postinst ]; then
+  echo "#!/bin/sh" > $debiandir/postinst
+  echo "set -e" >> $debiandir/postinst
+  chmod 755 $debiandir/postinst
+fi
+if [ ! -f $debiandir/prerm ]; then
+  echo "#!/bin/sh" > $debiandir/prerm
+  echo "set -e" >> $debiandir/prerm
+  chmod 755 $debiandir/prerm
+fi
+cat << EOF >> $debiandir/postinst
+if [ "\$1" = "configure" ]; then
+  if [ -d /usr/doc -a ! -e /usr/doc/$package -a -d /usr/share/doc/$package ]; then
+    ln -sf ../share/doc/$package /usr/doc/$package
+  fi
+fi
+EOF
+cat << EOF >> $debiandir/prerm
+if [ \( "\$1" = "upgrade" -o "\$1" = "remove" \) -a -L /usr/doc/$package ]; then
+  rm -f /usr/doc/$package
+fi
+EOF

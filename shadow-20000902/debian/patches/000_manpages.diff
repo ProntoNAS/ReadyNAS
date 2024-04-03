@@ -1,0 +1,331 @@
+diff -urN shadow-20000902.orig/man/expiry.1 shadow-20000902/man/expiry.1
+--- shadow-20000902.orig/man/expiry.1	Wed Dec 31 19:00:00 1969
++++ shadow-20000902/man/expiry.1	Wed Sep 27 18:06:53 2000
+@@ -0,0 +1,51 @@
++.\" Copyright 1990 - 1994 Julianne Frances Haugh
++.\" All rights reserved.
++.\" Modified for expiry by Ben Collins <bcollins@debian.org, 1999
++.\"
++.\" Redistribution and use in source and binary forms, with or without
++.\" modification, are permitted provided that the following conditions
++.\" are met:
++.\" 1. Redistributions of source code must retain the above copyright
++.\"    notice, this list of conditions and the following disclaimer.
++.\" 2. Redistributions in binary form must reproduce the above copyright
++.\"    notice, this list of conditions and the following disclaimer in the
++.\"    documentation and/or other materials provided with the distribution.
++.\" 3. Neither the name of Julianne F. Haugh nor the names of its contributors
++.\"    may be used to endorse or promote products derived from this software
++.\"    without specific prior written permission.
++.\"
++.\" THIS SOFTWARE IS PROVIDED BY JULIE HAUGH AND CONTRIBUTORS ``AS IS'' AND
++.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++.\" ARE DISCLAIMED.  IN NO EVENT SHALL JULIE HAUGH OR CONTRIBUTORS BE LIABLE
++.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++.\" SUCH DAMAGE.
++.\"
++
++ * expiry - check and enforce password expiration policy
++ *
++
++
++.TH EXPIRY 1
++.SH NAME
++expiry \- check and enforce password expiration policy
++.SH SYNOPSIS
++.TP 6
++\fBexpiry\fR [\fB-c\fR] [\fB-f\fR]
++.SH DESCRIPTION
++\fBexpiry\fR checks (\fB-c\fR) the current password expiration and forces (\fB-f\fR)
++changes when required.  It is callable as a normal user command. 
++.SH FILES
++/etc/passwd \- user account information
++.br
++/etc/shadow \- shadow user account information
++.SH SEE ALSO
++.BR passwd (5),
++.BR shadow (5)
++.SH AUTHOR
++Ben Collins (bcollins@debian.org)
+diff -urN shadow-20000902.orig/man/passwd.1 shadow-20000902/man/passwd.1
+--- shadow-20000902.orig/man/passwd.1	Sat Aug 26 14:27:17 2000
++++ shadow-20000902/man/passwd.1	Wed Sep 27 18:07:18 2000
+@@ -38,7 +38,7 @@
+ \fBpasswd\fR [\fB-x\fR \fImax\fR] [\fB-n\fR \fImin\fR]
+ [\fB-w\fR \fIwarn\fR] [\fB-i\fR \fIinact\fR] \fIname\fR
+ .br
+-\fBpasswd\fR {\fB-l\fR|\fB-u\fR|\fB-d\fR|\fB-S\fR} \fIname\fR
++\fBpasswd\fR {\fB-l\fR|\fB-u\fR|\fB-d\fR|\fB-S\fR|\fB-e\fR} \fIname\fR
+ .SH DESCRIPTION
+ \fBpasswd\fR changes passwords for user and group accounts.
+ A normal user may only change the password for their own account,
+@@ -121,6 +121,13 @@
+ The \fB-u\fR option re-enables an account by changing the password
+ back to its previous value.
+ .PP
++If you wish to immediately expire an accounts password, you can use the
++\fB-e\fR option. This in affect can force a user to change their password at
++their next login. You can also use the \fB-d\fR option to delete a users
++password (make it empty). Use caution with this option since it can make an
++account not require a password at all to login, leaving your system open to
++intruders.
++.PP
+ The account status may be given with the \fB-S\fR option.
+ The status information consists of 6 parts.
+ The first part indicates if the user account is locked (L), has no
+@@ -135,6 +142,11 @@
+ the NBS DES algorithm and is very secure.
+ The size of the key space depends upon the randomness of the
+ password which is selected.
++.PP
++The \fB-s\fR option makes passwd call chsh to change the users shell. The
++\fB-f\fR option makes passwd call chfn to change the users gecos
++information. These two options are only meant for compatiblity, since the
++other programs can be called directly.
+ .PP
+ Compromises in password security normally result from careless
+ password selection or handling.
+diff -urN shadow-20000902.orig/man/shadow.5 shadow-20000902/man/shadow.5
+--- shadow-20000902.orig/man/shadow.5	Sat Aug 26 14:27:17 2000
++++ shadow-20000902/man/shadow.5	Wed Sep 27 18:07:18 2000
+@@ -91,7 +91,6 @@
+ .BR passwd (1),
+ .BR su (1),
+ .BR sulogin (8),
+-.BR shadow (3),
+ .BR passwd (5),
+ .BR pwconv (8),
+ .BR pwunconv (8)
+diff -urN shadow-20000902.orig/man/su.1 shadow-20000902/man/su.1
+--- shadow-20000902.orig/man/su.1	Sat Aug 26 14:27:17 2000
++++ shadow-20000902/man/su.1	Wed Sep 27 18:39:53 2000
+@@ -31,8 +31,7 @@
+ .SH NAME
+ su \- Change user ID or become super-user
+ .SH SYNOPSIS
+-.BR su " [" - ]
+-.RI [ username " [" args ]]
++\fBsu\fP [\fBOPTS\fR] [\fB-\fP] [\fBusername\fP [\fBARGS\fP]]
+ .SH DESCRIPTION
+ .B su
+ is used to become another user during a login session.
+@@ -42,28 +41,45 @@
+ environment similiar to what the user would expect had
+ the user logged in directly.
+ .PP
+-Additional arguments may be provided after the username,
+-in which case they are supplied to the user\'s login shell.
+-In particular, an argument of \fB-c\fR will cause the
+-next argument to be treated as a command by most command
+-interpreters.
+-.\" The command will be executed under the shell specified by
+-.\" \fB$SHELL\fR, or if undefined, by the one specified in
+-.\" \fI/etc/passwd\fR.
+-.\" XXX - the above was not quite correct.  --marekm
+-The command will be executed by the shell specified in
+-\fI/etc/passwd\fR for the target user.
+-.PP
+-The user will be prompted for a password, if appropriate.
+-Invalid passwords will produce an error message.
+-All attempts, both valid and invalid, are logged to detect
+-abuses of the system.
++The user will be prompted for a password, if appropriate.  Invalid
++passwords will produce an error message.  All attempts, both valid and
++invalid, are logged to detect abuses of the system.
++.PP
++An optional command can be executed. This is done by the shell specified
++in \fI/etc/passwd\fR for the target user unless the \fB-s\fR or \fB-m\fR
++options are used.  Any arguments supplied after the \fBusername\fR will be
++passed to the invoked shell (shell must support the -c command line
++option in order for a command to be passed to it).
+ .PP
+ The current environment is passed to the new shell.  The value of
+ \fB$PATH\fR is reset to \fB/bin:/usr/bin\fR for normal users, or
+ \fB/sbin:/bin:/usr/sbin:/usr/bin\fR for the super user.  This may be
+ changed with the \fBENV_PATH\fR and \fBENV_SUPATH\fR definitions in
+-\fI/etc/login.defs\fR.
++\fI/etc/login.defs\fR. When using the \fB-m\fR or \fB-p\fR options, the
++users environment is not changed.
++.PP
++A subsystem login is indicated by the presense of a "*" as the first
++character of the login shell. The given home directory will be used as
++the root of a new filesystem which the user is actually logged into.
++.SH OPTIONS
++.TP
++\fB-\fR
++make this a login shell
++.TP
++\fB\-c\fR, \fB\-\-commmand\fR=\fI<command>\fR
++pass \fIcommand\fR to the invoked shell using its \fB-c\fR option
++.TP
++\fB\-m\fR, \fB\-p\fR, \fB\-\-preserve\-environment\fR
++do not reset environment variables, and keep the same shell
++.TP
++\fB\-s\fR, \fB\-\-shell\fR=\fI<shell>\fR
++use \fIshell\fR instead of the default in /etc/passwd
++.PP
++.SH NOTES
++The \fB-m\fR, \fB-p\fR and \fB-s\fR options are restricted by the target
++user's shell being listed in \fB/etc/shells\fR. If it's not listed, then
++it's assumed to be a restricted account, a normal su is performed, and
++those options are ignored silently.
+ .PP
+ A subsystem login is indicated by the presense of a "*" as the first
+ character of the login shell. The given home directory will be used as
+@@ -77,11 +93,13 @@
+ .br
+ /etc/shadow \- encrypted passwords and age information
+ .br
++/etc/shells \- valid user shells
++.br
+ $HOME/.profile \- initialization script for default shell
+ .SH SEE ALSO
+ .BR login (1),
+ .BR sh (1),
+-.BR suauth (5),
+-.BR login.defs (5)
++.BR login.defs (5),
++.BR shells (5)
+ .SH AUTHOR
+ Julianne Frances Haugh (jfh@austin.ibm.com)
+diff -urN shadow-20000902.orig/man/useradd.8 shadow-20000902/man/useradd.8
+--- shadow-20000902.orig/man/useradd.8	Sat Aug 26 14:27:17 2000
++++ shadow-20000902/man/useradd.8	Wed Sep 27 18:07:18 2000
+@@ -170,6 +170,12 @@
+ .SH NOTES
+ The system administrator is responsible for placing the default
+ user files in the \fI/etc/skel\fR directory.
++.PP
++The \fBadduser\fR program is generally more friendly to use than
++this one and also uses Debian policy conformant UID and GID values,
++creating a home directory a with skeletal configuration, running a
++custom script, and other features. It is more prefered than using
++this program.
+ .SH CAVEATS
+ You may not add a user to an NIS group.
+ This must be performed on the NIS server.
+diff -urN shadow-20000902.orig/man/userdel.8 shadow-20000902/man/userdel.8
+--- shadow-20000902.orig/man/userdel.8	Sat Aug 26 14:27:17 2000
++++ shadow-20000902/man/userdel.8	Wed Sep 27 18:41:09 2000
+@@ -36,7 +36,10 @@
+ .I login
+ .SH DESCRIPTION
+ The \fBuserdel\fR command modifies the system account files, deleting
+-all entries that refer to \fIlogin\fR.
++all entries that refer to \fIlogin\fR. If \fBUSERGROUPS_ENAB\fR is set to
++yes in \fB/etc/login.defs\fR, then \fBuserdel\fR will also remove entries
++in \fB/etc/group\fR that refer to \fIlogin\fR if, and only if, there are
++no members of that group listed, or the only member is \fIlogin\fR.
+ The named user must exist.
+ .IP \fB-r\fR
+ Files in the user's home directory will be removed along with the
+@@ -49,6 +52,22 @@
+ /etc/shadow \- secure user account information
+ .br
+ /etc/group \- group information
++.br
++/etc/login.defs \- login configuration file
++.SH EXIT VALUES
++0	\- success
++.br
++1	\- can't update password file
++.br
++2	\- bad command syntax
++.br
++6	\- specified user doesn't exist
++.br
++8	\- user currently logged in
++.br
++10	\- can't update group file
++.br
++12	\- can't remove home directory
+ .SH CAVEATS
+ \fBuserdel\fR will not allow you to remove an account if the user
+ is currently logged in.
+@@ -64,6 +83,7 @@
+ .BR groupmod (8),
+ .BR passwd (1),
+ .BR useradd (8),
+-.BR usermod (8)
++.BR usermod (8),
++.BR login.defs (5)
+ .SH AUTHOR
+ Julianne Frances Haugh (jfh@austin.ibm.com)
+--- shadow-20000902/man/passwd.1~	Mon Oct 23 10:59:26 2000
++++ shadow-20000902/man/passwd.1	Mon Oct 23 10:59:41 2000
+@@ -194,7 +194,7 @@
+ .br
+ /etc/shadow \- encrypted user passwords
+ .SH SEE ALSO
+-.BR passwd (3),
++.\" .BR passwd (3),
+ .\" .BR shadow (3),
+ .BR group (5),
+ .BR passwd (5)
+--- shadow-20000902/man/chfn.1~	Mon Oct 23 11:05:21 2000
++++ shadow-20000902/man/chfn.1	Mon Oct 23 11:10:31 2000
+@@ -58,9 +58,15 @@
+ the current value.
+ The current value is displayed between a pair of \fB[ ]\fR marks.
+ Without options, chfn prompts for the current user account.
++.PP
++The file, \fB/etc/login.defs\fR, defines some configuration options that
++affects how chfn operates, especially for non-root users.
+ .SH FILES
+ /etc/passwd \- user account information
++.br
++/etc/login.defs \- config options for chfn
+ .SH SEE ALSO
+-.BR passwd (5)
++.BR passwd (5),
++.BR login.defs (5)
+ .SH AUTHOR
+ Julianne Frances Haugh (jfh@austin.ibm.com)
+--- shadow-20000902/man/chsh.1~	Mon Oct 23 11:09:06 2000
++++ shadow-20000902/man/chsh.1	Mon Oct 23 11:10:25 2000
+@@ -55,12 +55,18 @@
+ Enter the new value to change the field, or leave the line blank to use
+ the current value.
+ The current value is displayed between a pair of \fB[ ]\fR marks.
++.PP
++The file, \fB/etc/login.defs\fR, defines some configuration options that
++affects how chsh operates, especially for non-root users.
+ .SH FILES
+ /etc/passwd \- user account information
+ .br
+ /etc/shells \- list of valid login shells
++.br
++/etc/login.defs \- config options for chsh
+ .SH SEE ALSO
+ .BR chfn (1),
+-.BR passwd (5)
++.BR passwd (5),
++.BR login.defs (5)
+ .SH AUTHOR
+ Julianne Frances Haugh (jfh@austin.ibm.com)
+--- shadow-20000902/man/login.1~	Sun Dec 31 14:20:35 2000
++++ shadow-20000902/man/login.1	Sun Dec 31 14:22:51 2000
+@@ -41,7 +41,7 @@
+ is used to establish a new session with the system.
+ It is normally invoked automatically by responding to the
+ .I login:
+-prompt on the user\'s terminal.
++prompt on the user's terminal.
+ .B login
+ may be special to the shell and may not be invoked as a sub-process.
+ Typically,
+@@ -56,7 +56,7 @@
+ These variables are entered in the form \fBNAME=VALUE\fR.
+ Not all variables may be set in the fashion, notably \fBPATH\fR,
+ \fBHOME\fR and \fBSHELL\fR.
+-Additionally, \fBIFS\fR may be inhibited if the user\'s login
++Additionally, \fBIFS\fR may be inhibited if the user's login
+ shell is \fB/bin/sh\fR.
+ .PP
+ The user is then prompted for a password, where appropriate.

@@ -1,0 +1,103 @@
+.\"/* Copyright 1988,1990,1993 by Paul Vixie
+.\" * All rights reserved
+.\" *
+.\" * Distribute freely, except: don't remove my name from the source or
+.\" * documentation (don't take credit for my work), mark your changes (don't
+.\" * get me blamed for your possible bugs), don't alter or remove this
+.\" * notice.  May be sold if buildable source is provided to buyer.  No
+.\" * warrantee of any kind, express or implied, is included with this
+.\" * software; use at your own risk, responsibility for damages (if any) to
+.\" * anyone resulting from the use of this software rests entirely with the
+.\" * user.
+.\" *
+.\" * Send bug reports, bug fixes, enhancements, requests, flames, etc., and
+.\" * I'll try to keep a version up to date.  I can be reached as follows:
+.\" * Paul Vixie          <paul@vix.com>          uunet!decwrl!vixie!paul
+.\" */
+.\" 
+.\" $Id: cron.8,v 2.2 1993/12/28 08:34:43 vixie Exp $
+.\" 
+.TH CRON 8 "20 December 1993"
+.UC 4
+.SH NAME
+cron \- daemon to execute scheduled commands (Vixie Cron)
+.SH SYNOPSIS
+cron
+.SH DESCRIPTION
+.I cron
+is started automatically from /etc/init.d on entering multi-user
+runlevels.
+.PP
+.I cron
+searches its spool area (/var/spool/cron/crontabs) for crontab
+files (which are named after accounts in
+/etc/passwd); crontabs found are loaded into memory.  Note that
+crontabs in this directory should not be accessed directly -
+the
+.I crontab
+command should be used to access and update them.
+
+.I cron
+also reads /etc/crontab, which is in a slightly different format (see
+.IR crontab(5)). 
+Additionally, cron reads the files in /etc/cron.d; see
+the
+.B DEBIAN SPECIFIC
+section below for more details.
+
+.I cron
+then wakes up every minute, examining all stored crontabs, checking
+each command to see if it should be run in the current minute.  When
+executing commands, any output is mailed to the owner of the crontab
+(or to the user named in the MAILTO environment variable in the
+crontab, if such exists).  The children copies of cron running these
+processes has its name coerced to uppercase, as will be seen in the
+syslog and ps output.
+.PP
+Additionally,
+.I cron
+checks each minute to see if its spool directory's modtime (or the modtime
+on
+.IR /etc/crontab)
+has changed, and if it has,
+.I cron
+will then examine the modtime on all crontabs and reload those which have
+changed.  Thus
+.I cron
+need not be restarted whenever a crontab file is modified.  Note that the
+.IR crontab (1)
+command updates the modtime of the spool directory whenever it changes a
+crontab.
+.PP
+Special considerations exist when the clock is changed by less than 3
+hours, for example at the beginning and end of daylight savings
+time. If the time has moved forwards, those jobs which would have
+run in the time that was skipped will be run soon after the change. 
+Conversely, if the time has moved backwards by less than 3 hours,
+those jobs that fall into the repeated time will not be re-run.
+.PP
+Only jobs that run at a particular time (not specified as
+@hourly, nor with '*' in the hour or minute specifier) are
+affected. Jobs which are specified with wildcards are run based on the
+new time immediately.
+.PP
+Clock changes of more than 3 hours are considered to be corrections to
+the clock, and the new time is used immediately.
+.SH DEBIAN SPECIFIC
+.I cron
+treats the files in /etc/cron.d as extensions to the /etc/crontab file (they
+follow the special format of that file, i.e. they include the 
+.I user
+field). The intended purpose of this feature is to allow packages that require
+finer control of their scheduling than the /etc/cron.{daily,weekly,monthly} 
+directories allow to add a crontab file to /etc/cron.d. Such files
+should be named after the package that supplies them. Files must
+conform to the same naming convention as used by run-parts(8): they
+must consist solely of upper- and lower-case letters, digits, underscores,
+and hyphens. Like /etc/crontab, the files in the /etc/cron.d directory are
+monitored for changes.
+.SH "SEE ALSO"
+crontab(1), crontab(5)
+.SH AUTHOR
+.nf
+Paul Vixie <paul@vix.com>

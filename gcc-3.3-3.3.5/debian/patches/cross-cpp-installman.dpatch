@@ -1,0 +1,42 @@
+#! /bin/sh -e
+
+# DP: when building for cross target, install cpp manpage as $(CROSS_CPP_NAME).1
+
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch $pdir -f --no-backup-if-mismatch -p0 < $0;;
+    -unpatch) patch $pdir -f --no-backup-if-mismatch -R -p0 < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+--- gcc/Makefile.in.orig	2004-10-04 11:40:55.000000000 +0400
++++ gcc/Makefile.in	2004-10-04 12:35:45.000000000 +0400
+@@ -2907,14 +2907,17 @@
+ 	  rm -f $(DESTDIR)$(man1dir)/$(GCC_CROSS_NAME)$(man1ext); \
+ 	  $(INSTALL_DATA) $(docdir)/gcc.1 $(DESTDIR)$(man1dir)/$(GCC_CROSS_NAME)$(man1ext); \
+ 	  chmod a-x $(DESTDIR)$(man1dir)/$(GCC_CROSS_NAME)$(man1ext); \
++	  rm -f $(DESTDIR)$(man1dir)/$(CPP_CROSS_NAME)$(man1ext); \
++	  $(INSTALL_DATA) $(docdir)/cpp.1 $(DESTDIR)$(man1dir)/$(CPP_CROSS_NAME)$(man1ext); \
++	  chmod a-x $(DESTDIR)$(man1dir)/$(CPP_CROSS_NAME)$(man1ext); \
+ 	else \
+ 	  rm -f $(DESTDIR)$(man1dir)/$(GCC_INSTALL_NAME)$(man1ext); \
+ 	  $(INSTALL_DATA) $(docdir)/gcc.1 $(DESTDIR)$(man1dir)/$(GCC_INSTALL_NAME)$(man1ext); \
+ 	  chmod a-x $(DESTDIR)$(man1dir)/$(GCC_INSTALL_NAME)$(man1ext); \
++	  rm -f $(DESTDIR)$(man1dir)/cpp$(man1ext); \
++	  $(INSTALL_DATA) $(docdir)/cpp.1 $(DESTDIR)$(man1dir)/cpp$(man1ext); \
++	  chmod a-x $(DESTDIR)$(man1dir)/cpp$(man1ext); \
+ 	fi
+-	-rm -f $(DESTDIR)$(man1dir)/cpp$(man1ext)
+-	-$(INSTALL_DATA) $(docdir)/cpp.1 $(DESTDIR)$(man1dir)/cpp$(man1ext)
+-	-chmod a-x $(DESTDIR)$(man1dir)/cpp$(man1ext)
+ 	-rm -f $(DESTDIR)$(man1dir)/gcov$(man1ext)
+ 	-$(INSTALL_DATA) $(docdir)/gcov.1 $(DESTDIR)$(man1dir)/gcov$(man1ext)
+ 	-chmod a-x $(DESTDIR)$(man1dir)/gcov$(man1ext)

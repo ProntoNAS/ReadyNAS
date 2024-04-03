@@ -1,0 +1,453 @@
+/* killall.c - kill processes by name or list PIDs */
+
+/* Copyright 1993-1998 Werner Almesberger. See file COPYING for details. */
+
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <signal.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <getopt.h>
+#include <libintl.h>
+#include <locale.h>
+#define _(String) gettext (String)
+
+#include "comm.h"
+#include "signals.h"
+
+
+#define PROC_BASE "/proc"
+#define MAX_NAMES (sizeof(unsigned long)*8)
+
+
+static int verbose = 0, exact = 0, interactive = 0, quiet =
+  0, wait_until_dead = 0, process_group = 0, pidof;
+
+
+static int
+ask (char *name, pid_t pid)
+{
+  int ch, c;
+
+  do
+    {
+      printf (_("Kill %s(%s%d) ? (y/n) "), name, process_group ? "pgid " : "",
+	      pid);
+      fflush (stdout);
+      do
+	if ((ch = getchar ()) == EOF)
+	  exit (0);
+      while (ch == '\n' || ch == '\t' || ch == ' ');
+      do
+	if ((c = getchar ()) == EOF)
+	  exit (0);
+      while (c != '\n');
+    }
+  while (ch != 'y' && ch != 'n' && ch != 'Y' && ch != 'N');
+  return ch == 'y' || ch == 'Y';
+}
+
+
+static int
+kill_all (int signal, int names, char **namelist)
+{
+  DIR *dir;
+  struct dirent *de;
+  FILE *file;
+  struct stat st, sts[MAX_NAMES];
+  int *name_len;
+  char path[PATH_MAX + 1], comm[COMM_LEN];
+  char command_buf[PATH_MAX + 1];
+  char *command;
+  pid_t *pid_table, pid, self, *pid_killed;
+  pid_t *pgids;
+  int empty, i, j, okay, length, got_long, error;
+  int pids, max_pids, pids_killed;
+  unsigned long found;
+
+  if (!(name_len = malloc (sizeof (int) * names)))
+    {
+      perror ("malloc");
+      exit (1);
+    }
+  for (i = 0; i < names; i++)
+    if (!strchr (namelist[i], '/'))
+      {
+	sts[i].st_dev = 0;
+	name_len[i] = strlen (namelist[i]);
+      }
+    else if (stat (namelist[i], &sts[i]) < 0)
+      {
+	perror (namelist[i]);
+	exit (1);
+      }
+  self = getpid ();
+  found = 0;
+  if (!(dir = opendir (PROC_BASE)))
+    {
+      perror (PROC_BASE);
+      exit (1);
+    }
+  max_pids = 256;
+  pid_table = malloc (max_pids * sizeof (pid_t));
+  if (!pid_table)
+    {
+      perror ("malloc");
+      exit (1);
+    }
+  pids = 0;
+  while ( (de = readdir (dir)) != NULL)
+    {
+      if (!(pid = atoi (de->d_name)) || pid == self)
+	continue;
+      if (pids == max_pids)
+	{
+	  if (!(pid_table = realloc (pid_table, 2 * pids * sizeof (pid_t))))
+	    {
+	      perror ("realloc");
+	      exit (1);
+	    }
+	  max_pids *= 2;
+	}
+      pid_table[pids++] = pid;
+    }
+  (void) closedir (dir);
+  empty = 1;
+  pids_killed = 0;
+  pid_killed = malloc (max_pids * sizeof (pid_t));
+  if (!pid_killed)
+    {
+      perror ("malloc");
+      exit (1);
+    }
+  if (!process_group)
+    pgids = NULL;		/* silence gcc */
+  else
+    {
+      pgids = malloc (pids * sizeof (pid_t));
+      if (!pgids)
+	{
+	  perror ("malloc");
+	  exit (1);
+	}
+    }
+  for (i = 0; i < pids; i++)
+    {
+      sprintf (path, PROC_BASE "/%d/stat", pid_table[i]);
+      if (!(file = fopen (path, "r")))
+	continue;
+      empty = 0;
+      okay = fscanf (file, "%*d (%[^)]", comm) == 1;
+      (void) fclose (file);
+      if (!okay)
+	continue;
+      got_long = 0;
+      command = NULL;		/* make gcc happy */
+      length = strlen (comm);
+      if (length == COMM_LEN - 1)
+	{
+	  sprintf (path, PROC_BASE "/%d/cmdline", pid_table[i]);
+	  if (!(file = fopen (path, "r")))
+	    continue;
+          while (1) {
+            /* look for actual command so we skip over initial "sh" if any */
+            char *p;
+            /* 'cmdline' has arguments separated by nulls */
+            for (p=command_buf; p<command_buf+PATH_MAX; p++) {
+              int c = fgetc(file);
+              if (c == EOF || c == '\0') {
+                *p = '\0';
+                break;
+              } else {
+                *p = c;
+              }
+            }
+            if (strlen(command_buf) == 0) {
+              okay = 0;
+              break;
+            }
+            p = strrchr(command_buf,'/');
+            p = p ? p+1 : command_buf;
+            if (strncmp(p, comm, COMM_LEN-1) == 0) {
+              okay = 1;
+              command = p;
+              break;
+            }
+          }
+          (void) fclose(file);
+	  if (exact && !okay)
+	    {
+	      if (verbose)
+		fprintf (stderr, _("skipping partial match %s(%d)\n"), comm,
+			 pid_table[i]);
+	      continue;
+	    }
+	  got_long = okay;
+	}
+      for (j = 0; j < names; j++)
+	{
+	  pid_t id;
+
+	  if (!sts[j].st_dev)
+	    {
+	      if (length != COMM_LEN - 1 || name_len[j] < COMM_LEN - 1)
+		{
+		  if (strcmp (namelist[j], comm))
+		    continue;
+		}
+	      else if (got_long ? strcmp (namelist[j], command) :
+		       strncmp (namelist[j], comm, COMM_LEN - 1))
+		continue;
+	    }
+	  else
+	    {
+	      sprintf (path, PROC_BASE "/%d/exe", pid_table[i]);
+	      if (stat (path, &st) < 0)
+		continue;
+	      if (sts[j].st_dev != st.st_dev || sts[j].st_ino != st.st_ino)
+		continue;
+	    }
+	  if (!process_group)
+	    id = pid_table[i];
+	  else
+	    {
+	      int j;
+
+	      id = getpgid (pid_table[i]);
+	      pgids[i] = id;
+	      if (id < 0)
+		{
+		  fprintf (stderr, "getpgid(%d): %s\n", pid_table[i],
+			   strerror (errno));
+		}
+	      for (j = 0; j < i; j++)
+		if (pgids[j] == id)
+		  break;
+	      if (j < i)
+		continue;
+	    }
+	  if (interactive && !ask (comm, id))
+	    continue;
+	  if (pidof)
+	    {
+	      if (found)
+		putchar (' ');
+	      printf ("%d", id);
+	      found |= 1 << j;
+	    }
+	  else if (kill (process_group ? -id : id, signal) >= 0)
+	    {
+	      if (verbose)
+		fprintf (stderr, _("Killed %s(%s%d) with signal %d\n"), got_long ? command :
+			 comm, process_group ? "pgid " : "", id, signal);
+	      found |= 1 << j;
+	      pid_killed[pids_killed++] = id;
+	    }
+	  else if (errno != ESRCH || interactive)
+	    fprintf (stderr, "%s(%d): %s\n", got_long ? command :
+		     comm, id, strerror (errno));
+	}
+    }
+  if (empty)
+    {
+      fprintf (stderr, _("%s is empty (not mounted ?)\n"), PROC_BASE);
+      exit (1);
+    }
+  if (!quiet && !pidof)
+    for (i = 0; i < names; i++)
+      if (!(found & (1 << i)))
+	fprintf (stderr, _("%s: no process killed\n"), namelist[i]);
+  if (pidof)
+    putchar ('\n');
+  error = found == ((1 << (names - 1)) | ((1 << (names - 1)) - 1)) ? 0 : 1;
+  /*
+   * We scan all (supposedly) killed processes every second to detect dead
+   * processes as soon as possible in order to limit problems of race with
+   * PID re-use.
+   */
+  while (pids_killed && wait_until_dead)
+    {
+      for (i = 0; i < pids_killed;)
+	{
+	  if (kill (process_group ? -pid_killed[i] : pid_killed[i], 0) < 0 &&
+	      errno == ESRCH)
+	    {
+	      pid_killed[i] = pid_killed[--pids_killed];
+	      continue;
+	    }
+	  i++;
+	}
+      sleep (1);		/* wait a bit longer */
+    }
+  return error;
+}
+
+
+static void
+usage_pidof (void)
+{
+  fprintf (stderr, "usage: pidof [ -eg ] name ...\n");
+  fprintf (stderr, "       pidof -V\n\n");
+  fprintf (stderr, "    -e      require exact match for very long names;\n");
+  fprintf (stderr, "            skip if the command line is unavailable\n");
+  fprintf (stderr,
+	   "    -g      show process group ID instead of process ID\n");
+  fprintf (stderr, "    -V      display version information\n\n");
+}
+
+
+static void
+usage_killall (void)
+{
+  fprintf (stderr, "usage: killall [ OPTIONS ] [ -- ] name ...\n");
+  fprintf (stderr, "       killall -l, --list\n");
+  fprintf (stderr, "       killall -V --version\n\n");
+  fprintf (stderr, "  -e,--exact          require exact match for very long names\n");
+  fprintf (stderr, "  -g,--process-group  kill process group instead of process\n");
+  fprintf (stderr, "  -i,--interactive    ask for confirmation before killing\n");
+  fprintf (stderr, "  -l,--list           list all known signal names\n");
+  fprintf (stderr, "  -q,--quiet          don't print complaints\n");
+  fprintf (stderr, "  -s,--signal         send signal instead of SIGTERM\n");
+  fprintf (stderr, "  -v,--verbose        report if the signal was successfully sent\n");
+  fprintf (stderr, "  -V,--version        display version information\n");
+  fprintf (stderr, "  -w,--wait           wait for processes to die\n\n");
+}
+
+
+static void
+usage (void)
+{
+  if (pidof)
+    usage_pidof ();
+  else
+    usage_killall ();
+  exit (1);
+}
+
+void print_version()
+{
+  fprintf(stderr, "%s (psmisc) %s\n", pidof ? "pidof" : "killall", VERSION);
+  fprintf(stderr, "Copyright (C) 1993-2001 Werner Almesberger and Craig Small\n\n");
+  fprintf(stderr, "PSmisc comes with ABSOLUTELY NO WARRANTY.\n");
+  fprintf(stderr, "This is free software, and you are welcome to redistribute it under the terms\n");
+  fprintf(stderr, "of the GNU General Public License.\n");
+  fprintf(stderr, "For more information about these matters, see the files named COPYING.\n");
+}
+
+int
+main (int argc, char **argv)
+{
+  char *name;
+  int sig_num;
+  int optc;
+  int myoptind;
+  int optsig = 0;
+
+  struct option options[] = {
+    {"exact", 0, NULL, 'e'},
+    {"process-group", 0, NULL, 'g'},
+    {"interactive", 0, NULL, 'i'},
+    {"list-signals", 0, NULL, 'l'},
+    {"quiet", 0, NULL, 'q'},
+    {"signal", 1, NULL, 's'},
+    {"verbose", 0, NULL, 'v'},
+    {"wait", 0, NULL, 'w'},
+    {"version", 0, NULL, 'V'},
+    {0,0,0,0 }};
+
+  name = strrchr (*argv, '/');
+  if (name)
+    name++;
+  else
+    name = *argv;
+  pidof = strcmp (name, "killall");
+  sig_num = SIGTERM;
+
+  /* Setup the i18n */
+  setlocale(LC_ALL, "");
+  bindtextdomain(PACKAGE, LOCALEDIR);
+  textdomain(PACKAGE);
+
+  opterr = 0;
+  while ( (optc = getopt_long_only(argc,argv,"egilqs:vwV",options,NULL)) != EOF) {
+    switch (optc) {
+      case 'e':
+        exact = 1;
+        break;
+      case 'g':
+        process_group = 1;
+        break;
+      case 'i':
+        if (pidof)
+          usage();
+        interactive = 1;
+        break;
+      case 'l':
+        if (pidof)
+          usage();
+        list_signals();
+        return 0;
+        break;
+      case 'q':
+        if (pidof)
+          usage();
+        quiet = 1;
+        break;
+      case 's':
+	sig_num = get_signal (optarg, "killall");
+        break;
+      case 'v':
+        if (pidof)
+          usage();
+        verbose = 1;
+        break;
+      case 'w':
+        if (pidof)
+          usage();
+        wait_until_dead = 1;
+        break;
+      case 'V':
+        print_version();
+        return 0;
+        break;
+      case '?':
+        /* Signal names are in uppercase, so check to see if the argv
+         * is upper case */
+        if (argv[optind-1][1] >= 'A' && argv[optind-1][1] <= 'Z') 
+	  sig_num = get_signal (argv[optind-1]+1, "killall");
+        /* Might also be a -## signal too */
+        if (argv[optind-1][1] >= '0' && argv[optind-1][1] <= '9')
+          sig_num = atoi(argv[optind-1]+1);
+        break;
+    }
+  }
+/*
+	  if (*walk)
+	    if (walk != *argv + 1 || pidof)
+	      usage ();
+	    else
+	      sig_num = get_signal (*argv + 1, "killall");
+	}
+    }
+    */
+  myoptind = optind;
+  if (argc - myoptind < 1) 
+    usage();
+
+  if (argc - myoptind > MAX_NAMES + 1)
+    {
+      fprintf (stderr, _("Maximum number of names is %d\n"), MAX_NAMES);
+      exit (1);
+    }
+  argv = argv + myoptind;
+  /*printf("sending signal %d to procs\n", sig_num);*/
+  return kill_all (sig_num, argc - myoptind, argv );
+}

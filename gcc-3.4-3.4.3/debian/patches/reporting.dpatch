@@ -1,0 +1,170 @@
+#! /bin/sh -e
+
+# DP: Add Debian URL for bug reporting isntructions.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir=$3/
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+	patch $pdir -f --no-backup-if-mismatch -p0 < $0
+	if grep -q debian_bug_report_url ${dir}gcc/version.c; then
+	  :
+	else
+	  echo 'const char debian_bug_report_url[] = "<URL:file:///usr/share/doc/gcc-3.4/README.Bugs>";' >> ${dir}gcc/version.c
+	fi
+	;;
+    -unpatch)
+	grep -v debian_bug_report_url ${dir}gcc/version.c > ${dir}gcc/version.c.new
+	${dir}move-if-change ${dir}gcc/version.c.new ${dir}gcc/version.c
+	patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+	;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+--- gcc/gccbug.in~	Tue Nov 14 07:21:47 2000
++++ gcc/gccbug.in	Tue Nov 14 07:24:59 2000
+@@ -24,13 +24,13 @@
+ VERSION=3.113
+ 
+ # The submitter-id for your site.
+-SUBMITTER=net
++SUBMITTER=net # net-debian
+ 
+ # The default mail address for PR submissions. 
+-GNATS_ADDR=gcc-gnats@gcc.gnu.org
++GNATS_ADDR="gcc-gnats@gcc.gnu.org,debian-gcc@lists.debian.org"
+ 
+ # The default release for this host.
+-DEFAULT_RELEASE="@gcc_version_full@"
++DEFAULT_RELEASE="@gcc_version_full@ (Debian testing/unstable)"
+ 
+ # The default organization.
+ DEFAULT_ORGANIZATION=
+
+--- gcc/java/gjavah.c~	2003-03-28 23:18:48.000000000 +0100
++++ gcc/java/gjavah.c	2004-05-14 07:26:44.000000000 +0200
+@@ -2320,6 +2320,8 @@
+   printf ("\n");
+   printf ("For bug reporting instructions, please see:\n");
+   printf ("%s.\n", bug_report_url);
++  printf ("For Debian GNU/Linux specific bug reporting instructions, please see:\n");
++  printf ("%s.\n", debian_bug_report_url);
+   exit (0);
+ }
+ 
+--- gcc/java/jcf-dump.c~	2003-03-28 23:18:48.000000000 +0100
++++ gcc/java/jcf-dump.c	2004-05-14 07:27:03.000000000 +0200
+@@ -893,6 +893,8 @@
+   printf ("\n");
+   printf ("For bug reporting instructions, please see:\n");
+   printf ("%s.\n", bug_report_url);
++  printf ("For Debian GNU/Linux specific bug reporting instructions, please see:\n");
++  printf ("%s.\n", debian_bug_report_url);
+   exit (0);
+ }
+ 
+--- gcc/java/jv-scan.c~	2003-02-03 15:06:32.000000000 +0100
++++ gcc/java/jv-scan.c	2004-05-14 07:27:26.000000000 +0200
+@@ -116,6 +116,8 @@
+   printf ("\n");
+   printf ("For bug reporting instructions, please see:\n");
+   printf ("%s.\n", bug_report_url);
++  printf ("For Debian GNU/Linux specific bug reporting instructions, please see:\n");
++  printf ("%s.\n", debian_bug_report_url);
+   exit (0);
+ }
+ 
+--- gcc/gcov.c~	2002-10-08 21:45:17.000000000 +0200
++++ gcc/gcov.c	2004-05-14 07:28:07.000000000 +0200
+@@ -350,6 +350,8 @@
+   fnotice (file, "  -p, --preserve-paths            Preserve all pathname components\n");
+   fnotice (file, "\nFor bug reporting instructions, please see:\n%s.\n",
+ 	   bug_report_url);
++  fnotice (file, "\nFor Debian GNU/Linux specific bug reporting instructions, please see:\n%s.\n",
++	   debian_bug_report_url);
+   exit (status);
+ }
+ 
+--- gcc/version.h~	2002-10-08 19:27:39.000000000 +0200
++++ gcc/version.h	2004-05-14 07:14:38.000000000 +0200
+@@ -2,4 +2,5 @@
+ #define GCC_VERSION_H
+ extern const char version_string[];
+ extern const char bug_report_url[];
++extern const char debian_bug_report_url[];
+ #endif /* ! GCC_VERSION_H */
+
+--- gcc/diagnostic.c~	2004-05-14 07:39:39.000000000 +0200
++++ gcc/diagnostic.c	2004-05-14 07:42:06.000000000 +0200
+@@ -66,7 +66,9 @@
+ #define bug_report_request \
+ "Please submit a full bug report,\n\
+ with preprocessed source if appropriate.\n\
+-See %s for instructions.\n"
++See %s for instructions.\n\
++For Debian GNU/Linux specific bug reporting instructions,\n\
++see %s.\n"
+ 
+ 
+ /* Return a malloc'd string containing MSG formatted a la printf.  The
+@@ -271,7 +273,7 @@
+       if (context->abort_on_error)
+ 	real_abort ();
+ 
+-      fnotice (stderr, bug_report_request, bug_report_url);
++      fnotice (stderr, bug_report_request, bug_report_url, debian_bug_report_url);
+       exit (FATAL_EXIT_CODE);
+ 
+     case DK_FATAL:
+@@ -570,7 +572,7 @@
+ 
+   fnotice (stderr,
+ 	   "Internal compiler error: Error reporting routines re-entered.\n");
+-  fnotice (stderr, bug_report_request, bug_report_url);
++  fnotice (stderr, bug_report_request, bug_report_url, debian_bug_report_url);
+   exit (FATAL_EXIT_CODE);
+ }
+ 
+--- gcc/gcc.c~	2004-05-16 08:14:42.000000000 +0200
++++ gcc/gcc.c	2004-05-16 08:19:13.000000000 +0200
+@@ -2829,9 +2829,11 @@
+ 		    fatal ("\
+ Internal error: %s (program %s)\n\
+ Please submit a full bug report.\n\
+-See %s for instructions.",
++See %s for instructions.\n\
++For Debian GNU/Linux specific bug reporting instructions, see\n\
++%s.\n",
+ 			   strsignal (WTERMSIG (status)), commands[j].prog,
+-			   bug_report_url);
++			   bug_report_url, debian_bug_report_url);
+ 		  signal_count++;
+ 		  ret_code = -1;
+ 		}
+@@ -6250,6 +6252,8 @@
+ 	{
+ 	  printf (_("\nFor bug reporting instructions, please see:\n"));
+ 	  printf ("%s.\n", bug_report_url);
++	  printf ("For Debian GNU/Linux specific bug reporting instructions, please see:\n");
++	  printf ("%s.\n", debian_bug_report_url);
+ 
+ 	  return (0);
+ 	}
+@@ -6453,6 +6457,8 @@
+     {
+       printf (("\nFor bug reporting instructions, please see:\n"));
+       printf ("%s\n", bug_report_url);
++      printf ("For Debian GNU/Linux specific bug reporting instructions, please see:\n");
++      printf ("%s\n", debian_bug_report_url);
+     }
+ 
+   return (signal_count != 0 ? 2

@@ -1,0 +1,79 @@
+#!/usr/bin/make -f
+
+package = shadow
+
+CFLAGS  := -O2 -Wall
+IE := install -m755 -s
+ID := install -m644
+
+# Some special build options
+ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+  CFLAGS += -g
+  LDFLAGS := -Dfoo # requires faking shadow's configure
+  ifneq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+    IE := install -m755
+  endif
+endif
+
+# the dbs rules
+TAR_DIR := shadow-20000902
+include debian/scripts/dbs-build.mk
+
+ifeq (,$(DEB_BUILD_GNU_TYPE))
+  include debian/scripts/dpkg-arch.mk
+endif
+
+# By default we only build the passwd package
+include debian/scripts/passwd.mk
+package-list := binary-passwd
+
+config_options := --disable-shared --without-libcrack \
+	--build=$(DEB_BUILD_GNU_TYPE) --host=$(DEB_HOST_GNU_TYPE)
+
+# For GNU-Hurd, we don't want this package. nor do we want PAM
+ifneq ($(DEB_HOST_GNU_SYSTEM),gnu)
+  include debian/scripts/login.mk
+  package-list += binary-login
+  config_options += --with-libpam
+endif
+
+build: $(STAMP_DIR)/build-stamp
+$(STAMP_DIR)/build-stamp: $(STAMP_DIR)/configure-stamp
+	$(checkdir)
+	$(MAKE) -C $(BUILD_TREE)
+	touch $(STAMP_DIR)/build-stamp
+
+$(STAMP_DIR)/configure-stamp: $(patched)
+	cd $(BUILD_TREE) && CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
+		./configure $(config_options)
+	touch $(STAMP_DIR)/configure-stamp
+
+clean:
+	$(checkdir)
+	rm -rf $(STAMP_DIR) $(SOURCE_DIR) debian/tmp-{l,p}
+	cp -f debian/control.linux debian/control
+	rm -f debian/files debian/substvars
+	perl debian/scripts/dh_split clean
+
+binary-indep:
+
+binary-arch: $(package-list)
+
+# Build rules for each package
+
+binary: binary-indep binary-arch
+
+debian/control: debian/control.$(DEB_HOST_GNU_SYSTEM) force
+	cp -f debian/control.$(DEB_HOST_GNU_SYSTEM) debian/control
+
+force:
+
+define checkdir
+	test -f debian/control
+endef
+
+define checkroot
+	test root = "`whoami`"
+endef
+
+.PHONY: binary binary-arch binary-indep clean checkroot

@@ -1,0 +1,182 @@
+		The Debian GNU Compiler Collection setup
+		========================================
+
+Please see the README.Debian in /usr/share/doc/gcc, contained in the
+gcc package for a description of the setup of the different compiler
+versions.
+
+
+Notes on GCC 3.4 in the sarge distribution
+------------------------------------------
+
+[package maintainers: when using GCC 3.4 for package building, please
+ check that your packages still work on platforms with GCC changes
+ specific for these platforms (hppa, m68k, mips, mipsel, sparc).       ]
+
+GCC 3.4 is included in sarge as a newer compiler version, the system
+compiler for sarge is GCC 3.3 (the transition to a newer system compiler
+is a post sarge issue).  Due to some incompatibilities between
+3.3 and 3.4 care should be taken, when some code built by both versions
+is linked together (most likely linking against a shared library found
+in Debian):
+
+- C++ code compiled by g++-3.3 and g++-3.4 is not compatible.  Applications
+  using C++ libraries have to make sure that these libraries are rebuilt.
+
+- On i386, the compiler is built as a biarch compiler (can generated code
+  for amd64). To use it, call gcc-3.4 -m64. Packages containing the 64bit
+  versions of libraries and library development files need to be installed
+  separately (i.e. lib64gcc1, amd64-libs, ...).
+  gcc-3.4 -m64 turns on the common subset for all x86-64 architectures,
+  specifying -march=k8 turns on k8/opteron specific features, -march=nocona
+  turns on some P4/64 Nocona specific features.
+
+- On hppa and m68k the exception handling changed from SJLJ to Dwarf2 based
+  exception handling. This affects C++ and code, which implements it's own
+  handling. If a library or binary ends up linked against libgcc1 _and_
+  libgcc2, something probably won't work.
+
+- The implementation of the MIPS ABIs has changed. As a result, the code
+  generated for certain MIPS targets will not be binary compatible with
+  earlier releases. See http://gcc.gnu.org/gcc-3.4/mips-abi.html
+
+- The implementation of the SPARC ABIs has changed. As a result, the code
+  generated will not be binary compatible with earlier releases in certain
+  cases. See http://gcc.gnu.org/gcc-3.4/sparc-abi.html
+
+Maintainers of these packages
+-----------------------------
+
+Matthias Klose <doko@debian.org>
+Ray Dassen <jdassen@debian.org>
+Jeff Bailey <jbailey@nisa.net>			(hurd-i386)
+Joel Baker <fenton@debian.org>			(netbsd-i386)
+Philip Blundell <pb@debian.org>			(arm-linux)
+Ben Collins <bcollins@debian.org>		(sparc-linux)
+Randolph Chung <tausq@debian.org>		(ia64-linux)
+Falk Hueffner <falk@debian.org>			(alpha-linux)
+Dan Jacobowitz <dan@debian.org>			(powerpc-linux)
+Thiemo Seufer <ica2_ts@csv.ica.uni-stuttgart.de>(mips*-linux)
+Ryan Murray <rmurray@cyberhqz.com>		(mips*-linux)
+Matt Taggart <taggart@carmen.fc.hp.com>		(hppa-linux)
+Gerhard Tonn <GerhardTonn@swol.de>		(s390-linux)
+Roman Zippel <zippel@linux-m68k.org>		(m68k-linux)
+Ludovic Brenta <ludovic.brenta@insalien.org>	(gnat)
+
+===============================================================================
+
+Patches that Debian applied in this version:
+
+cvs-updates:
+  CVS updates from the 3.4 branch upto 20050314
+
+gcc-version:
+  Add "(Debian <package version>)" to the gcc version string
+
+gcc-textdomain:
+  Set gettext's domain and textdomain to the versioned package name.
+
+rename-info-files:
+  Allow transformations on info file names. Reference the
+  transformed info file names in the texinfo files.
+
+libstdc++-pic:
+  Build and install libstdc++_pic.a library.
+
+libstdc++-doclink:
+  adjust hrefs to point to the local documentation
+
+libstdc++-doxygen-syntax:
+  fix doxygen syntax error in header that causes segfaults with some
+  versions
+
+amd64-specs:
+  On x86-64 use 64bits mode assembly except with -m32.
+
+gccbug:
+  Use sensible-editor instead of vi as fallback editor
+
+gccbug-posix:
+  Make gccbug POSIX compliant (patch by David Weinehall)
+  http://www.opengroup.org/onlinepubs/009695399/utilities/test.html
+
+hppa-toplevel:
+  For hppa-linux enable libgcj and dependent libs in the toplevel directory
+
+hppa-libffi:
+  libffi support for hppa
+
+hppa-libjava:
+  Enable libjava support for hppa
+
+hppa-libjava-update:
+  MD_FALLBACK_FRAME_STATE_FOR definition for pa32-linux
+
+fastjar-update:
+  Implement fastjar -u (PR 7854).
+
+fastjar-version:
+  Append GCC version to the fastjar version string.
+
+java-gui-branch:
+  Michael Koch <konqueror@gmx.de>
+  Backport AWT, Swing and GTK peer from java-gui-branch (20040906).
+
+boehm-gc-nocheck:
+  Disable the boehm-gc testsuite. Hangs forever on this architecture
+
+libltdl:
+  * libltdl.dpatch: Search the versioned extension, when loading a shared
+  library (i.e. gij looks for .so.5 for loading additional libraries
+  like the GTK based AWT peers.
+
+m68k-update:
+  Add two m68k specfic patches backported from 4.0 concerning wrong code
+  generation (Richard Zidlicky).
+
+gcj-without-rpath:
+  don't define runtime link path for java binaries and libraries
+
+libffi-soversion:
+  Install libffi with soversion 3.
+
+ada-link-lib:
+  - Install the shared Ada libraries as '.so.1', not '.so' to conform
+  to the Debian policy.
+  - Don't include a runtime link path (-rpath), when linking binaries.
+  - Build the shared libraries on hppa-linux.
+
+ada-gcc-name:
+  use gcc-3.4 instead of gcc as the command name.
+
+gpc-3.x:
+  The gpc patch from the gpc tarball.
+
+gpc-updates:
+  Updates from gpc-20030820.
+
+gpc-parse:
+  generated gcc/p/parse.[ch] files (using bison-1.875c).
+
+gpc-dwarf2out-update:
+  GPC update to build with gcc-3.4.3
+
+gpc-names:
+  versioned gpc names
+
+gpc-profiled:
+  Do not build the gpc runtime using -fprofile-generate/-use.
+
+gpc-lang-update:
+  Hack p/lang.c to work around bootstrap failures on alpha and mips.
+
+cpu-default-i486:
+  generate code for architecture i486, tuned for i686 by default.
+
+i386-biarch:
+  biarch patches for i386/x86_64
+
+link-libs:
+
+reporting:
+  Add Debian URL for bug reporting isntructions.

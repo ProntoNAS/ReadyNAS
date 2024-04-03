@@ -1,0 +1,85 @@
+#!/usr/bin/make -f
+
+# This is the debhelper compatability version to use.
+export DH_COMPAT=2
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+
+	RSH="/usr/bin/rsh" CFLAGS="-O2 -g -Wall" ./configure --prefix=/usr \
+		--infodir=`pwd`/debian/tar/usr/share/info 
+
+	touch configure-stamp
+
+build: configure-stamp build-stamp
+build-stamp:
+	dh_testdir
+
+	RSH="/usr/bin/rsh" CFLAGS="-O2 -g -Wall" $(MAKE)
+	(cd tests ; $(MAKE) check-TESTS)
+
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp configure-stamp
+
+	-$(MAKE) distclean
+
+	-test -r /usr/share/misc/config.sub && \
+		cp -f /usr/share/misc/config.sub config/config.sub
+	-test -r /usr/share/misc/config.guess && \
+		cp -f /usr/share/misc/config.guess config/config.guess
+
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	make install bindir=`pwd`/debian/tar/bin prefix=`pwd`/debian/tar/usr \
+		libexecdir=`pwd`/debian/tar/usr/sbin 
+	install -m 755 debian/rmt.sh debian/tar/etc/rmt
+	ln -s /usr/sbin/rmt debian/tar/sbin/rmt
+	mv debian/tar/usr/sbin/rmt debian/tar/usr/sbin/rmt-tar
+	install -o root -g root -m 0644 debian/tar.lintian \
+		debian/tar/usr/share/lintian/overrides/tar
+
+# Build architecture-independent files here.
+binary-indep: build install
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installdocs
+	mv -f debian/tar/usr/share/doc/tar/ChangeLog \
+		debian/tar/usr/share/doc/tar/changelog
+	mv -f debian/tar/usr/share/doc/tar/ChangeLog.1 \
+		debian/tar/usr/share/doc/tar/changelog.1
+	dh_installexamples
+	dh_installmenu
+	dh_installcron
+	dh_installman debian/tar.1 debian/rmt.8
+	mv debian/tar/usr/share/man/man8/rmt.8 \
+	   debian/tar/usr/share/man/man8/rmt-tar.8
+	dh_installinfo
+	rm -f debian/tar/usr/share/info/dir*
+	dh_installmime
+	dh_installchangelogs #CHANGELOGS#
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure

@@ -1,0 +1,122 @@
+#!/usr/bin/make -f
+SHELL+= -e
+
+BUILD_UDEB := 1
+DISABLE_ZLIB := --disable-zlib
+
+
+
+# for dpkg-cross
+DEB_BUILD_GNU_TYPE = $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE = $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+ifneq ($(DEB_BUILD_GNU_TYPE), $(DEB_HOST_GNU_TYPE))
+CONFARGS := --host=$(DEB_HOST_GNU_TYPE)
+endif
+
+include debian/scripts/vars
+
+BUILD_DIR := $(SOURCE_DIR)/$(TAR_DIR)
+B := $(BUILD_DIR)
+O := $(BUILD_DIR)/obj
+D := $(CURDIR)/debian/module-init-tools
+
+
+all: build
+
+unpack: $(STAMP_DIR)/unpack
+$(STAMP_DIR)/unpack:
+	$(MAKE) -f debian/sys-build.mk source.make
+	touch $@
+
+# used by the maintainer
+unpack.nopatch: 
+	$(MAKE) -f debian/sys-build.mk source.build
+
+# used by the maintainer
+diff:
+	$(MAKE) -f debian/sys-build.mk make-diff
+
+clean:
+	$(MAKE) -f debian/sys-build.mk source.clean
+	dh_clean
+
+
+configure: $(STAMP_DIR)/configure
+$(STAMP_DIR)/configure: $(STAMP_DIR)/unpack
+	dh_testdir
+	ln -sf /usr/share/misc/config.sub /usr/share/misc/config.guess $B/
+	NOISY=1 \
+	$(MAKE) -f debian/sys-build.mk source.command SOURCE_CMD=" \
+		rm -f config.status config.log && \
+		mkdir obj/ && cd obj/ && \
+		../configure --prefix=/ $(DISABLE_ZLIB) $(CONFARGS) \
+	"
+ifdef BUILD_UDEB
+	NOISY=1 \
+	$(MAKE) -f debian/sys-build.mk source.command SOURCE_CMD=" \
+		mkdir obj-udeb/ && cd obj-udeb/ && \
+	    CFLAGS='-Os -fomit-frame-pointer -DCONFIG_NO_BACKWARDS_COMPAT' \
+		../configure --prefix=/ --disable-zlib $(CONFARGS) \
+	"
+endif
+	touch $@
+
+
+build: $(STAMP_DIR)/build
+$(STAMP_DIR)/build: $(STAMP_DIR)/configure
+	dh_testdir
+	NOISY=1 \
+	$(MAKE) -f debian/sys-build.mk source.command SOURCE_CMD=" \
+		cd obj && $(MAKE) \
+	"
+ifdef BUILD_UDEB
+	NOISY=1 \
+	$(MAKE) -f debian/sys-build.mk source.command SOURCE_CMD=" \
+		cd obj-udeb && $(MAKE) lsmod insmod depmod modprobe \
+	"
+endif
+	touch $@
+
+install: $(STAMP_DIR)/build checkroot
+	dh_testdir
+	dh_clean -k
+
+	dh_installdirs bin/ sbin/ etc/modprobe.d/arch/ lib/modules/
+	dh_install --sourcedir=$O -p module-init-tools
+	cp extra/modprobe.d/aliases $D/etc/modprobe.d/
+
+	install --mode=755 extra/update-modules $D/sbin/
+	sh extra/installarchconf $D/etc/modprobe.d/arch/
+
+ifdef BUILD_UDEB
+	dh_installdirs bin/ sbin/ etc/modprobe.d/ -p module-init-tools-udeb
+	dh_install --sourcedir=$O-udeb -p module-init-tools-udeb
+	cat $D/etc/modprobe.d/arch/* extra/modprobe.d/aliases \
+		> $D-udeb/etc/modprobe.d/aliases || true
+endif
+
+binary-arch: install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs $B/ChangeLog
+	dh_installdocs $B/TODO $B/FAQ
+	dh_installexamples $B/generate-modprobe.conf $B/modprobe.devfs
+	dh_installman extra/*.5 extra/*.8 $B/*.5 $B/*.8
+	sh -e extra/fixmanpages $D
+	dh_installinit --no-start --update-rcd-params="start 20 S ."
+	dh_link bin/lsmod sbin/lsmod
+	dh_strip
+
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_builddeb
+
+binary:	binary-arch
+
+checkroot:
+	test root = "`whoami`"
+
+.PHONY: binary binary-arch binary-indep unpack configure build clean checkroot

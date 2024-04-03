@@ -1,0 +1,57 @@
+#!/bin/sh
+
+# convert install paths
+eval $(set | sed -n 's!^\(install.*\)=/usr/!\1='$(pwd)'/debian/tmp/usr/!p')
+
+# we use a different method to get old site versions into @INC
+sitelib_stem=
+
+# no versions under vendorlib
+vendorlib_stem=
+
+# remove -rpath (shared libperl is moved to /usr/lib by rules)
+tmp=
+for t in $ccdlflags
+do
+    case $t in
+	-Wl,-rpath,*) ;;
+	*) tmp="$tmp${tmp:+ }$t"
+    esac
+done
+
+ccdlflags="$tmp"
+
+# -lnsl is brought in automatically via nsswitch as required
+# -lutil is a glibc BSD compat library which we don't use
+for var in libs perllibs
+do
+    eval val=\"\$$var\"
+    tmp=
+    for t in $val
+    do
+	case $t in
+	    -lnsl|-lutil) ;;
+	    *) tmp="$tmp${tmp:+ }$t"
+	esac
+    done
+
+    eval $var=\"$tmp\"
+done
+
+# set previous version dirs
+inc_version_list=
+inc_version_list_init=0
+while read ver
+do
+    dpkg --compare-versions "$ver" lt "$version"	    || break
+    dpkg --compare-versions "$ver" lt "$api_versionstring"  && continue
+    inc_version_list="$ver${inc_version_list:+ }$inc_version_list"
+    inc_version_list_init="\"$ver\",$inc_version_list_init"
+done <debian/released-versions
+
+# set generic email addresses, host/domain names
+cf_by='Debian Project'
+cf_email=perl@packages.debian.org
+perladmin=root@localhost
+mydomain=
+myhostname=localhost

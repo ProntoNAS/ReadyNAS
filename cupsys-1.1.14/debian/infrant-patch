@@ -1,0 +1,59 @@
+--- scheduler/main.c.orig	Fri Jul 14 17:33:53 2006
++++ scheduler/main.c	Fri Jul 14 17:38:34 2006
+@@ -524,6 +524,7 @@
+     * Update the root certificate once every 5 minutes...
+     */
+ 
++#if 0 // INFRANT: Disable this, since it hurts disk spindown.
+     if ((time(NULL) - RootCertTime) >= 300)
+     {
+      /*
+@@ -533,6 +534,7 @@
+       DeleteCert(0);
+       AddCert(0, "root");
+     }
++#endif // INFRANT
+   }
+ 
+  /*
+--- backend/usb.c.orig	Mon Jul 17 19:34:13 2006
++++ backend/usb.c	Mon Jul 17 19:41:11 2006
+@@ -129,7 +129,9 @@
+       return (1);
+     }
+ 
+-    copies = atoi(argv[4]);
++    /* INFRANT: Always set "copies" to one.  OSX has problems when printing multiple copies if we don't do this.
++    copies = atoi(argv[4]); */
++    copies = 1;
+   }
+ 
+  /*
+--- berkeley/lpq.c.orig	Tue Oct 30 18:35:14 2007
++++ berkeley/lpq.c	Fri Oct 26 18:04:20 2007
+@@ -390,7 +390,11 @@
+ #ifdef __osf__
+ 	puts("Rank   Owner      Pri  Job        Files                       Total Size");
+ #else
++	#if 0
+ 	puts("Rank    Owner   Job     File(s)                         Total Size");
++	#else
++	puts("Rank -::- Owner -::- Job -::- File(s) -::- Total Size in bytes");
++	#endif
+ #endif /* __osf__ */
+ 
+       jobcount ++;
+@@ -428,8 +432,13 @@
+         printf("%-6s %-10.10s %-4d %-10d %-27.27s %d bytes\n", rankstr, jobuser,
+ 	       jobpriority, jobid, jobname, jobsize);
+ #else
++	#if 0
+         printf("%-7s %-8.8s%-8d%-32.32s%d bytes\n", rankstr, jobuser,
+ 	       jobid, jobname, jobsize);
++	#else
++        printf("%s-::-%s-::-%d-::-%s-::-%d\n", rankstr, jobuser,
++	       jobid, jobname, jobsize);
++	#endif
+ #endif /* __osf */
+ 
+       if (attr == NULL)

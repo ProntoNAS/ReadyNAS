@@ -1,0 +1,58 @@
+Index: curl/configure.ac
+===================================================================
+--- curl.orig/configure.ac	2009-11-08 23:07:05.000000000 +0100
++++ curl/configure.ac	2009-11-08 23:07:32.000000000 +0100
+@@ -1029,7 +1029,8 @@
+   if test -z "$GSSAPI_INCS"; then
+      if test -f "$GSSAPI_ROOT/bin/krb5-config"; then
+         GSSAPI_INCS=`$GSSAPI_ROOT/bin/krb5-config --cflags gssapi`
+-        GSSAPI_LIBS=`$GSSAPI_ROOT/bin/krb5-config --libs gssapi`
++        #GSSAPI_LIBS=`$GSSAPI_ROOT/bin/krb5-config --libs gssapi`
++     	GSSAPI_LIBS="-lgssapi_krb5"
+      elif test "$GSSAPI_ROOT" != "yes"; then
+         GSSAPI_INCS="-I$GSSAPI_ROOT/include"
+         GSSAPI_LIBS="-lgssapi"
+@@ -1108,7 +1109,8 @@
+         dnl krb5-config doesn't have --libs-only-L or similar, put everything
+         dnl into LIBS
+         gss_libs=`$GSSAPI_ROOT/bin/krb5-config --libs gssapi`
+-        LIBS="$LIBS $gss_libs"
++        #LIBS="$LIBS $gss_libs"
++        LIBS="$LIBS -lgssapi_krb5"
+      elif test "$GSSAPI_ROOT" != "yes"; then
+         LDFLAGS="$LDFLAGS -L$GSSAPI_ROOT/lib$libsuff"
+         LIBS="$LIBS -lgssapi"
+Index: curl/libcurl.pc.in
+===================================================================
+--- curl.orig/libcurl.pc.in	2009-11-08 23:07:05.000000000 +0100
++++ curl/libcurl.pc.in	2009-11-08 23:07:08.000000000 +0100
+@@ -35,6 +35,6 @@
+ URL: http://curl.haxx.se/
+ Description: Library to transfer files with ftp, http, etc.
+ Version: @VERSION@
+-Libs: -L${libdir} -lcurl @LDFLAGS@ @LIBS@
++Libs: -L${libdir} -lcurl @LIBS@
+ Libs.private: @LIBCURL_LIBS@ @LIBS@
+ Cflags: -I${includedir}
+Index: curl/curl-config.in
+===================================================================
+--- curl.orig/curl-config.in	2009-11-08 23:07:05.000000000 +0100
++++ curl/curl-config.in	2009-11-08 23:07:08.000000000 +0100
+@@ -136,14 +136,14 @@
+ 	   CURLLIBDIR=""
+ 	fi
+ 	if test "X@REQUIRE_LIB_DEPS@" = "Xyes"; then
+-	  echo ${CURLLIBDIR}-lcurl @LDFLAGS@ @LIBCURL_LIBS@ @LIBS@
++	  echo ${CURLLIBDIR}-lcurl @LIBCURL_LIBS@ @LIBS@
+ 	else
+-	  echo ${CURLLIBDIR}-lcurl @LDFLAGS@ @LIBS@
++	  echo ${CURLLIBDIR}-lcurl @LIBS@
+ 	fi
+ 	;;
+ 
+     --static-libs)
+-	echo @libdir@/libcurl.@libext@ @LDFLAGS@ @LIBCURL_LIBS@ @LIBS@
++	echo @libdir@/libcurl.@libext@ @LIBCURL_LIBS@ @LIBS@
+ 	;;
+ 
+     *)

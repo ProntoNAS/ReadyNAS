@@ -1,0 +1,146 @@
+.\" Copyright 1989 - 1993, Julianne Frances Haugh
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\" 3. Neither the name of Julianne F. Haugh nor the names of its contributors
+.\"    may be used to endorse or promote products derived from this software
+.\"    without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY JULIE HAUGH AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL JULIE HAUGH OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.\"	$Id: shadow.3 6 2005-03-20 15:34:28Z bubulle $
+.\"
+.\" Japanese Version Copyright (c) 1997 Kazuyoshi Furutaka
+.\"         all rights reserved.
+.\" Translated Fri Feb 14 23:06:00 JST 1997
+.\"         by Kazuyoshi Furutaka <furutaka@Flux.tokai.jaeri.go.jp>
+.\"
+.TH SHADOW 3
+.SH 名前
+shadow \- 暗号化されたパスワードファイル用ルーチン
+.SH 書式
+.B #include <shadow.h>
+.PP
+.B struct spwd *getspent();
+.PP
+.B struct spwd *getspnam(char
+.IB *name );
+.PP
+.B void setspent();
+.PP
+.B void endspent();
+.PP
+.B struct spwd *fgetspent(FILE
+.IB *fp );
+.PP
+.B struct spwd *sgetspent(char
+.IB *cp );
+.PP
+.B int putspent(struct spwd
+.I *p,
+.B FILE
+.IB *fp );
+.PP
+.B int lckpwdf();
+.PP
+.B int ulckpwdf();
+.SH 説明
+.I shadow
+はshadowパスワードファイル\fI/etc/shadow\fRの内容を操作するルーチンである。
+.sp
+struct spwd {
+.in +.5i
+.br
+	char	*sp_namp; /* ユーザのログイン名 */
+.br
+	char	*sp_pwdp; /* 暗号化されたパスワード */
+.br
+	long	sp_lstchg; /* 最終パスワード変更日時 */
+.br
+	int	sp_min; /* パスワード変更不能日数 */
+.br
+	int	sp_max; /* パスワード変更要求迄の日数 */
+.br
+	int	sp_warn; /* パスワード期限満了警告日数 */
+.br
+	int	sp_inact; /* アカウント無効までの日数 */
+.br
+	int	sp_expire; /* アカウント期限満了の日付 */
+.br
+	int	sp_flag; /* 将来の使用に予約 */
+.br
+.in -.5i
+}
+.PP
+各欄の意味は
+.sp
+sp_namp \- ヌル終端のユーザ名へのポインタ
+.br
+sp_pwdp \- ヌル終端のパスワードへのポインタ
+.br
+sp_lstchg \- 1970年1月1日からパスワード最終変更日時迄の日数
+.br
+sp_min \- パスワード変更が出来る様になるまでの日数
+.br
+sp_max \- パスワードを変更しなくても良い日数
+.br
+sp_warn \- パスワードが無効となるまでにユーザにパスワードが
+無効となりかかっているとの警告を出す日数
+.br
+sp_inact \- パスワードが無効となってからアカウントが不能となり
+使用できなくなるまでの日数
+.br
+sp_expire \- 1970年1月1からアカウント使用不能となる迄の日数
+.br
+sp_flag \- 将来の使用に予約
+.SH 説明
+\fBgetspent\fR, \fBgetspname\fR, \fBfgetspent\fR, 及び \fBsgetspent\fR
+は各々\fBstruct spwd\fRへのポインタを返す。
+\fBgetspent\fRはファイルから次のエントリを、\fBfgetspent\fRは
+指定されたストリームから次のエントリを返す。
+この際、ファイルは正しい書式である仮定している。
+\fBsgetspent\fRは入力として与えられた文字列を用いて\fBstruct spwd\fR
+へのポインタを返す。
+\fBgetspnam\fRはファイル中の現在の位置から\fBname\fRに符合するエントリ
+を探す。
+.PP
+\fBsetspent\fR及び\fBendspent\fRはshadowしたパスワードファイルへの
+アクセスを夫々開始及び終了するために用いることが出来る。
+.PP
+\fB/etc/shadow\fRファイルに対する排他的なアクセスを保証するために、
+\fBlckpwdf\fR及び\fBulckpwdf\fRルーチンを用いなくてはならない。
+\fBlckpwdf\fRは\fBpw_lock\fRを用いて最大15秒間ロックをしようとする。
+そして、最初の15秒の残りを用いて二度目のロックをしようとし続ける。
+全部で15秒間の間にいずれかの試みが失敗した場合は、\fBlckpwdf\fRは-1を返す。
+いずれのロックも成功した場合は0が返される。
+.SH 返り値
+これらのルーチンは、エントリが残っていない場合又は処理の過程で
+エラーが発生した場合にNULLを返す。
+返り値が\fBint\fRであるルーチンは、成功時には0を、失敗時には-1を返す。
+.SH 警告
+shadowされたパスワードファイルへのアクセスは制限されているので、
+これらのルーチンはスーパーユーザのみ用いることが出来る。
+.SH ファイル
+/etc/shadow \- 暗号化されたユーザパスワード
+.SH 関連項目
+.BR getpwent (3),
+.BR shadow (5)
+.SH 著者
+Julianne Frances Haugh (jockgrrl@ix.netcom.com)

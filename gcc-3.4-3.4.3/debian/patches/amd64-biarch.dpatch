@@ -1,0 +1,88 @@
+#! /bin/sh -e
+ 
+# DP: biarch patches for i386/x86_64
+ 
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+
+--- gcc/config/i386/t-linux64~	2002-11-28 14:47:02.000000000 +0000
++++ gcc/config/i386/t-linux64	2004-07-24 07:40:21.716247432 +0000
+@@ -6,7 +6,7 @@
+ 
+ MULTILIB_OPTIONS = m64/m32
+ MULTILIB_DIRNAMES = 64 32 
+-MULTILIB_OSDIRNAMES = ../lib64 ../lib
++MULTILIB_OSDIRNAMES = ../lib ../lib32
+ 
+ LIBGCC = stmp-multilib
+ INSTALL_LIBGCC = install-multilib
+--- config-ml.in~	2003-07-04 19:53:34.000000000 +0000
++++ config-ml.in	2004-07-24 14:13:02.871407408 +0000
+@@ -500,6 +500,46 @@
+ 	  ;;
+ 	esac
+ 	;;
++x86_64*-*-*)
++	case " $multidirs " in
++	*" 32 "*)
++	  # We will not be able to create libraries with -m32 if
++	  # we cannot even link a trivial program.  It usually
++	  # indicates the 32bit libraries are missing.
++	  if echo 'main() {}' > conftest.c &&
++	     ${CC-gcc} -m32 conftest.c -o conftest; then
++	   echo Enable only libstdc++.
++	   old_multidirs="${multidirs}"
++	   multidirs=""
++	   for x in ${old_multidirs}; do
++	     case "$x" in
++	     *32* ) case ${ml_realsrcdir} in
++	               *"libstdc++-v3" ) multidirs="${multidirs} ${x}" ;;
++	               *"libf2c" ) multidirs="${multidirs} ${x}" ;;
++	               *"libobjc" ) multidirs="${multidirs} ${x}" ;;
++	               *"libiberty" ) multidirs="${multidirs} ${x}" ;;
++	               *"zlib" ) multidirs="${multidirs} ${x}" ;;
++	               *) : ;;
++	            esac 
++	            ;;
++	     *) multidirs="${multidirs} ${x}" ;;
++	     esac
++	   done
++	  else
++	    echo Could not link program with -m32, disabling it.
++	    old_multidirs="${multidirs}"
++	    multidirs=""
++	    for x in ${old_multidirs}; do
++	      case "$x" in
++	      *m32* ) : ;;
++	      *) multidirs="${multidirs} ${x}" ;;
++	      esac
++	    done
++	  fi
++	  rm -f conftest.c conftest
++	  ;;
++	esac
++	;;
+ esac
+ 
+ # Remove extraneous blanks from multidirs.

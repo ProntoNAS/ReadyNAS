@@ -1,0 +1,50 @@
+#! /bin/sh -e
+
+# DP: GCC Position Independent Executables patch: http://dev.gentoo.org/~solar/pax/pie/
+
+# the basename of the PIE tarball. the tarball is searched in the
+# top level package directory. If it's not found, a uuencoded tarball
+# is searched in debian/patches.
+
+# patch made by Lorenzo Hernández García-Hierro (a.k.a. trulux) <lorenzo@gnu.org>
+# (c) Debian Hardened project - http://www.debian-hardened.org
+# This can be freely re-distributed under the GNU GPL license v2 or later terms.
+# $Id: pie.dpatch,v 1.1.1.1 2004/09/27 14:04:49 lorenzo Exp $
+
+pbase=gcc-3.3-pie-3-dh
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+
+case "$1" in
+    -patch)
+	rm -rf pie-dh
+	mkdir pie-dh
+	(
+	    cd pie-dh;
+	    if [ -f ../$pbase.tar.gz ]; then
+		tar xfz ../$pbase.tar.gz
+	    else
+		uudecode ../debian/patches/pie-dh.uue;
+		tar xfz $pbase.tar.gz
+	    fi
+	)
+	patch $pdir -f --no-backup-if-mismatch -p1 < pie-dh/gcc-3.3-pie-3.patch
+	patch $pdir -f --no-backup-if-mismatch -p1 < pie-dh/gcc-3.3-autopie_x86-1.patch
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p1 < pie-dh/gcc-3.3-pie-3.patch
+	patch $pdir -f --no-backup-if-mismatch -R -p1 < pie-dh/gcc-3.3-autopie_x86-1.patch
+	rm -rf pie-dh
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0

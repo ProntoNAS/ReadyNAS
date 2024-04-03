@@ -1,0 +1,252 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: Update sched_[gs]et_affinity to new interface and library version.
+# DP: Related bugs: #297769
+# DP: Dpatch author: Bastian Blank <waldi@debian.org>, GOTO Masanori <gotom@debian.org>
+# DP: Patch author: Bastian Blank <waldi@debian.org>
+# DP: Upstream status: In CVS
+# DP: Status Details: 
+# DP: Date: 2005-03-24
+
+PATCHLEVEL=0
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p$PATCHLEVEL < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p$PATCHLEVEL < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+
+# append the patch here and adjust the -p? flag in the patch calls.
+(this changelog is written by gotom)
+2005-03-24  Bastian Blank <waldi@debian.org>
+
+	* Versions.def: Add GLIBC_2.3.4 symbol for new
+	sched_{set,get}affinity.
+	* sysdeps/unix/sysv/linux/Versions: Likewise.
+
+	* posix/sched.h: Update new sched_{set,get}affinity from cvs.
+	* sysdeps/generic/sched_getaffinity.c: Likewise.
+	* sysdeps/generic/sched_setaffinity.c: Likewise.
+	* sysdeps/unix/sysv/linux/sched_getaffinity.c: Likewise.
+	* sysdeps/unix/sysv/linux/sched_setaffinity.c: Likewise.
+
+
+--- Versions.def	2005-03-24 12:47:59.279008144 +0000
++++ Versions.def	2005-03-24 13:53:32.651007992 +0000
+@@ -19,6 +19,7 @@
+   GLIBC_2.3.1
+   GLIBC_2.3.2
+   GLIBC_2.3.3
++  GLIBC_2.3.4
+ %ifdef USE_IN_LIBIO
+   HURD_CTHREADS_0.3
+ %endif
+--- posix/sched.h	2005-03-24 12:08:26.376014592 +0000
++++ posix/sched.h	2005-03-24 12:04:15.878891472 +0000
+@@ -73,11 +73,12 @@
+ 
+ 
+ /* Set the CPU affinity for a task */
+-extern int sched_setaffinity (__pid_t __pid, __const cpu_set_t *__mask)
+-     __THROW;
++extern int sched_setaffinity (__pid_t __pid, size_t __cpusetsize,
++			      __const cpu_set_t *__cpuset) __THROW;
+ 
+ /* Get the CPU affinity for a task */
+-extern int sched_getaffinity (__pid_t __pid, cpu_set_t *__mask) __THROW;
++extern int sched_getaffinity (__pid_t __pid, size_t __cpusetsize,
++			      cpu_set_t *__cpuset) __THROW;
+ #endif
+ 
+ __END_DECLS
+--- sysdeps/generic/sched_getaffinity.c	2005-03-24 12:08:26.502995288 +0000
++++ sysdeps/generic/sched_getaffinity.c	2005-03-24 12:00:21.055915184 +0000
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2002, 2003 Free Software Foundation, Inc.
++/* Copyright (C) 2002, 2003, 2004 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -23,8 +23,9 @@
+ 
+ /* Retrieve the CPU affinity mask for a particular process.  */
+ int
+-sched_getaffinity (pid, cpuset)
++sched_getaffinity (pid, cpusetsize, cpuset)
+      pid_t pid;
++     size_t cpusetsize;
+      cpu_set_t *cpuset;
+ {
+   __set_errno (ENOSYS);
+--- sysdeps/generic/sched_setaffinity.c	2005-03-24 12:08:26.503995136 +0000
++++ sysdeps/generic/sched_setaffinity.c	2005-03-24 12:00:23.306972184 +0000
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2002, 2003 Free Software Foundation, Inc.
++/* Copyright (C) 2002, 2003, 2004 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -23,8 +23,9 @@
+ 
+ /* Retrieve the CPU affinity mask for a particular process.  */
+ int
+-sched_setaffinity (pid, cpuset)
++sched_setaffinity (pid, cpusetsize, cpuset)
+      pid_t pid;
++     size_t cpusetsize;
+      const cpu_set_t *cpuset;
+ {
+   __set_errno (ENOSYS);
+--- sysdeps/unix/sysv/linux/sched_getaffinity.c	2005-03-24 12:08:26.876938440 +0000
++++ sysdeps/unix/sysv/linux/sched_getaffinity.c	2005-03-24 12:00:10.236962456 +0000
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2002, 2003 Free Software Foundation, Inc.
++/* Copyright (C) 2002, 2003, 2004 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -21,25 +21,37 @@
+ #include <string.h>
+ #include <sysdep.h>
+ #include <sys/types.h>
++#include <shlib-compat.h>
+ 
+ 
+ #ifdef __NR_sched_getaffinity
+ int
+-sched_getaffinity (pid, cpuset)
+-     pid_t pid;
+-     cpu_set_t *cpuset;
++__sched_getaffinity_new (pid_t pid, size_t cpusetsize, cpu_set_t *cpuset)
+ {
+   int res = INLINE_SYSCALL (sched_getaffinity, 3, pid, sizeof (cpu_set_t),
+ 			    cpuset);
+   if (res != -1)
+     {
+       /* Clean the rest of the memory the kernel didn't do.  */
+-      memset ((char *) cpuset + res, '\0', sizeof (cpu_set_t) - res);
++      memset ((char *) cpuset + res, '\0', cpusetsize - res);
+ 
+       res = 0;
+     }
+   return res;
+ }
++versioned_symbol (libc, __sched_getaffinity_new, sched_getaffinity,
++		  GLIBC_2_3_4);
++
++
++# if SHLIB_COMPAT (libc, GLIBC_2_3_3, GLIBC_2_3_4)
++int
++__sched_getaffinity_old (pid_t pid, cpu_set_t *cpuset)
++{
++  /* The old interface by default assumed a 1024 processor bitmap.  */
++  return __sched_getaffinity_new (pid, 128, cpuset);
++}
++compat_symbol (libc, __sched_getaffinity_old, sched_getaffinity, GLIBC_2_3_3);
++# endif
+ #else
+ # include <sysdeps/generic/sched_getaffinity.c>
+ #endif
+--- sysdeps/unix/sysv/linux/sched_setaffinity.c	2005-03-24 12:08:26.877938288 +0000
++++ sysdeps/unix/sysv/linux/sched_setaffinity.c	2005-03-24 11:59:07.421926736 +0000
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2002, 2003 Free Software Foundation, Inc.
++/* Copyright (C) 2002, 2003, 2004 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -20,18 +20,68 @@
+ #include <sched.h>
+ #include <string.h>
+ #include <sysdep.h>
++#include <unistd.h>
+ #include <sys/types.h>
++#include <shlib-compat.h>
++#include <alloca.h>
+ 
+ 
+ #ifdef __NR_sched_setaffinity
++static size_t __kernel_cpumask_size;
++
++
++int
++__sched_setaffinity_new (pid_t pid, size_t cpusetsize, const cpu_set_t *cpuset)
++{
++  if (__builtin_expect (__kernel_cpumask_size == 0, 0))
++    {
++      INTERNAL_SYSCALL_DECL (err);
++      int res;
++
++      size_t psize = 128;
++      void *p = alloca (psize);
++
++      while (res = INTERNAL_SYSCALL (sched_getaffinity, err, 3, getpid (),
++				     psize, p),
++	     INTERNAL_SYSCALL_ERROR_P (res, err)
++	     && INTERNAL_SYSCALL_ERRNO (res, err) == EINVAL)
++	p = extend_alloca (p, psize, 2 * psize);
++
++      if (res == 0 || INTERNAL_SYSCALL_ERROR_P (res, err))
++	{
++	  __set_errno (INTERNAL_SYSCALL_ERRNO (res, err));
++	  return -1;
++	}
++
++      __kernel_cpumask_size = res;
++    }
++
++  /* We now know the size of the kernel cpumask_t.  Make sure the user
++     does not request to set a bit beyond that.  */
++  for (size_t cnt = __kernel_cpumask_size; cnt < cpusetsize; ++cnt)
++    if (((char *) cpuset)[cnt] != '\0')
++      {
++        /* Found a nonzero byte.  This means the user request cannot be
++	   fulfilled.  */
++	__set_errno (EINVAL);
++	return -1;
++      }
++
++  return INLINE_SYSCALL (sched_setaffinity, 3, pid, cpusetsize, cpuset);
++}
++versioned_symbol (libc, __sched_setaffinity_new, sched_setaffinity,
++		  GLIBC_2_3_4);
++
++
++# if SHLIB_COMPAT (libc, GLIBC_2_3_3, GLIBC_2_3_4)
+ int
+-sched_setaffinity (pid, cpuset)
+-     pid_t pid;
+-     const cpu_set_t *cpuset;
++__sched_setaffinity_old (pid_t pid, const cpu_set_t *cpuset)
+ {
+-  return INLINE_SYSCALL (sched_setaffinity, 3, pid, sizeof (cpu_set_t),
+-			 cpuset);
++  /* The old interface by default assumed a 1024 processor bitmap.  */
++  return __sched_setaffinity_new (pid, 128, cpuset);
+ }
++compat_symbol (libc, __sched_setaffinity_old, sched_setaffinity, GLIBC_2_3_3);
++# endif
+ #else
+ # include <sysdeps/generic/sched_setaffinity.c>
+ #endif
+--- sysdeps/unix/sysv/linux/Versions	2002-12-16 23:28:17.000000000 +0000
++++ sysdeps/unix/sysv/linux/Versions	2005-03-24 12:05:43.712983888 +0000
+@@ -109,6 +109,9 @@
+     # New kernel interfaces.
+     epoll_create; epoll_ctl; epoll_wait;
+   }
++  GLIBC_2.3.4 {
++    sched_getaffinity; sched_setaffinity;
++  }
+   GLIBC_PRIVATE {
+     # needed by libpthread.
+     __libc_sigaction;

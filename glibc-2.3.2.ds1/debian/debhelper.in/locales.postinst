@@ -1,0 +1,80 @@
+#! /bin/sh
+set -e
+
+LG="/etc/locale.gen"
+EE="/etc/environment"
+
+if [ "$1" = configure ]; then
+
+    . /usr/share/debconf/confmodule
+    db_version 2.0
+
+    db_get locales/locales_to_be_generated && SELECTED_LOCALES=$RET
+    db_get locales/default_environment_locale && SELECTED="$RET"
+
+    if [ -n "$SELECTED_LOCALES" ]; then
+        if [ -e $LG ]; then
+            #   Comment previous defined locales
+            sed -e 's/^[a-zA-Z]/#&/' $LG > $LG.tmp || true
+            mv -f $LG.tmp $LG
+	    last=`tail -n 1 "$LG"`
+	    if test -n "$last"; then echo >> $LG; fi
+        else
+            cat > $LG << EOF
+# This file lists locales that you wish to have built. You can find a list
+# of valid supported locales at /usr/share/i18n/SUPPORTED. Other
+# combinations are possible, but may not be well tested. If you change
+# this file, you need to rerun locale-gen.
+#
+
+EOF
+        fi
+        list=`echo $SELECTED_LOCALES | sed -e 's/, /,/g'`
+        save_IFS=$IFS
+        IFS=,
+        for locale in $list; do
+            if grep -q "^#$locale *\$" $LG; then
+                #   Uncomment previous defined locales
+                sed -e "s,#$locale *\$,$locale," $LG > $LG.tmp || true
+                mv -f $LG.tmp $LG
+            else
+                #   Add a new locale
+                echo $locale >> $LG
+            fi
+        done
+        IFS=$save_IFS
+    else
+        if [ -e $LG ]; then
+            sed -e 's/^[a-zA-Z]/#&/' $LG > $LG.tmp || true
+            mv -f $LG.tmp $LG
+        fi
+    fi
+    # Update requested locales.
+    /usr/sbin/locale-gen
+
+    # Set default LANG environment variable
+    if [ -e $EE ]; then
+        sed -e '/^ *LANG=/d' $EE > $EE.tmp || true
+        #  $EE has to be updated if $SELECTED is empty or 'None'
+        cp -f $EE.tmp $EE
+    else
+        :> $EE.tmp
+    fi
+    if [ -n "$SELECTED" ] && [ "$SELECTED" != "None" ]; then
+        #   Add a newline in case last line does not have one
+        echo >> $EE.tmp
+        echo "LANG=$SELECTED" >> $EE.tmp
+        #   Consecutive blank lines are replaced by a single line
+        cat -s $EE.tmp > $EE
+    fi
+    rm -f $EE.tmp
+fi
+
+# We remove a relic of the past /usr/doc/<package> symlinks.
+# This script should keep at least until sarge release.
+if [ -L "/usr/doc/locales" ]; then
+    rm -f "/usr/doc/locales"
+fi
+
+#DEBHELPER#
+

@@ -1,0 +1,59 @@
+#! /bin/sh -e
+# 10_newpatch.dpatch by  <schizo@debian.org>
+#
+# DP: Allows sparc64 to build more simply
+
+if [ $# -eq 3 ] && [ "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+       -patch) patch -f --no-backup-if-mismatch -p1 < $0;;
+       -unpatch) patch -f --no-backup-if-mismatch -R -p1 < $0;;
+	*)
+		echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+		exit 1;;
+esac
+
+exit 0
+				    
+diff -urNad sparc64-build.gcc-3.3.tmp/src/gcc/config/sparc/linux64.h sparc64-build.gcc-3.3/src/gcc/config/sparc/linux64.h
+--- sparc64-build.gcc-3.3.tmp/src/gcc/config/sparc/linux64.h	2003-03-13 08:40:33.000000000 +0000
++++ sparc64-build.gcc-3.3/src/gcc/config/sparc/linux64.h	2003-03-13 08:46:18.000000000 +0000
+@@ -37,8 +37,8 @@
+    + MASK_STACK_BIAS + MASK_APP_REGS + MASK_FPU + MASK_LONG_DOUBLE_128)
+ #endif
+ 
+-#undef ASM_CPU_DEFAULT_SPEC
+-#define ASM_CPU_DEFAULT_SPEC "-Av9a"
++#undef ASM_CPU64_DEFAULT_SPEC
++#define ASM_CPU64_DEFAULT_SPEC "-Av9a"
+ 
+ #ifdef SPARC_BI_ARCH
+ 
+diff -urNad sparc64-build.gcc-3.3.tmp/src/gcc/config.gcc sparc64-build.gcc-3.3/src/gcc/config.gcc
+--- sparc64-build.gcc-3.3.tmp/src/gcc/config.gcc	2003-03-13 08:40:33.000000000 +0000
++++ sparc64-build.gcc-3.3/src/gcc/config.gcc	2003-03-13 08:48:27.000000000 +0000
+@@ -2383,8 +2383,18 @@
+ 	gnu_ld=yes
+ 	;;
+ sparc-*-linux*)		# SPARC's running GNU/Linux, libc6
++	# If cpu is specified, assume we want a 32/64 compiler
++	if test x$with_cpu = x; then
+ 	tm_file="${tm_file} dbxelf.h elfos.h svr4.h sparc/sysv4.h sparc/linux.h"
+ 	tmake_file="t-slibgcc-elf-ver t-linux sparc/t-crtfm"
++	else
++	tmake_file="t-slibgcc-elf-ver t-linux sparc/t-linux64 sparc/t-crtfm"
++	tm_file="sparc/biarch64.h ${tm_file} dbxelf.h elfos.h svr4.h sparc/sysv4.h sparc/linux64.h"
++	float_format=sparc
++	need_64bit_hwint=yes
++	fi
++	#tm_file="${tm_file} dbxelf.h elfos.h svr4.h sparc/sysv4.h sparc/linux.h"
++	#tmake_file="t-slibgcc-elf-ver t-linux sparc/t-crtfm"
+ 	;;
+ sparc-*-lynxos*)
+ 	if test x$gas = xyes
+

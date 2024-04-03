@@ -1,0 +1,158 @@
+#! /bin/sh -e
+
+# DP: ffi.h.in: correctly #define ffi_type_[us]long on 32bit archs
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        #cd ${dir}gcc && autoconf
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        #rm ${dir}gcc/configure
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+--- libffi/include/ffi.h.in~	2003-10-17 13:13:15.000000000 +0200
++++ libffi/include/ffi.h.in	2003-10-25 18:41:41.000000000 +0200
+@@ -79,76 +79,99 @@
+ #define SINT8   signed char
+ 
++/* 16 bit types */
+ #if SIZEOF_INT == 2
+ 
+ #define UINT16	unsigned int
+ #define SINT16  int
+-#define ffi_type_uint ffi_type_uint16
+-#define ffi_type_sint ffi_type_sint16
+ 
+-#else 
+-#if SIZEOF_SHORT == 2
++#elif SIZEOF_SHORT == 2
+ 
+ #define UINT16  unsigned short
+ #define SINT16  short
+-#define ffi_type_ushort ffi_type_uint16
+-#define ffi_type_sshort ffi_type_sint16
+ 
+ #endif
+-#endif
+ 
++/* 32bit types */
+ #if SIZEOF_INT == 4
+ 
+ #define UINT32	unsigned int
+ #define SINT32  int
+-#define ffi_type_uint ffi_type_uint32
+-#define ffi_type_sint ffi_type_sint32
+ 
+-#else 
+-#if SIZEOF_SHORT == 4
++#elif SIZEOF_SHORT == 4
+ 
+ #define UINT32  unsigned short
+ #define SINT32  short
+-#define ffi_type_ushort ffi_type_uint32
+-#define ffi_type_sshort ffi_type_sint32
+ 
+-#else
+-#if SIZEOF_LONG == 4
++#elif SIZEOF_LONG == 4
+ 
+ #define UINT32  unsigned long
+ #define SINT32  long
+-#define ffi_type_ulong ffi_type_uint32
+-#define ffi_type_slong ffi_type_sint32
+ 
+ #endif
+-#endif
+-#endif
+ 
++
++/* 64 bit types */
+ #if SIZEOF_INT == 8
+ 
+ #define UINT64  unsigned int
+ #define SINT64  int
+-#define ffi_type_uint ffi_type_uint64
+-#define ffi_type_sint ffi_type_sint64
+ 
+-#else
+-#if SIZEOF_LONG == 8
++#elif SIZEOF_LONG == 8
+ 
+ #define UINT64  unsigned long
+ #define SINT64  long
+-#define ffi_type_ulong ffi_type_uint64
+-#define ffi_type_slong ffi_type_sint64
+ 
+-#else
+-#if SIZEOF_LONG_LONG == 8
++#elif SIZEOF_LONG_LONG == 8
+ 
+ #define UINT64  unsigned long long
+ #define SINT64  long long
+-#define ffi_type_ulong ffi_type_uint64
+-#define ffi_type_slong ffi_type_sint64
+ 
+ #endif
++
++#if SIZEOF_INT == 2
++
++#define ffi_type_uint ffi_type_uint16
++#define ffi_type_sint ffi_type_sint16
++
++#elif SIZEOF_INT == 4
++
++#define ffi_type_uint ffi_type_uint32
++#define ffi_type_sint ffi_type_sint32
++
++#elif SIZEOF_INT == 8
++
++#define ffi_type_uint ffi_type_uint64
++#define ffi_type_sint ffi_type_sint64
++
+ #endif
++
++#if SIZEOF_SHORT == 2
++
++#define ffi_type_ushort ffi_type_uint16
++#define ffi_type_sshort ffi_type_sint16
++
++#elif SIZEOF_SHORT == 4
++
++#define ffi_type_ushort ffi_type_uint32
++#define ffi_type_sshort ffi_type_sint32
++
++#endif /* guess there are no 64bit shorts anywhere? */
++
++#if SIZEOF_LONG == 4
++
++#define ffi_type_ulong ffi_type_uint32
++#define ffi_type_slong ffi_type_sint32
++
++#elif SIZEOF_LONG == 8
++
++#define ffi_type_ulong ffi_type_uint64
++#define ffi_type_slong ffi_type_sint64
++
+ #endif
+ 
++/* any machines with 128bit long longs yet? */
++#define ffi_type_ulong_long ffi_type_uint64
++#define ffi_type_slong_long ffi_type_sint64
++
+ /* ---- System specific configurations ----------------------------------- */
+ 

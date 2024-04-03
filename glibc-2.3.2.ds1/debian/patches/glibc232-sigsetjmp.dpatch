@@ -1,0 +1,55 @@
+#! /bin/sh -e
+
+# All lines beginning with `# DP:' are a description of the patch.
+# DP: Description: Fix gcc-4.0 compilation breakage.
+# DP: Related bugs: #295457
+# DP: Dpatch author: GOTO Masanori <gotom@debian.org>
+# DP: Patch author: Richard Henderson <rth@redhat.com>
+# DP: Upstream status: In CVS
+# DP: Status Details: In CVS
+# DP: Date: 2005-04-09
+
+PATCHLEVEL=0
+
+if [ $# -ne 2 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch) patch -d "$2" -f --no-backup-if-mismatch -p$PATCHLEVEL < $0;;
+    -unpatch) patch -d "$2" -f --no-backup-if-mismatch -R -p$PATCHLEVEL < $0;;
+    *)
+	echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+	exit 1
+esac
+exit 0
+
+# append the patch here and adjust the -p? flag in the patch calls.
+2005-02-07  Richard Henderson  <rth@redhat.com>
+
+	* sysdeps/pthread/pthread.h (__sigsetjmp): Use pointer as first
+	argument.
+
+Index: nptl/sysdeps/pthread/pthread.h
+===================================================================
+RCS file: /cvs/glibc/libc/nptl/sysdeps/pthread/pthread.h,v
+retrieving revision 1.30
+retrieving revision 1.31
+diff -u -p -r1.30 -r1.31
+--- nptl/sysdeps/pthread/pthread.h	24 Nov 2004 22:55:24 -0000	1.30
++++ nptl/sysdeps/pthread/pthread.h	8 Feb 2005 08:59:03 -0000	1.31
+@@ -1,4 +1,4 @@
+-/* Copyright (C) 2002, 2003, 2004 Free Software Foundation, Inc.
++/* Copyright (C) 2002, 2003, 2004, 2005 Free Software Foundation, Inc.
+    This file is part of the GNU C Library.
+ 
+    The GNU C Library is free software; you can redistribute it and/or
+@@ -661,7 +661,7 @@ extern void __pthread_unwind_next (__pth
+ 
+ /* Function used in the macros.  */
+ struct __jmp_buf_tag;
+-extern int __sigsetjmp (struct __jmp_buf_tag __env[1], int __savemask) __THROW;
++extern int __sigsetjmp (struct __jmp_buf_tag *__env, int __savemask) __THROW;
+ 
+ 
+ /* Mutex handling.  */

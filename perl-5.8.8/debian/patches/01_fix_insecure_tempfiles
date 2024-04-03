@@ -1,0 +1,116 @@
+CAN-2004-0976:
+
+  Multiple scripts in the perl package in Trustix Secure Linux 1.5 through
+  2.1, and possibly other operating systems, allows local users to
+  overwrite files via a symlink attack on temporary files.
+
+  * Insecure use of /tmp file in lib/Memoize/t/tie.t, tie_gdbm.t, tie_ndbm.t,
+    tie_sdbm.t, tie_storable.t, probably exploitable at build time if these
+    tests are run.
+
+  Also fix a quote typo in utils/c2ph.PL .
+
+diff -Naur --exclude=debian perl-5.8.7.orig/lib/Memoize/t/tie.t perl-5.8.7/lib/Memoize/t/tie.t
+--- perl-5.8.7.orig/lib/Memoize/t/tie.t	2002-07-13 05:56:19.000000000 +1000
++++ perl-5.8.7/lib/Memoize/t/tie.t	2005-06-02 23:38:22.000000000 +1000
+@@ -29,14 +29,7 @@
+   $_[0]+1;
+ }
+ 
+-if (eval {require File::Spec::Functions}) {
+-  File::Spec::Functions->import('tmpdir', 'catfile');
+-  $tmpdir = tmpdir();
+-} else {
+-  *catfile = sub { join '/', @_ };
+-  $tmpdir = $ENV{TMP} || $ENV{TMPDIR} || '/tmp';
+-}
+-$file = catfile($tmpdir, "md$$");
++$file = "md$$";
+ @files = ($file, "$file.db", "$file.dir", "$file.pag");
+ 1 while unlink @files;
+ 
+diff -Naur --exclude=debian perl-5.8.7.orig/lib/Memoize/t/tie_gdbm.t perl-5.8.7/lib/Memoize/t/tie_gdbm.t
+--- perl-5.8.7.orig/lib/Memoize/t/tie_gdbm.t	2002-07-13 05:56:19.000000000 +1000
++++ perl-5.8.7/lib/Memoize/t/tie_gdbm.t	2005-06-02 23:38:22.000000000 +1000
+@@ -26,13 +26,7 @@
+ 
+ print "1..4\n";
+ 
+-if (eval {require File::Spec::Functions}) {
+- File::Spec::Functions->import();
+-} else {
+-  *catfile = sub { join '/', @_ };
+-}
+-$tmpdir = $ENV{TMP} || $ENV{TMPDIR} ||  '/tmp';  
+-$file = catfile($tmpdir, "md$$");
++$file = "md$$";
+ 1 while unlink $file, "$file.dir", "$file.pag";
+ tryout('GDBM_File', $file, 1);  # Test 1..4
+ 1 while unlink $file, "$file.dir", "$file.pag";
+diff -Naur --exclude=debian perl-5.8.7.orig/lib/Memoize/t/tie_ndbm.t perl-5.8.7/lib/Memoize/t/tie_ndbm.t
+--- perl-5.8.7.orig/lib/Memoize/t/tie_ndbm.t	2005-04-22 21:36:58.000000000 +1000
++++ perl-5.8.7/lib/Memoize/t/tie_ndbm.t	2005-06-02 23:39:53.000000000 +1000
+@@ -29,13 +29,7 @@
+ print "1..4\n";
+ 
+ 
+-if (eval {require File::Spec::Functions}) {
+- File::Spec::Functions->import();
+-} else {
+-  *catfile = sub { join '/', @_ };
+-}
+-$tmpdir = $ENV{TMP} || $ENV{TMPDIR} ||  '/tmp';  
+-$file = catfile($tmpdir, "md$$");
++$file = "md$$";
+ 1 while unlink $file, "$file.dir", "$file.pag", "$file.db";
+ tryout('Memoize::NDBM_File', $file, 1);  # Test 1..4
+ 1 while unlink $file, "$file.dir", "$file.pag", "$file.db";
+diff -Naur --exclude=debian perl-5.8.7.orig/lib/Memoize/t/tie_sdbm.t perl-5.8.7/lib/Memoize/t/tie_sdbm.t
+--- perl-5.8.7.orig/lib/Memoize/t/tie_sdbm.t	2002-07-13 05:56:19.000000000 +1000
++++ perl-5.8.7/lib/Memoize/t/tie_sdbm.t	2005-06-02 23:38:22.000000000 +1000
+@@ -28,14 +28,7 @@
+ 
+ print "1..4\n";
+ 
+-if (eval {require File::Spec::Functions}) {
+- File::Spec::Functions->import('tmpdir', 'catfile');
+- $tmpdir = tmpdir();
+-} else {
+- *catfile = sub { join '/', @_ };
+-  $tmpdir = $ENV{TMP} || $ENV{TMPDIR} || '/tmp';
+-}
+-$file = catfile($tmpdir, "md$$");
++$file = "md$$";
+ 1 while unlink $file, "$file.dir", "$file.pag";
+ tryout('Memoize::SDBM_File', $file, 1);  # Test 1..4
+ 1 while unlink $file, "$file.dir", "$file.pag";
+diff -Naur --exclude=debian perl-5.8.7.orig/lib/Memoize/t/tie_storable.t perl-5.8.7/lib/Memoize/t/tie_storable.t
+--- perl-5.8.7.orig/lib/Memoize/t/tie_storable.t	2002-07-13 05:56:19.000000000 +1000
++++ perl-5.8.7/lib/Memoize/t/tie_storable.t	2005-06-02 23:38:22.000000000 +1000
+@@ -34,13 +34,7 @@
+ print "1..4\n";
+ 
+ 
+-if (eval {require File::Spec::Functions}) {
+- File::Spec::Functions->import();
+-} else {
+-  *catfile = sub { join '/', @_ };
+-}
+-$tmpdir = $ENV{TMP} || $ENV{TMPDIR} ||  '/tmp';  
+-$file = catfile($tmpdir, "storable$$");
++$file = "storable$$";
+ 1 while unlink $file;
+ tryout('Memoize::Storable', $file, 1);  # Test 1..4
+ 1 while unlink $file;
+diff -Naur --exclude=debian perl-5.8.7.orig/utils/c2ph.PL perl-5.8.7/utils/c2ph.PL
+--- perl-5.8.7.orig/utils/c2ph.PL	2004-10-20 05:45:42.000000000 +1000
++++ perl-5.8.7/utils/c2ph.PL	2005-06-02 23:38:30.000000000 +1000
+@@ -1320,7 +1320,7 @@
+ 	$intrinsics{$_[1]} = $template{$_[0]};
+     }
+     close(PIPE) || die "couldn't read intrinsics!";
+-    unlink($TMP, '$SAFEDIR/a.out');
++    unlink($TMP, "$SAFEDIR/a.out");
+     print STDERR "done\n" if $trace;
+ }
+ 

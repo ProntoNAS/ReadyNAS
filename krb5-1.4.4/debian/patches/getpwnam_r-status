@@ -1,0 +1,28 @@
+Debian's getpwnam_r returns success even if the user wasn't found, but
+the result pointer is set to NULL.  The Kerberos source assumes that
+k5_getpwnam_r will fail if the user wasn't found and dereferences OUT
+without any further checks.  Use a technique similar to the other cases
+and change the status to -1 if OUT is NULL.
+
+A better approach may be to change the source to not assume success
+means that OUT is non-NULL, since that appears to be the POSIX behavior.
+
+Kerberos RT #3490
+Debian bug #354133 (against libpam-krb5)
+
+=== krb5/src/include/k5-platform.h
+==================================================================
+--- krb5/src/include/k5-platform.h	(revision 2106)
++++ krb5/src/include/k5-platform.h	(local)
+@@ -503,8 +503,9 @@
+ #ifdef HAVE_GETPWNAM_R
+ # ifndef GETPWNAM_R_4_ARGS
+ /* POSIX */
+-#  define k5_getpwnam_r(NAME, REC, BUF, BUFSIZE, OUT) \
+-	getpwnam_r(NAME,REC,BUF,BUFSIZE,OUT)
++#  define k5_getpwnam_r(NAME, REC, BUF, BUFSIZE, OUT)	\
++	(getpwnam_r(NAME,REC,BUF,BUFSIZE,OUT) == 0	\
++	 ? (*(OUT) == NULL ? -1 : 0) : -1)
+ # else
+ /* POSIX drafts? */
+ #  ifdef GETPWNAM_R_RETURNS_INT

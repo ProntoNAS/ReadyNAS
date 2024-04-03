@@ -1,0 +1,74 @@
+#!/bin/sh
+#
+# source:
+#   /var/cvs/projects/debian/dpkg.common/installsrc,v
+#
+# revision:
+#   @(#) installsrc,v 1.2 1999/03/08 04:34:00 jplejacq Exp
+#
+# copyright:
+#   Copyright (C) 1999 Jean Pierre LeJacq <jplejacq@quoininc.com>
+#
+#   Distributed under the GNU GENERAL PUBLIC LICENSE.
+#
+# synopsis:
+#   installsrc -p <DH_DOPACKAGES> -P <DH_TMPDIR>
+#
+# description:
+#   Install src locally from remote site.
+#
+#   The archive is moved one directory below the build directory since
+#   dpkg can use an optimization of not including the archive when
+#   uploading debian package revisions that use the same upstream
+#   source revision.
+#
+#   I've implemented argument parsing with the debhelper package.  The
+#   sourced file, dh_lib, will define the two arguments.  Currently
+#   the arguments are not used.
+#
+#   This program is package independent and should work unmodified
+#   with any package.
+
+
+install_src()
+# postconditions:
+#   Return 0 if successful, non-zero if not.
+#
+# description:
+#   Gets original source and places it in standard debian archive.
+{
+  if [ -x "/usr/bin/wget" ]
+  then
+    echo "${0}: getting package sources..."
+
+    wget ${url_pkg_src}
+    mv ./${f_pkg_src} ../${pvo}
+  else
+    echo "${0}: unable to install source: /usr/bin/wget not available."
+    return 1
+  fi
+
+  return 0
+}
+
+
+# main:
+  set -e
+
+
+  . debian/dpkg.common/substfiles 
+  . debian/dpkg.scripts/substfiles
+
+
+  if [ -f "./debian/dpkg.scripts/installsrc" ]
+  then
+    echo "${0}: include overrides..."
+      . ./debian/dpkg.scripts/installsrc
+
+    install_src_override
+  else
+    install_src
+  fi
+
+
+  exit 0

@@ -1,0 +1,43 @@
+#! /bin/sh -e
+
+# DP: Change /usr/lib/gcc-lib to /usr/lib/gcc so that the compiler
+# DP: finds symboloc links to shared libraries.
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p0 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p0 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+
+--- gcc/ada/Makefile.adalib~	2004-07-25 19:59:36.000000000 +0200
++++ gcc/ada/Makefile.adalib	2004-07-25 19:59:44.000000000 +0200
+@@ -53,9 +53,9 @@
+ 
+ target = $(shell $(CC) -dumpmachine)
+ version = $(shell $(CC) -dumpversion)
+-ADA_INCLUDE_PATH = $(GNAT_ROOT)lib/gcc-lib/$(target)/$(version)/adainclude/
+-GCC_INCLUDE_PATH = $(GNAT_ROOT)lib/gcc-lib/$(target)/$(version)/gcc-include/
+-ADA_OBJECTS_PATH = $(GNAT_ROOT)lib/gcc-lib/$(target)/$(version)/adalib/
++ADA_INCLUDE_PATH = $(GNAT_ROOT)lib/gcc/$(target)/$(version)/adainclude/
++GCC_INCLUDE_PATH = $(GNAT_ROOT)lib/gcc/$(target)/$(version)/gcc-include/
++ADA_OBJECTS_PATH = $(GNAT_ROOT)lib/gcc/$(target)/$(version)/adalib/
+ 
+ vpath %.adb $(ADA_INCLUDE_PATH)
+ vpath %.ads $(ADA_INCLUDE_PATH)
+

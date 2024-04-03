@@ -1,0 +1,1182 @@
+#! /usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+include debian/rules.defs
+include debian/rules.parameters
+
+# some tools
+SHELL	= /bin/bash -e		# brace expansion in rules file
+IR	= install -m 644	# Install regular file
+IP	= install -m 755	# Install program
+IS	= install -m 755	# Install script
+
+#number of jobs to run for build
+ifneq ($(USE_NJOBS),)
+  NJOBS   = -j$(shell if [ -f /proc/cpuinfo ]; \
+		    then echo `cat /proc/cpuinfo | grep 'processor' | wc -l`; \
+		    else echo 1; fi)
+endif
+
+# kernel-specific ulimit hack
+ifeq ($(DEB_HOST_GNU_SYSTEM),linux)
+  ULIMIT =  if [ -e /proc/meminfo ]; then \
+	    m=`awk '/^((Mem|Swap)Free|Cached)/{m+=$$2}END{print int(m*.9)}' \
+		/proc/meminfo`; \
+	  else \
+	    m=`vmstat --free --swap-free --kilobytes|awk '{m+=$$2}END{print int(m*.9)}'`; \
+	  fi; \
+	  ulimit -m $$m; \
+	  echo "Limited memory for test runs to `ulimit -m`kB"
+else
+  ULIMIT = true
+endif
+
+# the recipient for the test summaries. Send with: debian/rules mail-summary
+S_EMAIL = gcc@packages.debian.org gcc-testresults@gcc.gnu.org
+
+CPPFLAGS	=
+CFLAGS		= -g -O2 $(CPPFLAGS)
+LDFLAGS		=
+BOOT_CFLAGS	= -O2 $(CPPFLAGS)
+ifeq ($(with_ada),yes)
+  CC		= gnatgcc $(CPPFLAGS)
+else
+  CC		= cc $(CPPFLAGS)
+endif
+
+ifeq ($(DEB_HOST_ARCH), $(findstring $(DEB_HOST_ARCH),m68k))
+  STAGE1_CFLAGS = STAGE1_CFLAGS="-g -O"
+endif
+
+ifdef DEB_CROSS
+  CFLAGS	= $(BOOT_CFLAGS)
+endif
+
+docdir		= usr/share/doc
+
+# PF is the installation prefix for the package without the leading slash.
+# It's "usr" for gcc releases
+PF		= usr
+
+ifeq ($(with_multiarch),yes)
+  libdir	= lib/$(DEB_TARGET_GNU_TYPE)
+else
+  libdir	= lib
+endif
+# /usr/libexec doesn't follow the FHS
+libexecdir	= $(PF)/$(libdir)
+buildlibdir	= $(builddir)/$(TARGET_ALIAS)
+gcc_lib_dir	= $(PF)/$(libdir)/gcc/$(TARGET_ALIAS)/$(VER)
+gcc_lexec_dir	= $(libexecdir)/gcc/$(TARGET_ALIAS)/$(VER)
+
+ifndef DEB_CROSS
+  cxx_inc_dir	= $(PF)/include/c++/$(BASE_VERSION)
+else
+  cxx_inc_dir	= $(PF)/$(TARGET_ALIAS)/include/c++/$(BASE_VERSION)
+endif
+
+CONFARGS = -v \
+	--enable-languages=$(shell echo $(enabled_languages) | tr -s ' ' ',') \
+	--prefix=/$(PF) \
+	--libexecdir=/$(libexecdir) \
+	--with-gxx-include-dir=/$(cxx_inc_dir) \
+	--enable-shared \
+	--with-system-zlib \
+	--enable-nls \
+	--without-included-gettext
+
+ifeq ($(versioned_packages),yes)
+  CONFARGS += --program-suffix=-$(BASE_VERSION)
+endif
+
+ifneq ($(with_sysroot),)
+  CONFARGS += --with-sysroot=$(with_sysroot)
+endif
+
+ifeq ($(with_cxa_atexit),yes)
+  CONFARGS += --enable-__cxa_atexit
+else
+  CONFARGS += --disable-__cxa_atexit
+endif
+
+ifeq ($(with_cxx),yes)
+  CONFARGS += --enable-libstdcxx-allocator=mt # auto pool new mt
+  ifeq ($(force_gnu_locales),yes)
+    CONFARGS += --enable-clocale=gnu
+  endif
+  ifeq ($(with_debug),yes)
+    CONFARGS += --enable-libstdcxx-debug
+  endif
+endif
+
+ifeq ($(with_java),yes)
+  CONFARGS += --enable-java-gc=boehm --enable-java-awt=gtk
+endif
+with_nls := yes
+
+ifeq ($(with_objc)-$(with_objc_gc),yes-yes)
+  CONFARGS += --enable-objc-gc
+endif
+
+ifeq ($(DEB_TARGET_GNU_TYPE),powerpc-linux)
+    ifeq ($(biarch),yes)
+      CONFARGS += --disable-softfloat --with-cpu=default32
+    else
+      CONFARGS += --disable-multilib
+    endif
+endif
+
+ifeq ($(DEB_TARGET_GNU_CPU), $(findstring $(DEB_TARGET_GNU_CPU),powerpc64))
+  CONFARGS += --disable-softfloat
+endif
+
+ifeq ($(DEB_TARGET_GNU_CPU),$(findstring $(DEB_TARGET_GNU_CPU),m68k))
+  CONFARGS += --disable-werror
+endif
+
+ifeq ($(with_treelang),yes)
+  CONFARGS += --disable-werror
+endif
+
+ifeq ($(DEB_TARGET_GNU_CPU)-$(biarch),sparc-yes)
+  CONFARGS += --with-cpu=v7
+endif
+
+ifeq ($(DEB_TARGET_GNU_TYPE),ia64-linux)
+  CONFARGS += --with-system-libunwind
+endif
+
+ifndef DEB_CROSS
+  CONFARGS += $(TARGET_ALIAS)
+else
+  CONFARGS += \
+	--program-prefix=$(TARGET_ALIAS)- \
+	--includedir=/$(PF)/$(DEB_TARGET_GNU_TYPE)/include \
+	--build=$(DEB_BUILD_GNU_TYPE) \
+	--host=$(DEB_HOST_GNU_TYPE) \
+	--target=$(TARGET_ALIAS)
+endif
+
+bootstrap_target = profiledbootstrap
+
+# no profiledbootstrap on the following architectures
+# - m68k: we're happy that it builds at all
+# - ia64: doesn't work, see PR16108
+no_profiled_bs_archs := ia64 m68k
+ifeq ($(DEB_TARGET_GNU_CPU), $(findstring $(DEB_TARGET_GNU_CPU),$(no_profiled_bs_archs)))
+  bootstrap_target = bootstrap-lean
+endif
+
+bootstrap_target = bootstrap-lean
+
+# Increase the timeout for one testrun on slow architectures
+ifeq ($(DEB_TARGET_GNU_CPU), $(findstring $(DEB_TARGET_GNU_CPU),arm hppa m68k))
+  DEJAGNU_TIMEOUT=600
+else
+  DEJAGNU_TIMEOUT=450
+endif
+ifeq ($(DEB_TARGET_GNU_SYSTEM),gnu)
+  DEJAGNU_TIMEOUT=900
+endif
+
+default: build
+
+configure: $(configure_dependencies)
+
+$(configure_dummy_stamp):
+	touch $(configure_dummy_stamp)
+
+$(configure_stamp):
+	dh_testdir
+	: # give information about the build process
+	@echo "-------------------------- Build process variables --------------------------"
+	@echo "Package source: $(PKGSOURCE)"
+	@echo "Version: $(VER)"
+	@echo "Base Debian version: $(DPKGVER)"
+	@echo -e "Configured with: $(foreach i,$(CONFARGS),$(i)\n\t)"
+ifdef DEB_CROSS
+	@echo "Building cross compiler for $(DEB_TARGET_ARCH)"
+endif
+	@echo "Using shell $(SHELL)"
+	@echo "Architecture: $(DEB_TARGET_ARCH) (GNU: $(TARGET_ALIAS))"
+	@echo "CPPFLAGS: $(CPPFLAGS)"
+	@echo "CFLAGS: $(CFLAGS)"
+	@echo "LDFLAGS: $(LDFLAGS)"
+	@echo "BOOT_CFLAGS: $(BOOT_CFLAGS)"
+	@echo "DEBIAN_BUILDARCH: $(DEBIAN_BUILDARCH)"
+	@echo "Install prefix: /$(PF)"
+ifeq ($(with_cxx),yes)
+	@echo "Will build the C++ compiler"
+else
+	@echo "Will not build the C++ compiler: $(with_cxx)"
+endif
+ifeq ($(with_objc),yes)
+	@echo "Will build the ObjC compiler."
+    ifeq ($(with_objc_gc),yes)
+	@echo "Will build the extra ObjC runtime for garbage collection."
+    else
+	@echo "Will not build the extra ObjC runtime for garbage collection."
+    endif
+else
+	@echo "Will not build the ObjC compiler: $(with_objc)"
+endif
+ifeq ($(with_fortran),yes)
+	@echo "Will build the Fortran77 compiler."
+else
+	@echo "Will not build the Fortran77 compiler: $(with_fortran)"
+endif
+ifeq ($(with_java),yes)
+	@echo "Will build the Java compiler."
+else
+	@echo "Will not build the Java compiler: $(with_java)"
+endif
+ifeq ($(with_libffi),yes)
+	@echo "Will build the FFI library."
+else
+	@echo "Will not build the FFI library: $(with_libffi)"
+endif
+ifeq ($(with_pascal),yes)
+	@echo "Will build the Pascal compiler."
+else
+	@echo "Will not build the Pascal compiler: $(with_pascal)"
+endif
+ifeq ($(with_ada),yes)
+	@echo "Will build the Ada compiler."
+  ifeq ($(with_libgnat),yes)
+	@echo "Will build the shared Ada libraries."
+  else
+	@echo "Will not build the shared Ada libraries."
+  endif
+else
+	@echo "Will not build the Ada compiler: $(with_ada)"
+endif
+ifeq ($(with_treelang),yes)
+	@echo "Will build the Treelang compiler."
+else
+	@echo "Will not build the Treelang compiler: $(with_treelang)"
+endif
+ifeq ($(with_check),yes)
+	@echo "Will run the testsuite."
+else
+	@echo "Will not run the testsuite: $(with_check)"
+endif
+	@echo "-----------------------------------------------------------------------------"
+	@echo ""
+	rm -f $(configure_stamp) $(build_stamp)
+	: # generate debian/README.Debian
+	cat debian/README $(patch_stamp) > debian/README.Debian
+
+	-chmod 755 $(srcdir)/gcc/p/mk_lang_opt
+
+	rm -rf $(builddir)
+	mkdir $(builddir)
+
+# the echo "" | ... needed for the gpc question
+	: # configure
+	cd $(builddir) \
+	  && echo "" | PATH=$(PWD)/bin:$$PATH CC="$(CC)" \
+				../src/configure $(CONFARGS)
+
+#ifeq ($(with_ada),yes)
+#	cd $(srcdir)/gcc/ada && touch treeprs.ads [es]info.h nmake.ad[bs]
+#endif
+ifeq ($(with_ada)-$(with_ada_bootstrap_workaround),yes-yes)
+	cd $(srcdir); \
+	  uudecode $(PWD)/debian/patches/ada-generated.uue; \
+	  tar xvfj ada-generated.tar.bz2; \
+	  rm ada-generated.tar.bz2; \
+	  for f in gcc/ada/{nmake.ads,nmake.adb,treeprs.ads,sinfo.h,einfo.h}; \
+	  do \
+	    touch $$f; \
+	  done
+endif
+
+ifndef DEB_CROSS
+  ifneq ($(with_java),yes)
+    ifeq ($(with_fastjar),yes)
+	rm -rf $(builddir)/fastjar
+	mkdir -p $(builddir)/fastjar
+	cd $(builddir)/fastjar \
+		&& CC="$(CC)" CFLAGS="$(CFLAGS)" \
+			../../src/fastjar/configure $(CONFARGS)
+    endif
+  endif
+endif
+	touch $(configure_stamp)
+
+build: $(build_dependencies)
+
+$(build_dummy_stamp):
+	touch $(build_dummy_stamp)
+
+$(build_stamp): $(configure_stamp)
+	dh_testdir
+	rm -f bootstrap-protocol
+ifndef DEB_CROSS
+	: # build native compiler
+	( \
+	  set +e; \
+	  PATH=$(PWD)/bin:$$PATH \
+	    $(MAKE) -C $(builddir) $(NJOBS) $(bootstrap_target) \
+		CC="$(CC)" \
+		CFLAGS="$(CFLAGS)" \
+		BOOT_CFLAGS="$(BOOT_CFLAGS)" \
+		LDFLAGS="$(LDFLAGS)" \
+		$(STAGE1_CFLAGS) \
+		; \
+	  echo $$? > status; \
+	) 2>&1 | tee bootstrap-protocol
+	s=`cat status`; rm -f status; test $$s -eq 0
+
+#ifneq (,$(findstring $(DEB_HOST_ARCH),i386))
+#	: # build libstdc++ optimized for i486 and above
+#	mv $(buildlibdir)/libstdc++-v3 $(buildlibdir)/libstdc++-v3-default
+#	$(MAKE) -C $(builddir) $(NJOBS) \
+#		CFLAGS_FOR_TARGET='-O2 -march=i486 $$(CFLAGS)' \
+#		CXXFLAGS='-g -O2 -march=i486' \
+#		configure-target-libstdc++-v3
+#	$(MAKE) -C $(builddir) $(NJOBS) \
+#		CFLAGS_FOR_TARGET='-O2 -march=i486 $$(CFLAGS)' \
+#		CXXFLAGS='-g -O2 -march=i486' \
+#		all-target-libstdc++-v3
+#	mv $(buildlibdir)/libstdc++-v3 $(buildlibdir)/libstdc++-v3-i486
+#	mv $(buildlibdir)/libstdc++-v3-default $(buildlibdir)/libstdc++-v3
+#endif
+
+	: # fix '*.la' and '*.lai' files
+	for i in $$(find $(buildlibdir) -name '*.la' -o -name '*.lai'); do \
+	  libdir=$$(sed -n "s,^libdir='\(.*\)'.*,\1,p" $$i); \
+	  [ -z "$$libdir" ] && continue; \
+	  libdir=$$(realpath -s $$libdir); \
+	  sed "s,^libdir='\(.*\)'.*,libdir='$$libdir'," $$i > $$i.new; \
+	  if diff -u $$i $$i.new; then \
+	    rm -f $$i.new; \
+	  else \
+	    echo "$$i: path normalized"; \
+	    touch -r $$i $$i.new; \
+	    mv -f $$i.new $$i; \
+	  fi; \
+	done
+
+  ifeq ($(with_java),yes)
+	: # work around libtool bug including /usr/lib/. in rpath
+	sed 's/^hardcode_libdir_flag_spec=.*/hardcode_libdir_flag_spec=/' \
+	    $(buildlibdir)/libjava/libtool > $(buildlibdir)/libjava/libtool.new
+	mv $(buildlibdir)/libjava/libtool $(buildlibdir)/libjava/libtool.old
+	mv $(buildlibdir)/libjava/libtool.new $(buildlibdir)/libjava/libtool
+	chmod 755 $(buildlibdir)/libjava/libtool
+	touch -r $(buildlibdir)/libjava/libtool.old \
+	    $(buildlibdir)/libjava/libtool
+	rm -f $(buildlibdir)/libjava{/,/.libs/}{gij,jv-convert,rmic,rmiregistry}
+	$(MAKE) -C $(buildlibdir)/libjava
+  endif
+
+  ifneq ($(with_java),yes)
+    ifeq ($(with_fastjar),yes)
+	$(MAKE) -C $(builddir)/fastjar
+    endif
+  endif
+else
+	: # build cross compiler for $(TARGET_ALIAS)
+	( \
+	  set +e; \
+	  PATH=$(PWD)/bin:$$PATH \
+	    $(MAKE) -C $(builddir) $(NJOBS) \
+		CC="$(CC)" \
+		CFLAGS="$(CFLAGS)" \
+		BOOT_CFLAGS="$(BOOT_CFLAGS)" \
+		LDFLAGS="$(LDFLAGS)" \
+		; \
+	  echo $$? > status; \
+	) 2>&1 | tee bootstrap-protocol
+	s=`cat status`; rm -f status; test $$s -eq 0
+endif
+	-chmod 755 $(srcdir)/contrib/warn_summary
+	if [ -x $(srcdir)/contrib/warn_summary ]; then \
+	  rm -f bootstrap-summary; \
+	  $(srcdir)/contrib/warn_summary bootstrap-protocol \
+	    > bootstrap-summary; \
+	fi
+
+ifeq ($(with_ada),yes)
+  ifeq ($(with_libgnat),yes)
+	# In 3.3, the Ada part of GCC does not support parallel builds,
+	# don't pass the \$(NJOBS) parameter from the make command lines.
+
+	# Build the static and shared libraries
+	rm -f $(builddir)/gcc/ada/rts/*.{o,ali}
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH:+$$LD_LIBRARY_PATH:}$(builddir)/gcc:$(builddir)/gcc/ada/rts \
+	PATH=$(PWD)/bin:$$PATH \
+	  $(MAKE) -C $(builddir)/gcc gnatlib-shared \
+		LIBRARY_VERSION=$(GNAT_SONAME)
+	mkdir -p $(builddir)/gcc/ada/rts/obj
+
+	# Move the object files away lest the tools include them in their
+	# executables.  We want to link against libgnat.so instead.
+	mv $(builddir)/gcc/ada/rts/*.o $(builddir)/gcc/ada/rts/obj
+	ln -sf libgnat-$(BASE_VERSION).so.1 \
+		$(builddir)/gcc/ada/rts/libgnat-$(BASE_VERSION).so
+	ln -sf libgnarl-$(BASE_VERSION).so.1 \
+		$(builddir)/gcc/ada/rts/libgnarl-$(BASE_VERSION).so
+	ln -sf libgnat-$(BASE_VERSION).so.1 $(builddir)/gcc/ada/rts/libgnat.so
+	ln -sf libgnarl-$(BASE_VERSION).so.1 $(builddir)/gcc/ada/rts/libgnarl.so
+
+	# Build gnatmake and gnatlink.
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH:+$$LD_LIBRARY_PATH:}$(builddir)/gcc:$(builddir)/gcc/ada/rts \
+	PATH=$(PWD)/bin:$$PATH \
+	  $(MAKE) -C $(builddir)/gcc/ada \
+		ADA_INCLUDES="-I- -I../rts" \
+		CC="../../xgcc -B../../" \
+		CFLAGS="-O2" \
+		GNATMAKE="../../gnatmake" \
+		GNATLINK="../../gnatlink" \
+		GNATBIND="../../gnatbind -C" \
+		STAGE_PREFIX="../../" \
+		LIBGNAT="-L../rts -lgnat" \
+		LN_S="ln -sf" \
+		gnattools1
+
+	# Use gnatmake, gnatbind and gnatlink to build the other tools.
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH:+$$LD_LIBRARY_PATH:}$(builddir)/gcc:$(builddir)/gcc/ada/rts \
+	PATH=$(PWD)/bin:$$PATH \
+	  $(MAKE) -C $(builddir)/gcc/ada \
+		ADA_INCLUDES="-I- -I../rts" \
+		CC="../../xgcc -B../../" \
+		CFLAGS="-O2" \
+		GNATMAKE="../../gnatmake" \
+		GNATLINK="../../gnatlink" \
+		GNATBIND="../../gnatbind" \
+		STAGE_PREFIX="../../" \
+		LIBGNAT="-L../rts -lgnat" \
+		LN_S="ln -sf" \
+		gnattools2
+  else
+	LD_LIBRARY_PATH=$${LD_LIBRARY_PATH:+$$LD_LIBRARY_PATH:}$(builddir)/gcc:$(builddir)/gcc/ada/rts \
+	PATH=$(PWD)/bin:$$PATH \
+		$(MAKE) -C $(builddir)/gcc $(NJOBS) gnatlib gnattools
+  endif
+endif
+
+	touch $(build_stamp)
+
+$(configure_hppa64_stamp): $(build_stamp)
+	dh_testdir
+	rm -f $(configure_hppa64_stamp) $(build_hppa64_stamp)
+	rm -rf $(builddir_hppa64)
+	mkdir $(builddir_hppa64)
+	: # configure
+	cd $(builddir_hppa64) && \
+	  PATH=$(PWD)/bin:$$PATH \
+	  CC="$(builddir)/gcc/xgcc -B$(builddir)/gcc/" \
+	     ../src/configure \
+		--enable-languages=c \
+		--prefix=/$(PF) \
+		--libexecdir=/$(libexecdir) \
+		--disable-shared \
+		--disable-nls \
+		--disable-threads \
+		--with-as=/usr/bin/hppa64-linux-as \
+		--with-ld=/usr/bin/hppa64-linux-ld \
+		--includedir=/$(PF)/hppa64-linux/include \
+		--host=hppa-linux \
+		--build=hppa-linux \
+		--target=hppa64-linux
+	touch $(configure_hppa64_stamp)
+
+$(build_hppa64_stamp): $(configure_hppa64_stamp)
+	  PATH=$(PWD)/bin:$$PATH \
+	    $(MAKE) -C $(builddir_hppa64) $(NJOBS) \
+		CC="$(builddir)/gcc/xgcc -B$(builddir)/gcc/" \
+		CFLAGS="$(CFLAGS)" \
+		BOOT_CFLAGS="$(BOOT_CFLAGS)" LDFLAGS="$(LDFLAGS)"
+	touch $(build_hppa64_stamp)
+
+MANUALS = \
+	$(srcdir)/gcc/doc/cpp.texi \
+	$(srcdir)/gcc/doc/cppinternals.texi \
+	$(srcdir)/gcc/doc/gcc.texi \
+	$(srcdir)/gcc/doc/gccint.texi
+ifeq ($(with_fortran),yes)
+  MANUALS += $(srcdir)/gcc/f/g77.texi
+endif
+ifeq ($(with_java),yes)
+  MANUALS += $(srcdir)/gcc/java/gcj.texi
+endif
+ifeq ($(with_treelang),yes)
+  MANUALS += $(srcdir)/gcc/treelang/treelang.texi
+endif
+ifeq ($(with_ada),yes)
+  MANUALS += \
+	$(builddir)/gcc/doc/gnat_ugn_unw.texi \
+	$(srcdir)/gcc/ada/gnat_rm.texi \
+	$(srcdir)/gcc/ada/gnat-style.texi
+endif
+ifeq ($(with_pascal),yes)
+  MANUALS += \
+	$(srcdir)/gcc/p/doc/en/gpc.texi \
+	$(srcdir)/gcc/p/doc/en/gpcs.texi
+endif
+
+html-docs: $(build_html_stamp)
+#$(build_html_stamp): html-texi2html
+#$(build_html_stamp): html-makeinfo
+$(build_html_stamp): html-makeinfo-nosplit
+
+html-texi2html:
+	rm -rf html
+	mkdir html
+	for manual in $(MANUALS); do \
+	  outname=`basename $${manual} .texi`; \
+	  echo "generating $$outname ..."; \
+	  texi2html -number -split chapter \
+		-I $(srcdir)/gcc/doc/include \
+		-I $(srcdir)/gcc/p/doc \
+		-I $(srcdir)/gcc/p/doc/generated \
+		-I `dirname $${manual}` \
+		-subdir html \
+		$${manual}; \
+	done
+
+html-makeinfo:
+	rm -rf html
+	mkdir html
+	cd html && \
+	for manual in $(MANUALS); do \
+	  manual=`find $(srcdir) -name $${file}.texi`; \
+	  outname=`basename $${manual} .texi`; \
+	  echo "generating $$outname ..."; \
+	  if [ "$${manual}" ]; then \
+	    makeinfo --html --number-sections \
+		-I $(srcdir)/gcc/doc/include -I `dirname $${manual}` \
+		-I $(srcdir)/gcc/p/doc \
+		-I $(srcdir)/gcc/p/doc/generated \
+		-o $${outname} \
+		$${manual}; \
+	  fi; \
+	done
+
+html-makeinfo-nosplit:
+	rm -rf html
+	mkdir html
+	cd html && \
+	for manual in $(MANUALS); do \
+	  outname=`basename $${manual} .texi`.html; \
+	  echo "generating $$outname ..."; \
+	  makeinfo --html --number-sections --no-split \
+		-I $(srcdir)/gcc/doc/include -I `dirname $${manual}` \
+		-I $(srcdir)/gcc/p/doc \
+		-I $(srcdir)/gcc/p/doc/generated \
+		-o $${outname} \
+		$${manual}; \
+	done
+
+# start the script only on architectures known to have slow autobilders ...
+logwatch_archs := arm hppa m68k mips mipsel sparc
+ifeq ($(DEB_HOST_GNU_CPU), $(findstring $(DEB_HOST_GNU_CPU),$(logwatch_archs)))
+  start_logwatch = yes
+endif
+ifeq ($(DEB_HOST_GNU_SYSTEM),gnu)
+  start_logwatch = yes
+endif
+
+ifeq ($(biarch),yes)
+  uname_m := $(shell uname -m)
+  ifeq ($(uname_m), $(findstring $(uname_m),ppc64 sparc64 s390x))
+    DEJAGNU_RUNTESTFLAGS = RUNTESTFLAGS="--target_board 'unix unix/-m64'"
+  endif
+endif
+ifeq ($(biarch_ia32),yes)
+  uname_m := $(shell uname -m)
+  ifeq ($(uname_m), $(findstring $(uname_m),x86_64))
+    DEJAGNU_RUNTESTFLAGS = RUNTESTFLAGS="--target_board 'unix unix/-m32'"
+  endif
+endif
+
+check: $(check_stamp) #$(check_inst_stamp)
+$(check_stamp): $(build_stamp)
+	rm -f test-protocol
+
+	: # build locales needed by libstdc++ testsuite
+	rm -rf locales
+	mkdir locales
+	chmod +x debian/locale-gen
+	debian/locale-gen
+
+	: # work around PR17369
+	sed 's,^export LD_LIBRARY_PATH.*,export LD_LIBRARY_PATH=$(builddir)/gcc:$(builddir)/gcc/ada/rts,' \
+	    $(builddir)/gcc/Makefile > $(builddir)/gcc/Makefile.new
+	touch -r $(builddir)/gcc/Makefile $(builddir)/gcc/Makefile.new
+	mv -f $(builddir)/gcc/Makefile.new $(builddir)/gcc/Makefile
+
+ifeq ($(start_logwatch),yes)
+	: # start logwatch script for regular output during test runs
+	chmod +x debian/logwatch.sh
+	-debian/logwatch.sh -t 900 -p $(builddir)/logwatch.pid \
+		-m '\ntestsuite still running ...\n' \
+		test-protocol \
+		$(builddir)/gcc/testsuite/{gcc,g++,g77,objc}.log \
+		$(builddir)/gcc/testsuite/ada/acats/acats.log \
+		$(builddir)/gcc/p/test/test_log \
+		$(buildlibdir)/libstdc++-v3/testsuite/libstdc++-v3.log \
+		$(buildlibdir)/libjava/testsuite/libjava.log \
+		$(buildlibdir)/libmudflap/testsuite/libmudflap.log \
+		&
+endif
+
+ifeq ($(with_ada)-$(DEB_HOST_ARCH),yes-ia64)
+	chmod +x debian/acats-killer.sh
+	-debian/acats-killer.sh \
+		$(builddir)/gcc/testsuite/ada/acats/acats.log \
+		$(builddir)/gcc/testsuite/g++.log \
+		&
+endif
+
+	echo "Running testsuite ..."
+	-$(ULIMIT); \
+	unset LANG LC_ALL LC_CTYPE LC_NUMERIC LC_TIME LC_MONETARY LC_MESSAGES; \
+	    EXTRA_TEST_PFLAGS=-g0 \
+	    $(DEJAGNU_RUNTESTFLAGS) \
+	    DEJAGNU_TIMEOUT=$(DEJAGNU_TIMEOUT) \
+	    LOCPATH=$(PWD)/locales \
+	    LD_LIBRARY_PATH=$${LD_LIBRARY_PATH:+$$LD_LIBRARY_PATH:}$(builddir)/gcc:$(builddir)/gcc/ada/rts \
+		$(MAKE) -C $(builddir) -k check 2>&1 | tee test-protocol
+
+	-ps aux | fgrep logwatch | fgrep -v fgrep
+	if [ -f $(builddir)/logwatch.pid ]; then \
+	  kill -1 `cat $(builddir)/logwatch.pid`; \
+	else \
+	  true; \
+	fi
+	-ps aux | fgrep logwatch | fgrep -v fgrep
+
+	-chmod 755 $(srcdir)/contrib/test_summary
+	if [ -x $(srcdir)/contrib/test_summary ]; then \
+	  rm -f test-summary; \
+	  ( \
+	    cd $(builddir); \
+	    echo '' > ts-include; \
+	    echo '' >> ts-include; \
+	    if [ -f $(builddir)/gcc/.bad_compare ]; then \
+	      echo 'Bootstrap comparision failure:' >> ts-include; \
+	      cat $(builddir)/gcc/.bad_compare >> ts-include; \
+	      echo '' >> ts-include; \
+	      echo '' >> ts-include; \
+	    fi; \
+	    echo "Build Dependencies:" >> ts-include; \
+	    dpkg -l binutils `echo '$(LIBC_DEP)' | awk '{print $$1}'` \
+	        >> ts-include; \
+	    echo '' >> ts-include; \
+	    cat ../$(patch_stamp) >> ts-include; \
+	    BOOT_CFLAGS="$(BOOT_CFLAGS)" \
+	      $(srcdir)/contrib/test_summary \
+		-i ts-include -m "$(S_EMAIL)" \
+	  ) > raw-test-summary; \
+	  if [ -n "$(testsuite_tarball)" ]; then \
+	    echo "Test suite used: $(testsuite_srcdir)" > test-summary; \
+	    echo "  Do not interpret the results on its own" >> test-summary; \
+	    echo "  but compare them with the results from" >> test-summary; \
+	    echo "  the gcc-snapshot package." >> test-summary; \
+	  fi; \
+	  sed -n '/^Mail/s/.*"\([^"][^"]*\)".*/\1/p' raw-test-summary \
+		>> test-summary; \
+	  awk '/^cat/, /^EOF/' raw-test-summary | grep -v EOF >> test-summary; \
+	  if [ -f bootstrap-summary -a "$(bootstrap_target)" != profiledbootstrap ]; then \
+	    echo '' >> test-summary; \
+	    cat bootstrap-summary >> test-summary; \
+	  fi; \
+	  echo 'BEGIN test-summary'; \
+	  cat test-summary; \
+	  echo 'END test-summary'; \
+	fi
+
+	touch $(check_stamp)
+
+$(check_inst_stamp): $(check_stamp)
+	rm -f test-inst-protocol
+
+ifeq ($(start_logwatch),yes)
+	: # start logwatch script for regular output during test runs
+	chmod +x debian/logwatch.sh
+	-debian/logwatch.sh -t 900 -p $(builddir)/logwatch-inst.pid \
+		-m '\ntestsuite (3.3) still running ...\n' \
+		test-inst-protocol \
+		check-inst/{gcc,g++,g77,objc}.log \
+		&
+endif
+
+	rm -rf check-inst
+	mkdir check-inst
+
+	echo "Running testsuite ..."
+	-$(ULIMIT) ; \
+	DEJAGNU_TIMEOUT=$(DEJAGNU_TIMEOUT) \
+	LOCPATH=$(PWD)/locales \
+	  cd check-inst && $(srcdir)/contrib/test_installed \
+	    --with-gcc=gcc-3.3 --with-g++=g++-3.3 --with-g77=g77-3.3 \
+		2>&1 | tee test-inst-protocol
+
+	-ps aux | fgrep logwatch | fgrep -v fgrep
+	if [ -f $(builddir)/logwatch-inst.pid ]; then \
+	  kill -1 `cat $(builddir)/logwatch-inst.pid`; \
+	else \
+	  true; \
+	fi
+	-ps aux | fgrep logwatch | fgrep -v fgrep
+
+	-chmod 755 $(srcdir)/contrib/test_summary
+	if [ -x $(srcdir)/contrib/test_summary ]; then \
+	  rm -f test-inst-summary; \
+	  ( \
+	    cd check-inst; \
+	    echo '' > ts-include; \
+	    echo '' >> ts-include; \
+	    echo "Build Dependencies:" >> ts-include; \
+	    dpkg -l g++-3.3 binutils `echo '$(LIBC_DEP)' | awk '{print $$1}'` \
+	        >> ts-include; \
+	    echo '' >> ts-include; \
+	    echo 'Results for the installed GCC-3.3 compilers' >> ts-include; \
+	    $(srcdir)/contrib/test_summary \
+		-i ts-include -m "$(S_EMAIL)" \
+	  ) > raw-test-inst-summary; \
+	  sed -n '/^Mail/s/.*"\([^"][^"]*\)".*/\1/p' raw-test-inst-summary \
+		>> test-inst-summary; \
+	  awk '/^cat/, /^EOF/' raw-test-inst-summary \
+		| grep -v EOF >> test-inst-summary; \
+	  echo 'BEGIN test-installed-summary'; \
+	  cat test-inst-summary; \
+	  echo 'END test-installed-summary'; \
+	fi
+
+	chmod 755 debian/reduce-test-diff.awk
+	if diff -u test-inst-summary test-summary \
+		| debian/reduce-test-diff.awk > diff-summary; \
+	then \
+	  mv -f diff-summary testsuite-comparision; \
+	else \
+	  ( \
+	    echo "WARNING: New failures in gcc-3.4 compared to gcc-3.3"; \
+	    echo ''; \
+	    cat diff-summary; \
+	  ) > testsuite-comparision; \
+	  rm -f diff-summary; \
+	fi
+	touch $(check_inst_stamp)
+
+clean: debian/control
+	dh_testdir
+	rm -f pxxx status
+	rm -f *-summary *-protocol testsuite-comparision summary-diff
+ifeq ($(with_pascal),yes)
+	-rm -f $(srcdir)/gcc/p/doc/*info
+	rm -f $(srcdir)/gcc/p/test/{fjf51,fjf141aa,fjf199aa,magic,?,knownbugs/a.out}
+endif
+	if [ -f $(srcdir)/gcc/p/config-lang.in.debian ]; then \
+	  mv -f $(srcdir)/gcc/p/config-lang.in.debian $(srcdir)/gcc/p/config-lang.in; \
+	else true; fi
+	rm -f $(srcdir)/gcc/po/*.gmo
+	rm -f debian/lib{ffi,g2c,gcc,gcj,objc,stdc++}{-v3,[0-9]}*.{{pre,post}{inst,rm},shlibs}
+	for f in debian/*-BV*; do \
+	  f2=$$(echo $$f \
+		| sed 's/BV/$(BASE_VERSION)/;s/PV/$(GPC_BASE_VERSION)/'); \
+	  rm -f $$f2; \
+	done
+	rm -f debian/shlibs.local
+	rm -f debian/*.debhelper
+	-[ -d debian/bugs ] && $(MAKE) -C debian/bugs clean
+	rm -f debian/README.libstdc++-baseline
+	rm -rf bin locales
+	rm -rf check-inst
+	rm -rf $(unwind_dir).tar.gz $(unwind_dir) $(d)-unwind
+	rm -rf protector*
+	dh_clean
+
+# -----------------------------------------------------------------------------
+# some abbrevations for the package names and directories;
+# p_XXX is the package name, d_XXX is the package directory
+# these macros are only used in the binary-* targets.
+
+ifeq ($(versioned_packages),yes)
+  pkg_ver := -$(BASE_VERSION)
+  gpc_pkg_ver := -$(GPC_BASE_VERSION)$(pkg_ver)
+endif
+
+p_base = gcc$(pkg_ver)-base
+ifndef DEB_CROSS
+  p_gcc  = gcc$(pkg_ver)
+  p_cpp  = cpp$(pkg_ver)
+  p_cppd = cpp$(pkg_ver)-doc
+  p_cxx  = g++$(pkg_ver)
+  p_doc  = gcc$(pkg_ver)-doc
+else
+  p_cpp  = cpp$(pkg_ver)$(cross_bin_arch)
+  p_gcc  = gcc$(pkg_ver)$(cross_bin_arch)
+  p_cxx  = g++$(pkg_ver)$(cross_bin_arch)
+endif
+p_hppa64 = gcc$(pkg_ver)-hppa64
+
+d	= debian/tmp
+d_base	= debian/$(p_base)
+d_gcc	= debian/$(p_gcc)
+d_cpp	= debian/$(p_cpp)
+d_cppd	= debian/$(p_cppd)
+d_cxx	= debian/$(p_cxx)
+d_doc	= debian/$(p_doc)
+d_hppa64= debian/$(p_hppa64)
+
+# ---------------------------------------------------------------------------
+
+ifndef DEB_CROSS
+# ----------------------------------------
+# native target
+
+include debian/rules.d/binary-base.mk
+include debian/rules.d/binary-libgcc.mk
+
+ifeq ($(with_cdev),yes)
+  include debian/rules.d/binary-cpp.mk
+endif
+
+ifeq ($(with_proto),yes)
+  include debian/rules.d/binary-proto.mk
+endif
+
+ifeq ($(with_fixincl),yes)
+  include debian/rules.d/binary-fixincl.mk
+endif
+
+ifeq ($(with_objc),yes)
+  include debian/rules.d/binary-objc.mk
+endif
+ifeq ($(with_libobjc),yes)
+  include debian/rules.d/binary-libobjc.mk
+endif
+
+# include before cxx
+include debian/rules.d/binary-java.mk
+ifeq ($(with_fastjar),yes)
+  include debian/rules.d/binary-fastjar.mk
+endif
+
+ifeq ($(with_libffi),yes)
+  include debian/rules.d/binary-libffi.mk
+endif
+
+ifeq ($(with_cxxdev),yes)
+  include debian/rules.d/binary-cxx.mk
+endif
+ifeq ($(with_cxx),yes)
+  include debian/rules.d/binary-libstdcxx.mk
+endif
+
+ifeq ($(with_fortran),yes)
+  include debian/rules.d/binary-fortran.mk
+endif
+
+ifeq ($(with_ada),yes)
+  include debian/rules.d/binary-ada.mk
+endif
+
+ifeq ($(with_treelang),yes)
+  include debian/rules.d/binary-treelang.mk
+endif
+
+ifeq ($(with_pascal),yes)
+  include debian/rules.d/binary-pascal.mk
+endif
+
+ifeq ($(with_libnof),yes)
+  ifeq ($(DEB_TARGET_GNU_CPU),powerpc)
+    include debian/rules.d/binary-nof.mk
+  endif
+endif
+
+# gcc must be moved/built after g77 and g++
+ifeq ($(with_cdev),yes)
+  include debian/rules.d/binary-gcc.mk
+endif
+
+ifeq ($(with_hppa64),yes)
+  include debian/rules.d/binary-hppa64.mk
+endif
+
+else
+# ----------------------------------------
+# cross target
+
+ifeq ($(with_libgcc),yes)
+  include debian/rules.d/binary-libgcc-cross.mk
+endif
+
+ifeq ($(with_cdev),yes)
+  include debian/rules.d/binary-cpp-cross.mk
+endif
+
+ifeq ($(with_cxxdev),yes)
+  include debian/rules.d/binary-cxx-cross.mk
+endif
+ifeq ($(with_cxx),yes)
+  include debian/rules.d/binary-libstdcxx-cross.mk
+endif
+
+ifeq ($(with_libnof), yes)
+  ifeq ($(DEB_TARGET_GNU_CPU),powerpc)
+    include debian/rules.d/binary-nof-cross.mk
+  endif
+endif
+
+ifeq ($(with_cdev),yes)
+  include debian/rules.d/binary-gcc-cross.mk
+endif
+
+endif
+
+# ----------------------------------------------------------------------
+install: $(install_dependencies)
+
+$(install_dummy_stamp): $(build_dummy_stamp)
+	touch $(install_dummy_stamp)
+
+$(install_stamp): $(build_stamp)
+	dh_testdir
+	dh_testroot
+	dh_clean -k -N$(p_hppa64)
+	if [ -f $(binary_stamp)-hppa64 ]; then \
+	  mv $(binary_stamp)-hppa64 saved-stamp; \
+	  rm -f $(binary_stamp)*; \
+	  mv saved-stamp $(binary_stamp)-hppa64; \
+	else \
+	  rm -f $(binary_stamp)*; \
+	fi
+
+#ifeq ($(with_java),yes)
+#	: # a "fix"
+#	[ -f $(buildlibdir)/boehm-gc/.libs/libgcjgc.lai ] \
+#	  || sed -e 's/^installed=no/installed=yes/' \
+#	       $(buildlibdir)/boehm-gc/libgcjgc.la \
+#	       > $(buildlibdir)/boehm-gc/.libs/libgcjgc.lai
+#	[ -f $(buildlibdir)/libjava/.libs/libgcj.lai ] \
+#	  || sed -e 's/^installed=no/installed=yes/' \
+#	       $(buildlibdir)/libjava/libgcj.la \
+#	       > $(buildlibdir)/libjava/.libs/libgcj.lai
+#endif
+
+	: # Install directories
+	rm -rf $(d)
+	mkdir -p $(d)/$(libdir) $(d)/$(PF)
+
+	: # Install everything
+	PATH=$(PWD)/bin:$$PATH \
+	  $(MAKE) -C $(builddir) \
+	    CFLAGS="$(CFLAGS)" \
+	    LDFLAGS="$(LDFLAGS)" \
+	    BOOT_CFLAGS="$(BOOT_CFLAGS)" \
+	    DESTDIR=$(PWD)/$(d) \
+	    infodir=/$(PF)/share/info \
+	    mandir=/$(PF)/share/man \
+		install
+
+# wondering, why this is necessary, the installation of the gnat tools
+# is tried from the general install above, but fails with:
+# install: cannot create regular file `<package-top-dir>/debian/tmp/usr/bin/gnatbl': No such file or directory
+#ifeq ($(with_ada),yes)
+#	: # Install Ada components
+#	PATH=$(PWD)/bin:$$PATH \
+#	  $(MAKE) -C $(builddir)/gcc \
+#	    CFLAGS="$(CFLAGS)" \
+#	    LDFLAGS="$(LDFLAGS)" \
+#	    BOOT_CFLAGS="$(BOOT_CFLAGS)" \
+#	    INSTALL="$(INSTALL)" \
+#	    prefix=$(PWD)/$(d)/$(PF) \
+#	    infodir=$(PWD)/$(d)/$(PF)/share/info \
+#	    mandir=$(PWD)/$(d)/$(PF)/share/man \
+#	    gxx_include_dir=$(PWD)/$(d)/$(cxx_inc_dir) \
+#		ada.install-common
+#endif
+
+ifneq ($(with_java),yes)
+  ifeq ($(with_fastjar),yes)
+	: # Install fastjar
+	$(MAKE) -C $(builddir)/fastjar \
+	    DESTDIR=$(PWD)/$(d) \
+	    infodir=/$(PF)/share/info \
+	    mandir=/$(PF)/share/man \
+		install
+  endif
+endif
+
+	: # fix '*.la' and '*.lai' files
+	for i in $$(find $(d) -name '*.la' -o -name '*.lai'); do \
+	  libdir=$$(sed -n "s,^libdir='\(.*\)'.*,\1,p" $$i); \
+	  [ -z "$$libdir" ] && continue; \
+	  libdir=$$(realpath -s $$libdir); \
+	  sed "s,^libdir='\(.*\)'.*,libdir='$$libdir'," $$i > $$i.new; \
+	  if diff -u $$i $$i.new; then \
+	    rm -f $$i.new; \
+	  else \
+	    echo "$$i: path normalized"; \
+	    touch -r $$i $$i.new; \
+	    mv -f $$i.new $$i; \
+	  fi; \
+	done
+
+ifneq ($(with_libgnat),yes)
+	rm -f $(d)/$(gcc_lib_dir)/adalib/lib*.so*
+endif
+
+ifeq ($(GFDL_INVARIANT_FREE),yes)
+	for i in gcc gcov; do \
+	  I=`echo $$i | tr a-z A-Z`; \
+	  sed -e "s/@NAME@/$$I$(pkg_ver)/g" -e "s/@name@/$$i$(pkg_ver)/g" \
+	    debian/dummy-man.1 > $(d)/$(PF)/share/man/man1/$$i.1; \
+	done
+	cp -p debian/gccbug.1 $(d)/$(PF)/share/man/man1/$(TP)gccbug$(pkg_ver)
+
+  ifeq ($(with_fortran),yes)
+	for i in g77; do \
+	  I=`echo $$i | tr a-z A-Z`; \
+	  sed -e "s/@NAME@/$$I$(pkg_ver)/g" -e "s/@name@/$$i$(pkg_ver)/g" \
+	    debian/dummy-man.1 > $(d)/$(PF)/share/man/man1/$$i.1; \
+	done
+  endif
+  ifeq ($(with_java),yes)
+	for i in gcj gcjh gij jv-convert jv-scan jcf-dump rmic rmiregistry; \
+	do \
+	  I=`echo $$i | tr a-z A-Z`; \
+	  sed -e "s/@NAME@/$$I$(pkg_ver)/g" -e "s/@name@/$$i$(pkg_ver)/g" \
+	    debian/dummy-man.1 > $(d)/$(PF)/share/man/man1/$$i.1; \
+	done
+  endif
+endif
+
+ifeq ($(with_pascal),yes)
+	: # gpc is already versioned with the gcc version.
+	mv $(d)/$(PF)/bin/gpc$(pkg_ver) $(d)/$(PF)/bin/gpc
+	mv $(d)/$(PF)/share/man/man1/gpc$(pkg_ver).1 \
+		$(d)/$(PF)/share/man/man1/gpc.1
+endif
+ifeq ($(versioned_packages),yes)
+  ifeq ($(with_pascal),yes)
+    ifeq ($(GFDL_INVARIANT_FREE),yes-XXXX)
+	for i in binobj gpc gpc-run gpidump; do \
+	  I=`echo $$i | tr a-z A-Z`; \
+	  sed -e "s/@NAME@/$$I$(gpc_pkg_ver)/g" \
+	      -e "s/@name@/$$i$(gpc_pkg_ver)/g" \
+	    debian/dummy-man.1 > $(d)/$(PF)/share/man/man1/$$i.1; \
+	done
+    endif
+    ifeq ($(with_gpidump),yes)
+	: # rename files (versioned gpc binaries)
+	for i in binobj gpc gpc-run gpidump; do \
+	  mv $(d)/$(PF)/bin/$$i $(d)/$(PF)/bin/$$i$(gpc_pkg_ver); \
+	done
+	: # rename files (versioned gpc man pages)
+	for i in binobj gpc gpc-run gpidump; do \
+	  mv $(d)/$(PF)/share/man/man1/$$i.1 \
+		$(d)/$(PF)/share/man/man1/$$i$(gpc_pkg_ver).1; \
+	done
+    else
+	: # rename files (versioned gpc binaries)
+	for i in binobj gpc gpc-run; do \
+	  mv $(d)/$(PF)/bin/$$i $(d)/$(PF)/bin/$$i$(gpc_pkg_ver); \
+	done
+	: # rename files (versioned gpc man pages)
+	for i in binobj gpc gpc-run; do \
+	  mv $(d)/$(PF)/share/man/man1/$$i.1 \
+		$(d)/$(PF)/share/man/man1/$$i$(gpc_pkg_ver).1; \
+	done
+    endif
+  endif
+endif
+
+#  ifeq ($(with_ada),yes)
+#	: # rename files (versioned ada binaries)
+#	for i in ; do \
+#	  mv $(d)/$(PF)/bin/$$i $(d)/$(PF)/bin/$$i-$(GNAT_VERSION); \
+#	  mv $(d)/$(PF)/share/man/man1/$$i.1 \
+#		$(d)/$(PF)/share/man/man1/$$i-$(GNAT_VERSION).1; \
+#	done
+#	for i in $(GNAT_TOOLS); do \
+#	  mv $(d)/$(PF)/bin/$$i $(d)/$(PF)/bin/$$i-$(GNAT_VERSION); \
+#	done
+#  endif
+
+ifneq ($(with_libgcc),yes)
+	: # needed for dependency of other shared libs
+	echo 'libgcc_s $(GCC_SONAME) $(p_lgcc) (>= $(DEB_SOVERSION))' \
+	    > debian/shlibs.local
+endif
+
+ifdef DEB_CROSS
+  ifeq ($(DEB_TARGET_ARCH),s390)
+	: # s390 64bit stuff happens to be in s390x-linux/lib64/
+	mkdir -p $(d)/$(PF)/s390-linux/lib64
+	cp -a $(d)/$(PF)/s390x-linux/lib64/* $(d)/$(PF)/s390-linux/lib64/
+  endif
+endif
+
+	chmod 755 debian/dh_*
+	touch $(install_stamp)
+
+$(install_hppa64_stamp): $(build_hppa64_stamp)
+	dh_testdir
+	dh_testroot
+	rm -rf $(d_hppa64)
+	mkdir -p $(d_hppa64)/$(PF)
+
+	PATH=$(PWD)/bin:$$PATH \
+	    $(MAKE) -C $(builddir_hppa64) \
+		CC="$(CC)" \
+		CFLAGS="$(CFLAGS)" \
+		BOOT_CFLAGS="$(BOOT_CFLAGS)" \
+		LDFLAGS="$(LDFLAGS)" \
+		DESTDIR=$(PWD)/$(d_hppa64) \
+		    install
+
+# TODO: multiarch support ...
+	: # provide as and ld links
+	ln -sf ../../../../bin/hppa64-linux-as \
+		$(d_hppa64)/$(PF)/lib/gcc/hppa64-linux/$(VER)/as
+	ln -sf ../../../../bin/hppa64-linux-ld \
+		$(d_hppa64)/$(PF)/lib/gcc/hppa64-linux/$(VER)/ld
+
+	rm -f $(d_hppa64)/$(PF)/bin/hppa64-linux-gcc-$(VER)
+	mv $(d_hppa64)/$(PF)/bin/hppa64-linux-gcc \
+		$(d_hppa64)/$(PF)/bin/hppa64-linux-gcc$(pkg_ver)
+	mv $(d_hppa64)/$(PF)/bin/hppa64-linux-cpp \
+		$(d_hppa64)/$(PF)/bin/hppa64-linux-cpp$(pkg_ver)
+
+	: # remove files not needed
+	rm -rf $(d_hppa64)/$(PF)/info
+	rm -rf $(d_hppa64)/$(PF)/man
+	rm -f $(d_hppa64)/$(PF)/lib/libiberty.a
+	rm -f $(d_hppa64)/$(PF)/bin/*{protoize,gcov,gccbug}
+
+	rm -rf $(d_hppa64)/$(PF)/hppa64-linux/include
+	rm -rf $(d_hppa64)/$(PF)/hppa64-linux/lib
+	-rmdir $(d_hppa64)/$(PF)/hppa64-linux
+
+	touch $(install_hppa64_stamp)
+
+# ----------------------------------------------------------------------
+# Build architecture-dependent files here.
+#binary-arch: build install $(foreach i,$(arch_binaries),$(binary_stamp)-$(i))
+binary-arch: $(foreach i,$(arch_binaries),$(binary_stamp)-$(i))
+ifeq ($(with_check),yes)
+	@echo Done
+#	: # Send Email about sucessfull build.
+#	# cat raw-test-summary | sh; echo "Sent mail to $(S_EMAIL)"
+endif
+
+# ----------------------------------------------------------------------
+# Build architecture-independent files here.
+#binary-indep: build install $(foreach i,$(indep_binaries),$(binary_stamp)-$(i))
+binary-indep: $(foreach i,$(indep_binaries),$(binary_stamp)-$(i))
+
+source diff:
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary

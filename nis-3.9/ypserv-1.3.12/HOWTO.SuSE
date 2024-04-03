@@ -1,0 +1,70 @@
+Copyright (C) 2000 Thorsten Kukuk
+
+
+General things about yp:
+========================
+
+Some files can be distributed over the network and you only have to
+modify one file on a server machine to add new entries.
+
+Most people use this just for /etc/passwd, /etc/shadow and /etc/group.
+Some people even use it for /etc/hosts and /etc/services.
+
+The NIS server and also the NIS client daemon "ypbind" need a running
+"portmap". If your portmapper has the tcp-wrapper builtin, make sure
+/etc/hosts.allow and /etc/hosts.deny are setup correctly.
+
+The rc.config variables for YP could be found in /etc/rc.config and
+/etc/rc.config.d/ypserv.rc.config
+
+
+Installing a master server:
+===========================
+
+
+Edit /etc/rc.config and put this domainname into YP_DOMAINNAME.
+If you don't want to reboot, just run "domainname <ypdomainname>"
+as root now.
+
+Configure your machine as client for the server "localhost" and
+set YP_SERVER to localhost.
+
+Here are the two possibilities to generate the database files (maps) on the
+server together with the needed crontab-entries in /etc/crontab:
+- edit /var/yp/Makefile and run "cd /var/yp; make". The crontab entry is:
+       */10 * * * * root make -s -C /var/yp
+- run the perl-script "ypmake". The crontab entry is:
+       */10 * * * * root cd /var/yp && ypmake > /dev/null
+
+On bootup, you should start ypserv and rpc.yppasswd (used for changing
+passwords with yppasswd).
+
+If you want to have slave servers, you have to edit /var/yp/Makefile
+and list the slave servers in /var/yp/ypservers. You should also start
+rpc.ypxfrd to have a faster transfer of the maps.
+
+
+Installing a slave server:
+==========================
+
+Setup everything for a normal client machine. Add "localhost" at the
+end of YP_SERVERS (this will be the first machine to contact).
+
+Start ypbind to have a working connection to the main NIS server.
+
+Start "/usr/sbin/ypslave init" to transfer all maps to the local server.
+(This programm is only a small shell script. Read it.)
+You can now start the NIS server ("rcypserv start") and restart ypbind to
+use localhost ("rcypbind start").
+
+On bootup you should first start ypserv and then ypbind.
+To regularely check if we have missed fetching a new map, add the following
+line to /etc/crontab:
+51 * * * * root /usr/sbin/ypslave 2>/dev/null
+
+Also add this host to /var/yp/ypservers on the yp server and enable
+pushing of new maps to this slave server. Whenever a new map is
+generated on the server, it will call "yppush". "yppush" will connect
+all slave servers, which will in turn call "ypxfr" to update their
+maps. That simple :-)
+

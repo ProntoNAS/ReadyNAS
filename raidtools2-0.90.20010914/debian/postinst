@@ -1,0 +1,57 @@
+#! /bin/sh -e
+
+. /usr/share/debconf/confmodule
+
+cd /dev
+
+if [ ! -e /dev/.devfsd -a ! -e /dev/md0 ]; then
+
+  echo 'Running /sbin/MAKEDEV md'
+  /sbin/MAKEDEV md
+
+fi
+
+if [ -f /sbin/update-modules ]; then
+
+  update-modules || true
+
+fi
+
+if [ "$1" = "configure" ]
+then
+
+    update-rc.d raid2 start 50 0 6 . start 25 S . > /dev/null
+
+    if [ -d /usr/doc -a ! -e /usr/doc/raidtools2 -a -d /usr/share/doc/raidtools2 ]; then
+
+       ln -sf ../share/doc/raidtools2 /usr/doc/raidtools2
+
+    fi
+
+fi
+
+# Restore the symlink in /etc/logcheck that was overwritten by a directory
+# in versions -4 to -10
+if db_get logcheck-database/security_level; then
+
+  if [ ! -z "$RET" ] && [ "$1" = "configure" ] && \
+     dpkg --compare-versions "$2" "<=" "0.90.20010914-13" && \
+     dpkg --compare-versions "$2" ">=" "0.90.20010914-4"; then
+  
+    if [ -f /etc/logcheck/ignore.d/raidtools2 ]; then
+      rm /etc/logcheck/ignore.d/raidtools2
+    fi
+  
+    if ( [ -d /etc/logcheck/ignore.d ] && \
+         ! ls /etc/logcheck/ignore.d/* > /dev/null 2> /dev/null ) ||
+       [ ! -e /etc/logcheck/ignore.d ]; then
+  
+      echo Restoring your symlink in /etc/logcheck/ignore.d.
+      [ -d /etc/logcheck/ignore.d ] && rmdir /etc/logcheck/ignore.d
+      ln -s /etc/logcheck/ignore.d.$RET /etc/logcheck/ignore.d
+  
+    fi
+  
+  fi
+
+fi

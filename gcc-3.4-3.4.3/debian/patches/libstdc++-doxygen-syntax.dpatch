@@ -1,0 +1,39 @@
+#! /bin/sh -e
+
+# DP: fix doxygen syntax error in header that causes segfaults with some
+# DP: versions
+
+dir=
+if [ $# -eq 3 -a "$2" = '-d' ]; then
+    pdir="-d $3"
+    dir="$3/"
+elif [ $# -ne 1 ]; then
+    echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+    exit 1
+fi
+case "$1" in
+    -patch)
+        patch $pdir -f --no-backup-if-mismatch -p1 < $0
+        ;;
+    -unpatch)
+        patch $pdir -f --no-backup-if-mismatch -R -p1 < $0
+        ;;
+    *)
+        echo >&2 "`basename $0`: script expects -patch|-unpatch as argument"
+        exit 1
+esac
+exit 0
+
+@DPATCH@
+diff -uNr src.orig/libstdc++-v3/include/bits/basic_string.h src/libstdc++-v3/include/bits/basic_string.h
+--- src.orig/libstdc++-v3/include/bits/basic_string.h	2004-10-28 14:52:40.000000000 -0700
++++ src/libstdc++-v3/include/bits/basic_string.h	2005-05-01 14:31:48.000000000 -0700
+@@ -248,7 +248,7 @@
+       // Data Members (public):
+       // NB: This is an unsigned type, and thus represents the maximum
+       // size that the allocator can hold.
+-      /// @var
++      /// @var  static const size_type npos
+       /// Value returned by various member functions when they fail.
+       static const size_type	npos = static_cast<size_type>(-1);
+ 

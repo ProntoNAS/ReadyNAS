@@ -1,0 +1,40 @@
+Notes about the Debian packaging of LVM
+=======================================
+
+The /etc/init.d/lvm script checks for the existence of /proc/lvm before it
+will work. If you do not wish to compile /proc support for LVM into your
+kernel, you should edit the /etc/init.d/lvm script so that it doesn't
+make this check.
+
+Also note that if you compile LVM as a module, you will have to add it to
+/etc/modules in order for the lvm init.d script to run properly.
+
+This check is made to ensure that LVM will never be started on a kernel
+that doesn't support it.
+
+The script now also checks for the existence of /dev/.devfsd, and will
+run vgscan if this is found to create the devices required.
+
+
+The permissions on the LV devices files is set to root.disk 0660 if you
+are either not running devfs OR you are running devfs and your VGs are called
+"vg" followed by some numbers. If you want the permissions to be set as above
+and your VGs have some other name then you may need to edit the regexp in
+/etc/devfsd/conf.d/50lvm.
+
+
+Selection of LVM version
+------------------------
+
+lvm-common dynamically selects the version of the LVM tools to suit the
+kernel you are running. So, if you are running, for example, a 2.4 kernel
+with only LVM1 support then LVM1 tools will be run. If you are running a
+2.6 kernel (which only has device-mapper) then the LVM2 tools will be run.
+
+However, because it is possible to compile a 2.4 kernel with both LVM1 and 
+device-mapper(for LVM2) support in it lvm-common has to try a little harder.
+Normally it will prefer to use LVM2 over LVM1 (if both packages are installed);
+however, if it detects that you already have active LVM1 volumes then it will
+use LVM1 instead.
+
+For more details see the source package to lvm-common.

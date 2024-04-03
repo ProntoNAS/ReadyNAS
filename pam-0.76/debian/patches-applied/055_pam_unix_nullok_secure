@@ -1,0 +1,159 @@
+=== pam_unix/Makefile
+==================================================================
+--- pam_unix/Makefile  (revision 247)
++++ pam_unix/Makefile  (local)
+@@ -38,11 +38,12 @@
+ CHKPWD=unix_chkpwd
+ 
+ EXTRAS += -DCHKPWD_HELPER=\"$(SUPLEMENTED)/$(CHKPWD)\"
++EXTRAS += -I../pammodutil/include
+ 
+ ########################################################################
+ 
+ CFLAGS += $(USE_CRACKLIB) $(USE_LCKPWDF) $(NEED_LCKPWDF) $(EXTRAS)
+-LDLIBS = $(EXTRALS)
++LDLIBS = $(EXTRALS) -L../pammodutil -lpammodutil
+ 
+ ifdef USE_CRACKLIB
+ CRACKLIB = -lcrack
+=== pam_unix/pam_unix_auth.c
+==================================================================
+--- pam_unix/pam_unix_auth.c  (revision 247)
++++ pam_unix/pam_unix_auth.c  (local)
+@@ -148,7 +148,7 @@
+ 
+ 	/* if this user does not have a password... */
+ 
+-	if (_unix_blankpasswd(ctrl, name)) {
++	if (_unix_blankpasswd(ctrl, pamh, name)) {
+ 		D(("user '%s' has blank passwd", name));
+ 		name = NULL;
+ 		retval = PAM_SUCCESS;
+=== pam_unix/pam_unix_passwd.c
+==================================================================
+--- pam_unix/pam_unix_passwd.c  (revision 247)
++++ pam_unix/pam_unix_passwd.c  (local)
+@@ -781,7 +781,7 @@
+ 
+ 		D(("prelim check"));
+ 
+-		if (_unix_blankpasswd(ctrl, user)) {
++		if (_unix_blankpasswd(ctrl, pamh, user)) {
+ 			return PAM_SUCCESS;
+ 		} else if (off(UNIX__IAMROOT, ctrl) || on(UNIX_NIS, ctrl)) {
+ 
+=== pam_unix/support.c
+==================================================================
+--- pam_unix/support.c  (revision 247)
++++ pam_unix/support.c  (local)
+@@ -23,6 +23,7 @@
+ #include "md5.h"
+ #include "support.h"
+ 
++#include <security/_pam_modutil.h>
+ extern char *crypt(const char *key, const char *salt);
+ extern char *bigcrypt(const char *key, const char *salt);
+ 
+@@ -179,14 +180,23 @@
+ 	/* now parse the arguments to this module */
+ 
+ 	while (argc-- > 0) {
+-		int j;
++		int j, sl;
+ 
+ 		D(("pam_unix arg: %s", *argv));
+ 
+ 		for (j = 0; j < UNIX_CTRLS_; ++j) {
+-			if (unix_args[j].token &&
+-			    !strncmp(*argv, unix_args[j].token, strlen(unix_args[j].token)))
+-				break;
++			if (unix_args[j].token) {
++                            sl = strlen(unix_args[j].token);
++                            if (unix_args[j].token[sl-1] == '=') {
++                                /* exclude argument from comparation */
++                                if (!strncmp(*argv, unix_args[j].token, sl))
++                                    break;
++                            } else {
++                                /* compare full strings */
++			        if (!strcmp(*argv, unix_args[j].token))
++				    break;
++                            }
++                        }
+ 		}
+ 
+ 		if (j >= UNIX_CTRLS_) {
+@@ -319,7 +329,7 @@
+  * - to avoid prompting for one in such cases (CG)
+  */
+ 
+-int _unix_blankpasswd(unsigned int ctrl, const char *name)
++int _unix_blankpasswd(unsigned int ctrl, pam_handle_t *pamh, const char *name)
+ {
+ 	struct passwd *pwd = NULL;
+ 	struct spwd *spwdent = NULL;
+@@ -343,7 +353,6 @@
+ 
+ 	if (on(UNIX__NONULL, ctrl))
+ 		return 0;	/* will fail but don't let on yet */
+-
+ 	/* UNIX passwords area */
+ 
+ 	/* Get password file entry... */
+@@ -429,6 +438,16 @@
+ 		free(buf);
+ #endif
+ 
++	if ((retval == 1) && on(UNIX_NULLOK_SECURE, ctrl)) {
++	  	int retval2;
++		const char *uttyname;
++		retval2 = pam_get_item(pamh, PAM_TTY, (const void **)&uttyname);
++		if (retval2 != PAM_SUCCESS || uttyname == NULL)
++			return 0;
++		
++		if (_pammodutil_tty_secure(uttyname) !=  PAM_SUCCESS)
++		  return 0;
++	}
+ 	return retval;
+ }
+ 
+@@ -614,7 +633,7 @@
+ 	    int salt_len = strlen(salt);
+ 	    if (!salt_len) {
+ 		/* the stored password is NULL */
+-		if (off(UNIX__NONULL, ctrl)) {/* this means we've succeeded */
++     	if (_unix_blankpasswd(ctrl, pamh, name)) {/* this means we've succeeded */
+ 		    D(("user has empty password - access granted"));
+ 		    retval = PAM_SUCCESS;
+ 		} else {
+=== pam_unix/support.h
+==================================================================
+--- pam_unix/support.h  (revision 247)
++++ pam_unix/support.h  (local)
+@@ -84,8 +84,9 @@
+ #define UNIX_MIN_PASS_LEN        22	/* Min length for password */
+ #define UNIX_NOOBSCURE_CHECKS    23     /* internal */
+ #define UNIX_OBSCURE_CHECKS      24	/* enable obscure checks on passwords */
++#define UNIX_NULLOK_SECURE       25
+ /* -------------- */
+-#define UNIX_CTRLS_              25	/* number of ctrl arguments defined */
++#define UNIX_CTRLS_              26	/* number of ctrl arguments defined */
+ 
+ 
+ static const UNIX_Ctrls unix_args[UNIX_CTRLS_] =
+@@ -118,6 +119,7 @@
+ /* UNIX_MIN_PASS_LEN */    {"min=",            _ALL_ON_,           0x10000000},
+ /* UNIX_NOOBSCURE_CHECKS */{NULL,              _ALL_ON_,           0x20000000},
+ /* UNIX_OBSCURE_CHECKS */  {"obscure",         _ALL_ON_^(0x20000000),       0},
++/* UNIX__NULLOK_Secure */  {"nullok_secure",   _ALL_ON_^(0x1000),         0x40000000},
+ };
+ 
+ #define UNIX_DEFAULTS  (unix_args[UNIX__NONULL].flag | unix_args[UNIX_NOOBSCURE_CHECKS].flag)
+@@ -137,7 +139,7 @@
+ 		       ,int type, const char *text);
+ extern int _set_ctrl(pam_handle_t * pamh, int flags, int *remember, int argc,
+ 		     const char **argv);
+-extern int _unix_blankpasswd(unsigned int ctrl, const char *name);
++extern int _unix_blankpasswd(unsigned int ctrl, pam_handle_t *pamh, const char *name);
+ extern int _unix_verify_password(pam_handle_t * pamh, const char *name
+ 			  ,const char *p, unsigned int ctrl);
+ extern int _unix_read_password(pam_handle_t * pamh

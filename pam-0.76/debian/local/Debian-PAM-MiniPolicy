@@ -1,0 +1,161 @@
+Author: Ben Collins <bcollins@debian.org>
+Modified by: Sam Hartman <hartmans@debian.org>
+
+Objective: To document a base set of policies regarding PAM (Pluggable
+Authentication Modules) usage in Debian packages.
+
+===========================================================================
+
+In order to have a consistent and stable implementation across packages
+that use PAM, these guidelines will help to avoid some common mistakes and
+be usable as a cross reference for FAQ's.
+
+This document will not go into the details of how to add PAM usage to
+existing code, please read the documentation in the libpam-doc package for
+info on this, however it does specify behavior needed to make sure PAM
+modules in Debian will work with your application. 
+
+==================
+ PAM Applications
+==================
+
+Each application that uses PAM also must contain a file in
+/etc/pam.d/.  This file specifies which PAM modules will be used for
+the common PAM functions in that application. There are several notes
+concerning what modules to use in this file. Most commonly, this file
+should use the @include directive to include common-auth,
+common-session, common-account and common-password.  Under some
+circumstances (such as ftp auth, or auth based on tty) other modules
+will be required.
+
+Here is an example of a PAM configuration file that just includes the common module fragments:
+    #
+    # /etc/pam.d/other - specify the PAM fallback behaviour
+    #
+    # Note that this file is used for any unspecified service; for example
+    #if /etc/pam.d/cron  specifies no session modules but cron calls
+    #pam_open_session, the session module out of /etc/pam.d/other is
+    #used.  If you really want nothing to happen then use pam_permit.so or
+    #pam_deny.so as appropriate.
+
+    # We fall back to the system default in /etc/pam.d/common-*
+    # 
+
+    @include common-auth
+    @include common-account
+    @include common-password
+    @include common-session
+
+
+The name of this file is determined by the call to pam_start() in the
+application source code. The first parameter will be a string containing
+the "service" name (eg. "login", "httpd", etc..). Please make sure that
+the filename coincides with this parameter.
+
+The file should _not_ reference the full path of the modules. It only needs
+to reference the basename (eg. "pam_unix.so"). This will ensure that the
+program continues to work even if the module location changes, since
+libpam itself will resolve the location.
+
+Under no circumstances should any program in Debian use the pam_pwdb.so
+module by default. Instead the pam_unix.so module should be used. Most
+programs with RedHat support/default files will reference pam_pwdb.so in
+their example files. Do not use this. There are several problems with
+regard to pam_pwdb.so:
+
+  1) It attempts to reimplement glibc's NSS code. For example, if your
+  program uses pam_pwdb.so, and the user changes /etc/nsswitch.conf to use
+  NIS, NIS+, or LDAP, then your program will fail to work unless the user
+  also knows to edit /etc/pwdb.conf (which is not necessary for
+  pam_unix.so). In the case of LDAP, the program would become absolutely
+  useless until the user modifies the pam.d file themselves to use
+  pam_unix.so.
+
+  2) It adds to the layer of glibc function calls making it harder to
+  debug problems. Because libpwdb masks glibc native calls, it requires
+  being able to debug libpwdb, libpam, libc and the offending program.
+
+Note that pam_unix.so takes the same module arguments as pam_pwdb.so, so
+you can just replace the references. If you are not sure if the pam.d
+files is correctly setup, please feel free to email it to me, and I will
+glance it over.
+
+UPDATE: libpwdb and this libpam-pwdb have been removed from Debian as of
+Woody. So even if you decided to use pam_pwdb, it will be broken, so HAHA
+:)
+
+You should also not use the pam_stack module in the pam config file.
+It's not currently in Debian so it won't work.  While I cannot stop
+someone from packaging pam_stack for Debian, I will try to convince
+them that it is not the direction we want.  Pam_stack (among other
+faults) uses different pam handles for each step in the process--the
+handle used for session management is not the same as the handle used
+for authentication.  This breaks several modules.  We will have an
+alternate solution for shared PAM configuration across modules.
+
+
+Currently libpam-modules is in the base setup, so it's dependency is not
+needed (since the library depends on the correct version). However, if any
+modules other than the base set in libpam-modules are used, that package
+must be depended on.
+
+Applications need to depend on libpam-runtime (>= 0.76-14) to
+guarantee that /etc/pam.d/common-* exist.
+
+
+The pam_unix.so module allows programs to verify the authentication of the
+uid of the calling process without any set bits (uid or gid). NOTE: this
+means the user executing the program, you cannot authenticate against other
+users without suid root (root makes sure the NIS and NIS+ works too) or
+at least sgid shadow (wont work in the above cases). Most notably this
+affects programs like apache from being able to use PAM with much success
+since it runs as www-data which has no priviledges and cannot use pam_unix.so
+to auth against other users. On the other hand is does allow program like
+vlock to auth (but not auth the root password).
+
+The application needs to follow the following rules to make sure PAM
+modules work:
+
+1) Use the same PAM handle for all operations.  This means it is not OK
+to call pam_start once for authentication and then later for session
+management.  Modules need to be able to store pam_data between entry
+points.
+
+2) The pam_open_session and pam_setcred calls must be made in a parent
+process  of the eventual session.  They need to be able to enfluence
+the environment of the session.
+
+3) If you are started as root or have root privs for some other
+reason, pam_open_session and pam_setcred should be called while still
+root.
+
+4) Implied by 1, make sure that pam_close_session and pam_end are
+called in the same process or a process decended from the execution
+context as pam_open_session and pam_setcred.  The pam_close_session
+call may need state stored in the handle  by the open session entry
+point to clean up properly.  The pam_finish call may need to free data
+(thus influencing system state in some cases) allocated in the earlier
+calls.
+
+
+
+=============
+ PAM Modules
+=============
+
+Separately packaged pam modules should adhere to a few basic setup rules:
+
+  1) Packages should use the naming scheme of `libpam-<name>' (eg.
+  libpam-ldap).
+
+  2) The modules should be located in the directory of the most recent
+  libpam-modules (currently /lib/security).
+
+  3) The module should be named as pam_<name>.so. The module should not
+  contain a version suffix.
+
+  4) The module should be linked to libpam (-lpam) when compiled so that
+  proper version dependencies will work.
+
+  5) Any config files should be located in /etc/security. The filename
+  will be in the form of <name>.conf.

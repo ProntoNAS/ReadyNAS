@@ -1,0 +1,170 @@
+<html lang="en">
+<head>
+<title>Kerberos V5 UNIX User's Guide</title>
+<meta http-equiv="Content-Type" content="text/html">
+<meta name="description" content="Kerberos V5 UNIX User's Guide">
+<meta name="generator" content="makeinfo 4.5">
+<link href="http://www.gnu.org/software/texinfo/" rel="generator-home">
+</head>
+<body>
+<div class="node">
+<p>
+Node:<a name="ksu">ksu</a>,
+Previous:<a rel="previous" accesskey="p" href="rcp.html#rcp">rcp</a>,
+Up:<a rel="up" accesskey="u" href="Kerberos-V5-Applications.html#Kerberos%20V5%20Applications">Kerberos V5 Applications</a>
+<hr><br>
+</div>
+
+<h4 class="subsection">ksu</h4>
+
+<p>The Kerberos V5 <code>ksu</code> program replaces the standard UNIX su
+program.  <code>ksu</code> first authenticates you to Kerberos.  Depending on
+the configuration of your system, <code>ksu</code> may ask for your Kerberos
+password if authentication fails.  <em>Note that you should never type
+your password if you are remotely logged in using an unencrypted
+connection.</em>
+
+<p>Once <code>ksu</code> has authenticated you, if your Kerberos principal
+appears in the target's <code>.k5login</code> file (see <a href="Granting-Access-to-Your-Account.html#Granting%20Access%20to%20Your%20Account">Granting Access to Your Account</a>) or in the target's <code>.k5users</code> file (see below), it
+switches your user ID to the target user ID.
+
+<p>For example, <code>david</code> has put
+<code>jennifer</code>'s Kerberos principal in his <code>.k5login</code>
+file.  If <code>jennifer</code> uses <code>ksu</code> to become
+<code>david</code>, the exchange would look like this.  (To
+differentiate between the two shells, <code>jennifer</code>'s
+prompt is represented as <code>jennifer%</code> and
+<code>david</code>'s prompt is represented as
+<code>david%</code>.)
+
+<pre class="smallexample">     <b>jennifer%</b> ksu david
+     <b>Account david: authorization for jennifer@ATHENA.MIT.EDU successful
+     Changing uid to david (3382)
+     david%</b>
+     </pre>
+
+<p>Note that the new shell has a copy of <code>jennifer</code>'s
+tickets.  The ticket filename contains <code>david</code>'s UID
+with <code>.1</code> appended to it:
+
+<pre class="smallexample">     <b>david%</b> klist
+     <b>Ticket cache: /tmp/krb5cc_3382.1
+     Default principal: jennifer@ATHENA.MIT.EDU
+     
+     Valid starting      Expires             Service principal
+     07/31/04 21:53:01  08/01/04 07:52:53  krbtgt/ATHENA.MIT.EDU@ATHENA.MIT.EDU
+     07/31/04 21:53:39  08/01/04 07:52:53  host/daffodil.mit.edu@ATHENA.MIT.EDU
+     david%</b>
+     </pre>
+
+<p>If <code>jennifer</code> had not appeared in
+<code>david</code>'s <code>.k5login</code> file (and the system was
+configured to ask for a password), the exchange would have looked like
+this (assuming <code>david</code> has taken appropriate
+precautions in protecting his password):
+
+<pre class="smallexample">     <b>jennifer%</b> ksu david
+     <b>WARNING: Your password may be exposed if you enter it here and are logged
+              in remotely using an unsecure (non-encrypted) channel.
+     Kerberos password for david@ATHENA.MIT.EDU:</b>  <i>&lt;-  </i><code>jennifer</code><i> types the wrong password here.</i>
+     <b>ksu: Password incorrect
+     Authentication failed.
+     jennifer%</b>
+     </pre>
+
+<p>Now, suppose <code>david</code> did not want to give
+<code>jennifer</code> full access to his account, but wanted to
+give her permission to list his files and use the "more" command to view
+them.  He could create a <code>.k5users</code> file giving her permission to
+run only those specific commands.
+
+<p>The <code>.k5users</code> file is like the <code>.k5login</code> file, except that
+each principal is optionally followed by a list of commands.  <code>ksu</code>
+will let those principals execute only the commands listed, using the
+<kbd>-e</kbd> option.  <code>david</code>'s <code>.k5users</code> file
+might look like the following:
+
+<pre class="smallexample">     jennifer@ATHENA.MIT.EDU       /bin/ls /usr/bin/more
+     joeadmin@ATHENA.MIT.EDU         /bin/ls
+     joeadmin/admin@ATHENA.MIT.EDU   *
+     david@EXAMPLE.COM
+     </pre>
+
+<p>The above <code>.k5users</code> file would let
+<code>jennifer</code> run only the commands <code>/bin/ls</code> and
+<code>/usr/bin/more</code>.  It would let <code>joeadmin</code> run only
+the command <code>/bin/ls</code> if he had regular tickets, but if he had
+tickets for his <code>admin</code> instance,
+<code>joeadmin/admin@ATHENA.MIT.EDU</code>, he would be able
+to execute any command.  The last line gives <code>david</code>
+in the realm EXAMPLE.COM permission to execute any command. 
+(<i>I.e.</i>, having only a Kerberos principal on a line is equivalent to
+giving that principal permission to execute <code>*</code>.)  This is so that
+david can allow himself to execute commands when he logs
+in, using Kerberos, from a machine in the realm EXAMPLE.COM.
+
+<p>Then, when <code>jennifer</code> wanted to list his home directory,
+she would type:
+
+<pre class="smallexample">     <b>jennifer%</b> ksu david -e ls ~david
+     <b>Authenticated jennifer@ATHENA.MIT.EDU
+     Account david: authorization for jennifer@ATHENA.MIT.EDU for execution of
+                    /bin/ls successful
+     Changing uid to david (3382)
+     Mail            News            Personal        misc            bin
+     jennifer%</b>
+     </pre>
+
+<p>If <code>jennifer</code> had tried to give a different
+command to <code>ksu</code>, it would have prompted for a password as with the
+previous example.
+
+<p>Note that unless the <code>.k5users</code> file gives the target permission to
+run any command, the user must use <code>ksu</code> with the <kbd>-e</kbd>
+<i>command</i> option.
+
+<p>The <code>ksu</code> options you are most likely to use are:
+
+     <dl>
+<dt><kbd>-n </kbd><i>principal</i><kbd></kbd>
+     <dd>specifies which Kerberos principal you want to use for <code>ksu</code>. 
+(<i>e.g.</i>, the user <code>joeadmin</code> might want to use his
+<code>admin</code> instance.  See <a href="What-is-a-Ticket-.html#What%20is%20a%20Ticket%3f">What is a Ticket?</a>.)
+
+     <dt><kbd>-c</kbd>
+     <dd>specifies the location of your Kerberos credentials cache (ticket file).
+
+     <dt><kbd>-k</kbd>
+     <dd>tells <code>ksu</code> not to destroy your Kerberos tickets when <code>ksu</code> is
+finished.
+
+     <dt><kbd>-f</kbd>
+     <dd>requests forwardable tickets.  (See <a href="Obtaining-Tickets-with-kinit.html#Obtaining%20Tickets%20with%20kinit">Obtaining Tickets with kinit</a>.)  This
+is only applicable if <code>ksu</code> needs to obtain tickets.
+
+     <dt><kbd>-l </kbd><i>lifetime</i><kbd></kbd>
+     <dd>sets the ticket lifetime.  (See <a href="Obtaining-Tickets-with-kinit.html#Obtaining%20Tickets%20with%20kinit">Obtaining Tickets with kinit</a>.)  This is
+only applicable if <code>ksu</code> needs to obtain tickets.
+
+     <dt><kbd>-z</kbd>
+     <dd>tells <code>ksu</code> to copy your Kerberos tickets only if the UID you are
+switching is the same as the Kerberos primary (either yours or the one
+specified by the <kbd>-n</kbd> option).
+
+     <dt><kbd>-Z</kbd>
+     <dd>tells <code>ksu</code> not to copy any Kerberos tickets to the new UID.
+
+     <dt><kbd>-e </kbd><i>command</i><kbd></kbd>
+     <dd>tells <code>ksu</code> to execute <i>command</i> and then exit.  See the
+description of the <code>.k5users</code> file above.
+
+     <dt><kbd>-a </kbd><i>text</i><kbd></kbd>
+     <dd>(at the end of the command line) tells <code>ksu</code> to pass everything
+after <code>-a</code> to the target shell. 
+</dl>
+
+<p>The full set of options to Kerberos V5 <code>ksu</code> are discussed
+in the Reference section of this manual.  (see <a href="ksu-Reference.html#ksu%20Reference">ksu Reference</a>)
+
+</body></html>
+

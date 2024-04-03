@@ -1,0 +1,88 @@
+#!/bin/sh
+#
+# source:
+#   /var/cvs/projects/debian/dpkg.common/installcontrol,v
+#
+# revision:
+#   @(#) installcontrol,v 1.2 1999/03/08 04:34:57 jplejacq Exp
+#
+# copyright:
+#   Copyright (C) 1999 Jean Pierre LeJacq <jplejacq@quoininc.com>
+#
+#   Distributed under the GNU GENERAL PUBLIC LICENSE.
+#
+# synopsis:
+#   installcontrol -p <DH_DOPACKAGES> -P <DH_TMPDIR>
+#
+# description:
+#   Install package files.
+#
+#   This program is package independent and should work unmodified
+#   with any package.  Package overrides can be implemented by
+#   providing a file with the name
+#   "debian/dpkg.scripts/installcontrol" with a function
+#   "install_control_override()".
+#
+#   I've implemented argument parsing with the debhelper package.
+
+
+
+install_control()
+# postconditions:
+#   Return 0 if successful, non-zero if not.
+#
+# description:
+#   Install package files.
+{
+  echo "${0}: installing package control directory..."
+    install -m 0755 -d ${DH_TMPDIR}/DEBIAN
+
+
+  echo "${0}: installing package management nonexecutable files..."
+    for file in conffiles
+    do 
+      f="debian/dpkg.src/${DH_DOPACKAGES}.${file}"
+      if [ -r "${f}" ]
+      then
+        install -m 0644 ${f} ${DH_TMPDIR}/DEBIAN/${file}
+      fi
+    done
+
+
+  echo "${0}: installing package management executable files..."
+    for file in postinst preinst prerm postrm
+    do 
+      f="debian/dpkg.src/${DH_DOPACKAGES}.${file}"
+      if [ -r "${f}" ]
+      then
+        install -m 0755 ${f} ${DH_TMPDIR}/DEBIAN/${file}
+      fi
+    done
+
+
+  return 0
+}
+
+
+
+# main:
+  set -e
+
+
+  echo "${0}: parsing arguments..."
+    readonly DH_DOPACKAGES=$(./debian/dpkg.common/get_option_dopackages ${@})
+    readonly DH_TMPDIR=$(./debian/dpkg.common/get_option_tmpdir ${@})
+
+
+  if [ -f "./debian/dpkg.scripts/installcontrol" ]
+  then
+    echo "${0}: include overrides..."
+      . ./debian/dpkg.control/installcontrol
+
+    install_control_override
+  else
+    install_control
+  fi
+
+
+  exit 0
