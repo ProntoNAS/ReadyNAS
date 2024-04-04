@@ -1,0 +1,92 @@
+diff --git a/cmds-check.c b/cmds-check.c
+index 1e5e005..152545e 100644
+--- a/cmds-check.c
++++ b/cmds-check.c
+@@ -1315,6 +1315,11 @@ static int walk_down_tree(struct btrfs_root *root, struct btrfs_path *path,
+ 		WARN_ON(*level < 0);
+ 		WARN_ON(*level >= BTRFS_MAX_LEVEL);
+ 		cur = path->nodes[*level];
++		if (!cur) {
++			fprintf(stderr, "Warning: path->nodes[%d] == 0\n",
++				*level);
++			return 0;
++		}
+ 
+ 		if (btrfs_header_level(cur) != *level)
+ 			WARN_ON(1);
+@@ -6019,7 +6024,10 @@ static struct option long_options[] = {
+ 	{ "repair", 0, NULL, 0 },
+ 	{ "init-csum-tree", 0, NULL, 0 },
+ 	{ "init-extent-tree", 0, NULL, 0 },
+-	{ "backup", 0, NULL, 0 },
++	{ "backup", 0, NULL, 'b' },
++#ifdef __arm__
++	{ "fix-crc", 0, NULL, 0 },
++#endif
+ 	{ NULL, 0, NULL, 0}
+ };
+ 
+@@ -6032,9 +6038,14 @@ const char * const cmd_check_usage[] = {
+ 	"--repair                    try to repair the filesystem",
+ 	"--init-csum-tree            create a new CRC tree",
+ 	"--init-extent-tree          create a new extent tree",
++#ifdef __arm__
++	"--fix-crc                   try to fix bad CRCs",
++#endif
+ 	NULL
+ };
+ 
++extern int fix_crc;
++
+ int cmd_check(int argc, char **argv)
+ {
+ 	struct cache_tree root_cache;
+@@ -6083,6 +6092,12 @@ int cmd_check(int argc, char **argv)
+ 			ctree_flags |= (OPEN_CTREE_WRITES |
+ 					OPEN_CTREE_NO_BLOCK_GROUPS);
+ 			repair = 1;
++#ifdef __arm__
++		} else if (option_index == 5) {
++			printf("Fixing bad CRC\n");
++			fix_crc = 1;
++			ctree_flags |= OPEN_CTREE_WRITES;
++#endif
+ 		}
+ 
+ 	}
+diff --git a/disk-io.c b/disk-io.c
+index 21b410d..e01d806 100644
+--- a/disk-io.c
++++ b/disk-io.c
+@@ -70,6 +70,7 @@ void btrfs_csum_final(u32 crc, char *result)
+ 	*(__le32 *)result = ~cpu_to_le32(crc);
+ }
+ 
++int fix_crc;
+ static int __csum_tree_block_size(struct extent_buffer *buf, u16 csum_size,
+ 				  int verify, int silent)
+ {
+@@ -87,13 +88,21 @@ static int __csum_tree_block_size(struct extent_buffer *buf, u16 csum_size,
+ 
+ 	if (verify) {
+ 		if (memcmp_extent_buffer(buf, result, 0, csum_size)) {
+-			if (!silent)
++			int rval = 1;
++
++			if (!silent || fix_crc)
+ 				printk("checksum verify failed on %llu found %08X wanted %08X\n",
+ 				       (unsigned long long)buf->start,
+ 				       *((u32 *)result),
+ 				       *((u32*)(char *)buf->data));
++			if (fix_crc) {
++				write_extent_buffer(buf, result, 0, csum_size);
++				write_extent_to_disk(buf);
++				printk(">> Fixed\n");
++				rval = 0;
++			}
+ 			free(result);
+-			return 1;
++			return rval;
+ 		}
+ 	} else {
+ 		write_extent_buffer(buf, result, 0, csum_size);

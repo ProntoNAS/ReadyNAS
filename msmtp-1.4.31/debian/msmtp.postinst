@@ -1,0 +1,56 @@
+#!/bin/sh
+set -e
+
+if [ -e /usr/share/debconf/confmodule ]; then
+	. /usr/share/debconf/confmodule
+fi
+
+#DEBHELPER#
+
+write_config () {
+	exec 1> /etc/msmtprc.new
+	echo "account default"
+
+	db_get msmtp/host
+	if [ "x$RET" != "x" ]; then
+		echo "host $RET"
+	fi
+
+	db_get msmtp/port
+	if [ "$RET" != "25" ]; then
+		echo "port $RET"
+	fi
+
+	db_get msmtp/auto_from
+	if [ "$RET" = "true" ]; then
+		echo "auto_from on"
+		db_get msmtp/maildomain
+		hostname=`hostname --fqdn`
+		echo "maildomain ${RET:-$hostname}"
+	fi
+
+	db_get msmtp/tls
+	if [ "$RET" = "true" ]; then
+		echo "tls on"
+	fi
+}
+
+case $1 in
+	configure)
+		db_get msmtp/sysconfig
+		if [ "$RET" = "true" ]; then
+			write_config
+			if [ -f /etc/msmtprc ]; then
+				ucf --debconf-ok /etc/msmtprc.new /etc/msmtprc
+				rm -f /etc/msmtprc.new
+			else
+				mv /etc/msmtprc.new /etc/msmtprc
+			fi
+		fi
+		;;
+	*)
+		exit 0
+		;;
+esac
+
+

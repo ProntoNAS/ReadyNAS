@@ -1,0 +1,32 @@
+From 360baab37840e1dea9b7775e94e30d0d0243c508 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Fri, 24 Oct 2014 17:41:11 -0700
+Subject: [PATCH] Grow: fix resize of array component size to > 32bits
+
+If the request --size to --grow an array to is larger
+than 32bits, then mdadm may make the wrong choice and
+use ioctl instead of setting component_size via sysfs
+and the change is ignored.
+
+Instead of using casts to check for a 32-bit overflow,
+just check for set bits outside of INT32_MAX.
+---
+ Grow.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Grow.c b/Grow.c
+index a9c8589..a614102 100644
+--- a/Grow.c
++++ b/Grow.c
+@@ -1818,7 +1818,7 @@ int Grow_reshape(char *devname, int fd,
+ 		if (s->size == MAX_SIZE)
+ 			s->size = 0;
+ 		array.size = s->size;
+-		if (array.size != (signed)s->size) {
++		if (s->size & ~INT32_MAX) {
+ 			/* got truncated to 32bit, write to
+ 			 * component_size instead
+ 			 */
+-- 
+1.9.1
+

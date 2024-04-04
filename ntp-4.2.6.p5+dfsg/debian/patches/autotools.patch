@@ -1,0 +1,5241 @@
+Subject: Regenerate auto* because we modified some of the auto generated files.
+Forwarded: not-needed
+Author: Peter Eisentraut <petere@debian.org>
+Last-Update: 2012-02-22
+
+I used the following procedure to create this patch:
+
+"""
+set -eux
+name=ntp-4.2.6.p5+dfsg
+svn-buildpackage --svn-export
+cd ../build-area
+cd ${name}
+quilt push libedit.patch  # previous one
+cd ..
+cp -a ${name} ${name}.orig
+cd ${name}
+libtoolize --force
+autoreconf --force
+cd sntp
+libtoolize --force
+autoreconf --force
+cd ../..
+diff -ru -x '*~' -x debian -x 'autom4te.cache' ${name}.orig ${name} | filterdiff --strip=1 --remove-timestamps --addoldprefix=a/ --addnewprefix=b/ --clean > autotools.patch
+"""
+
+There were a few complications, such as autoreconf not calling
+libtoolize in the right way, hence the separate call, and either of
+these tools not recursing properly into the sntp directory.  Tweak it
+until it works.
+
+--- a/aclocal.m4
++++ b/aclocal.m4
+@@ -1,7 +1,8 @@
+-# generated automatically by aclocal 1.11.1 -*- Autoconf -*-
++# generated automatically by aclocal 1.11.3 -*- Autoconf -*-
+ 
+ # Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+-# 2005, 2006, 2007, 2008, 2009  Free Software Foundation, Inc.
++# 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
++# Inc.
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -19,12 +20,15 @@
+ If you have problems, you may need to regenerate the build system entirely.
+ To do so, use the procedure documented by the package, typically `autoreconf'.])])
+ 
+-# Copyright (C) 2002, 2003, 2005, 2006, 2007, 2008  Free Software Foundation, Inc.
++# Copyright (C) 2002, 2003, 2005, 2006, 2007, 2008, 2011 Free Software
++# Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
++# serial 1
++
+ # AM_AUTOMAKE_VERSION(VERSION)
+ # ----------------------------
+ # Automake X.Y traces this macro to ensure aclocal.m4 has been
+@@ -34,7 +38,7 @@
+ [am__api_version='1.11'
+ dnl Some users find AM_AUTOMAKE_VERSION and mistake it for a way to
+ dnl require some minimum version.  Point them to the right macro.
+-m4_if([$1], [1.11.1], [],
++m4_if([$1], [1.11.3], [],
+       [AC_FATAL([Do not call $0, use AM_INIT_AUTOMAKE([$1]).])])dnl
+ ])
+ 
+@@ -50,19 +54,21 @@
+ # Call AM_AUTOMAKE_VERSION and AM_AUTOMAKE_VERSION so they can be traced.
+ # This function is AC_REQUIREd by AM_INIT_AUTOMAKE.
+ AC_DEFUN([AM_SET_CURRENT_AUTOMAKE_VERSION],
+-[AM_AUTOMAKE_VERSION([1.11.1])dnl
++[AM_AUTOMAKE_VERSION([1.11.3])dnl
+ m4_ifndef([AC_AUTOCONF_VERSION],
+   [m4_copy([m4_PACKAGE_VERSION], [AC_AUTOCONF_VERSION])])dnl
+ _AM_AUTOCONF_VERSION(m4_defn([AC_AUTOCONF_VERSION]))])
+ 
+ # AM_AUX_DIR_EXPAND                                         -*- Autoconf -*-
+ 
+-# Copyright (C) 2001, 2003, 2005  Free Software Foundation, Inc.
++# Copyright (C) 2001, 2003, 2005, 2011 Free Software Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
++# serial 1
++
+ # For projects using AC_CONFIG_AUX_DIR([foo]), Autoconf sets
+ # $ac_aux_dir to `$srcdir/foo'.  In other projects, it is set to
+ # `$srcdir', `$srcdir/..', or `$srcdir/../..'.
+@@ -144,14 +150,14 @@
+ Usually this means the macro was only invoked conditionally.]])
+ fi])])
+ 
+-# Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2009
+-# Free Software Foundation, Inc.
++# Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2009,
++# 2010, 2011 Free Software Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
+-# serial 10
++# serial 12
+ 
+ # There are a few dirty hacks below to avoid letting `AC_PROG_CC' be
+ # written in clear, in which case automake, when reading aclocal.m4,
+@@ -191,6 +197,7 @@
+   # instance it was reported that on HP-UX the gcc test will end up
+   # making a dummy file named `D' -- because `-MD' means `put the output
+   # in D'.
++  rm -rf conftest.dir
+   mkdir conftest.dir
+   # Copy depcomp to subdir because otherwise we won't find it if we're
+   # using a relative directory.
+@@ -255,7 +262,7 @@
+ 	break
+       fi
+       ;;
+-    msvisualcpp | msvcmsys)
++    msvc7 | msvc7msys | msvisualcpp | msvcmsys)
+       # This compiler won't grok `-c -o', but also, the minuso test has
+       # not run yet.  These depmodes are late enough in the game, and
+       # so weak that their functioning should not be impacted.
+@@ -320,10 +327,13 @@
+ if test "x$enable_dependency_tracking" != xno; then
+   am_depcomp="$ac_aux_dir/depcomp"
+   AMDEPBACKSLASH='\'
++  am__nodep='_no'
+ fi
+ AM_CONDITIONAL([AMDEP], [test "x$enable_dependency_tracking" != xno])
+ AC_SUBST([AMDEPBACKSLASH])dnl
+ _AM_SUBST_NOTMAKE([AMDEPBACKSLASH])dnl
++AC_SUBST([am__nodep])dnl
++_AM_SUBST_NOTMAKE([am__nodep])dnl
+ ])
+ 
+ # Generate code to set up dependency tracking.              -*- Autoconf -*-
+@@ -557,12 +567,15 @@
+ done
+ echo "timestamp for $_am_arg" >`AS_DIRNAME(["$_am_arg"])`/stamp-h[]$_am_stamp_count])
+ 
+-# Copyright (C) 2001, 2003, 2005, 2008  Free Software Foundation, Inc.
++# Copyright (C) 2001, 2003, 2005, 2008, 2011 Free Software Foundation,
++# Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
++# serial 1
++
+ # AM_PROG_INSTALL_SH
+ # ------------------
+ # Define $install_sh.
+@@ -729,12 +742,15 @@
+ fi
+ ])
+ 
+-# Copyright (C) 2003, 2004, 2005, 2006  Free Software Foundation, Inc.
++# Copyright (C) 2003, 2004, 2005, 2006, 2011 Free Software Foundation,
++# Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
++# serial 1
++
+ # AM_PROG_MKDIR_P
+ # ---------------
+ # Check for `mkdir -p'.
+@@ -757,13 +773,14 @@
+ 
+ # Helper functions for option handling.                     -*- Autoconf -*-
+ 
+-# Copyright (C) 2001, 2002, 2003, 2005, 2008  Free Software Foundation, Inc.
++# Copyright (C) 2001, 2002, 2003, 2005, 2008, 2010 Free Software
++# Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
+-# serial 4
++# serial 5
+ 
+ # _AM_MANGLE_OPTION(NAME)
+ # -----------------------
+@@ -771,13 +788,13 @@
+ [[_AM_OPTION_]m4_bpatsubst($1, [[^a-zA-Z0-9_]], [_])])
+ 
+ # _AM_SET_OPTION(NAME)
+-# ------------------------------
++# --------------------
+ # Set option NAME.  Presently that only means defining a flag for this option.
+ AC_DEFUN([_AM_SET_OPTION],
+ [m4_define(_AM_MANGLE_OPTION([$1]), 1)])
+ 
+ # _AM_SET_OPTIONS(OPTIONS)
+-# ----------------------------------
++# ------------------------
+ # OPTIONS is a space-separated list of Automake options.
+ AC_DEFUN([_AM_SET_OPTIONS],
+ [m4_foreach_w([_AM_Option], [$1], [_AM_SET_OPTION(_AM_Option)])])
+@@ -853,12 +870,14 @@
+ fi
+ AC_MSG_RESULT(yes)])
+ 
+-# Copyright (C) 2001, 2003, 2005  Free Software Foundation, Inc.
++# Copyright (C) 2001, 2003, 2005, 2011 Free Software Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
++# serial 1
++
+ # AM_PROG_INSTALL_STRIP
+ # ---------------------
+ # One issue with vendor `install' (even GNU) is that you can't
+@@ -881,13 +900,13 @@
+ INSTALL_STRIP_PROGRAM="\$(install_sh) -c -s"
+ AC_SUBST([INSTALL_STRIP_PROGRAM])])
+ 
+-# Copyright (C) 2006, 2008  Free Software Foundation, Inc.
++# Copyright (C) 2006, 2008, 2010 Free Software Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
+-# serial 2
++# serial 3
+ 
+ # _AM_SUBST_NOTMAKE(VARIABLE)
+ # ---------------------------
+@@ -896,13 +915,13 @@
+ AC_DEFUN([_AM_SUBST_NOTMAKE])
+ 
+ # AM_SUBST_NOTMAKE(VARIABLE)
+-# ---------------------------
++# --------------------------
+ # Public sister of _AM_SUBST_NOTMAKE.
+ AC_DEFUN([AM_SUBST_NOTMAKE], [_AM_SUBST_NOTMAKE($@)])
+ 
+ # Check how to create a tarball.                            -*- Autoconf -*-
+ 
+-# Copyright (C) 2004, 2005  Free Software Foundation, Inc.
++# Copyright (C) 2004, 2005, 2012 Free Software Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+@@ -924,10 +943,11 @@
+ # a tarball read from stdin.
+ #     $(am__untar) < result.tar
+ AC_DEFUN([_AM_PROG_TAR],
+-[# Always define AMTAR for backward compatibility.
+-AM_MISSING_PROG([AMTAR], [tar])
++[# Always define AMTAR for backward compatibility.  Yes, it's still used
++# in the wild :-(  We should find a proper way to deprecate it ...
++AC_SUBST([AMTAR], ['$${TAR-tar}'])
+ m4_if([$1], [v7],
+-     [am__tar='${AMTAR} chof - "$$tardir"'; am__untar='${AMTAR} xf -'],
++     [am__tar='$${TAR-tar} chof - "$$tardir"' am__untar='$${TAR-tar} xf -'],
+      [m4_case([$1], [ustar],, [pax],,
+               [m4_fatal([Unknown tar format])])
+ AC_MSG_CHECKING([how to create a $1 tar archive])
+--- a/adjtimed/Makefile.in
++++ b/adjtimed/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -261,9 +261,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign adjtimed/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu adjtimed/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign adjtimed/Makefile
++	  $(AUTOMAKE) --gnu adjtimed/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -273,6 +273,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/bincheck.mf $(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+@@ -368,7 +369,7 @@
+ 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+ 	echo " rm -f" $$list; \
+ 	rm -f $$list
+-adjtimed$(EXEEXT): $(adjtimed_OBJECTS) $(adjtimed_DEPENDENCIES) 
++adjtimed$(EXEEXT): $(adjtimed_OBJECTS) $(adjtimed_DEPENDENCIES) $(EXTRA_adjtimed_DEPENDENCIES) 
+ 	@rm -f adjtimed$(EXEEXT)
+ 	$(LINK) $(adjtimed_OBJECTS) $(adjtimed_LDADD) $(LIBS)
+ 
+@@ -508,10 +509,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/clockstuff/Makefile.in
++++ b/clockstuff/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -266,9 +266,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign clockstuff/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu clockstuff/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign clockstuff/Makefile
++	  $(AUTOMAKE) --gnu clockstuff/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -278,6 +278,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+@@ -296,7 +297,7 @@
+ 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+ 	echo " rm -f" $$list; \
+ 	rm -f $$list
+-propdelay$(EXEEXT): $(propdelay_OBJECTS) $(propdelay_DEPENDENCIES) 
++propdelay$(EXEEXT): $(propdelay_OBJECTS) $(propdelay_DEPENDENCIES) $(EXTRA_propdelay_DEPENDENCIES) 
+ 	@rm -f propdelay$(EXEEXT)
+ 	$(LINK) $(propdelay_OBJECTS) $(propdelay_LDADD) $(LIBS)
+ 
+@@ -435,10 +436,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/config.h.in
++++ b/config.h.in
+@@ -150,9 +150,6 @@
+ /* VARITEXT clock */
+ #undef CLOCK_VARITEXT
+ 
+-/* WHARTON 400A Series clock */
+-#undef CLOCK_WHARTON_400A
+-
+ /* WWV audio driver */
+ #undef CLOCK_WWV
+ 
+--- a/configure
++++ b/configure
+@@ -692,6 +692,7 @@
+ am__fastdepCC_FALSE
+ am__fastdepCC_TRUE
+ CCDEPMODE
++am__nodep
+ AMDEPBACKSLASH
+ AMDEP_FALSE
+ AMDEP_TRUE
+@@ -848,7 +849,6 @@
+ enable_SCHMID
+ enable_TRIMTAIP
+ enable_TRIMTSIP
+-enable_WHARTON
+ enable_VARITEXT
+ with_openssl_libdir
+ with_openssl_incdir
+@@ -1576,7 +1576,6 @@
+   --enable-SCHMID         s Schmid DCF77 clock
+   --enable-TRIMTAIP       s Trimble GPS receiver/TAIP protocol
+   --enable-TRIMTSIP       s Trimble GPS receiver/TSIP protocol
+-  --enable-WHARTON        s WHARTON 400A Series clock
+   --enable-VARITEXT       s VARITEXT clock
+   --enable-kmem           s read /dev/kmem for tick and/or tickadj
+   --enable-accurate-adjtime
+@@ -1608,7 +1607,7 @@
+   --with-binsubdir        bin ={bin,sbin}
+   --with-arlib            - deprecated, arlib not distributed
+   --without-rpath         s Disable auto-added -R linker paths
+-  --with-pic              try to use only PIC/non-PIC objects [default=use
++  --with-pic[=PKGS]       try to use only PIC/non-PIC objects [default=use
+                           both]
+   --with-gnu-ld           assume the C compiler uses GNU ld [default=no]
+   --with-sysroot=DIR Search for dependent libraries within DIR
+@@ -3328,11 +3327,11 @@
+ 
+ # We need awk for the "check" target.  The system "awk" is bad on
+ # some platforms.
+-# Always define AMTAR for backward compatibility.
++# Always define AMTAR for backward compatibility.  Yes, it's still used
++# in the wild :-(  We should find a proper way to deprecate it ...
++AMTAR='$${TAR-tar}'
+ 
+-AMTAR=${AMTAR-"${am_missing_run}tar"}
+-
+-am__tar='${AMTAR} chof - "$$tardir"'; am__untar='${AMTAR} xf -'
++am__tar='$${TAR-tar} chof - "$$tardir"' am__untar='$${TAR-tar} xf -'
+ 
+ 
+ 
+@@ -3475,6 +3474,7 @@
+ if test "x$enable_dependency_tracking" != xno; then
+   am_depcomp="$ac_aux_dir/depcomp"
+   AMDEPBACKSLASH='\'
++  am__nodep='_no'
+ fi
+  if test "x$enable_dependency_tracking" != xno; then
+   AMDEP_TRUE=
+@@ -4288,6 +4288,7 @@
+   # instance it was reported that on HP-UX the gcc test will end up
+   # making a dummy file named `D' -- because `-MD' means `put the output
+   # in D'.
++  rm -rf conftest.dir
+   mkdir conftest.dir
+   # Copy depcomp to subdir because otherwise we won't find it if we're
+   # using a relative directory.
+@@ -4347,7 +4348,7 @@
+ 	break
+       fi
+       ;;
+-    msvisualcpp | msvcmsys)
++    msvc7 | msvc7msys | msvisualcpp | msvcmsys)
+       # This compiler won't grok `-c -o', but also, the minuso test has
+       # not run yet.  These depmodes are late enough in the game, and
+       # so weak that their functioning should not be impacted.
+@@ -5451,6 +5452,7 @@
+   # instance it was reported that on HP-UX the gcc test will end up
+   # making a dummy file named `D' -- because `-MD' means `put the output
+   # in D'.
++  rm -rf conftest.dir
+   mkdir conftest.dir
+   # Copy depcomp to subdir because otherwise we won't find it if we're
+   # using a relative directory.
+@@ -5510,7 +5512,7 @@
+ 	break
+       fi
+       ;;
+-    msvisualcpp | msvcmsys)
++    msvc7 | msvc7msys | msvisualcpp | msvcmsys)
+       # This compiler won't grok `-c -o', but also, the minuso test has
+       # not run yet.  These depmodes are late enough in the game, and
+       # so weak that their functioning should not be impacted.
+@@ -8010,8 +8012,8 @@
+ 
+ 
+ 
+-macro_version='2.4'
+-macro_revision='1.3293'
++macro_version='2.4.2'
++macro_revision='1.3337'
+ 
+ 
+ 
+@@ -8655,6 +8657,11 @@
+     lt_cv_sys_max_cmd_len=196608
+     ;;
+ 
++  os2*)
++    # The test takes a long time on OS/2.
++    lt_cv_sys_max_cmd_len=8192
++    ;;
++
+   osf*)
+     # Dr. Hans Ekkehard Plesser reports seeing a kernel panic running configure
+     # due to this test when exec_disable_arg_limit is 1 on Tru64. It is not
+@@ -8694,7 +8701,7 @@
+       # If test is not a shell built-in, we'll probably end up computing a
+       # maximum length that is only half of the actual maximum length, but
+       # we can't tell.
+-      while { test "X"`func_fallback_echo "$teststring$teststring" 2>/dev/null` \
++      while { test "X"`env echo "$teststring$teststring" 2>/dev/null` \
+ 	         = "X$teststring$teststring"; } >/dev/null 2>&1 &&
+ 	      test $i != 17 # 1/2 MB should be enough
+       do
+@@ -9123,12 +9130,12 @@
+   lt_cv_deplibs_check_method=pass_all
+   ;;
+ 
+-# This must be Linux ELF.
++# This must be glibc/ELF.
+ linux* | k*bsd*-gnu | kopensolaris*-gnu)
+   lt_cv_deplibs_check_method=pass_all
+   ;;
+ 
+-netbsd*)
++netbsd* | netbsdelf*-gnu)
+   if echo __ELF__ | $CC -E - | $GREP __ELF__ > /dev/null; then
+     lt_cv_deplibs_check_method='match_pattern /lib[^/]+(\.so\.[0-9]+\.[0-9]+|_pic\.a)$'
+   else
+@@ -9763,13 +9770,13 @@
+ if test -n "$RANLIB"; then
+   case $host_os in
+   openbsd*)
+-    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB -t \$oldlib"
++    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB -t \$tool_oldlib"
+     ;;
+   *)
+-    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB \$oldlib"
++    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB \$tool_oldlib"
+     ;;
+   esac
+-  old_archive_cmds="$old_archive_cmds~\$RANLIB \$oldlib"
++  old_archive_cmds="$old_archive_cmds~\$RANLIB \$tool_oldlib"
+ fi
+ 
+ case $host_os in
+@@ -9916,6 +9923,7 @@
+     # which start with @ or ?.
+     lt_cv_sys_global_symbol_pipe="$AWK '"\
+ "     {last_section=section; section=\$ 3};"\
++"     /^COFF SYMBOL TABLE/{for(i in hide) delete hide[i]};"\
+ "     /Section length .*#relocs.*(pick any)/{hide[last_section]=1};"\
+ "     \$ 0!~/External *\|/{next};"\
+ "     / 0+ UNDEF /{next}; / UNDEF \([^|]\)*()/{next};"\
+@@ -10304,7 +10312,7 @@
+     CFLAGS="$SAVE_CFLAGS"
+   fi
+   ;;
+-sparc*-*solaris*)
++*-*solaris*)
+   # Find out which ABI we are using.
+   echo 'int i;' > conftest.$ac_ext
+   if { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_compile\""; } >&5
+@@ -10315,7 +10323,20 @@
+     case `/usr/bin/file conftest.o` in
+     *64-bit*)
+       case $lt_cv_prog_gnu_ld in
+-      yes*) LD="${LD-ld} -m elf64_sparc" ;;
++      yes*)
++        case $host in
++        i?86-*-solaris*)
++          LD="${LD-ld} -m elf_x86_64"
++          ;;
++        sparc*-*-solaris*)
++          LD="${LD-ld} -m elf64_sparc"
++          ;;
++        esac
++        # GNU ld 2.21 introduced _sol2 emulations.  Use them if available.
++        if ${LD-ld} -V | grep _sol2 >/dev/null 2>&1; then
++          LD="${LD-ld}_sol2"
++        fi
++        ;;
+       *)
+ 	if ${LD-ld} -64 -r -o conftest2.o conftest.o >/dev/null 2>&1; then
+ 	  LD="${LD-ld} -64"
+@@ -10955,7 +10976,13 @@
+ 	$LTCC $LTCFLAGS $LDFLAGS -o libconftest.dylib \
+ 	  -dynamiclib -Wl,-single_module conftest.c 2>conftest.err
+         _lt_result=$?
+-	if test -f libconftest.dylib && test ! -s conftest.err && test $_lt_result = 0; then
++	# If there is a non-empty error log, and "single_module"
++	# appears in it, assume the flag caused a linker warning
++        if test -s conftest.err && $GREP single_module conftest.err; then
++	  cat conftest.err >&5
++	# Otherwise, if the output was created with a 0 exit code from
++	# the compiler, it worked.
++	elif test -f libconftest.dylib && test $_lt_result -eq 0; then
+ 	  lt_cv_apple_cc_single_mod=yes
+ 	else
+ 	  cat conftest.err >&5
+@@ -10966,6 +10993,7 @@
+ fi
+ { $as_echo "$as_me:${as_lineno-$LINENO}: result: $lt_cv_apple_cc_single_mod" >&5
+ $as_echo "$lt_cv_apple_cc_single_mod" >&6; }
++
+     { $as_echo "$as_me:${as_lineno-$LINENO}: checking for -exported_symbols_list linker flag" >&5
+ $as_echo_n "checking for -exported_symbols_list linker flag... " >&6; }
+ if ${lt_cv_ld_exported_symbols_list+:} false; then :
+@@ -10998,6 +11026,7 @@
+ fi
+ { $as_echo "$as_me:${as_lineno-$LINENO}: result: $lt_cv_ld_exported_symbols_list" >&5
+ $as_echo "$lt_cv_ld_exported_symbols_list" >&6; }
++
+     { $as_echo "$as_me:${as_lineno-$LINENO}: checking for -force_load linker flag" >&5
+ $as_echo_n "checking for -force_load linker flag... " >&6; }
+ if ${lt_cv_ld_force_load+:} false; then :
+@@ -11019,7 +11048,9 @@
+       echo "$LTCC $LTCFLAGS $LDFLAGS -o conftest conftest.c -Wl,-force_load,./libconftest.a" >&5
+       $LTCC $LTCFLAGS $LDFLAGS -o conftest conftest.c -Wl,-force_load,./libconftest.a 2>conftest.err
+       _lt_result=$?
+-      if test -f conftest && test ! -s conftest.err && test $_lt_result = 0 && $GREP forced_load conftest 2>&1 >/dev/null; then
++      if test -s conftest.err && $GREP force_load conftest.err; then
++	cat conftest.err >&5
++      elif test -f conftest && test $_lt_result -eq 0 && $GREP forced_load conftest >/dev/null 2>&1 ; then
+ 	lt_cv_ld_force_load=yes
+       else
+ 	cat conftest.err >&5
+@@ -11127,7 +11158,22 @@
+ 
+ # Check whether --with-pic was given.
+ if test "${with_pic+set}" = set; then :
+-  withval=$with_pic; pic_mode="$withval"
++  withval=$with_pic; lt_p=${PACKAGE-default}
++    case $withval in
++    yes|no) pic_mode=$withval ;;
++    *)
++      pic_mode=default
++      # Look at the argument we got.  We use all the common list separators.
++      lt_save_ifs="$IFS"; IFS="${IFS}$PATH_SEPARATOR,"
++      for lt_pkg in $withval; do
++	IFS="$lt_save_ifs"
++	if test "X$lt_pkg" = "X$lt_p"; then
++	  pic_mode=yes
++	fi
++      done
++      IFS="$lt_save_ifs"
++      ;;
++    esac
+ else
+   pic_mode=default
+ fi
+@@ -11205,6 +11251,10 @@
+ 
+ 
+ 
++
++
++
++
+ test -z "$LN_S" && LN_S="ln -s"
+ 
+ 
+@@ -11664,7 +11714,9 @@
+     case $cc_basename in
+     nvcc*) # Cuda Compiler Driver 2.2
+       lt_prog_compiler_wl='-Xlinker '
+-      lt_prog_compiler_pic='-Xcompiler -fPIC'
++      if test -n "$lt_prog_compiler_pic"; then
++        lt_prog_compiler_pic="-Xcompiler $lt_prog_compiler_pic"
++      fi
+       ;;
+     esac
+   else
+@@ -11755,18 +11807,33 @@
+ 	;;
+       *)
+ 	case `$CC -V 2>&1 | sed 5q` in
+-	*Sun\ F* | *Sun*Fortran*)
++	*Sun\ Ceres\ Fortran* | *Sun*Fortran*\ [1-7].* | *Sun*Fortran*\ 8.[0-3]*)
+ 	  # Sun Fortran 8.3 passes all unrecognized flags to the linker
+ 	  lt_prog_compiler_pic='-KPIC'
+ 	  lt_prog_compiler_static='-Bstatic'
+ 	  lt_prog_compiler_wl=''
+ 	  ;;
++	*Sun\ F* | *Sun*Fortran*)
++	  lt_prog_compiler_pic='-KPIC'
++	  lt_prog_compiler_static='-Bstatic'
++	  lt_prog_compiler_wl='-Qoption ld '
++	  ;;
+ 	*Sun\ C*)
+ 	  # Sun C 5.9
+ 	  lt_prog_compiler_pic='-KPIC'
+ 	  lt_prog_compiler_static='-Bstatic'
+ 	  lt_prog_compiler_wl='-Wl,'
+ 	  ;;
++        *Intel*\ [CF]*Compiler*)
++	  lt_prog_compiler_wl='-Wl,'
++	  lt_prog_compiler_pic='-fPIC'
++	  lt_prog_compiler_static='-static'
++	  ;;
++	*Portland\ Group*)
++	  lt_prog_compiler_wl='-Wl,'
++	  lt_prog_compiler_pic='-fpic'
++	  lt_prog_compiler_static='-Bstatic'
++	  ;;
+ 	esac
+ 	;;
+       esac
+@@ -12128,7 +12195,6 @@
+   hardcode_direct=no
+   hardcode_direct_absolute=no
+   hardcode_libdir_flag_spec=
+-  hardcode_libdir_flag_spec_ld=
+   hardcode_libdir_separator=
+   hardcode_minus_L=no
+   hardcode_shlibpath_var=unsupported
+@@ -12172,6 +12238,9 @@
+   openbsd*)
+     with_gnu_ld=no
+     ;;
++  linux* | k*bsd*-gnu | gnu*)
++    link_all_deplibs=no
++    ;;
+   esac
+ 
+   ld_shlibs=yes
+@@ -12378,8 +12447,7 @@
+ 	xlf* | bgf* | bgxlf* | mpixlf*)
+ 	  # IBM XL Fortran 10.1 on PPC cannot create shared libs itself
+ 	  whole_archive_flag_spec='--whole-archive$convenience --no-whole-archive'
+-	  hardcode_libdir_flag_spec=
+-	  hardcode_libdir_flag_spec_ld='-rpath $libdir'
++	  hardcode_libdir_flag_spec='${wl}-rpath ${wl}$libdir'
+ 	  archive_cmds='$LD -shared $libobjs $deplibs $linker_flags -soname $soname -o $lib'
+ 	  if test "x$supports_anon_versioning" = xyes; then
+ 	    archive_expsym_cmds='echo "{ global:" > $output_objdir/$libname.ver~
+@@ -12394,7 +12462,7 @@
+       fi
+       ;;
+ 
+-    netbsd*)
++    netbsd* | netbsdelf*-gnu)
+       if echo __ELF__ | $CC -E - | $GREP __ELF__ >/dev/null; then
+ 	archive_cmds='$LD -Bshareable $libobjs $deplibs $linker_flags -o $lib'
+ 	wlarc=
+@@ -12571,6 +12639,7 @@
+ 	if test "$aix_use_runtimelinking" = yes; then
+ 	  shared_flag="$shared_flag "'${wl}-G'
+ 	fi
++	link_all_deplibs=no
+       else
+ 	# not using gcc
+ 	if test "$host_cpu" = ia64; then
+@@ -12758,6 +12827,7 @@
+ 	# The linker will not automatically build a static lib if we build a DLL.
+ 	# _LT_TAGVAR(old_archive_from_new_cmds, )='true'
+ 	enable_shared_with_static_runtimes=yes
++	exclude_expsyms='_NULL_IMPORT_DESCRIPTOR|_IMPORT_DESCRIPTOR_.*'
+ 	export_symbols_cmds='$NM $libobjs $convenience | $global_symbol_pipe | $SED -e '\''/^[BCDGRS][ ]/s/.*[ ]\([^ ]*\)/\1,DATA/'\'' | $SED -e '\''/^[AITW][ ]/s/.*[ ]//'\'' | sort | uniq > $export_symbols'
+ 	# Don't use ranlib
+ 	old_postinstall_cmds='chmod 644 $oldlib'
+@@ -12803,6 +12873,7 @@
+   hardcode_shlibpath_var=unsupported
+   if test "$lt_cv_ld_force_load" = "yes"; then
+     whole_archive_flag_spec='`for conv in $convenience\"\"; do test  -n \"$conv\" && new_convenience=\"$new_convenience ${wl}-force_load,$conv\"; done; func_echo_all \"$new_convenience\"`'
++
+   else
+     whole_archive_flag_spec=''
+   fi
+@@ -12831,10 +12902,6 @@
+       hardcode_shlibpath_var=no
+       ;;
+ 
+-    freebsd1*)
+-      ld_shlibs=no
+-      ;;
+-
+     # FreeBSD 2.2.[012] allows us to include c++rt0.o to get C++ constructor
+     # support.  Future versions do this automatically, but an explicit c++rt0.o
+     # does not break anything, and helps significantly (at the cost of a little
+@@ -12847,7 +12914,7 @@
+       ;;
+ 
+     # Unfortunately, older versions of FreeBSD 2 do not have this feature.
+-    freebsd2*)
++    freebsd2.*)
+       archive_cmds='$LD -Bshareable -o $lib $libobjs $deplibs $linker_flags'
+       hardcode_direct=yes
+       hardcode_minus_L=yes
+@@ -12886,7 +12953,6 @@
+       fi
+       if test "$with_gnu_ld" = no; then
+ 	hardcode_libdir_flag_spec='${wl}+b ${wl}$libdir'
+-	hardcode_libdir_flag_spec_ld='+b $libdir'
+ 	hardcode_libdir_separator=:
+ 	hardcode_direct=yes
+ 	hardcode_direct_absolute=yes
+@@ -13027,7 +13093,7 @@
+       link_all_deplibs=yes
+       ;;
+ 
+-    netbsd*)
++    netbsd* | netbsdelf*-gnu)
+       if echo __ELF__ | $CC -E - | $GREP __ELF__ >/dev/null; then
+ 	archive_cmds='$LD -Bshareable -o $lib $libobjs $deplibs $linker_flags'  # a.out
+       else
+@@ -13510,11 +13576,6 @@
+ 
+ 
+ 
+-
+-
+-
+-
+-
+   { $as_echo "$as_me:${as_lineno-$LINENO}: checking dynamic linker characteristics" >&5
+ $as_echo_n "checking dynamic linker characteristics... " >&6; }
+ 
+@@ -13604,7 +13665,7 @@
+ 
+ case $host_os in
+ aix3*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix $libname.a'
+   shlibpath_var=LIBPATH
+ 
+@@ -13613,7 +13674,7 @@
+   ;;
+ 
+ aix[4-9]*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   hardcode_into_libs=yes
+@@ -13678,7 +13739,7 @@
+   ;;
+ 
+ bsdi[45]*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+@@ -13817,7 +13878,7 @@
+   ;;
+ 
+ dgux*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname$shared_ext'
+@@ -13825,10 +13886,6 @@
+   shlibpath_var=LD_LIBRARY_PATH
+   ;;
+ 
+-freebsd1*)
+-  dynamic_linker=no
+-  ;;
+-
+ freebsd* | dragonfly*)
+   # DragonFly does not have aout.  When/if they implement a new
+   # versioning mechanism, adjust this.
+@@ -13836,7 +13893,7 @@
+     objformat=`/usr/bin/objformat`
+   else
+     case $host_os in
+-    freebsd[123]*) objformat=aout ;;
++    freebsd[23].*) objformat=aout ;;
+     *) objformat=elf ;;
+     esac
+   fi
+@@ -13854,7 +13911,7 @@
+   esac
+   shlibpath_var=LD_LIBRARY_PATH
+   case $host_os in
+-  freebsd2*)
++  freebsd2.*)
+     shlibpath_overrides_runpath=yes
+     ;;
+   freebsd3.[01]* | freebsdelf3.[01]*)
+@@ -13874,17 +13931,18 @@
+   ;;
+ 
+ gnu*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}${major} ${libname}${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+   shlibpath_var=LD_LIBRARY_PATH
++  shlibpath_overrides_runpath=no
+   hardcode_into_libs=yes
+   ;;
+ 
+ haiku*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   dynamic_linker="$host_os runtime_loader"
+@@ -13945,7 +14003,7 @@
+   ;;
+ 
+ interix[3-9]*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major ${libname}${shared_ext}'
+@@ -13961,7 +14019,7 @@
+     nonstopux*) version_type=nonstopux ;;
+     *)
+ 	if test "$lt_cv_prog_gnu_ld" = yes; then
+-		version_type=linux
++		version_type=linux # correct to gnu/linux during the next big refactor
+ 	else
+ 		version_type=irix
+ 	fi ;;
+@@ -13998,9 +14056,9 @@
+   dynamic_linker=no
+   ;;
+ 
+-# This must be Linux ELF.
++# This must be glibc/ELF.
+ linux* | k*bsd*-gnu | kopensolaris*-gnu)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+@@ -14063,6 +14121,18 @@
+   dynamic_linker='GNU/Linux ld.so'
+   ;;
+ 
++netbsdelf*-gnu)
++  version_type=linux
++  need_lib_prefix=no
++  need_version=no
++  library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major ${libname}${shared_ext}'
++  soname_spec='${libname}${release}${shared_ext}$major'
++  shlibpath_var=LD_LIBRARY_PATH
++  shlibpath_overrides_runpath=no
++  hardcode_into_libs=yes
++  dynamic_linker='NetBSD ld.elf_so'
++  ;;
++
+ netbsd*)
+   version_type=sunos
+   need_lib_prefix=no
+@@ -14082,7 +14152,7 @@
+   ;;
+ 
+ newsos6)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   shlibpath_var=LD_LIBRARY_PATH
+   shlibpath_overrides_runpath=yes
+@@ -14151,7 +14221,7 @@
+   ;;
+ 
+ solaris*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+@@ -14176,7 +14246,7 @@
+   ;;
+ 
+ sysv4 | sysv4.3*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+   shlibpath_var=LD_LIBRARY_PATH
+@@ -14200,7 +14270,7 @@
+ 
+ sysv4*MP*)
+   if test -d /usr/nec ;then
+-    version_type=linux
++    version_type=linux # correct to gnu/linux during the next big refactor
+     library_names_spec='$libname${shared_ext}.$versuffix $libname${shared_ext}.$major $libname${shared_ext}'
+     soname_spec='$libname${shared_ext}.$major'
+     shlibpath_var=LD_LIBRARY_PATH
+@@ -14231,7 +14301,7 @@
+ 
+ tpf*)
+   # TPF is a cross-target only.  Preferred cross-host = GNU/Linux.
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+@@ -14241,7 +14311,7 @@
+   ;;
+ 
+ uts4*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+   shlibpath_var=LD_LIBRARY_PATH
+@@ -15023,6 +15093,8 @@
+ 
+ 
+ 
++
++
+         ac_config_commands="$ac_config_commands libtool"
+ 
+ 
+@@ -22756,29 +22828,6 @@
+     as_fn_error $? "That's a parse clock and this system doesn't support it!" "$LINENO" 5
+ esac
+ 
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking WHARTON 400A Series clock" >&5
+-$as_echo_n "checking WHARTON 400A Series clock... " >&6; }
+-# Check whether --enable-WHARTON was given.
+-if test "${enable_WHARTON+set}" = set; then :
+-  enableval=$enable_WHARTON; ntp_ok=$enableval
+-else
+-  ntp_ok=$ntp_eapc
+-
+-fi
+-
+-if test "$ntp_ok" = "yes"; then
+-    ntp_libparse=yes
+-    ntp_refclock=yes
+-
+-$as_echo "#define CLOCK_WHARTON_400A 1" >>confdefs.h
+-
+-fi
+-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ntp_ok" >&5
+-$as_echo "$ntp_ok" >&6; }
+-case "$ntp_ok$ntp_canparse" in
+- yesno)
+-    as_fn_error $? "That's a parse clock and this system doesn't support it!" "$LINENO" 5
+-esac
+ 
+ { $as_echo "$as_me:${as_lineno-$LINENO}: checking VARITEXT clock" >&5
+ $as_echo_n "checking VARITEXT clock... " >&6; }
+@@ -25112,8 +25161,6 @@
+ 
+ ac_config_files="$ac_config_files Makefile"
+ 
+-ac_config_files="$ac_config_files ElectricFence/Makefile"
+-
+ ac_config_files="$ac_config_files adjtimed/Makefile"
+ 
+ ac_config_files="$ac_config_files clockstuff/Makefile"
+@@ -25162,8 +25209,6 @@
+ 
+ ac_config_files="$ac_config_files scripts/ntptrace"
+ 
+-ac_config_files="$ac_config_files scripts/ntpver"
+-
+ ac_config_files="$ac_config_files scripts/plot_summary"
+ 
+ ac_config_files="$ac_config_files scripts/summary"
+@@ -25942,6 +25987,7 @@
+ enable_fast_install='`$ECHO "$enable_fast_install" | $SED "$delay_single_quote_subst"`'
+ SHELL='`$ECHO "$SHELL" | $SED "$delay_single_quote_subst"`'
+ ECHO='`$ECHO "$ECHO" | $SED "$delay_single_quote_subst"`'
++PATH_SEPARATOR='`$ECHO "$PATH_SEPARATOR" | $SED "$delay_single_quote_subst"`'
+ host_alias='`$ECHO "$host_alias" | $SED "$delay_single_quote_subst"`'
+ host='`$ECHO "$host" | $SED "$delay_single_quote_subst"`'
+ host_os='`$ECHO "$host_os" | $SED "$delay_single_quote_subst"`'
+@@ -26024,7 +26070,6 @@
+ allow_undefined_flag='`$ECHO "$allow_undefined_flag" | $SED "$delay_single_quote_subst"`'
+ no_undefined_flag='`$ECHO "$no_undefined_flag" | $SED "$delay_single_quote_subst"`'
+ hardcode_libdir_flag_spec='`$ECHO "$hardcode_libdir_flag_spec" | $SED "$delay_single_quote_subst"`'
+-hardcode_libdir_flag_spec_ld='`$ECHO "$hardcode_libdir_flag_spec_ld" | $SED "$delay_single_quote_subst"`'
+ hardcode_libdir_separator='`$ECHO "$hardcode_libdir_separator" | $SED "$delay_single_quote_subst"`'
+ hardcode_direct='`$ECHO "$hardcode_direct" | $SED "$delay_single_quote_subst"`'
+ hardcode_direct_absolute='`$ECHO "$hardcode_direct_absolute" | $SED "$delay_single_quote_subst"`'
+@@ -26080,6 +26125,7 @@
+ # Quote evaled strings.
+ for var in SHELL \
+ ECHO \
++PATH_SEPARATOR \
+ SED \
+ GREP \
+ EGREP \
+@@ -26130,7 +26176,6 @@
+ allow_undefined_flag \
+ no_undefined_flag \
+ hardcode_libdir_flag_spec \
+-hardcode_libdir_flag_spec_ld \
+ hardcode_libdir_separator \
+ exclude_expsyms \
+ include_expsyms \
+@@ -26215,7 +26260,6 @@
+     "depfiles") CONFIG_COMMANDS="$CONFIG_COMMANDS depfiles" ;;
+     "libtool") CONFIG_COMMANDS="$CONFIG_COMMANDS libtool" ;;
+     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
+-    "ElectricFence/Makefile") CONFIG_FILES="$CONFIG_FILES ElectricFence/Makefile" ;;
+     "adjtimed/Makefile") CONFIG_FILES="$CONFIG_FILES adjtimed/Makefile" ;;
+     "clockstuff/Makefile") CONFIG_FILES="$CONFIG_FILES clockstuff/Makefile" ;;
+     "include/Makefile") CONFIG_FILES="$CONFIG_FILES include/Makefile" ;;
+@@ -26240,7 +26284,6 @@
+     "scripts/ntp-wait") CONFIG_FILES="$CONFIG_FILES scripts/ntp-wait" ;;
+     "scripts/ntpsweep") CONFIG_FILES="$CONFIG_FILES scripts/ntpsweep" ;;
+     "scripts/ntptrace") CONFIG_FILES="$CONFIG_FILES scripts/ntptrace" ;;
+-    "scripts/ntpver") CONFIG_FILES="$CONFIG_FILES scripts/ntpver" ;;
+     "scripts/plot_summary") CONFIG_FILES="$CONFIG_FILES scripts/plot_summary" ;;
+     "scripts/summary") CONFIG_FILES="$CONFIG_FILES scripts/summary" ;;
+     "util/Makefile") CONFIG_FILES="$CONFIG_FILES util/Makefile" ;;
+@@ -26955,8 +26998,8 @@
+ # NOTE: Changes made to this file will be lost: look at ltmain.sh.
+ #
+ #   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2005,
+-#                 2006, 2007, 2008, 2009, 2010 Free Software Foundation,
+-#                 Inc.
++#                 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++#                 Foundation, Inc.
+ #   Written by Gordon Matzigkeit, 1996
+ #
+ #   This file is part of GNU Libtool.
+@@ -27010,6 +27053,9 @@
+ # An echo program that protects backslashes.
+ ECHO=$lt_ECHO
+ 
++# The PATH separator for the build system.
++PATH_SEPARATOR=$lt_PATH_SEPARATOR
++
+ # The host system.
+ host_alias=$host_alias
+ host=$host
+@@ -27311,10 +27357,6 @@
+ # This must work even if \$libdir does not exist
+ hardcode_libdir_flag_spec=$lt_hardcode_libdir_flag_spec
+ 
+-# If ld is used when linking, flag to hardcode \$libdir into a binary
+-# during linking.  This must work even if \$libdir does not exist.
+-hardcode_libdir_flag_spec_ld=$lt_hardcode_libdir_flag_spec_ld
+-
+ # Whether we need a single "-rpath" flag with a separated argument.
+ hardcode_libdir_separator=$lt_hardcode_libdir_separator
+ 
+@@ -27574,7 +27616,6 @@
+     "scripts/ntp-wait":F) chmod +x scripts/ntp-wait ;;
+     "scripts/ntpsweep":F) chmod +x scripts/ntpsweep ;;
+     "scripts/ntptrace":F) chmod +x scripts/ntptrace ;;
+-    "scripts/ntpver":F) chmod +x scripts/ntpver ;;
+     "scripts/plot_summary":F) chmod +x scripts/plot_summary ;;
+     "scripts/summary":F) chmod +x scripts/summary ;;
+ 
+--- a/include/isc/Makefile.in
++++ b/include/isc/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -235,9 +235,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign include/isc/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu include/isc/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign include/isc/Makefile
++	  $(AUTOMAKE) --gnu include/isc/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -359,10 +359,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/include/Makefile.in
++++ b/include/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -260,7 +260,6 @@
+ EXTRA_DIST = autogen-version.def copyright.def debug-opt.def homerc.def version.def version.texi
+ SUBDIRS = isc
+ noinst_HEADERS = \
+-	adjtime.h	\
+ 	audio.h		\
+ 	ascii.h		\
+ 	audio.h		\
+@@ -318,9 +317,6 @@
+ 	recvbuff.h	\
+ 	refclock_atom.h	\
+ 	ssl_applink.c	\
+-	timepps-SCO.h	\
+-	timepps-Solaris.h	\
+-	timepps-SunOS.h	\
+ 	trimble.h	\
+ 	$(NULL)
+ 
+@@ -336,9 +332,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign include/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu include/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign include/Makefile
++	  $(AUTOMAKE) --gnu include/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -572,10 +568,15 @@
+ 
+ installcheck: installcheck-recursive
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/kernel/Makefile.in
++++ b/kernel/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -269,9 +269,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign kernel/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu kernel/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign kernel/Makefile
++	  $(AUTOMAKE) --gnu kernel/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -505,10 +505,15 @@
+ 
+ installcheck: installcheck-recursive
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/kernel/sys/Makefile.in
++++ b/kernel/sys/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -238,9 +238,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign kernel/sys/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu kernel/sys/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign kernel/sys/Makefile
++	  $(AUTOMAKE) --gnu kernel/sys/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -362,10 +362,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/libntp/Makefile.in
++++ b/libntp/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -60,12 +60,11 @@
+ libntp_a_AR = $(AR) $(ARFLAGS)
+ libntp_a_LIBADD =
+ am__objects_1 =
+-am__objects_2 = a_md5encrypt.$(OBJEXT) adjtime.$(OBJEXT) \
+-	atoint.$(OBJEXT) atolfp.$(OBJEXT) atouint.$(OBJEXT) \
+-	audio.$(OBJEXT) authkeys.$(OBJEXT) authreadkeys.$(OBJEXT) \
+-	authusekey.$(OBJEXT) bsd_strerror.$(OBJEXT) \
+-	buftvtots.$(OBJEXT) caljulian.$(OBJEXT) caltontp.$(OBJEXT) \
+-	calyearstart.$(OBJEXT) clocktime.$(OBJEXT) \
++am__objects_2 = a_md5encrypt.$(OBJEXT) atoint.$(OBJEXT) \
++	atolfp.$(OBJEXT) atouint.$(OBJEXT) audio.$(OBJEXT) \
++	authkeys.$(OBJEXT) authreadkeys.$(OBJEXT) authusekey.$(OBJEXT) \
++	bsd_strerror.$(OBJEXT) buftvtots.$(OBJEXT) caljulian.$(OBJEXT) \
++	caltontp.$(OBJEXT) calyearstart.$(OBJEXT) clocktime.$(OBJEXT) \
+ 	clocktypes.$(OBJEXT) decodenetnum.$(OBJEXT) dofptoa.$(OBJEXT) \
+ 	dolfptoa.$(OBJEXT) emalloc.$(OBJEXT) findconfig.$(OBJEXT) \
+ 	fptoa.$(OBJEXT) fptoms.$(OBJEXT) getopt.$(OBJEXT) \
+@@ -282,7 +281,6 @@
+ EXTRA_LIBRARIES = libntpsim.a
+ libntp_a_SRCS = \
+ 	a_md5encrypt.c					\
+-	adjtime.c					\
+ 	atoint.c					\
+ 	atolfp.c					\
+ 	atouint.c					\
+@@ -399,9 +397,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign libntp/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu libntp/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign libntp/Makefile
++	  $(AUTOMAKE) --gnu libntp/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -411,6 +409,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+@@ -423,11 +422,11 @@
+ 
+ clean-noinstLIBRARIES:
+ 	-test -z "$(noinst_LIBRARIES)" || rm -f $(noinst_LIBRARIES)
+-libntp.a: $(libntp_a_OBJECTS) $(libntp_a_DEPENDENCIES) 
++libntp.a: $(libntp_a_OBJECTS) $(libntp_a_DEPENDENCIES) $(EXTRA_libntp_a_DEPENDENCIES) 
+ 	-rm -f libntp.a
+ 	$(libntp_a_AR) libntp.a $(libntp_a_OBJECTS) $(libntp_a_LIBADD)
+ 	$(RANLIB) libntp.a
+-libntpsim.a: $(libntpsim_a_OBJECTS) $(libntpsim_a_DEPENDENCIES) 
++libntpsim.a: $(libntpsim_a_OBJECTS) $(libntpsim_a_DEPENDENCIES) $(EXTRA_libntpsim_a_DEPENDENCIES) 
+ 	-rm -f libntpsim.a
+ 	$(libntpsim_a_AR) libntpsim.a $(libntpsim_a_OBJECTS) $(libntpsim_a_LIBADD)
+ 	$(RANLIB) libntpsim.a
+@@ -439,7 +438,6 @@
+ 	-rm -f *.tab.c
+ 
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/a_md5encrypt.Po@am__quote@
+-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/adjtime.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/adjtimex.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/assertions.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/atoint.Po@am__quote@
+@@ -1052,10 +1050,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/libparse/Makefile.in
++++ b/libparse/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -67,20 +67,18 @@
+ 	clk_rawdcf.$(OBJEXT) clk_trimtsip.$(OBJEXT) \
+ 	clk_dcf7000.$(OBJEXT) clk_trimtaip.$(OBJEXT) \
+ 	clk_rcc8000.$(OBJEXT) clk_hopf6021.$(OBJEXT) \
+-	clk_computime.$(OBJEXT) clk_wharton.$(OBJEXT) \
+-	clk_varitext.$(OBJEXT) data_mbg.$(OBJEXT) \
+-	info_trimble.$(OBJEXT) trim_info.$(OBJEXT) binio.$(OBJEXT) \
+-	ieee754io.$(OBJEXT) mfp_mul.$(OBJEXT) gpstolfp.$(OBJEXT) \
+-	$(am__objects_1)
++	clk_computime.$(OBJEXT) clk_varitext.$(OBJEXT) \
++	data_mbg.$(OBJEXT) info_trimble.$(OBJEXT) trim_info.$(OBJEXT) \
++	binio.$(OBJEXT) ieee754io.$(OBJEXT) mfp_mul.$(OBJEXT) \
++	gpstolfp.$(OBJEXT) $(am__objects_1)
+ libparse_a_OBJECTS = $(am_libparse_a_OBJECTS)
+ libparse_kernel_a_AR = $(AR) $(ARFLAGS)
+ am__DEPENDENCIES_1 =
+ libparse_kernel_a_DEPENDENCIES = kparse.o kparse_conf.o \
+ 	kclk_computime.o kclk_dcf7000.o kclk_hopf6021.o \
+ 	kclk_meinberg.o kclk_rawdcf.o kclk_rcc8000.o kclk_schmid.o \
+-	kclk_trimtaip.o kclk_trimtsip.o kclk_varitext.o kclk_wharton.o \
+-	kbinio.o kieee754io.o kmfp_mul.o kgpstolfp.o \
+-	$(am__DEPENDENCIES_1)
++	kclk_trimtaip.o kclk_trimtsip.o kclk_varitext.o kbinio.o \
++	kieee754io.o kmfp_mul.o kgpstolfp.o $(am__DEPENDENCIES_1)
+ am_libparse_kernel_a_OBJECTS =
+ libparse_kernel_a_OBJECTS = $(am_libparse_kernel_a_OBJECTS)
+ PROGRAMS = $(noinst_PROGRAMS)
+@@ -285,7 +283,6 @@
+ 		     clk_rcc8000.c \
+ 		     clk_hopf6021.c \
+ 		     clk_computime.c \
+-		     clk_wharton.c \
+ 		     clk_varitext.c \
+ 		     data_mbg.c \
+ 		     info_trimble.c \
+@@ -310,7 +307,6 @@
+ 	kclk_trimtaip.o		\
+ 	kclk_trimtsip.o		\
+ 	kclk_varitext.o		\
+-	kclk_wharton.o		\
+ 	kbinio.o		\
+ 	kieee754io.o		\
+ 	kmfp_mul.o		\
+@@ -337,9 +333,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign libparse/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu libparse/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign libparse/Makefile
++	  $(AUTOMAKE) --gnu libparse/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -349,6 +345,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+@@ -361,11 +358,11 @@
+ 
+ clean-noinstLIBRARIES:
+ 	-test -z "$(noinst_LIBRARIES)" || rm -f $(noinst_LIBRARIES)
+-libparse.a: $(libparse_a_OBJECTS) $(libparse_a_DEPENDENCIES) 
++libparse.a: $(libparse_a_OBJECTS) $(libparse_a_DEPENDENCIES) $(EXTRA_libparse_a_DEPENDENCIES) 
+ 	-rm -f libparse.a
+ 	$(libparse_a_AR) libparse.a $(libparse_a_OBJECTS) $(libparse_a_LIBADD)
+ 	$(RANLIB) libparse.a
+-libparse_kernel.a: $(libparse_kernel_a_OBJECTS) $(libparse_kernel_a_DEPENDENCIES) 
++libparse_kernel.a: $(libparse_kernel_a_OBJECTS) $(libparse_kernel_a_DEPENDENCIES) $(EXTRA_libparse_kernel_a_DEPENDENCIES) 
+ 	-rm -f libparse_kernel.a
+ 	$(libparse_kernel_a_AR) libparse_kernel.a $(libparse_kernel_a_OBJECTS) $(libparse_kernel_a_LIBADD)
+ 	$(RANLIB) libparse_kernel.a
+@@ -378,10 +375,10 @@
+ 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+ 	echo " rm -f" $$list; \
+ 	rm -f $$list
+-parsesolaris$(EXEEXT): $(parsesolaris_OBJECTS) $(parsesolaris_DEPENDENCIES) 
++parsesolaris$(EXEEXT): $(parsesolaris_OBJECTS) $(parsesolaris_DEPENDENCIES) $(EXTRA_parsesolaris_DEPENDENCIES) 
+ 	@rm -f parsesolaris$(EXEEXT)
+ 	$(LINK) $(parsesolaris_OBJECTS) $(parsesolaris_LDADD) $(LIBS)
+-parsestreams$(EXEEXT): $(parsestreams_OBJECTS) $(parsestreams_DEPENDENCIES) 
++parsestreams$(EXEEXT): $(parsestreams_OBJECTS) $(parsestreams_DEPENDENCIES) $(EXTRA_parsestreams_DEPENDENCIES) 
+ 	@rm -f parsestreams$(EXEEXT)
+ 	$(LINK) $(parsestreams_OBJECTS) $(parsestreams_LDADD) $(LIBS)
+ 
+@@ -402,7 +399,6 @@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/clk_trimtaip.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/clk_trimtsip.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/clk_varitext.Po@am__quote@
+-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/clk_wharton.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/data_mbg.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gpstolfp.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ieee754io.Po@am__quote@
+@@ -539,10 +535,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/ltmain.sh
++++ b/ltmain.sh
+@@ -1,9 +1,9 @@
+ 
+-# libtool (GNU libtool) 2.4
++# libtool (GNU libtool) 2.4.2
+ # Written by Gordon Matzigkeit <gord@gnu.ai.mit.edu>, 1996
+ 
+ # Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2005, 2006,
+-# 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
++# 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+ # This is free software; see the source for copying conditions.  There is NO
+ # warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ 
+@@ -41,6 +41,7 @@
+ #       --quiet, --silent    don't print informational messages
+ #       --no-quiet, --no-silent
+ #                            print informational messages (default)
++#       --no-warn            don't display warning messages
+ #       --tag=TAG            use configuration variables from tag TAG
+ #   -v, --verbose            print more informational messages than default
+ #       --no-verbose         don't print the extra informational messages
+@@ -69,7 +70,7 @@
+ #         compiler:		$LTCC
+ #         compiler flags:		$LTCFLAGS
+ #         linker:		$LD (gnu? $with_gnu_ld)
+-#         $progname:	(GNU libtool) 2.4
++#         $progname:	(GNU libtool) 2.4.2 Debian-2.4.2-1
+ #         automake:	$automake_version
+ #         autoconf:	$autoconf_version
+ #
+@@ -79,9 +80,9 @@
+ 
+ PROGRAM=libtool
+ PACKAGE=libtool
+-VERSION=2.4
++VERSION="2.4.2 Debian-2.4.2-1"
+ TIMESTAMP=""
+-package_revision=1.3293
++package_revision=1.3337
+ 
+ # Be Bourne compatible
+ if test -n "${ZSH_VERSION+set}" && (emulate sh) >/dev/null 2>&1; then
+@@ -136,15 +137,10 @@
+ 
+ : ${CP="cp -f"}
+ test "${ECHO+set}" = set || ECHO=${as_echo-'printf %s\n'}
+-: ${EGREP="grep -E"}
+-: ${FGREP="grep -F"}
+-: ${GREP="grep"}
+-: ${LN_S="ln -s"}
+ : ${MAKE="make"}
+ : ${MKDIR="mkdir"}
+ : ${MV="mv -f"}
+ : ${RM="rm -f"}
+-: ${SED="sed"}
+ : ${SHELL="${CONFIG_SHELL-/bin/sh}"}
+ : ${Xsed="$SED -e 1s/^X//"}
+ 
+@@ -387,7 +383,7 @@
+      ;;
+   *)
+      save_IFS="$IFS"
+-     IFS=:
++     IFS=${PATH_SEPARATOR-:}
+      for progdir in $PATH; do
+        IFS="$save_IFS"
+        test -x "$progdir/$progname" && break
+@@ -771,8 +767,8 @@
+ 	s*\$LTCFLAGS*'"$LTCFLAGS"'*
+ 	s*\$LD*'"$LD"'*
+ 	s/\$with_gnu_ld/'"$with_gnu_ld"'/
+-	s/\$automake_version/'"`(automake --version) 2>/dev/null |$SED 1q`"'/
+-	s/\$autoconf_version/'"`(autoconf --version) 2>/dev/null |$SED 1q`"'/
++	s/\$automake_version/'"`(${AUTOMAKE-automake} --version) 2>/dev/null |$SED 1q`"'/
++	s/\$autoconf_version/'"`(${AUTOCONF-autoconf} --version) 2>/dev/null |$SED 1q`"'/
+ 	p
+ 	d
+      }
+@@ -1052,6 +1048,7 @@
+ opt_help=false
+ opt_help_all=false
+ opt_silent=:
++opt_warning=:
+ opt_verbose=:
+ opt_silent=false
+ opt_verbose=false
+@@ -1120,6 +1117,10 @@
+ 			opt_silent=false
+ func_append preserve_args " $opt"
+ 			;;
++      --no-warning|--no-warn)
++			opt_warning=false
++func_append preserve_args " $opt"
++			;;
+       --no-verbose)
+ 			opt_verbose=false
+ func_append preserve_args " $opt"
+@@ -2059,7 +2060,7 @@
+     *.[cCFSifmso] | \
+     *.ada | *.adb | *.ads | *.asm | \
+     *.c++ | *.cc | *.ii | *.class | *.cpp | *.cxx | \
+-    *.[fF][09]? | *.for | *.java | *.obj | *.sx | *.cu | *.cup)
++    *.[fF][09]? | *.for | *.java | *.go | *.obj | *.sx | *.cu | *.cup)
+       func_xform "$libobj"
+       libobj=$func_xform_result
+       ;;
+@@ -3201,11 +3202,13 @@
+ 
+       # Set up the ranlib parameters.
+       oldlib="$destdir/$name"
++      func_to_tool_file "$oldlib" func_convert_file_msys_to_w32
++      tool_oldlib=$func_to_tool_file_result
+ 
+       func_show_eval "$install_prog \$file \$oldlib" 'exit $?'
+ 
+       if test -n "$stripme" && test -n "$old_striplib"; then
+-	func_show_eval "$old_striplib $oldlib" 'exit $?'
++	func_show_eval "$old_striplib $tool_oldlib" 'exit $?'
+       fi
+ 
+       # Do each command in the postinstall commands.
+@@ -3470,7 +3473,7 @@
+ 	  # linked before any other PIC object.  But we must not use
+ 	  # pic_flag when linking with -static.  The problem exists in
+ 	  # FreeBSD 2.2.6 and is fixed in FreeBSD 3.1.
+-	  *-*-freebsd2*|*-*-freebsd3.0*|*-*-freebsdelf3.0*)
++	  *-*-freebsd2.*|*-*-freebsd3.0*|*-*-freebsdelf3.0*)
+ 	    pic_flag_for_symtable=" $pic_flag -DFREEBSD_WORKAROUND" ;;
+ 	  *-*-hpux*)
+ 	    pic_flag_for_symtable=" $pic_flag"  ;;
+@@ -3982,14 +3985,17 @@
+ # launches target application with the remaining arguments.
+ func_exec_program ()
+ {
+-  for lt_wr_arg
+-  do
+-    case \$lt_wr_arg in
+-    --lt-*) ;;
+-    *) set x \"\$@\" \"\$lt_wr_arg\"; shift;;
+-    esac
+-    shift
+-  done
++  case \" \$* \" in
++  *\\ --lt-*)
++    for lt_wr_arg
++    do
++      case \$lt_wr_arg in
++      --lt-*) ;;
++      *) set x \"\$@\" \"\$lt_wr_arg\"; shift;;
++      esac
++      shift
++    done ;;
++  esac
+   func_exec_program_core \${1+\"\$@\"}
+ }
+ 
+@@ -5057,9 +5063,15 @@
+ {
+ EOF
+ 	    func_emit_wrapper yes |
+-              $SED -e 's/\([\\"]\)/\\\1/g' \
+-	           -e 's/^/  fputs ("/' -e 's/$/\\n", f);/'
+-
++	      $SED -n -e '
++s/^\(.\{79\}\)\(..*\)/\1\
++\2/
++h
++s/\([\\"]\)/\\\1/g
++s/$/\\n/
++s/\([^\n]*\).*/  fputs ("\1", f);/p
++g
++D'
+             cat <<"EOF"
+ }
+ EOF
+@@ -5643,7 +5655,8 @@
+ 	continue
+ 	;;
+ 
+-      -mt|-mthreads|-kthread|-Kthread|-pthread|-pthreads|--thread-safe|-threads)
++      -mt|-mthreads|-kthread|-Kthread|-pthread|-pthreads|--thread-safe \
++      |-threads|-fopenmp|-openmp|-mp|-xopenmp|-omp|-qsmp=*)
+ 	func_append compiler_flags " $arg"
+ 	func_append compile_command " $arg"
+ 	func_append finalize_command " $arg"
+@@ -6111,7 +6124,10 @@
+ 	case $pass in
+ 	dlopen) libs="$dlfiles" ;;
+ 	dlpreopen) libs="$dlprefiles" ;;
+-	link) libs="$deplibs %DEPLIBS% $dependency_libs" ;;
++	link)
++	  libs="$deplibs %DEPLIBS%"
++	  test "X$link_all_deplibs" != Xno && libs="$libs $dependency_libs"
++	  ;;
+ 	esac
+       fi
+       if test "$linkmode,$pass" = "lib,dlpreopen"; then
+@@ -6147,7 +6163,8 @@
+ 	lib=
+ 	found=no
+ 	case $deplib in
+-	-mt|-mthreads|-kthread|-Kthread|-pthread|-pthreads|--thread-safe|-threads)
++	-mt|-mthreads|-kthread|-Kthread|-pthread|-pthreads|--thread-safe \
++        |-threads|-fopenmp|-openmp|-mp|-xopenmp|-omp|-qsmp=*)
+ 	  if test "$linkmode,$pass" = "prog,link"; then
+ 	    compile_deplibs="$deplib $compile_deplibs"
+ 	    finalize_deplibs="$deplib $finalize_deplibs"
+@@ -6430,19 +6447,19 @@
+ 	    # It is a libtool convenience library, so add in its objects.
+ 	    func_append convenience " $ladir/$objdir/$old_library"
+ 	    func_append old_convenience " $ladir/$objdir/$old_library"
++	    tmp_libs=
++	    for deplib in $dependency_libs; do
++	      deplibs="$deplib $deplibs"
++	      if $opt_preserve_dup_deps ; then
++		case "$tmp_libs " in
++		*" $deplib "*) func_append specialdeplibs " $deplib" ;;
++		esac
++	      fi
++	      func_append tmp_libs " $deplib"
++	    done
+ 	  elif test "$linkmode" != prog && test "$linkmode" != lib; then
+ 	    func_fatal_error "\`$lib' is not a convenience library"
+ 	  fi
+-	  tmp_libs=
+-	  for deplib in $dependency_libs; do
+-	    deplibs="$deplib $deplibs"
+-	    if $opt_preserve_dup_deps ; then
+-	      case "$tmp_libs " in
+-	      *" $deplib "*) func_append specialdeplibs " $deplib" ;;
+-	      esac
+-	    fi
+-	    func_append tmp_libs " $deplib"
+-	  done
+ 	  continue
+ 	fi # $pass = conv
+ 
+@@ -6831,7 +6848,7 @@
+ 	         test "$hardcode_direct_absolute" = no; then
+ 		add="$dir/$linklib"
+ 	      elif test "$hardcode_minus_L" = yes; then
+-		add_dir="-L$dir"
++		add_dir="-L$absdir"
+ 		# Try looking first in the location we're being installed to.
+ 		if test -n "$inst_prefix_dir"; then
+ 		  case $libdir in
+@@ -7316,6 +7333,7 @@
+ 	  # which has an extra 1 added just for fun
+ 	  #
+ 	  case $version_type in
++	  # correct linux to gnu/linux during the next big refactor
+ 	  darwin|linux|osf|windows|none)
+ 	    func_arith $number_major + $number_minor
+ 	    current=$func_arith_result
+@@ -7334,6 +7352,9 @@
+ 	    revision="$number_minor"
+ 	    lt_irix_increment=no
+ 	    ;;
++	  *)
++	    func_fatal_configuration "$modename: unknown library version type \`$version_type'"
++	    ;;
+ 	  esac
+ 	  ;;
+ 	no)
+@@ -7432,7 +7453,7 @@
+ 	  versuffix="$major.$revision"
+ 	  ;;
+ 
+-	linux)
++	linux) # correct to gnu/linux during the next big refactor
+ 	  func_arith $current - $age
+ 	  major=.$func_arith_result
+ 	  versuffix="$major.$age.$revision"
+@@ -8020,6 +8041,11 @@
+ 
+       # Test again, we may have decided not to build it any more
+       if test "$build_libtool_libs" = yes; then
++	# Remove ${wl} instances when linking with ld.
++	# FIXME: should test the right _cmds variable.
++	case $archive_cmds in
++	  *\$LD\ *) wl= ;;
++        esac
+ 	if test "$hardcode_into_libs" = yes; then
+ 	  # Hardcode the library paths
+ 	  hardcode_libdirs=
+@@ -8050,7 +8076,7 @@
+ 	    elif test -n "$runpath_var"; then
+ 	      case "$perm_rpath " in
+ 	      *" $libdir "*) ;;
+-	      *) func_apped perm_rpath " $libdir" ;;
++	      *) func_append perm_rpath " $libdir" ;;
+ 	      esac
+ 	    fi
+ 	  done
+@@ -8058,11 +8084,7 @@
+ 	  if test -n "$hardcode_libdir_separator" &&
+ 	     test -n "$hardcode_libdirs"; then
+ 	    libdir="$hardcode_libdirs"
+-	    if test -n "$hardcode_libdir_flag_spec_ld"; then
+-	      eval dep_rpath=\"$hardcode_libdir_flag_spec_ld\"
+-	    else
+-	      eval dep_rpath=\"$hardcode_libdir_flag_spec\"
+-	    fi
++	    eval "dep_rpath=\"$hardcode_libdir_flag_spec\""
+ 	  fi
+ 	  if test -n "$runpath_var" && test -n "$perm_rpath"; then
+ 	    # We should set the runpath_var.
+@@ -9152,6 +9174,8 @@
+ 	    esac
+ 	  done
+ 	fi
++	func_to_tool_file "$oldlib" func_convert_file_msys_to_w32
++	tool_oldlib=$func_to_tool_file_result
+ 	eval cmds=\"$old_archive_cmds\"
+ 
+ 	func_len " $cmds"
+@@ -9261,7 +9285,8 @@
+ 	      *.la)
+ 		func_basename "$deplib"
+ 		name="$func_basename_result"
+-		eval libdir=`${SED} -n -e 's/^libdir=\(.*\)$/\1/p' $deplib`
++		func_resolve_sysroot "$deplib"
++		eval libdir=`${SED} -n -e 's/^libdir=\(.*\)$/\1/p' $func_resolve_sysroot_result`
+ 		test -z "$libdir" && \
+ 		  func_fatal_error "\`$deplib' is not a valid libtool archive"
+ 		func_append newdependency_libs " ${lt_sysroot:+=}$libdir/$name"
+--- a/m4/libtool.m4
++++ b/m4/libtool.m4
+@@ -1,8 +1,8 @@
+ # libtool.m4 - Configure libtool for the host system. -*-Autoconf-*-
+ #
+ #   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2005,
+-#                 2006, 2007, 2008, 2009, 2010 Free Software Foundation,
+-#                 Inc.
++#                 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++#                 Foundation, Inc.
+ #   Written by Gordon Matzigkeit, 1996
+ #
+ # This file is free software; the Free Software Foundation gives
+@@ -11,8 +11,8 @@
+ 
+ m4_define([_LT_COPYING], [dnl
+ #   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2005,
+-#                 2006, 2007, 2008, 2009, 2010 Free Software Foundation,
+-#                 Inc.
++#                 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++#                 Foundation, Inc.
+ #   Written by Gordon Matzigkeit, 1996
+ #
+ #   This file is part of GNU Libtool.
+@@ -146,6 +146,8 @@
+ AC_REQUIRE([_LT_PREPARE_SED_QUOTE_VARS])dnl
+ AC_REQUIRE([_LT_PROG_ECHO_BACKSLASH])dnl
+ 
++_LT_DECL([], [PATH_SEPARATOR], [1], [The PATH separator for the build system])dnl
++dnl
+ _LT_DECL([], [host_alias], [0], [The host system])dnl
+ _LT_DECL([], [host], [0])dnl
+ _LT_DECL([], [host_os], [0])dnl
+@@ -637,7 +639,7 @@
+ m4_ifset([AC_PACKAGE_VERSION], [ AC_PACKAGE_VERSION])
+ configured by $[0], generated by m4_PACKAGE_STRING.
+ 
+-Copyright (C) 2010 Free Software Foundation, Inc.
++Copyright (C) 2011 Free Software Foundation, Inc.
+ This config.lt script is free software; the Free Software Foundation
+ gives unlimited permision to copy, distribute and modify it."
+ 
+@@ -801,6 +803,7 @@
+ m4_case([$1],
+   [C],			[_LT_LANG(C)],
+   [C++],		[_LT_LANG(CXX)],
++  [Go],			[_LT_LANG(GO)],
+   [Java],		[_LT_LANG(GCJ)],
+   [Fortran 77],		[_LT_LANG(F77)],
+   [Fortran],		[_LT_LANG(FC)],
+@@ -822,6 +825,31 @@
+ ])# _LT_LANG
+ 
+ 
++m4_ifndef([AC_PROG_GO], [
++############################################################
++# NOTE: This macro has been submitted for inclusion into   #
++#  GNU Autoconf as AC_PROG_GO.  When it is available in    #
++#  a released version of Autoconf we should remove this    #
++#  macro and use it instead.                               #
++############################################################
++m4_defun([AC_PROG_GO],
++[AC_LANG_PUSH(Go)dnl
++AC_ARG_VAR([GOC],     [Go compiler command])dnl
++AC_ARG_VAR([GOFLAGS], [Go compiler flags])dnl
++_AC_ARG_VAR_LDFLAGS()dnl
++AC_CHECK_TOOL(GOC, gccgo)
++if test -z "$GOC"; then
++  if test -n "$ac_tool_prefix"; then
++    AC_CHECK_PROG(GOC, [${ac_tool_prefix}gccgo], [${ac_tool_prefix}gccgo])
++  fi
++fi
++if test -z "$GOC"; then
++  AC_CHECK_PROG(GOC, gccgo, gccgo, false)
++fi
++])#m4_defun
++])#m4_ifndef
++
++
+ # _LT_LANG_DEFAULT_CONFIG
+ # -----------------------
+ m4_defun([_LT_LANG_DEFAULT_CONFIG],
+@@ -852,6 +880,10 @@
+        m4_ifdef([LT_PROG_GCJ],
+ 	[m4_define([LT_PROG_GCJ], defn([LT_PROG_GCJ])[LT_LANG(GCJ)])])])])])
+ 
++AC_PROVIDE_IFELSE([AC_PROG_GO],
++  [LT_LANG(GO)],
++  [m4_define([AC_PROG_GO], defn([AC_PROG_GO])[LT_LANG(GO)])])
++
+ AC_PROVIDE_IFELSE([LT_PROG_RC],
+   [LT_LANG(RC)],
+   [m4_define([LT_PROG_RC], defn([LT_PROG_RC])[LT_LANG(RC)])])
+@@ -954,7 +986,13 @@
+ 	$LTCC $LTCFLAGS $LDFLAGS -o libconftest.dylib \
+ 	  -dynamiclib -Wl,-single_module conftest.c 2>conftest.err
+         _lt_result=$?
+-	if test -f libconftest.dylib && test ! -s conftest.err && test $_lt_result = 0; then
++	# If there is a non-empty error log, and "single_module"
++	# appears in it, assume the flag caused a linker warning
++        if test -s conftest.err && $GREP single_module conftest.err; then
++	  cat conftest.err >&AS_MESSAGE_LOG_FD
++	# Otherwise, if the output was created with a 0 exit code from
++	# the compiler, it worked.
++	elif test -f libconftest.dylib && test $_lt_result -eq 0; then
+ 	  lt_cv_apple_cc_single_mod=yes
+ 	else
+ 	  cat conftest.err >&AS_MESSAGE_LOG_FD
+@@ -962,6 +1000,7 @@
+ 	rm -rf libconftest.dylib*
+ 	rm -f conftest.*
+       fi])
++
+     AC_CACHE_CHECK([for -exported_symbols_list linker flag],
+       [lt_cv_ld_exported_symbols_list],
+       [lt_cv_ld_exported_symbols_list=no
+@@ -973,6 +1012,7 @@
+ 	[lt_cv_ld_exported_symbols_list=no])
+ 	LDFLAGS="$save_LDFLAGS"
+     ])
++
+     AC_CACHE_CHECK([for -force_load linker flag],[lt_cv_ld_force_load],
+       [lt_cv_ld_force_load=no
+       cat > conftest.c << _LT_EOF
+@@ -990,7 +1030,9 @@
+       echo "$LTCC $LTCFLAGS $LDFLAGS -o conftest conftest.c -Wl,-force_load,./libconftest.a" >&AS_MESSAGE_LOG_FD
+       $LTCC $LTCFLAGS $LDFLAGS -o conftest conftest.c -Wl,-force_load,./libconftest.a 2>conftest.err
+       _lt_result=$?
+-      if test -f conftest && test ! -s conftest.err && test $_lt_result = 0 && $GREP forced_load conftest 2>&1 >/dev/null; then
++      if test -s conftest.err && $GREP force_load conftest.err; then
++	cat conftest.err >&AS_MESSAGE_LOG_FD
++      elif test -f conftest && test $_lt_result -eq 0 && $GREP forced_load conftest >/dev/null 2>&1 ; then
+ 	lt_cv_ld_force_load=yes
+       else
+ 	cat conftest.err >&AS_MESSAGE_LOG_FD
+@@ -1035,8 +1077,8 @@
+ ])
+ 
+ 
+-# _LT_DARWIN_LINKER_FEATURES
+-# --------------------------
++# _LT_DARWIN_LINKER_FEATURES([TAG])
++# ---------------------------------
+ # Checks for linker and compiler features on darwin
+ m4_defun([_LT_DARWIN_LINKER_FEATURES],
+ [
+@@ -1047,6 +1089,8 @@
+   _LT_TAGVAR(hardcode_shlibpath_var, $1)=unsupported
+   if test "$lt_cv_ld_force_load" = "yes"; then
+     _LT_TAGVAR(whole_archive_flag_spec, $1)='`for conv in $convenience\"\"; do test  -n \"$conv\" && new_convenience=\"$new_convenience ${wl}-force_load,$conv\"; done; func_echo_all \"$new_convenience\"`'
++    m4_case([$1], [F77], [_LT_TAGVAR(compiler_needs_object, $1)=yes],
++                  [FC],  [_LT_TAGVAR(compiler_needs_object, $1)=yes])
+   else
+     _LT_TAGVAR(whole_archive_flag_spec, $1)=''
+   fi
+@@ -1330,14 +1374,27 @@
+     CFLAGS="$SAVE_CFLAGS"
+   fi
+   ;;
+-sparc*-*solaris*)
++*-*solaris*)
+   # Find out which ABI we are using.
+   echo 'int i;' > conftest.$ac_ext
+   if AC_TRY_EVAL(ac_compile); then
+     case `/usr/bin/file conftest.o` in
+     *64-bit*)
+       case $lt_cv_prog_gnu_ld in
+-      yes*) LD="${LD-ld} -m elf64_sparc" ;;
++      yes*)
++        case $host in
++        i?86-*-solaris*)
++          LD="${LD-ld} -m elf_x86_64"
++          ;;
++        sparc*-*-solaris*)
++          LD="${LD-ld} -m elf64_sparc"
++          ;;
++        esac
++        # GNU ld 2.21 introduced _sol2 emulations.  Use them if available.
++        if ${LD-ld} -V | grep _sol2 >/dev/null 2>&1; then
++          LD="${LD-ld}_sol2"
++        fi
++        ;;
+       *)
+ 	if ${LD-ld} -64 -r -o conftest2.o conftest.o >/dev/null 2>&1; then
+ 	  LD="${LD-ld} -64"
+@@ -1414,13 +1471,13 @@
+ if test -n "$RANLIB"; then
+   case $host_os in
+   openbsd*)
+-    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB -t \$oldlib"
++    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB -t \$tool_oldlib"
+     ;;
+   *)
+-    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB \$oldlib"
++    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB \$tool_oldlib"
+     ;;
+   esac
+-  old_archive_cmds="$old_archive_cmds~\$RANLIB \$oldlib"
++  old_archive_cmds="$old_archive_cmds~\$RANLIB \$tool_oldlib"
+ fi
+ 
+ case $host_os in
+@@ -1600,6 +1657,11 @@
+     lt_cv_sys_max_cmd_len=196608
+     ;;
+ 
++  os2*)
++    # The test takes a long time on OS/2.
++    lt_cv_sys_max_cmd_len=8192
++    ;;
++
+   osf*)
+     # Dr. Hans Ekkehard Plesser reports seeing a kernel panic running configure
+     # due to this test when exec_disable_arg_limit is 1 on Tru64. It is not
+@@ -1639,7 +1701,7 @@
+       # If test is not a shell built-in, we'll probably end up computing a
+       # maximum length that is only half of the actual maximum length, but
+       # we can't tell.
+-      while { test "X"`func_fallback_echo "$teststring$teststring" 2>/dev/null` \
++      while { test "X"`env echo "$teststring$teststring" 2>/dev/null` \
+ 	         = "X$teststring$teststring"; } >/dev/null 2>&1 &&
+ 	      test $i != 17 # 1/2 MB should be enough
+       do
+@@ -2185,7 +2247,7 @@
+ 
+ case $host_os in
+ aix3*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix $libname.a'
+   shlibpath_var=LIBPATH
+ 
+@@ -2194,7 +2256,7 @@
+   ;;
+ 
+ aix[[4-9]]*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   hardcode_into_libs=yes
+@@ -2259,7 +2321,7 @@
+   ;;
+ 
+ bsdi[[45]]*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+@@ -2398,7 +2460,7 @@
+   ;;
+ 
+ dgux*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname$shared_ext'
+@@ -2406,10 +2468,6 @@
+   shlibpath_var=LD_LIBRARY_PATH
+   ;;
+ 
+-freebsd1*)
+-  dynamic_linker=no
+-  ;;
+-
+ freebsd* | dragonfly*)
+   # DragonFly does not have aout.  When/if they implement a new
+   # versioning mechanism, adjust this.
+@@ -2417,7 +2475,7 @@
+     objformat=`/usr/bin/objformat`
+   else
+     case $host_os in
+-    freebsd[[123]]*) objformat=aout ;;
++    freebsd[[23]].*) objformat=aout ;;
+     *) objformat=elf ;;
+     esac
+   fi
+@@ -2435,7 +2493,7 @@
+   esac
+   shlibpath_var=LD_LIBRARY_PATH
+   case $host_os in
+-  freebsd2*)
++  freebsd2.*)
+     shlibpath_overrides_runpath=yes
+     ;;
+   freebsd3.[[01]]* | freebsdelf3.[[01]]*)
+@@ -2455,17 +2513,18 @@
+   ;;
+ 
+ gnu*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}${major} ${libname}${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+   shlibpath_var=LD_LIBRARY_PATH
++  shlibpath_overrides_runpath=no
+   hardcode_into_libs=yes
+   ;;
+ 
+ haiku*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   dynamic_linker="$host_os runtime_loader"
+@@ -2526,7 +2585,7 @@
+   ;;
+ 
+ interix[[3-9]]*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major ${libname}${shared_ext}'
+@@ -2542,7 +2601,7 @@
+     nonstopux*) version_type=nonstopux ;;
+     *)
+ 	if test "$lt_cv_prog_gnu_ld" = yes; then
+-		version_type=linux
++		version_type=linux # correct to gnu/linux during the next big refactor
+ 	else
+ 		version_type=irix
+ 	fi ;;
+@@ -2579,9 +2638,9 @@
+   dynamic_linker=no
+   ;;
+ 
+-# This must be Linux ELF.
++# This must be glibc/ELF.
+ linux* | k*bsd*-gnu | kopensolaris*-gnu)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+@@ -2625,6 +2684,18 @@
+   dynamic_linker='GNU/Linux ld.so'
+   ;;
+ 
++netbsdelf*-gnu)
++  version_type=linux
++  need_lib_prefix=no
++  need_version=no
++  library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major ${libname}${shared_ext}'
++  soname_spec='${libname}${release}${shared_ext}$major'
++  shlibpath_var=LD_LIBRARY_PATH
++  shlibpath_overrides_runpath=no
++  hardcode_into_libs=yes
++  dynamic_linker='NetBSD ld.elf_so'
++  ;;
++
+ netbsd*)
+   version_type=sunos
+   need_lib_prefix=no
+@@ -2644,7 +2715,7 @@
+   ;;
+ 
+ newsos6)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   shlibpath_var=LD_LIBRARY_PATH
+   shlibpath_overrides_runpath=yes
+@@ -2713,7 +2784,7 @@
+   ;;
+ 
+ solaris*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+@@ -2738,7 +2809,7 @@
+   ;;
+ 
+ sysv4 | sysv4.3*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+   shlibpath_var=LD_LIBRARY_PATH
+@@ -2762,7 +2833,7 @@
+ 
+ sysv4*MP*)
+   if test -d /usr/nec ;then
+-    version_type=linux
++    version_type=linux # correct to gnu/linux during the next big refactor
+     library_names_spec='$libname${shared_ext}.$versuffix $libname${shared_ext}.$major $libname${shared_ext}'
+     soname_spec='$libname${shared_ext}.$major'
+     shlibpath_var=LD_LIBRARY_PATH
+@@ -2793,7 +2864,7 @@
+ 
+ tpf*)
+   # TPF is a cross-target only.  Preferred cross-host = GNU/Linux.
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+@@ -2803,7 +2874,7 @@
+   ;;
+ 
+ uts4*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+   shlibpath_var=LD_LIBRARY_PATH
+@@ -3225,12 +3296,12 @@
+   lt_cv_deplibs_check_method=pass_all
+   ;;
+ 
+-# This must be Linux ELF.
++# This must be glibc/ELF.
+ linux* | k*bsd*-gnu | kopensolaris*-gnu)
+   lt_cv_deplibs_check_method=pass_all
+   ;;
+ 
+-netbsd*)
++netbsd* | netbsdelf*-gnu)
+   if echo __ELF__ | $CC -E - | $GREP __ELF__ > /dev/null; then
+     lt_cv_deplibs_check_method='match_pattern /lib[[^/]]+(\.so\.[[0-9]]+\.[[0-9]]+|_pic\.a)$'
+   else
+@@ -3645,6 +3716,7 @@
+     # which start with @ or ?.
+     lt_cv_sys_global_symbol_pipe="$AWK ['"\
+ "     {last_section=section; section=\$ 3};"\
++"     /^COFF SYMBOL TABLE/{for(i in hide) delete hide[i]};"\
+ "     /Section length .*#relocs.*(pick any)/{hide[last_section]=1};"\
+ "     \$ 0!~/External *\|/{next};"\
+ "     / 0+ UNDEF /{next}; / UNDEF \([^|]\)*()/{next};"\
+@@ -4041,7 +4113,7 @@
+ 	    ;;
+ 	esac
+ 	;;
+-      netbsd*)
++      netbsd* | netbsdelf*-gnu)
+ 	;;
+       *qnx* | *nto*)
+         # QNX uses GNU C++, but need to define -shared option too, otherwise
+@@ -4229,7 +4301,9 @@
+     case $cc_basename in
+     nvcc*) # Cuda Compiler Driver 2.2
+       _LT_TAGVAR(lt_prog_compiler_wl, $1)='-Xlinker '
+-      _LT_TAGVAR(lt_prog_compiler_pic, $1)='-Xcompiler -fPIC'
++      if test -n "$_LT_TAGVAR(lt_prog_compiler_pic, $1)"; then
++        _LT_TAGVAR(lt_prog_compiler_pic, $1)="-Xcompiler $_LT_TAGVAR(lt_prog_compiler_pic, $1)"
++      fi
+       ;;
+     esac
+   else
+@@ -4321,18 +4395,33 @@
+ 	;;
+       *)
+ 	case `$CC -V 2>&1 | sed 5q` in
+-	*Sun\ F* | *Sun*Fortran*)
++	*Sun\ Ceres\ Fortran* | *Sun*Fortran*\ [[1-7]].* | *Sun*Fortran*\ 8.[[0-3]]*)
+ 	  # Sun Fortran 8.3 passes all unrecognized flags to the linker
+ 	  _LT_TAGVAR(lt_prog_compiler_pic, $1)='-KPIC'
+ 	  _LT_TAGVAR(lt_prog_compiler_static, $1)='-Bstatic'
+ 	  _LT_TAGVAR(lt_prog_compiler_wl, $1)=''
+ 	  ;;
++	*Sun\ F* | *Sun*Fortran*)
++	  _LT_TAGVAR(lt_prog_compiler_pic, $1)='-KPIC'
++	  _LT_TAGVAR(lt_prog_compiler_static, $1)='-Bstatic'
++	  _LT_TAGVAR(lt_prog_compiler_wl, $1)='-Qoption ld '
++	  ;;
+ 	*Sun\ C*)
+ 	  # Sun C 5.9
+ 	  _LT_TAGVAR(lt_prog_compiler_pic, $1)='-KPIC'
+ 	  _LT_TAGVAR(lt_prog_compiler_static, $1)='-Bstatic'
+ 	  _LT_TAGVAR(lt_prog_compiler_wl, $1)='-Wl,'
+ 	  ;;
++        *Intel*\ [[CF]]*Compiler*)
++	  _LT_TAGVAR(lt_prog_compiler_wl, $1)='-Wl,'
++	  _LT_TAGVAR(lt_prog_compiler_pic, $1)='-fPIC'
++	  _LT_TAGVAR(lt_prog_compiler_static, $1)='-static'
++	  ;;
++	*Portland\ Group*)
++	  _LT_TAGVAR(lt_prog_compiler_wl, $1)='-Wl,'
++	  _LT_TAGVAR(lt_prog_compiler_pic, $1)='-fpic'
++	  _LT_TAGVAR(lt_prog_compiler_static, $1)='-Bstatic'
++	  ;;
+ 	esac
+ 	;;
+       esac
+@@ -4492,13 +4581,18 @@
+     ;;
+   cygwin* | mingw* | cegcc*)
+     case $cc_basename in
+-    cl*) ;;
++    cl*)
++      _LT_TAGVAR(exclude_expsyms, $1)='_NULL_IMPORT_DESCRIPTOR|_IMPORT_DESCRIPTOR_.*'
++      ;;
+     *)
+       _LT_TAGVAR(export_symbols_cmds, $1)='$NM $libobjs $convenience | $global_symbol_pipe | $SED -e '\''/^[[BCDGRS]][[ ]]/s/.*[[ ]]\([[^ ]]*\)/\1 DATA/;s/^.*[[ ]]__nm__\([[^ ]]*\)[[ ]][[^ ]]*/\1 DATA/;/^I[[ ]]/d;/^[[AITW]][[ ]]/s/.* //'\'' | sort | uniq > $export_symbols'
+       _LT_TAGVAR(exclude_expsyms, $1)=['[_]+GLOBAL_OFFSET_TABLE_|[_]+GLOBAL__[FID]_.*|[_]+head_[A-Za-z0-9_]+_dll|[A-Za-z0-9_]+_dll_iname']
+       ;;
+     esac
+     ;;
++  linux* | k*bsd*-gnu | gnu*)
++    _LT_TAGVAR(link_all_deplibs, $1)=no
++    ;;
+   *)
+     _LT_TAGVAR(export_symbols_cmds, $1)='$NM $libobjs $convenience | $global_symbol_pipe | $SED '\''s/.* //'\'' | sort | uniq > $export_symbols'
+     ;;
+@@ -4517,7 +4611,6 @@
+   _LT_TAGVAR(hardcode_direct, $1)=no
+   _LT_TAGVAR(hardcode_direct_absolute, $1)=no
+   _LT_TAGVAR(hardcode_libdir_flag_spec, $1)=
+-  _LT_TAGVAR(hardcode_libdir_flag_spec_ld, $1)=
+   _LT_TAGVAR(hardcode_libdir_separator, $1)=
+   _LT_TAGVAR(hardcode_minus_L, $1)=no
+   _LT_TAGVAR(hardcode_shlibpath_var, $1)=unsupported
+@@ -4562,6 +4655,9 @@
+   openbsd*)
+     with_gnu_ld=no
+     ;;
++  linux* | k*bsd*-gnu | gnu*)
++    _LT_TAGVAR(link_all_deplibs, $1)=no
++    ;;
+   esac
+ 
+   _LT_TAGVAR(ld_shlibs, $1)=yes
+@@ -4768,8 +4864,7 @@
+ 	xlf* | bgf* | bgxlf* | mpixlf*)
+ 	  # IBM XL Fortran 10.1 on PPC cannot create shared libs itself
+ 	  _LT_TAGVAR(whole_archive_flag_spec, $1)='--whole-archive$convenience --no-whole-archive'
+-	  _LT_TAGVAR(hardcode_libdir_flag_spec, $1)=
+-	  _LT_TAGVAR(hardcode_libdir_flag_spec_ld, $1)='-rpath $libdir'
++	  _LT_TAGVAR(hardcode_libdir_flag_spec, $1)='${wl}-rpath ${wl}$libdir'
+ 	  _LT_TAGVAR(archive_cmds, $1)='$LD -shared $libobjs $deplibs $linker_flags -soname $soname -o $lib'
+ 	  if test "x$supports_anon_versioning" = xyes; then
+ 	    _LT_TAGVAR(archive_expsym_cmds, $1)='echo "{ global:" > $output_objdir/$libname.ver~
+@@ -4784,7 +4879,7 @@
+       fi
+       ;;
+ 
+-    netbsd*)
++    netbsd* | netbsdelf*-gnu)
+       if echo __ELF__ | $CC -E - | $GREP __ELF__ >/dev/null; then
+ 	_LT_TAGVAR(archive_cmds, $1)='$LD -Bshareable $libobjs $deplibs $linker_flags -o $lib'
+ 	wlarc=
+@@ -4961,6 +5056,7 @@
+ 	if test "$aix_use_runtimelinking" = yes; then
+ 	  shared_flag="$shared_flag "'${wl}-G'
+ 	fi
++	_LT_TAGVAR(link_all_deplibs, $1)=no
+       else
+ 	# not using gcc
+ 	if test "$host_cpu" = ia64; then
+@@ -5064,6 +5160,7 @@
+ 	# The linker will not automatically build a static lib if we build a DLL.
+ 	# _LT_TAGVAR(old_archive_from_new_cmds, $1)='true'
+ 	_LT_TAGVAR(enable_shared_with_static_runtimes, $1)=yes
++	_LT_TAGVAR(exclude_expsyms, $1)='_NULL_IMPORT_DESCRIPTOR|_IMPORT_DESCRIPTOR_.*'
+ 	_LT_TAGVAR(export_symbols_cmds, $1)='$NM $libobjs $convenience | $global_symbol_pipe | $SED -e '\''/^[[BCDGRS]][[ ]]/s/.*[[ ]]\([[^ ]]*\)/\1,DATA/'\'' | $SED -e '\''/^[[AITW]][[ ]]/s/.*[[ ]]//'\'' | sort | uniq > $export_symbols'
+ 	# Don't use ranlib
+ 	_LT_TAGVAR(old_postinstall_cmds, $1)='chmod 644 $oldlib'
+@@ -5110,10 +5207,6 @@
+       _LT_TAGVAR(hardcode_shlibpath_var, $1)=no
+       ;;
+ 
+-    freebsd1*)
+-      _LT_TAGVAR(ld_shlibs, $1)=no
+-      ;;
+-
+     # FreeBSD 2.2.[012] allows us to include c++rt0.o to get C++ constructor
+     # support.  Future versions do this automatically, but an explicit c++rt0.o
+     # does not break anything, and helps significantly (at the cost of a little
+@@ -5126,7 +5219,7 @@
+       ;;
+ 
+     # Unfortunately, older versions of FreeBSD 2 do not have this feature.
+-    freebsd2*)
++    freebsd2.*)
+       _LT_TAGVAR(archive_cmds, $1)='$LD -Bshareable -o $lib $libobjs $deplibs $linker_flags'
+       _LT_TAGVAR(hardcode_direct, $1)=yes
+       _LT_TAGVAR(hardcode_minus_L, $1)=yes
+@@ -5165,7 +5258,6 @@
+       fi
+       if test "$with_gnu_ld" = no; then
+ 	_LT_TAGVAR(hardcode_libdir_flag_spec, $1)='${wl}+b ${wl}$libdir'
+-	_LT_TAGVAR(hardcode_libdir_flag_spec_ld, $1)='+b $libdir'
+ 	_LT_TAGVAR(hardcode_libdir_separator, $1)=:
+ 	_LT_TAGVAR(hardcode_direct, $1)=yes
+ 	_LT_TAGVAR(hardcode_direct_absolute, $1)=yes
+@@ -5269,7 +5361,7 @@
+       _LT_TAGVAR(link_all_deplibs, $1)=yes
+       ;;
+ 
+-    netbsd*)
++    netbsd* | netbsdelf*-gnu)
+       if echo __ELF__ | $CC -E - | $GREP __ELF__ >/dev/null; then
+ 	_LT_TAGVAR(archive_cmds, $1)='$LD -Bshareable -o $lib $libobjs $deplibs $linker_flags'  # a.out
+       else
+@@ -5607,9 +5699,6 @@
+ _LT_TAGDECL([], [hardcode_libdir_flag_spec], [1],
+     [Flag to hardcode $libdir into a binary during linking.
+     This must work even if $libdir does not exist])
+-_LT_TAGDECL([], [hardcode_libdir_flag_spec_ld], [1],
+-    [[If ld is used when linking, flag to hardcode $libdir into a binary
+-    during linking.  This must work even if $libdir does not exist]])
+ _LT_TAGDECL([], [hardcode_libdir_separator], [1],
+     [Whether we need a single "-rpath" flag with a separated argument])
+ _LT_TAGDECL([], [hardcode_direct], [0],
+@@ -5767,7 +5856,6 @@
+ _LT_TAGVAR(hardcode_direct, $1)=no
+ _LT_TAGVAR(hardcode_direct_absolute, $1)=no
+ _LT_TAGVAR(hardcode_libdir_flag_spec, $1)=
+-_LT_TAGVAR(hardcode_libdir_flag_spec_ld, $1)=
+ _LT_TAGVAR(hardcode_libdir_separator, $1)=
+ _LT_TAGVAR(hardcode_minus_L, $1)=no
+ _LT_TAGVAR(hardcode_shlibpath_var, $1)=unsupported
+@@ -6137,7 +6225,7 @@
+         esac
+         ;;
+ 
+-      freebsd[[12]]*)
++      freebsd2.*)
+         # C++ shared libraries reported to be fairly broken before
+ 	# switch to ELF
+         _LT_TAGVAR(ld_shlibs, $1)=no
+@@ -6898,12 +6986,18 @@
+   }
+ };
+ _LT_EOF
++], [$1], [GO], [cat > conftest.$ac_ext <<_LT_EOF
++package foo
++func foo() {
++}
++_LT_EOF
+ ])
+ 
+ _lt_libdeps_save_CFLAGS=$CFLAGS
+ case "$CC $CFLAGS " in #(
+ *\ -flto*\ *) CFLAGS="$CFLAGS -fno-lto" ;;
+ *\ -fwhopr*\ *) CFLAGS="$CFLAGS -fno-whopr" ;;
++*\ -fuse-linker-plugin*\ *) CFLAGS="$CFLAGS -fno-use-linker-plugin" ;;
+ esac
+ 
+ dnl Parse the compiler output and extract the necessary
+@@ -7100,7 +7194,6 @@
+ _LT_TAGVAR(hardcode_direct, $1)=no
+ _LT_TAGVAR(hardcode_direct_absolute, $1)=no
+ _LT_TAGVAR(hardcode_libdir_flag_spec, $1)=
+-_LT_TAGVAR(hardcode_libdir_flag_spec_ld, $1)=
+ _LT_TAGVAR(hardcode_libdir_separator, $1)=
+ _LT_TAGVAR(hardcode_minus_L, $1)=no
+ _LT_TAGVAR(hardcode_automatic, $1)=no
+@@ -7233,7 +7326,6 @@
+ _LT_TAGVAR(hardcode_direct, $1)=no
+ _LT_TAGVAR(hardcode_direct_absolute, $1)=no
+ _LT_TAGVAR(hardcode_libdir_flag_spec, $1)=
+-_LT_TAGVAR(hardcode_libdir_flag_spec_ld, $1)=
+ _LT_TAGVAR(hardcode_libdir_separator, $1)=
+ _LT_TAGVAR(hardcode_minus_L, $1)=no
+ _LT_TAGVAR(hardcode_automatic, $1)=no
+@@ -7420,6 +7512,77 @@
+ ])# _LT_LANG_GCJ_CONFIG
+ 
+ 
++# _LT_LANG_GO_CONFIG([TAG])
++# --------------------------
++# Ensure that the configuration variables for the GNU Go compiler
++# are suitably defined.  These variables are subsequently used by _LT_CONFIG
++# to write the compiler configuration to `libtool'.
++m4_defun([_LT_LANG_GO_CONFIG],
++[AC_REQUIRE([LT_PROG_GO])dnl
++AC_LANG_SAVE
++
++# Source file extension for Go test sources.
++ac_ext=go
++
++# Object file extension for compiled Go test sources.
++objext=o
++_LT_TAGVAR(objext, $1)=$objext
++
++# Code to be used in simple compile tests
++lt_simple_compile_test_code="package main; func main() { }"
++
++# Code to be used in simple link tests
++lt_simple_link_test_code='package main; func main() { }'
++
++# ltmain only uses $CC for tagged configurations so make sure $CC is set.
++_LT_TAG_COMPILER
++
++# save warnings/boilerplate of simple test code
++_LT_COMPILER_BOILERPLATE
++_LT_LINKER_BOILERPLATE
++
++# Allow CC to be a program name with arguments.
++lt_save_CC=$CC
++lt_save_CFLAGS=$CFLAGS
++lt_save_GCC=$GCC
++GCC=yes
++CC=${GOC-"gccgo"}
++CFLAGS=$GOFLAGS
++compiler=$CC
++_LT_TAGVAR(compiler, $1)=$CC
++_LT_TAGVAR(LD, $1)="$LD"
++_LT_CC_BASENAME([$compiler])
++
++# Go did not exist at the time GCC didn't implicitly link libc in.
++_LT_TAGVAR(archive_cmds_need_lc, $1)=no
++
++_LT_TAGVAR(old_archive_cmds, $1)=$old_archive_cmds
++_LT_TAGVAR(reload_flag, $1)=$reload_flag
++_LT_TAGVAR(reload_cmds, $1)=$reload_cmds
++
++## CAVEAT EMPTOR:
++## There is no encapsulation within the following macros, do not change
++## the running order or otherwise move them around unless you know exactly
++## what you are doing...
++if test -n "$compiler"; then
++  _LT_COMPILER_NO_RTTI($1)
++  _LT_COMPILER_PIC($1)
++  _LT_COMPILER_C_O($1)
++  _LT_COMPILER_FILE_LOCKS($1)
++  _LT_LINKER_SHLIBS($1)
++  _LT_LINKER_HARDCODE_LIBPATH($1)
++
++  _LT_CONFIG($1)
++fi
++
++AC_LANG_RESTORE
++
++GCC=$lt_save_GCC
++CC=$lt_save_CC
++CFLAGS=$lt_save_CFLAGS
++])# _LT_LANG_GO_CONFIG
++
++
+ # _LT_LANG_RC_CONFIG([TAG])
+ # -------------------------
+ # Ensure that the configuration variables for the Windows resource compiler
+@@ -7489,6 +7652,13 @@
+ dnl AC_DEFUN([LT_AC_PROG_GCJ], [])
+ 
+ 
++# LT_PROG_GO
++# ----------
++AC_DEFUN([LT_PROG_GO],
++[AC_CHECK_TOOL(GOC, gccgo,)
++])
++
++
+ # LT_PROG_RC
+ # ----------
+ AC_DEFUN([LT_PROG_RC],
+--- a/m4/ltoptions.m4
++++ b/m4/ltoptions.m4
+@@ -326,9 +326,24 @@
+ # MODE is either `yes' or `no'.  If omitted, it defaults to `both'.
+ m4_define([_LT_WITH_PIC],
+ [AC_ARG_WITH([pic],
+-    [AS_HELP_STRING([--with-pic],
++    [AS_HELP_STRING([--with-pic@<:@=PKGS@:>@],
+ 	[try to use only PIC/non-PIC objects @<:@default=use both@:>@])],
+-    [pic_mode="$withval"],
++    [lt_p=${PACKAGE-default}
++    case $withval in
++    yes|no) pic_mode=$withval ;;
++    *)
++      pic_mode=default
++      # Look at the argument we got.  We use all the common list separators.
++      lt_save_ifs="$IFS"; IFS="${IFS}$PATH_SEPARATOR,"
++      for lt_pkg in $withval; do
++	IFS="$lt_save_ifs"
++	if test "X$lt_pkg" = "X$lt_p"; then
++	  pic_mode=yes
++	fi
++      done
++      IFS="$lt_save_ifs"
++      ;;
++    esac],
+     [pic_mode=default])
+ 
+ test -z "$pic_mode" && pic_mode=m4_default([$1], [default])
+--- a/m4/ltversion.m4
++++ b/m4/ltversion.m4
+@@ -9,15 +9,15 @@
+ 
+ # @configure_input@
+ 
+-# serial 3293 ltversion.m4
++# serial 3337 ltversion.m4
+ # This file is part of GNU Libtool
+ 
+-m4_define([LT_PACKAGE_VERSION], [2.4])
+-m4_define([LT_PACKAGE_REVISION], [1.3293])
++m4_define([LT_PACKAGE_VERSION], [2.4.2])
++m4_define([LT_PACKAGE_REVISION], [1.3337])
+ 
+ AC_DEFUN([LTVERSION_VERSION],
+-[macro_version='2.4'
+-macro_revision='1.3293'
++[macro_version='2.4.2'
++macro_revision='1.3337'
+ _LT_DECL(, macro_version, 0, [Which release of libtool.m4 was used?])
+ _LT_DECL(, macro_revision, 0)
+ ])
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -79,9 +79,11 @@
+ distdir = $(PACKAGE)-$(VERSION)
+ top_distdir = $(distdir)
+ am__remove_distdir = \
+-  { test ! -d "$(distdir)" \
+-    || { find "$(distdir)" -type d ! -perm -200 -exec chmod u+w {} ';' \
+-         && rm -fr "$(distdir)"; }; }
++  if test -d "$(distdir)"; then \
++    find "$(distdir)" -type d ! -perm -200 -exec chmod u+w {} ';' \
++      && rm -rf "$(distdir)" \
++      || { sleep 5 && rm -rf "$(distdir)"; }; \
++  else :; fi
+ am__relativize = \
+   dir0=`pwd`; \
+   sed_first='s,^\([^/]*\)/.*$$,\1,'; \
+@@ -110,6 +112,8 @@
+ DIST_ARCHIVES = $(distdir).tar.gz
+ GZIP_ENV = --best
+ distuninstallcheck_listfiles = find . -type f -print
++am__distuninstallcheck_listfiles = $(distuninstallcheck_listfiles) \
++  | sed 's|^\./|$(prefix)/|' | grep -v '$(infodir)/dir$$'
+ distcleancheck_listfiles = find . -type f -print
+ ACLOCAL = @ACLOCAL@
+ AMTAR = @AMTAR@
+@@ -269,13 +273,11 @@
+ AUTOMAKE_OPTIONS = foreign 1.10
+ ACLOCAL_AMFLAGS = -I m4 -I sntp/libopts/m4
+ NULL = 
+-SUBDIRS = scripts include ElectricFence libntp sntp libparse ntpd \
+-	ntpdate ntpdc ntpq ntpsnmpd parseutil adjtimed clockstuff \
+-	kernel util $(NULL)
++SUBDIRS = scripts include libntp sntp libparse ntpd ntpdate ntpdc ntpq \
++	ntpsnmpd parseutil adjtimed clockstuff kernel util $(NULL)
+ DIST_SUBDIRS = \
+ 	scripts		\
+ 	include		\
+-	ElectricFence	\
+ 	libntp		\
+ 	libparse	\
+ 	sntp		\
+@@ -356,7 +358,7 @@
+ 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
+ 
+ .SUFFIXES:
+-am--refresh:
++am--refresh: Makefile
+ 	@:
+ $(srcdir)/Makefile.in:  $(srcdir)/Makefile.am  $(am__configure_deps)
+ 	@for dep in $?; do \
+@@ -392,10 +394,8 @@
+ $(am__aclocal_m4_deps):
+ 
+ config.h: stamp-h1
+-	@if test ! -f $@; then \
+-	  rm -f stamp-h1; \
+-	  $(MAKE) $(AM_MAKEFLAGS) stamp-h1; \
+-	else :; fi
++	@if test ! -f $@; then rm -f stamp-h1; else :; fi
++	@if test ! -f $@; then $(MAKE) $(AM_MAKEFLAGS) stamp-h1; else :; fi
+ 
+ stamp-h1: $(srcdir)/config.h.in $(top_builddir)/config.status
+ 	@rm -f stamp-h1
+@@ -627,7 +627,11 @@
+ 	$(am__remove_distdir)
+ 
+ dist-bzip2: distdir
+-	tardir=$(distdir) && $(am__tar) | bzip2 -9 -c >$(distdir).tar.bz2
++	tardir=$(distdir) && $(am__tar) | BZIP2=$${BZIP2--9} bzip2 -c >$(distdir).tar.bz2
++	$(am__remove_distdir)
++
++dist-lzip: distdir
++	tardir=$(distdir) && $(am__tar) | lzip -c $${LZIP_OPT--9} >$(distdir).tar.lz
+ 	$(am__remove_distdir)
+ 
+ dist-lzma: distdir
+@@ -635,7 +639,7 @@
+ 	$(am__remove_distdir)
+ 
+ dist-xz: distdir
+-	tardir=$(distdir) && $(am__tar) | xz -c >$(distdir).tar.xz
++	tardir=$(distdir) && $(am__tar) | XZ_OPT=$${XZ_OPT--e} xz -c >$(distdir).tar.xz
+ 	$(am__remove_distdir)
+ 
+ dist-tarZ: distdir
+@@ -666,6 +670,8 @@
+ 	  bzip2 -dc $(distdir).tar.bz2 | $(am__untar) ;;\
+ 	*.tar.lzma*) \
+ 	  lzma -dc $(distdir).tar.lzma | $(am__untar) ;;\
++	*.tar.lz*) \
++	  lzip -dc $(distdir).tar.lz | $(am__untar) ;;\
+ 	*.tar.xz*) \
+ 	  xz -dc $(distdir).tar.xz | $(am__untar) ;;\
+ 	*.tar.Z*) \
+@@ -685,6 +691,7 @@
+ 	  && am__cwd=`pwd` \
+ 	  && $(am__cd) $(distdir)/_build \
+ 	  && ../configure --srcdir=.. --prefix="$$dc_install_base" \
++	    $(AM_DISTCHECK_CONFIGURE_FLAGS) \
+ 	    $(DISTCHECK_CONFIGURE_FLAGS) \
+ 	  && $(MAKE) $(AM_MAKEFLAGS) \
+ 	  && $(MAKE) $(AM_MAKEFLAGS) dvi \
+@@ -713,8 +720,16 @@
+ 	  list='$(DIST_ARCHIVES)'; for i in $$list; do echo $$i; done) | \
+ 	  sed -e 1h -e 1s/./=/g -e 1p -e 1x -e '$$p' -e '$$x'
+ distuninstallcheck:
+-	@$(am__cd) '$(distuninstallcheck_dir)' \
+-	&& test `$(distuninstallcheck_listfiles) | wc -l` -le 1 \
++	@test -n '$(distuninstallcheck_dir)' || { \
++	  echo 'ERROR: trying to run $@ with an empty' \
++	       '$$(distuninstallcheck_dir)' >&2; \
++	  exit 1; \
++	}; \
++	$(am__cd) '$(distuninstallcheck_dir)' || { \
++	  echo 'ERROR: cannot chdir into $(distuninstallcheck_dir)' >&2; \
++	  exit 1; \
++	}; \
++	test `$(am__distuninstallcheck_listfiles) | wc -l` -eq 0 \
+ 	   || { echo "ERROR: files left after uninstall:" ; \
+ 	        if test -n "$(DESTDIR)"; then \
+ 	          echo "  (check DESTDIR support)"; \
+@@ -747,10 +762,15 @@
+ 
+ installcheck: installcheck-recursive
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+@@ -842,18 +862,19 @@
+ .PHONY: $(RECURSIVE_CLEAN_TARGETS) $(RECURSIVE_TARGETS) CTAGS GTAGS \
+ 	all all-am am--refresh check check-am clean clean-generic \
+ 	clean-libtool ctags ctags-recursive dist dist-all dist-bzip2 \
+-	dist-gzip dist-hook dist-lzma dist-shar dist-tarZ dist-xz \
+-	dist-zip distcheck distclean distclean-generic distclean-hdr \
+-	distclean-libtool distclean-tags distcleancheck distdir \
+-	distuninstallcheck dvi dvi-am html html-am info info-am \
+-	install install-am install-data install-data-am install-dvi \
+-	install-dvi-am install-exec install-exec-am install-html \
+-	install-html-am install-info install-info-am install-man \
+-	install-pdf install-pdf-am install-ps install-ps-am \
+-	install-strip installcheck installcheck-am installdirs \
+-	installdirs-am maintainer-clean maintainer-clean-generic \
+-	mostlyclean mostlyclean-generic mostlyclean-libtool pdf pdf-am \
+-	ps ps-am tags tags-recursive uninstall uninstall-am
++	dist-gzip dist-hook dist-lzip dist-lzma dist-shar dist-tarZ \
++	dist-xz dist-zip distcheck distclean distclean-generic \
++	distclean-hdr distclean-libtool distclean-tags distcleancheck \
++	distdir distuninstallcheck dvi dvi-am html html-am info \
++	info-am install install-am install-data install-data-am \
++	install-dvi install-dvi-am install-exec install-exec-am \
++	install-html install-html-am install-info install-info-am \
++	install-man install-pdf install-pdf-am install-ps \
++	install-ps-am install-strip installcheck installcheck-am \
++	installdirs installdirs-am maintainer-clean \
++	maintainer-clean-generic mostlyclean mostlyclean-generic \
++	mostlyclean-libtool pdf pdf-am ps ps-am tags tags-recursive \
++	uninstall uninstall-am
+ 
+ 
+ $(srcdir)/COPYRIGHT: $(srcdir)/html/copyright.html
+--- a/ntpd/Makefile.in
++++ b/ntpd/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -144,9 +144,9 @@
+ LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
+ 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
+ 	$(LDFLAGS) -o $@
+-YACCCOMPILE = $(YACC) $(YFLAGS) $(AM_YFLAGS)
++YACCCOMPILE = $(YACC) $(AM_YFLAGS) $(YFLAGS)
+ LTYACCCOMPILE = $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
+-	--mode=compile $(YACC) $(YFLAGS) $(AM_YFLAGS)
++	--mode=compile $(YACC) $(AM_YFLAGS) $(YFLAGS)
+ YLWRAP = $(top_srcdir)/ylwrap
+ SOURCES = $(libntpd_a_SOURCES) check_y2k.c keyword-gen.c \
+ 	$(ntpd_SOURCES) $(ntpdsim_SOURCES)
+@@ -173,6 +173,12 @@
+ am__base_list = \
+   sed '$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;s/\n/ /g' | \
+   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
++am__uninstall_files_from_dir = { \
++  test -z "$$files" \
++    || { test ! -d "$$dir" && test ! -f "$$dir" && test ! -r "$$dir"; } \
++    || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
++         $(am__cd) "$$dir" && rm -f $$files; }; \
++  }
+ man1dir = $(mandir)/man1
+ NROFF = nroff
+ MANS = $(man_MANS)
+@@ -515,9 +521,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign ntpd/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu ntpd/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign ntpd/Makefile
++	  $(AUTOMAKE) --gnu ntpd/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -527,6 +533,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/bincheck.mf $(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+@@ -539,7 +546,7 @@
+ 
+ clean-noinstLIBRARIES:
+ 	-test -z "$(noinst_LIBRARIES)" || rm -f $(noinst_LIBRARIES)
+-libntpd.a: $(libntpd_a_OBJECTS) $(libntpd_a_DEPENDENCIES) 
++libntpd.a: $(libntpd_a_OBJECTS) $(libntpd_a_DEPENDENCIES) $(EXTRA_libntpd_a_DEPENDENCIES) 
+ 	-rm -f libntpd.a
+ 	$(libntpd_a_AR) libntpd.a $(libntpd_a_OBJECTS) $(libntpd_a_LIBADD)
+ 	$(RANLIB) libntpd.a
+@@ -638,21 +645,19 @@
+ 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+ 	echo " rm -f" $$list; \
+ 	rm -f $$list
+-check_y2k$(EXEEXT): $(check_y2k_OBJECTS) $(check_y2k_DEPENDENCIES) 
++check_y2k$(EXEEXT): $(check_y2k_OBJECTS) $(check_y2k_DEPENDENCIES) $(EXTRA_check_y2k_DEPENDENCIES) 
+ 	@rm -f check_y2k$(EXEEXT)
+ 	$(LINK) $(check_y2k_OBJECTS) $(check_y2k_LDADD) $(LIBS)
+-keyword-gen$(EXEEXT): $(keyword_gen_OBJECTS) $(keyword_gen_DEPENDENCIES) 
++keyword-gen$(EXEEXT): $(keyword_gen_OBJECTS) $(keyword_gen_DEPENDENCIES) $(EXTRA_keyword_gen_DEPENDENCIES) 
+ 	@rm -f keyword-gen$(EXEEXT)
+ 	$(LINK) $(keyword_gen_OBJECTS) $(keyword_gen_LDADD) $(LIBS)
+ ntp_parser.h: ntp_parser.c
+-	@if test ! -f $@; then \
+-	  rm -f ntp_parser.c; \
+-	  $(MAKE) $(AM_MAKEFLAGS) ntp_parser.c; \
+-	else :; fi
+-ntpd$(EXEEXT): $(ntpd_OBJECTS) $(ntpd_DEPENDENCIES) 
++	@if test ! -f $@; then rm -f ntp_parser.c; else :; fi
++	@if test ! -f $@; then $(MAKE) $(AM_MAKEFLAGS) ntp_parser.c; else :; fi
++ntpd$(EXEEXT): $(ntpd_OBJECTS) $(ntpd_DEPENDENCIES) $(EXTRA_ntpd_DEPENDENCIES) 
+ 	@rm -f ntpd$(EXEEXT)
+ 	$(LINK) $(ntpd_OBJECTS) $(ntpd_LDADD) $(LIBS)
+-ntpdsim$(EXEEXT): $(ntpdsim_OBJECTS) $(ntpdsim_DEPENDENCIES) 
++ntpdsim$(EXEEXT): $(ntpdsim_OBJECTS) $(ntpdsim_DEPENDENCIES) $(EXTRA_ntpdsim_DEPENDENCIES) 
+ 	@rm -f ntpdsim$(EXEEXT)
+ 	$(ntpdsim_LINK) $(ntpdsim_OBJECTS) $(ntpdsim_LDADD) $(LIBS)
+ 
+@@ -925,9 +930,7 @@
+ 	  sed -n '/\.1[a-z]*$$/p'; \
+ 	} | sed -e 's,.*/,,;h;s,.*\.,,;s,^[^1][0-9a-z]*$$,1,;x' \
+ 	      -e 's,\.[0-9a-z]*$$,,;$(transform);G;s,\n,.,'`; \
+-	test -z "$$files" || { \
+-	  echo " ( cd '$(DESTDIR)$(man1dir)' && rm -f" $$files ")"; \
+-	  cd "$(DESTDIR)$(man1dir)" && rm -f $$files; }
++	dir='$(DESTDIR)$(man1dir)'; $(am__uninstall_files_from_dir)
+ 
+ ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)
+ 	list='$(SOURCES) $(HEADERS) $(LISP) $(TAGS_FILES)'; \
+@@ -1045,10 +1048,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/ntpdate/Makefile.in
++++ b/ntpdate/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -277,9 +277,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign ntpdate/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu ntpdate/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign ntpdate/Makefile
++	  $(AUTOMAKE) --gnu ntpdate/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -289,6 +289,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/bincheck.mf $(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+@@ -384,10 +385,10 @@
+ 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+ 	echo " rm -f" $$list; \
+ 	rm -f $$list
+-ntpdate$(EXEEXT): $(ntpdate_OBJECTS) $(ntpdate_DEPENDENCIES) 
++ntpdate$(EXEEXT): $(ntpdate_OBJECTS) $(ntpdate_DEPENDENCIES) $(EXTRA_ntpdate_DEPENDENCIES) 
+ 	@rm -f ntpdate$(EXEEXT)
+ 	$(LINK) $(ntpdate_OBJECTS) $(ntpdate_LDADD) $(LIBS)
+-ntptimeset$(EXEEXT): $(ntptimeset_OBJECTS) $(ntptimeset_DEPENDENCIES) 
++ntptimeset$(EXEEXT): $(ntptimeset_OBJECTS) $(ntptimeset_DEPENDENCIES) $(EXTRA_ntptimeset_DEPENDENCIES) 
+ 	@rm -f ntptimeset$(EXEEXT)
+ 	$(LINK) $(ntptimeset_OBJECTS) $(ntptimeset_LDADD) $(LIBS)
+ 
+@@ -529,10 +530,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/ntpdc/Makefile.in
++++ b/ntpdc/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -113,6 +113,12 @@
+ am__base_list = \
+   sed '$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;s/\n/ /g' | \
+   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
++am__uninstall_files_from_dir = { \
++  test -z "$$files" \
++    || { test ! -d "$$dir" && test ! -f "$$dir" && test ! -r "$$dir"; } \
++    || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
++         $(am__cd) "$$dir" && rm -f $$files; }; \
++  }
+ man1dir = $(mandir)/man1
+ NROFF = nroff
+ MANS = $(man_MANS)
+@@ -324,9 +330,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign ntpdc/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu ntpdc/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign ntpdc/Makefile
++	  $(AUTOMAKE) --gnu ntpdc/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -336,6 +342,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/bincheck.mf $(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+@@ -433,10 +440,10 @@
+ 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+ 	echo " rm -f" $$list; \
+ 	rm -f $$list
+-ntpdc$(EXEEXT): $(ntpdc_OBJECTS) $(ntpdc_DEPENDENCIES) 
++ntpdc$(EXEEXT): $(ntpdc_OBJECTS) $(ntpdc_DEPENDENCIES) $(EXTRA_ntpdc_DEPENDENCIES) 
+ 	@rm -f ntpdc$(EXEEXT)
+ 	$(LINK) $(ntpdc_OBJECTS) $(ntpdc_LDADD) $(LIBS)
+-ntpdc-layout$(EXEEXT): $(ntpdc_layout_OBJECTS) $(ntpdc_layout_DEPENDENCIES) 
++ntpdc-layout$(EXEEXT): $(ntpdc_layout_OBJECTS) $(ntpdc_layout_DEPENDENCIES) $(EXTRA_ntpdc_layout_DEPENDENCIES) 
+ 	@rm -f ntpdc-layout$(EXEEXT)
+ 	$(LINK) $(ntpdc_layout_OBJECTS) $(ntpdc_layout_LDADD) $(LIBS)
+ 
+@@ -512,9 +519,7 @@
+ 	  sed -n '/\.1[a-z]*$$/p'; \
+ 	} | sed -e 's,.*/,,;h;s,.*\.,,;s,^[^1][0-9a-z]*$$,1,;x' \
+ 	      -e 's,\.[0-9a-z]*$$,,;$(transform);G;s,\n,.,'`; \
+-	test -z "$$files" || { \
+-	  echo " ( cd '$(DESTDIR)$(man1dir)' && rm -f" $$files ")"; \
+-	  cd "$(DESTDIR)$(man1dir)" && rm -f $$files; }
++	dir='$(DESTDIR)$(man1dir)'; $(am__uninstall_files_from_dir)
+ 
+ ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)
+ 	list='$(SOURCES) $(HEADERS) $(LISP) $(TAGS_FILES)'; \
+@@ -630,10 +635,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/ntpq/Makefile.in
++++ b/ntpq/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -116,6 +116,12 @@
+ am__base_list = \
+   sed '$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;s/\n/ /g' | \
+   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
++am__uninstall_files_from_dir = { \
++  test -z "$$files" \
++    || { test ! -d "$$dir" && test ! -f "$$dir" && test ! -r "$$dir"; } \
++    || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
++         $(am__cd) "$$dir" && rm -f $$files; }; \
++  }
+ man1dir = $(mandir)/man1
+ NROFF = nroff
+ MANS = $(man_MANS)
+@@ -325,9 +331,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign ntpq/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu ntpq/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign ntpq/Makefile
++	  $(AUTOMAKE) --gnu ntpq/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -337,6 +343,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/bincheck.mf $(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+@@ -349,7 +356,7 @@
+ 
+ clean-noinstLIBRARIES:
+ 	-test -z "$(noinst_LIBRARIES)" || rm -f $(noinst_LIBRARIES)
+-libntpq.a: $(libntpq_a_OBJECTS) $(libntpq_a_DEPENDENCIES) 
++libntpq.a: $(libntpq_a_OBJECTS) $(libntpq_a_DEPENDENCIES) $(EXTRA_libntpq_a_DEPENDENCIES) 
+ 	-rm -f libntpq.a
+ 	$(libntpq_a_AR) libntpq.a $(libntpq_a_OBJECTS) $(libntpq_a_LIBADD)
+ 	$(RANLIB) libntpq.a
+@@ -439,7 +446,7 @@
+ 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+ 	echo " rm -f" $$list; \
+ 	rm -f $$list
+-ntpq$(EXEEXT): $(ntpq_OBJECTS) $(ntpq_DEPENDENCIES) 
++ntpq$(EXEEXT): $(ntpq_OBJECTS) $(ntpq_DEPENDENCIES) $(EXTRA_ntpq_DEPENDENCIES) 
+ 	@rm -f ntpq$(EXEEXT)
+ 	$(LINK) $(ntpq_OBJECTS) $(ntpq_LDADD) $(LIBS)
+ 
+@@ -544,9 +551,7 @@
+ 	  sed -n '/\.1[a-z]*$$/p'; \
+ 	} | sed -e 's,.*/,,;h;s,.*\.,,;s,^[^1][0-9a-z]*$$,1,;x' \
+ 	      -e 's,\.[0-9a-z]*$$,,;$(transform);G;s,\n,.,'`; \
+-	test -z "$$files" || { \
+-	  echo " ( cd '$(DESTDIR)$(man1dir)' && rm -f" $$files ")"; \
+-	  cd "$(DESTDIR)$(man1dir)" && rm -f $$files; }
++	dir='$(DESTDIR)$(man1dir)'; $(am__uninstall_files_from_dir)
+ 
+ ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)
+ 	list='$(SOURCES) $(HEADERS) $(LISP) $(TAGS_FILES)'; \
+@@ -662,10 +667,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/ntpsnmpd/Makefile.in
++++ b/ntpsnmpd/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -107,6 +107,12 @@
+ am__base_list = \
+   sed '$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;s/\n/ /g' | \
+   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
++am__uninstall_files_from_dir = { \
++  test -z "$$files" \
++    || { test ! -d "$$dir" && test ! -f "$$dir" && test ! -r "$$dir"; } \
++    || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
++         $(am__cd) "$$dir" && rm -f $$files; }; \
++  }
+ man1dir = $(mandir)/man1
+ NROFF = nroff
+ MANS = $(man_MANS)
+@@ -317,9 +323,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign ntpsnmpd/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu ntpsnmpd/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign ntpsnmpd/Makefile
++	  $(AUTOMAKE) --gnu ntpsnmpd/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -329,6 +335,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/bincheck.mf $(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+@@ -424,7 +431,7 @@
+ 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+ 	echo " rm -f" $$list; \
+ 	rm -f $$list
+-ntpsnmpd$(EXEEXT): $(ntpsnmpd_OBJECTS) $(ntpsnmpd_DEPENDENCIES) 
++ntpsnmpd$(EXEEXT): $(ntpsnmpd_OBJECTS) $(ntpsnmpd_DEPENDENCIES) $(EXTRA_ntpsnmpd_DEPENDENCIES) 
+ 	@rm -f ntpsnmpd$(EXEEXT)
+ 	$(LINK) $(ntpsnmpd_OBJECTS) $(ntpsnmpd_LDADD) $(LIBS)
+ 
+@@ -500,9 +507,7 @@
+ 	  sed -n '/\.1[a-z]*$$/p'; \
+ 	} | sed -e 's,.*/,,;h;s,.*\.,,;s,^[^1][0-9a-z]*$$,1,;x' \
+ 	      -e 's,\.[0-9a-z]*$$,,;$(transform);G;s,\n,.,'`; \
+-	test -z "$$files" || { \
+-	  echo " ( cd '$(DESTDIR)$(man1dir)' && rm -f" $$files ")"; \
+-	  cd "$(DESTDIR)$(man1dir)" && rm -f $$files; }
++	dir='$(DESTDIR)$(man1dir)'; $(am__uninstall_files_from_dir)
+ 
+ ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)
+ 	list='$(SOURCES) $(HEADERS) $(LISP) $(TAGS_FILES)'; \
+@@ -618,10 +623,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/parseutil/Makefile.in
++++ b/parseutil/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -262,9 +262,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign parseutil/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu parseutil/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign parseutil/Makefile
++	  $(AUTOMAKE) --gnu parseutil/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -274,6 +274,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+@@ -292,10 +293,10 @@
+ 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+ 	echo " rm -f" $$list; \
+ 	rm -f $$list
+-dcfd$(EXEEXT): $(dcfd_OBJECTS) $(dcfd_DEPENDENCIES) 
++dcfd$(EXEEXT): $(dcfd_OBJECTS) $(dcfd_DEPENDENCIES) $(EXTRA_dcfd_DEPENDENCIES) 
+ 	@rm -f dcfd$(EXEEXT)
+ 	$(LINK) $(dcfd_OBJECTS) $(dcfd_LDADD) $(LIBS)
+-testdcf$(EXEEXT): $(testdcf_OBJECTS) $(testdcf_DEPENDENCIES) 
++testdcf$(EXEEXT): $(testdcf_OBJECTS) $(testdcf_DEPENDENCIES) $(EXTRA_testdcf_DEPENDENCIES) 
+ 	@rm -f testdcf$(EXEEXT)
+ 	$(LINK) $(testdcf_OBJECTS) $(testdcf_LDADD) $(LIBS)
+ 
+@@ -434,10 +435,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/scripts/Makefile.in
++++ b/scripts/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -39,8 +39,8 @@
+ 	$(srcdir)/calc_tickadj.in $(srcdir)/checktime.in \
+ 	$(srcdir)/freq_adj.in $(srcdir)/html2man.in $(srcdir)/mkver.in \
+ 	$(srcdir)/ntp-wait.in $(srcdir)/ntpsweep.in \
+-	$(srcdir)/ntptrace.in $(srcdir)/ntpver.in \
+-	$(srcdir)/plot_summary.in $(srcdir)/summary.in
++	$(srcdir)/ntptrace.in $(srcdir)/plot_summary.in \
++	$(srcdir)/summary.in
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+ am__aclocal_m4_deps = $(top_srcdir)/sntp/libopts/m4/libopts.m4 \
+ 	$(top_srcdir)/m4/define_dir.m4 $(top_srcdir)/m4/libtool.m4 \
+@@ -58,7 +58,7 @@
+ mkinstalldirs = $(install_sh) -d
+ CONFIG_HEADER = $(top_builddir)/config.h
+ CONFIG_CLEAN_FILES = calc_tickadj checktime freq_adj html2man mkver \
+-	ntp-wait ntpsweep ntptrace ntpver plot_summary summary
++	ntp-wait ntpsweep ntptrace plot_summary summary
+ CONFIG_CLEAN_VPATH_FILES =
+ am__vpath_adj_setup = srcdirstrip=`echo "$(srcdir)" | sed 's|.|.|g'`;
+ am__vpath_adj = case $$p in \
+@@ -81,6 +81,12 @@
+ am__base_list = \
+   sed '$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;s/\n/ /g' | \
+   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
++am__uninstall_files_from_dir = { \
++  test -z "$$files" \
++    || { test ! -d "$$dir" && test ! -f "$$dir" && test ! -r "$$dir"; } \
++    || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
++         $(am__cd) "$$dir" && rm -f $$files; }; \
++  }
+ am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(sbindir)"
+ SCRIPTS = $(bin_SCRIPTS) $(noinst_SCRIPTS) $(sbin_SCRIPTS)
+ SOURCES =
+@@ -251,7 +257,6 @@
+ 	html2man		\
+ 	mkver			\
+ 	ntpsweep		\
+-	ntpver			\
+ 	plot_summary		\
+ 	summary			\
+ 	$(NULL)
+@@ -288,9 +293,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign scripts/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu scripts/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign scripts/Makefile
++	  $(AUTOMAKE) --gnu scripts/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -325,8 +330,6 @@
+ 	cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@
+ ntptrace: $(top_builddir)/config.status $(srcdir)/ntptrace.in
+ 	cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@
+-ntpver: $(top_builddir)/config.status $(srcdir)/ntpver.in
+-	cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@
+ plot_summary: $(top_builddir)/config.status $(srcdir)/plot_summary.in
+ 	cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@
+ summary: $(top_builddir)/config.status $(srcdir)/summary.in
+@@ -362,9 +365,7 @@
+ 	@list='$(bin_SCRIPTS)'; test -n "$(bindir)" || exit 0; \
+ 	files=`for p in $$list; do echo "$$p"; done | \
+ 	       sed -e 's,.*/,,;$(transform)'`; \
+-	test -n "$$list" || exit 0; \
+-	echo " ( cd '$(DESTDIR)$(bindir)' && rm -f" $$files ")"; \
+-	cd "$(DESTDIR)$(bindir)" && rm -f $$files
++	dir='$(DESTDIR)$(bindir)'; $(am__uninstall_files_from_dir)
+ install-sbinSCRIPTS: $(sbin_SCRIPTS)
+ 	@$(NORMAL_INSTALL)
+ 	test -z "$(sbindir)" || $(MKDIR_P) "$(DESTDIR)$(sbindir)"
+@@ -396,9 +397,7 @@
+ 	@list='$(sbin_SCRIPTS)'; test -n "$(sbindir)" || exit 0; \
+ 	files=`for p in $$list; do echo "$$p"; done | \
+ 	       sed -e 's,.*/,,;$(transform)'`; \
+-	test -n "$$list" || exit 0; \
+-	echo " ( cd '$(DESTDIR)$(sbindir)' && rm -f" $$files ")"; \
+-	cd "$(DESTDIR)$(sbindir)" && rm -f $$files
++	dir='$(DESTDIR)$(sbindir)'; $(am__uninstall_files_from_dir)
+ 
+ mostlyclean-libtool:
+ 	-rm -f *.lo
+@@ -459,10 +458,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/sntp/aclocal.m4
++++ b/sntp/aclocal.m4
+@@ -1,7 +1,8 @@
+-# generated automatically by aclocal 1.11.1 -*- Autoconf -*-
++# generated automatically by aclocal 1.11.3 -*- Autoconf -*-
+ 
+ # Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+-# 2005, 2006, 2007, 2008, 2009  Free Software Foundation, Inc.
++# 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
++# Inc.
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -19,12 +20,15 @@
+ If you have problems, you may need to regenerate the build system entirely.
+ To do so, use the procedure documented by the package, typically `autoreconf'.])])
+ 
+-# Copyright (C) 2002, 2003, 2005, 2006, 2007, 2008  Free Software Foundation, Inc.
++# Copyright (C) 2002, 2003, 2005, 2006, 2007, 2008, 2011 Free Software
++# Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
++# serial 1
++
+ # AM_AUTOMAKE_VERSION(VERSION)
+ # ----------------------------
+ # Automake X.Y traces this macro to ensure aclocal.m4 has been
+@@ -34,7 +38,7 @@
+ [am__api_version='1.11'
+ dnl Some users find AM_AUTOMAKE_VERSION and mistake it for a way to
+ dnl require some minimum version.  Point them to the right macro.
+-m4_if([$1], [1.11.1], [],
++m4_if([$1], [1.11.3], [],
+       [AC_FATAL([Do not call $0, use AM_INIT_AUTOMAKE([$1]).])])dnl
+ ])
+ 
+@@ -50,19 +54,21 @@
+ # Call AM_AUTOMAKE_VERSION and AM_AUTOMAKE_VERSION so they can be traced.
+ # This function is AC_REQUIREd by AM_INIT_AUTOMAKE.
+ AC_DEFUN([AM_SET_CURRENT_AUTOMAKE_VERSION],
+-[AM_AUTOMAKE_VERSION([1.11.1])dnl
++[AM_AUTOMAKE_VERSION([1.11.3])dnl
+ m4_ifndef([AC_AUTOCONF_VERSION],
+   [m4_copy([m4_PACKAGE_VERSION], [AC_AUTOCONF_VERSION])])dnl
+ _AM_AUTOCONF_VERSION(m4_defn([AC_AUTOCONF_VERSION]))])
+ 
+ # AM_AUX_DIR_EXPAND                                         -*- Autoconf -*-
+ 
+-# Copyright (C) 2001, 2003, 2005  Free Software Foundation, Inc.
++# Copyright (C) 2001, 2003, 2005, 2011 Free Software Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
++# serial 1
++
+ # For projects using AC_CONFIG_AUX_DIR([foo]), Autoconf sets
+ # $ac_aux_dir to `$srcdir/foo'.  In other projects, it is set to
+ # `$srcdir', `$srcdir/..', or `$srcdir/../..'.
+@@ -144,14 +150,14 @@
+ Usually this means the macro was only invoked conditionally.]])
+ fi])])
+ 
+-# Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2009
+-# Free Software Foundation, Inc.
++# Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2009,
++# 2010, 2011 Free Software Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
+-# serial 10
++# serial 12
+ 
+ # There are a few dirty hacks below to avoid letting `AC_PROG_CC' be
+ # written in clear, in which case automake, when reading aclocal.m4,
+@@ -191,6 +197,7 @@
+   # instance it was reported that on HP-UX the gcc test will end up
+   # making a dummy file named `D' -- because `-MD' means `put the output
+   # in D'.
++  rm -rf conftest.dir
+   mkdir conftest.dir
+   # Copy depcomp to subdir because otherwise we won't find it if we're
+   # using a relative directory.
+@@ -255,7 +262,7 @@
+ 	break
+       fi
+       ;;
+-    msvisualcpp | msvcmsys)
++    msvc7 | msvc7msys | msvisualcpp | msvcmsys)
+       # This compiler won't grok `-c -o', but also, the minuso test has
+       # not run yet.  These depmodes are late enough in the game, and
+       # so weak that their functioning should not be impacted.
+@@ -320,10 +327,13 @@
+ if test "x$enable_dependency_tracking" != xno; then
+   am_depcomp="$ac_aux_dir/depcomp"
+   AMDEPBACKSLASH='\'
++  am__nodep='_no'
+ fi
+ AM_CONDITIONAL([AMDEP], [test "x$enable_dependency_tracking" != xno])
+ AC_SUBST([AMDEPBACKSLASH])dnl
+ _AM_SUBST_NOTMAKE([AMDEPBACKSLASH])dnl
++AC_SUBST([am__nodep])dnl
++_AM_SUBST_NOTMAKE([am__nodep])dnl
+ ])
+ 
+ # Generate code to set up dependency tracking.              -*- Autoconf -*-
+@@ -545,12 +555,15 @@
+ done
+ echo "timestamp for $_am_arg" >`AS_DIRNAME(["$_am_arg"])`/stamp-h[]$_am_stamp_count])
+ 
+-# Copyright (C) 2001, 2003, 2005, 2008  Free Software Foundation, Inc.
++# Copyright (C) 2001, 2003, 2005, 2008, 2011 Free Software Foundation,
++# Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
++# serial 1
++
+ # AM_PROG_INSTALL_SH
+ # ------------------
+ # Define $install_sh.
+@@ -717,12 +730,15 @@
+ fi
+ ])
+ 
+-# Copyright (C) 2003, 2004, 2005, 2006  Free Software Foundation, Inc.
++# Copyright (C) 2003, 2004, 2005, 2006, 2011 Free Software Foundation,
++# Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
++# serial 1
++
+ # AM_PROG_MKDIR_P
+ # ---------------
+ # Check for `mkdir -p'.
+@@ -745,13 +761,14 @@
+ 
+ # Helper functions for option handling.                     -*- Autoconf -*-
+ 
+-# Copyright (C) 2001, 2002, 2003, 2005, 2008  Free Software Foundation, Inc.
++# Copyright (C) 2001, 2002, 2003, 2005, 2008, 2010 Free Software
++# Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
+-# serial 4
++# serial 5
+ 
+ # _AM_MANGLE_OPTION(NAME)
+ # -----------------------
+@@ -759,13 +776,13 @@
+ [[_AM_OPTION_]m4_bpatsubst($1, [[^a-zA-Z0-9_]], [_])])
+ 
+ # _AM_SET_OPTION(NAME)
+-# ------------------------------
++# --------------------
+ # Set option NAME.  Presently that only means defining a flag for this option.
+ AC_DEFUN([_AM_SET_OPTION],
+ [m4_define(_AM_MANGLE_OPTION([$1]), 1)])
+ 
+ # _AM_SET_OPTIONS(OPTIONS)
+-# ----------------------------------
++# ------------------------
+ # OPTIONS is a space-separated list of Automake options.
+ AC_DEFUN([_AM_SET_OPTIONS],
+ [m4_foreach_w([_AM_Option], [$1], [_AM_SET_OPTION(_AM_Option)])])
+@@ -841,12 +858,14 @@
+ fi
+ AC_MSG_RESULT(yes)])
+ 
+-# Copyright (C) 2001, 2003, 2005  Free Software Foundation, Inc.
++# Copyright (C) 2001, 2003, 2005, 2011 Free Software Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
++# serial 1
++
+ # AM_PROG_INSTALL_STRIP
+ # ---------------------
+ # One issue with vendor `install' (even GNU) is that you can't
+@@ -869,13 +888,13 @@
+ INSTALL_STRIP_PROGRAM="\$(install_sh) -c -s"
+ AC_SUBST([INSTALL_STRIP_PROGRAM])])
+ 
+-# Copyright (C) 2006, 2008  Free Software Foundation, Inc.
++# Copyright (C) 2006, 2008, 2010 Free Software Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+ 
+-# serial 2
++# serial 3
+ 
+ # _AM_SUBST_NOTMAKE(VARIABLE)
+ # ---------------------------
+@@ -884,13 +903,13 @@
+ AC_DEFUN([_AM_SUBST_NOTMAKE])
+ 
+ # AM_SUBST_NOTMAKE(VARIABLE)
+-# ---------------------------
++# --------------------------
+ # Public sister of _AM_SUBST_NOTMAKE.
+ AC_DEFUN([AM_SUBST_NOTMAKE], [_AM_SUBST_NOTMAKE($@)])
+ 
+ # Check how to create a tarball.                            -*- Autoconf -*-
+ 
+-# Copyright (C) 2004, 2005  Free Software Foundation, Inc.
++# Copyright (C) 2004, 2005, 2012 Free Software Foundation, Inc.
+ #
+ # This file is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+@@ -912,10 +931,11 @@
+ # a tarball read from stdin.
+ #     $(am__untar) < result.tar
+ AC_DEFUN([_AM_PROG_TAR],
+-[# Always define AMTAR for backward compatibility.
+-AM_MISSING_PROG([AMTAR], [tar])
++[# Always define AMTAR for backward compatibility.  Yes, it's still used
++# in the wild :-(  We should find a proper way to deprecate it ...
++AC_SUBST([AMTAR], ['$${TAR-tar}'])
+ m4_if([$1], [v7],
+-     [am__tar='${AMTAR} chof - "$$tardir"'; am__untar='${AMTAR} xf -'],
++     [am__tar='$${TAR-tar} chof - "$$tardir"' am__untar='$${TAR-tar} xf -'],
+      [m4_case([$1], [ustar],, [pax],,
+               [m4_fatal([Unknown tar format])])
+ AC_MSG_CHECKING([how to create a $1 tar archive])
+--- a/sntp/configure
++++ b/sntp/configure
+@@ -654,6 +654,7 @@
+ am__fastdepCC_FALSE
+ am__fastdepCC_TRUE
+ CCDEPMODE
++am__nodep
+ AMDEPBACKSLASH
+ AMDEP_FALSE
+ AMDEP_TRUE
+@@ -1413,7 +1414,7 @@
+   --with-libregex         libregex installation prefix
+   --with-libregex-cflags  libregex compile flags
+   --with-libregex-libs    libregex link command arguments
+-  --with-pic              try to use only PIC/non-PIC objects [default=use
++  --with-pic[=PKGS]       try to use only PIC/non-PIC objects [default=use
+                           both]
+   --with-gnu-ld           assume the C compiler uses GNU ld [default=no]
+   --with-sysroot=DIR Search for dependent libraries within DIR
+@@ -3067,11 +3068,11 @@
+ 
+ # We need awk for the "check" target.  The system "awk" is bad on
+ # some platforms.
+-# Always define AMTAR for backward compatibility.
++# Always define AMTAR for backward compatibility.  Yes, it's still used
++# in the wild :-(  We should find a proper way to deprecate it ...
++AMTAR='$${TAR-tar}'
+ 
+-AMTAR=${AMTAR-"${am_missing_run}tar"}
+-
+-am__tar='${AMTAR} chof - "$$tardir"'; am__untar='${AMTAR} xf -'
++am__tar='$${TAR-tar} chof - "$$tardir"' am__untar='$${TAR-tar} xf -'
+ 
+ 
+ 
+@@ -3209,6 +3210,7 @@
+ if test "x$enable_dependency_tracking" != xno; then
+   am_depcomp="$ac_aux_dir/depcomp"
+   AMDEPBACKSLASH='\'
++  am__nodep='_no'
+ fi
+  if test "x$enable_dependency_tracking" != xno; then
+   AMDEP_TRUE=
+@@ -4022,6 +4024,7 @@
+   # instance it was reported that on HP-UX the gcc test will end up
+   # making a dummy file named `D' -- because `-MD' means `put the output
+   # in D'.
++  rm -rf conftest.dir
+   mkdir conftest.dir
+   # Copy depcomp to subdir because otherwise we won't find it if we're
+   # using a relative directory.
+@@ -4081,7 +4084,7 @@
+ 	break
+       fi
+       ;;
+-    msvisualcpp | msvcmsys)
++    msvc7 | msvc7msys | msvisualcpp | msvcmsys)
+       # This compiler won't grok `-c -o', but also, the minuso test has
+       # not run yet.  These depmodes are late enough in the game, and
+       # so weak that their functioning should not be impacted.
+@@ -6703,8 +6706,8 @@
+ 
+ 
+ 
+-macro_version='2.4'
+-macro_revision='1.3293'
++macro_version='2.4.2'
++macro_revision='1.3337'
+ 
+ 
+ 
+@@ -7348,6 +7351,11 @@
+     lt_cv_sys_max_cmd_len=196608
+     ;;
+ 
++  os2*)
++    # The test takes a long time on OS/2.
++    lt_cv_sys_max_cmd_len=8192
++    ;;
++
+   osf*)
+     # Dr. Hans Ekkehard Plesser reports seeing a kernel panic running configure
+     # due to this test when exec_disable_arg_limit is 1 on Tru64. It is not
+@@ -7387,7 +7395,7 @@
+       # If test is not a shell built-in, we'll probably end up computing a
+       # maximum length that is only half of the actual maximum length, but
+       # we can't tell.
+-      while { test "X"`func_fallback_echo "$teststring$teststring" 2>/dev/null` \
++      while { test "X"`env echo "$teststring$teststring" 2>/dev/null` \
+ 	         = "X$teststring$teststring"; } >/dev/null 2>&1 &&
+ 	      test $i != 17 # 1/2 MB should be enough
+       do
+@@ -7816,12 +7824,12 @@
+   lt_cv_deplibs_check_method=pass_all
+   ;;
+ 
+-# This must be Linux ELF.
++# This must be glibc/ELF.
+ linux* | k*bsd*-gnu | kopensolaris*-gnu)
+   lt_cv_deplibs_check_method=pass_all
+   ;;
+ 
+-netbsd*)
++netbsd* | netbsdelf*-gnu)
+   if echo __ELF__ | $CC -E - | $GREP __ELF__ > /dev/null; then
+     lt_cv_deplibs_check_method='match_pattern /lib[^/]+(\.so\.[0-9]+\.[0-9]+|_pic\.a)$'
+   else
+@@ -8456,13 +8464,13 @@
+ if test -n "$RANLIB"; then
+   case $host_os in
+   openbsd*)
+-    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB -t \$oldlib"
++    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB -t \$tool_oldlib"
+     ;;
+   *)
+-    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB \$oldlib"
++    old_postinstall_cmds="$old_postinstall_cmds~\$RANLIB \$tool_oldlib"
+     ;;
+   esac
+-  old_archive_cmds="$old_archive_cmds~\$RANLIB \$oldlib"
++  old_archive_cmds="$old_archive_cmds~\$RANLIB \$tool_oldlib"
+ fi
+ 
+ case $host_os in
+@@ -8609,6 +8617,7 @@
+     # which start with @ or ?.
+     lt_cv_sys_global_symbol_pipe="$AWK '"\
+ "     {last_section=section; section=\$ 3};"\
++"     /^COFF SYMBOL TABLE/{for(i in hide) delete hide[i]};"\
+ "     /Section length .*#relocs.*(pick any)/{hide[last_section]=1};"\
+ "     \$ 0!~/External *\|/{next};"\
+ "     / 0+ UNDEF /{next}; / UNDEF \([^|]\)*()/{next};"\
+@@ -8997,7 +9006,7 @@
+     CFLAGS="$SAVE_CFLAGS"
+   fi
+   ;;
+-sparc*-*solaris*)
++*-*solaris*)
+   # Find out which ABI we are using.
+   echo 'int i;' > conftest.$ac_ext
+   if { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_compile\""; } >&5
+@@ -9008,7 +9017,20 @@
+     case `/usr/bin/file conftest.o` in
+     *64-bit*)
+       case $lt_cv_prog_gnu_ld in
+-      yes*) LD="${LD-ld} -m elf64_sparc" ;;
++      yes*)
++        case $host in
++        i?86-*-solaris*)
++          LD="${LD-ld} -m elf_x86_64"
++          ;;
++        sparc*-*-solaris*)
++          LD="${LD-ld} -m elf64_sparc"
++          ;;
++        esac
++        # GNU ld 2.21 introduced _sol2 emulations.  Use them if available.
++        if ${LD-ld} -V | grep _sol2 >/dev/null 2>&1; then
++          LD="${LD-ld}_sol2"
++        fi
++        ;;
+       *)
+ 	if ${LD-ld} -64 -r -o conftest2.o conftest.o >/dev/null 2>&1; then
+ 	  LD="${LD-ld} -64"
+@@ -9648,7 +9670,13 @@
+ 	$LTCC $LTCFLAGS $LDFLAGS -o libconftest.dylib \
+ 	  -dynamiclib -Wl,-single_module conftest.c 2>conftest.err
+         _lt_result=$?
+-	if test -f libconftest.dylib && test ! -s conftest.err && test $_lt_result = 0; then
++	# If there is a non-empty error log, and "single_module"
++	# appears in it, assume the flag caused a linker warning
++        if test -s conftest.err && $GREP single_module conftest.err; then
++	  cat conftest.err >&5
++	# Otherwise, if the output was created with a 0 exit code from
++	# the compiler, it worked.
++	elif test -f libconftest.dylib && test $_lt_result -eq 0; then
+ 	  lt_cv_apple_cc_single_mod=yes
+ 	else
+ 	  cat conftest.err >&5
+@@ -9659,6 +9687,7 @@
+ fi
+ { $as_echo "$as_me:${as_lineno-$LINENO}: result: $lt_cv_apple_cc_single_mod" >&5
+ $as_echo "$lt_cv_apple_cc_single_mod" >&6; }
++
+     { $as_echo "$as_me:${as_lineno-$LINENO}: checking for -exported_symbols_list linker flag" >&5
+ $as_echo_n "checking for -exported_symbols_list linker flag... " >&6; }
+ if ${lt_cv_ld_exported_symbols_list+:} false; then :
+@@ -9691,6 +9720,7 @@
+ fi
+ { $as_echo "$as_me:${as_lineno-$LINENO}: result: $lt_cv_ld_exported_symbols_list" >&5
+ $as_echo "$lt_cv_ld_exported_symbols_list" >&6; }
++
+     { $as_echo "$as_me:${as_lineno-$LINENO}: checking for -force_load linker flag" >&5
+ $as_echo_n "checking for -force_load linker flag... " >&6; }
+ if ${lt_cv_ld_force_load+:} false; then :
+@@ -9712,7 +9742,9 @@
+       echo "$LTCC $LTCFLAGS $LDFLAGS -o conftest conftest.c -Wl,-force_load,./libconftest.a" >&5
+       $LTCC $LTCFLAGS $LDFLAGS -o conftest conftest.c -Wl,-force_load,./libconftest.a 2>conftest.err
+       _lt_result=$?
+-      if test -f conftest && test ! -s conftest.err && test $_lt_result = 0 && $GREP forced_load conftest 2>&1 >/dev/null; then
++      if test -s conftest.err && $GREP force_load conftest.err; then
++	cat conftest.err >&5
++      elif test -f conftest && test $_lt_result -eq 0 && $GREP forced_load conftest >/dev/null 2>&1 ; then
+ 	lt_cv_ld_force_load=yes
+       else
+ 	cat conftest.err >&5
+@@ -9820,7 +9852,22 @@
+ 
+ # Check whether --with-pic was given.
+ if test "${with_pic+set}" = set; then :
+-  withval=$with_pic; pic_mode="$withval"
++  withval=$with_pic; lt_p=${PACKAGE-default}
++    case $withval in
++    yes|no) pic_mode=$withval ;;
++    *)
++      pic_mode=default
++      # Look at the argument we got.  We use all the common list separators.
++      lt_save_ifs="$IFS"; IFS="${IFS}$PATH_SEPARATOR,"
++      for lt_pkg in $withval; do
++	IFS="$lt_save_ifs"
++	if test "X$lt_pkg" = "X$lt_p"; then
++	  pic_mode=yes
++	fi
++      done
++      IFS="$lt_save_ifs"
++      ;;
++    esac
+ else
+   pic_mode=default
+ fi
+@@ -9898,6 +9945,10 @@
+ 
+ 
+ 
++
++
++
++
+ test -z "$LN_S" && LN_S="ln -s"
+ 
+ 
+@@ -10357,7 +10408,9 @@
+     case $cc_basename in
+     nvcc*) # Cuda Compiler Driver 2.2
+       lt_prog_compiler_wl='-Xlinker '
+-      lt_prog_compiler_pic='-Xcompiler -fPIC'
++      if test -n "$lt_prog_compiler_pic"; then
++        lt_prog_compiler_pic="-Xcompiler $lt_prog_compiler_pic"
++      fi
+       ;;
+     esac
+   else
+@@ -10448,18 +10501,33 @@
+ 	;;
+       *)
+ 	case `$CC -V 2>&1 | sed 5q` in
+-	*Sun\ F* | *Sun*Fortran*)
++	*Sun\ Ceres\ Fortran* | *Sun*Fortran*\ [1-7].* | *Sun*Fortran*\ 8.[0-3]*)
+ 	  # Sun Fortran 8.3 passes all unrecognized flags to the linker
+ 	  lt_prog_compiler_pic='-KPIC'
+ 	  lt_prog_compiler_static='-Bstatic'
+ 	  lt_prog_compiler_wl=''
+ 	  ;;
++	*Sun\ F* | *Sun*Fortran*)
++	  lt_prog_compiler_pic='-KPIC'
++	  lt_prog_compiler_static='-Bstatic'
++	  lt_prog_compiler_wl='-Qoption ld '
++	  ;;
+ 	*Sun\ C*)
+ 	  # Sun C 5.9
+ 	  lt_prog_compiler_pic='-KPIC'
+ 	  lt_prog_compiler_static='-Bstatic'
+ 	  lt_prog_compiler_wl='-Wl,'
+ 	  ;;
++        *Intel*\ [CF]*Compiler*)
++	  lt_prog_compiler_wl='-Wl,'
++	  lt_prog_compiler_pic='-fPIC'
++	  lt_prog_compiler_static='-static'
++	  ;;
++	*Portland\ Group*)
++	  lt_prog_compiler_wl='-Wl,'
++	  lt_prog_compiler_pic='-fpic'
++	  lt_prog_compiler_static='-Bstatic'
++	  ;;
+ 	esac
+ 	;;
+       esac
+@@ -10821,7 +10889,6 @@
+   hardcode_direct=no
+   hardcode_direct_absolute=no
+   hardcode_libdir_flag_spec=
+-  hardcode_libdir_flag_spec_ld=
+   hardcode_libdir_separator=
+   hardcode_minus_L=no
+   hardcode_shlibpath_var=unsupported
+@@ -10865,6 +10932,9 @@
+   openbsd*)
+     with_gnu_ld=no
+     ;;
++  linux* | k*bsd*-gnu | gnu*)
++    link_all_deplibs=no
++    ;;
+   esac
+ 
+   ld_shlibs=yes
+@@ -11071,8 +11141,7 @@
+ 	xlf* | bgf* | bgxlf* | mpixlf*)
+ 	  # IBM XL Fortran 10.1 on PPC cannot create shared libs itself
+ 	  whole_archive_flag_spec='--whole-archive$convenience --no-whole-archive'
+-	  hardcode_libdir_flag_spec=
+-	  hardcode_libdir_flag_spec_ld='-rpath $libdir'
++	  hardcode_libdir_flag_spec='${wl}-rpath ${wl}$libdir'
+ 	  archive_cmds='$LD -shared $libobjs $deplibs $linker_flags -soname $soname -o $lib'
+ 	  if test "x$supports_anon_versioning" = xyes; then
+ 	    archive_expsym_cmds='echo "{ global:" > $output_objdir/$libname.ver~
+@@ -11087,7 +11156,7 @@
+       fi
+       ;;
+ 
+-    netbsd*)
++    netbsd* | netbsdelf*-gnu)
+       if echo __ELF__ | $CC -E - | $GREP __ELF__ >/dev/null; then
+ 	archive_cmds='$LD -Bshareable $libobjs $deplibs $linker_flags -o $lib'
+ 	wlarc=
+@@ -11264,6 +11333,7 @@
+ 	if test "$aix_use_runtimelinking" = yes; then
+ 	  shared_flag="$shared_flag "'${wl}-G'
+ 	fi
++	link_all_deplibs=no
+       else
+ 	# not using gcc
+ 	if test "$host_cpu" = ia64; then
+@@ -11451,6 +11521,7 @@
+ 	# The linker will not automatically build a static lib if we build a DLL.
+ 	# _LT_TAGVAR(old_archive_from_new_cmds, )='true'
+ 	enable_shared_with_static_runtimes=yes
++	exclude_expsyms='_NULL_IMPORT_DESCRIPTOR|_IMPORT_DESCRIPTOR_.*'
+ 	export_symbols_cmds='$NM $libobjs $convenience | $global_symbol_pipe | $SED -e '\''/^[BCDGRS][ ]/s/.*[ ]\([^ ]*\)/\1,DATA/'\'' | $SED -e '\''/^[AITW][ ]/s/.*[ ]//'\'' | sort | uniq > $export_symbols'
+ 	# Don't use ranlib
+ 	old_postinstall_cmds='chmod 644 $oldlib'
+@@ -11496,6 +11567,7 @@
+   hardcode_shlibpath_var=unsupported
+   if test "$lt_cv_ld_force_load" = "yes"; then
+     whole_archive_flag_spec='`for conv in $convenience\"\"; do test  -n \"$conv\" && new_convenience=\"$new_convenience ${wl}-force_load,$conv\"; done; func_echo_all \"$new_convenience\"`'
++
+   else
+     whole_archive_flag_spec=''
+   fi
+@@ -11524,10 +11596,6 @@
+       hardcode_shlibpath_var=no
+       ;;
+ 
+-    freebsd1*)
+-      ld_shlibs=no
+-      ;;
+-
+     # FreeBSD 2.2.[012] allows us to include c++rt0.o to get C++ constructor
+     # support.  Future versions do this automatically, but an explicit c++rt0.o
+     # does not break anything, and helps significantly (at the cost of a little
+@@ -11540,7 +11608,7 @@
+       ;;
+ 
+     # Unfortunately, older versions of FreeBSD 2 do not have this feature.
+-    freebsd2*)
++    freebsd2.*)
+       archive_cmds='$LD -Bshareable -o $lib $libobjs $deplibs $linker_flags'
+       hardcode_direct=yes
+       hardcode_minus_L=yes
+@@ -11579,7 +11647,6 @@
+       fi
+       if test "$with_gnu_ld" = no; then
+ 	hardcode_libdir_flag_spec='${wl}+b ${wl}$libdir'
+-	hardcode_libdir_flag_spec_ld='+b $libdir'
+ 	hardcode_libdir_separator=:
+ 	hardcode_direct=yes
+ 	hardcode_direct_absolute=yes
+@@ -11720,7 +11787,7 @@
+       link_all_deplibs=yes
+       ;;
+ 
+-    netbsd*)
++    netbsd* | netbsdelf*-gnu)
+       if echo __ELF__ | $CC -E - | $GREP __ELF__ >/dev/null; then
+ 	archive_cmds='$LD -Bshareable -o $lib $libobjs $deplibs $linker_flags'  # a.out
+       else
+@@ -12203,11 +12270,6 @@
+ 
+ 
+ 
+-
+-
+-
+-
+-
+   { $as_echo "$as_me:${as_lineno-$LINENO}: checking dynamic linker characteristics" >&5
+ $as_echo_n "checking dynamic linker characteristics... " >&6; }
+ 
+@@ -12297,7 +12359,7 @@
+ 
+ case $host_os in
+ aix3*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix $libname.a'
+   shlibpath_var=LIBPATH
+ 
+@@ -12306,7 +12368,7 @@
+   ;;
+ 
+ aix[4-9]*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   hardcode_into_libs=yes
+@@ -12371,7 +12433,7 @@
+   ;;
+ 
+ bsdi[45]*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+@@ -12510,7 +12572,7 @@
+   ;;
+ 
+ dgux*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname$shared_ext'
+@@ -12518,10 +12580,6 @@
+   shlibpath_var=LD_LIBRARY_PATH
+   ;;
+ 
+-freebsd1*)
+-  dynamic_linker=no
+-  ;;
+-
+ freebsd* | dragonfly*)
+   # DragonFly does not have aout.  When/if they implement a new
+   # versioning mechanism, adjust this.
+@@ -12529,7 +12587,7 @@
+     objformat=`/usr/bin/objformat`
+   else
+     case $host_os in
+-    freebsd[123]*) objformat=aout ;;
++    freebsd[23].*) objformat=aout ;;
+     *) objformat=elf ;;
+     esac
+   fi
+@@ -12547,7 +12605,7 @@
+   esac
+   shlibpath_var=LD_LIBRARY_PATH
+   case $host_os in
+-  freebsd2*)
++  freebsd2.*)
+     shlibpath_overrides_runpath=yes
+     ;;
+   freebsd3.[01]* | freebsdelf3.[01]*)
+@@ -12567,17 +12625,18 @@
+   ;;
+ 
+ gnu*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}${major} ${libname}${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+   shlibpath_var=LD_LIBRARY_PATH
++  shlibpath_overrides_runpath=no
+   hardcode_into_libs=yes
+   ;;
+ 
+ haiku*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   dynamic_linker="$host_os runtime_loader"
+@@ -12638,7 +12697,7 @@
+   ;;
+ 
+ interix[3-9]*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major ${libname}${shared_ext}'
+@@ -12654,7 +12713,7 @@
+     nonstopux*) version_type=nonstopux ;;
+     *)
+ 	if test "$lt_cv_prog_gnu_ld" = yes; then
+-		version_type=linux
++		version_type=linux # correct to gnu/linux during the next big refactor
+ 	else
+ 		version_type=irix
+ 	fi ;;
+@@ -12691,9 +12750,9 @@
+   dynamic_linker=no
+   ;;
+ 
+-# This must be Linux ELF.
++# This must be glibc/ELF.
+ linux* | k*bsd*-gnu | kopensolaris*-gnu)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+@@ -12756,6 +12815,18 @@
+   dynamic_linker='GNU/Linux ld.so'
+   ;;
+ 
++netbsdelf*-gnu)
++  version_type=linux
++  need_lib_prefix=no
++  need_version=no
++  library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major ${libname}${shared_ext}'
++  soname_spec='${libname}${release}${shared_ext}$major'
++  shlibpath_var=LD_LIBRARY_PATH
++  shlibpath_overrides_runpath=no
++  hardcode_into_libs=yes
++  dynamic_linker='NetBSD ld.elf_so'
++  ;;
++
+ netbsd*)
+   version_type=sunos
+   need_lib_prefix=no
+@@ -12775,7 +12846,7 @@
+   ;;
+ 
+ newsos6)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   shlibpath_var=LD_LIBRARY_PATH
+   shlibpath_overrides_runpath=yes
+@@ -12844,7 +12915,7 @@
+   ;;
+ 
+ solaris*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+@@ -12869,7 +12940,7 @@
+   ;;
+ 
+ sysv4 | sysv4.3*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+   shlibpath_var=LD_LIBRARY_PATH
+@@ -12893,7 +12964,7 @@
+ 
+ sysv4*MP*)
+   if test -d /usr/nec ;then
+-    version_type=linux
++    version_type=linux # correct to gnu/linux during the next big refactor
+     library_names_spec='$libname${shared_ext}.$versuffix $libname${shared_ext}.$major $libname${shared_ext}'
+     soname_spec='$libname${shared_ext}.$major'
+     shlibpath_var=LD_LIBRARY_PATH
+@@ -12924,7 +12995,7 @@
+ 
+ tpf*)
+   # TPF is a cross-target only.  Preferred cross-host = GNU/Linux.
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   need_lib_prefix=no
+   need_version=no
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+@@ -12934,7 +13005,7 @@
+   ;;
+ 
+ uts4*)
+-  version_type=linux
++  version_type=linux # correct to gnu/linux during the next big refactor
+   library_names_spec='${libname}${release}${shared_ext}$versuffix ${libname}${release}${shared_ext}$major $libname${shared_ext}'
+   soname_spec='${libname}${release}${shared_ext}$major'
+   shlibpath_var=LD_LIBRARY_PATH
+@@ -13716,6 +13787,8 @@
+ 
+ 
+ 
++
++
+         ac_config_commands="$ac_config_commands libtool"
+ 
+ 
+@@ -16881,6 +16954,7 @@
+ enable_fast_install='`$ECHO "$enable_fast_install" | $SED "$delay_single_quote_subst"`'
+ SHELL='`$ECHO "$SHELL" | $SED "$delay_single_quote_subst"`'
+ ECHO='`$ECHO "$ECHO" | $SED "$delay_single_quote_subst"`'
++PATH_SEPARATOR='`$ECHO "$PATH_SEPARATOR" | $SED "$delay_single_quote_subst"`'
+ host_alias='`$ECHO "$host_alias" | $SED "$delay_single_quote_subst"`'
+ host='`$ECHO "$host" | $SED "$delay_single_quote_subst"`'
+ host_os='`$ECHO "$host_os" | $SED "$delay_single_quote_subst"`'
+@@ -16963,7 +17037,6 @@
+ allow_undefined_flag='`$ECHO "$allow_undefined_flag" | $SED "$delay_single_quote_subst"`'
+ no_undefined_flag='`$ECHO "$no_undefined_flag" | $SED "$delay_single_quote_subst"`'
+ hardcode_libdir_flag_spec='`$ECHO "$hardcode_libdir_flag_spec" | $SED "$delay_single_quote_subst"`'
+-hardcode_libdir_flag_spec_ld='`$ECHO "$hardcode_libdir_flag_spec_ld" | $SED "$delay_single_quote_subst"`'
+ hardcode_libdir_separator='`$ECHO "$hardcode_libdir_separator" | $SED "$delay_single_quote_subst"`'
+ hardcode_direct='`$ECHO "$hardcode_direct" | $SED "$delay_single_quote_subst"`'
+ hardcode_direct_absolute='`$ECHO "$hardcode_direct_absolute" | $SED "$delay_single_quote_subst"`'
+@@ -17019,6 +17092,7 @@
+ # Quote evaled strings.
+ for var in SHELL \
+ ECHO \
++PATH_SEPARATOR \
+ SED \
+ GREP \
+ EGREP \
+@@ -17069,7 +17143,6 @@
+ allow_undefined_flag \
+ no_undefined_flag \
+ hardcode_libdir_flag_spec \
+-hardcode_libdir_flag_spec_ld \
+ hardcode_libdir_separator \
+ exclude_expsyms \
+ include_expsyms \
+@@ -17866,8 +17939,8 @@
+ # NOTE: Changes made to this file will be lost: look at ltmain.sh.
+ #
+ #   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2005,
+-#                 2006, 2007, 2008, 2009, 2010 Free Software Foundation,
+-#                 Inc.
++#                 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++#                 Foundation, Inc.
+ #   Written by Gordon Matzigkeit, 1996
+ #
+ #   This file is part of GNU Libtool.
+@@ -17921,6 +17994,9 @@
+ # An echo program that protects backslashes.
+ ECHO=$lt_ECHO
+ 
++# The PATH separator for the build system.
++PATH_SEPARATOR=$lt_PATH_SEPARATOR
++
+ # The host system.
+ host_alias=$host_alias
+ host=$host
+@@ -18222,10 +18298,6 @@
+ # This must work even if \$libdir does not exist
+ hardcode_libdir_flag_spec=$lt_hardcode_libdir_flag_spec
+ 
+-# If ld is used when linking, flag to hardcode \$libdir into a binary
+-# during linking.  This must work even if \$libdir does not exist.
+-hardcode_libdir_flag_spec_ld=$lt_hardcode_libdir_flag_spec_ld
+-
+ # Whether we need a single "-rpath" flag with a separated argument.
+ hardcode_libdir_separator=$lt_hardcode_libdir_separator
+ 
+--- a/sntp/libopts/Makefile.in
++++ b/sntp/libopts/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -75,6 +75,12 @@
+ am__base_list = \
+   sed '$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;s/\n/ /g' | \
+   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
++am__uninstall_files_from_dir = { \
++  test -z "$$files" \
++    || { test ! -d "$$dir" && test ! -f "$$dir" && test ! -r "$$dir"; } \
++    || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
++         $(am__cd) "$$dir" && rm -f $$files; }; \
++  }
+ am__installdirs = "$(DESTDIR)$(libdir)"
+ LTLIBRARIES = $(lib_LTLIBRARIES) $(noinst_LTLIBRARIES)
+ libopts_la_LIBADD =
+@@ -265,9 +271,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign libopts/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu libopts/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign libopts/Makefile
++	  $(AUTOMAKE) --gnu libopts/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -326,7 +332,7 @@
+ 	  echo "rm -f \"$${dir}/so_locations\""; \
+ 	  rm -f "$${dir}/so_locations"; \
+ 	done
+-libopts.la: $(libopts_la_OBJECTS) $(libopts_la_DEPENDENCIES) 
++libopts.la: $(libopts_la_OBJECTS) $(libopts_la_DEPENDENCIES) $(EXTRA_libopts_la_DEPENDENCIES) 
+ 	$(libopts_la_LINK) $(am_libopts_la_rpath) $(libopts_la_OBJECTS) $(libopts_la_LIBADD) $(LIBS)
+ 
+ mostlyclean-compile:
+@@ -470,10 +476,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+--- a/sntp/ltmain.sh
++++ b/sntp/ltmain.sh
+@@ -1,9 +1,9 @@
+ 
+-# libtool (GNU libtool) 2.4
++# libtool (GNU libtool) 2.4.2
+ # Written by Gordon Matzigkeit <gord@gnu.ai.mit.edu>, 1996
+ 
+ # Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2005, 2006,
+-# 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
++# 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+ # This is free software; see the source for copying conditions.  There is NO
+ # warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ 
+@@ -41,6 +41,7 @@
+ #       --quiet, --silent    don't print informational messages
+ #       --no-quiet, --no-silent
+ #                            print informational messages (default)
++#       --no-warn            don't display warning messages
+ #       --tag=TAG            use configuration variables from tag TAG
+ #   -v, --verbose            print more informational messages than default
+ #       --no-verbose         don't print the extra informational messages
+@@ -69,7 +70,7 @@
+ #         compiler:		$LTCC
+ #         compiler flags:		$LTCFLAGS
+ #         linker:		$LD (gnu? $with_gnu_ld)
+-#         $progname:	(GNU libtool) 2.4
++#         $progname:	(GNU libtool) 2.4.2 Debian-2.4.2-1
+ #         automake:	$automake_version
+ #         autoconf:	$autoconf_version
+ #
+@@ -79,9 +80,9 @@
+ 
+ PROGRAM=libtool
+ PACKAGE=libtool
+-VERSION=2.4
++VERSION="2.4.2 Debian-2.4.2-1"
+ TIMESTAMP=""
+-package_revision=1.3293
++package_revision=1.3337
+ 
+ # Be Bourne compatible
+ if test -n "${ZSH_VERSION+set}" && (emulate sh) >/dev/null 2>&1; then
+@@ -136,15 +137,10 @@
+ 
+ : ${CP="cp -f"}
+ test "${ECHO+set}" = set || ECHO=${as_echo-'printf %s\n'}
+-: ${EGREP="grep -E"}
+-: ${FGREP="grep -F"}
+-: ${GREP="grep"}
+-: ${LN_S="ln -s"}
+ : ${MAKE="make"}
+ : ${MKDIR="mkdir"}
+ : ${MV="mv -f"}
+ : ${RM="rm -f"}
+-: ${SED="sed"}
+ : ${SHELL="${CONFIG_SHELL-/bin/sh}"}
+ : ${Xsed="$SED -e 1s/^X//"}
+ 
+@@ -387,7 +383,7 @@
+      ;;
+   *)
+      save_IFS="$IFS"
+-     IFS=:
++     IFS=${PATH_SEPARATOR-:}
+      for progdir in $PATH; do
+        IFS="$save_IFS"
+        test -x "$progdir/$progname" && break
+@@ -771,8 +767,8 @@
+ 	s*\$LTCFLAGS*'"$LTCFLAGS"'*
+ 	s*\$LD*'"$LD"'*
+ 	s/\$with_gnu_ld/'"$with_gnu_ld"'/
+-	s/\$automake_version/'"`(automake --version) 2>/dev/null |$SED 1q`"'/
+-	s/\$autoconf_version/'"`(autoconf --version) 2>/dev/null |$SED 1q`"'/
++	s/\$automake_version/'"`(${AUTOMAKE-automake} --version) 2>/dev/null |$SED 1q`"'/
++	s/\$autoconf_version/'"`(${AUTOCONF-autoconf} --version) 2>/dev/null |$SED 1q`"'/
+ 	p
+ 	d
+      }
+@@ -1052,6 +1048,7 @@
+ opt_help=false
+ opt_help_all=false
+ opt_silent=:
++opt_warning=:
+ opt_verbose=:
+ opt_silent=false
+ opt_verbose=false
+@@ -1120,6 +1117,10 @@
+ 			opt_silent=false
+ func_append preserve_args " $opt"
+ 			;;
++      --no-warning|--no-warn)
++			opt_warning=false
++func_append preserve_args " $opt"
++			;;
+       --no-verbose)
+ 			opt_verbose=false
+ func_append preserve_args " $opt"
+@@ -2059,7 +2060,7 @@
+     *.[cCFSifmso] | \
+     *.ada | *.adb | *.ads | *.asm | \
+     *.c++ | *.cc | *.ii | *.class | *.cpp | *.cxx | \
+-    *.[fF][09]? | *.for | *.java | *.obj | *.sx | *.cu | *.cup)
++    *.[fF][09]? | *.for | *.java | *.go | *.obj | *.sx | *.cu | *.cup)
+       func_xform "$libobj"
+       libobj=$func_xform_result
+       ;;
+@@ -3201,11 +3202,13 @@
+ 
+       # Set up the ranlib parameters.
+       oldlib="$destdir/$name"
++      func_to_tool_file "$oldlib" func_convert_file_msys_to_w32
++      tool_oldlib=$func_to_tool_file_result
+ 
+       func_show_eval "$install_prog \$file \$oldlib" 'exit $?'
+ 
+       if test -n "$stripme" && test -n "$old_striplib"; then
+-	func_show_eval "$old_striplib $oldlib" 'exit $?'
++	func_show_eval "$old_striplib $tool_oldlib" 'exit $?'
+       fi
+ 
+       # Do each command in the postinstall commands.
+@@ -3470,7 +3473,7 @@
+ 	  # linked before any other PIC object.  But we must not use
+ 	  # pic_flag when linking with -static.  The problem exists in
+ 	  # FreeBSD 2.2.6 and is fixed in FreeBSD 3.1.
+-	  *-*-freebsd2*|*-*-freebsd3.0*|*-*-freebsdelf3.0*)
++	  *-*-freebsd2.*|*-*-freebsd3.0*|*-*-freebsdelf3.0*)
+ 	    pic_flag_for_symtable=" $pic_flag -DFREEBSD_WORKAROUND" ;;
+ 	  *-*-hpux*)
+ 	    pic_flag_for_symtable=" $pic_flag"  ;;
+@@ -3982,14 +3985,17 @@
+ # launches target application with the remaining arguments.
+ func_exec_program ()
+ {
+-  for lt_wr_arg
+-  do
+-    case \$lt_wr_arg in
+-    --lt-*) ;;
+-    *) set x \"\$@\" \"\$lt_wr_arg\"; shift;;
+-    esac
+-    shift
+-  done
++  case \" \$* \" in
++  *\\ --lt-*)
++    for lt_wr_arg
++    do
++      case \$lt_wr_arg in
++      --lt-*) ;;
++      *) set x \"\$@\" \"\$lt_wr_arg\"; shift;;
++      esac
++      shift
++    done ;;
++  esac
+   func_exec_program_core \${1+\"\$@\"}
+ }
+ 
+@@ -5057,9 +5063,15 @@
+ {
+ EOF
+ 	    func_emit_wrapper yes |
+-              $SED -e 's/\([\\"]\)/\\\1/g' \
+-	           -e 's/^/  fputs ("/' -e 's/$/\\n", f);/'
+-
++	      $SED -n -e '
++s/^\(.\{79\}\)\(..*\)/\1\
++\2/
++h
++s/\([\\"]\)/\\\1/g
++s/$/\\n/
++s/\([^\n]*\).*/  fputs ("\1", f);/p
++g
++D'
+             cat <<"EOF"
+ }
+ EOF
+@@ -5643,7 +5655,8 @@
+ 	continue
+ 	;;
+ 
+-      -mt|-mthreads|-kthread|-Kthread|-pthread|-pthreads|--thread-safe|-threads)
++      -mt|-mthreads|-kthread|-Kthread|-pthread|-pthreads|--thread-safe \
++      |-threads|-fopenmp|-openmp|-mp|-xopenmp|-omp|-qsmp=*)
+ 	func_append compiler_flags " $arg"
+ 	func_append compile_command " $arg"
+ 	func_append finalize_command " $arg"
+@@ -6111,7 +6124,10 @@
+ 	case $pass in
+ 	dlopen) libs="$dlfiles" ;;
+ 	dlpreopen) libs="$dlprefiles" ;;
+-	link) libs="$deplibs %DEPLIBS% $dependency_libs" ;;
++	link)
++	  libs="$deplibs %DEPLIBS%"
++	  test "X$link_all_deplibs" != Xno && libs="$libs $dependency_libs"
++	  ;;
+ 	esac
+       fi
+       if test "$linkmode,$pass" = "lib,dlpreopen"; then
+@@ -6147,7 +6163,8 @@
+ 	lib=
+ 	found=no
+ 	case $deplib in
+-	-mt|-mthreads|-kthread|-Kthread|-pthread|-pthreads|--thread-safe|-threads)
++	-mt|-mthreads|-kthread|-Kthread|-pthread|-pthreads|--thread-safe \
++        |-threads|-fopenmp|-openmp|-mp|-xopenmp|-omp|-qsmp=*)
+ 	  if test "$linkmode,$pass" = "prog,link"; then
+ 	    compile_deplibs="$deplib $compile_deplibs"
+ 	    finalize_deplibs="$deplib $finalize_deplibs"
+@@ -6430,19 +6447,19 @@
+ 	    # It is a libtool convenience library, so add in its objects.
+ 	    func_append convenience " $ladir/$objdir/$old_library"
+ 	    func_append old_convenience " $ladir/$objdir/$old_library"
++	    tmp_libs=
++	    for deplib in $dependency_libs; do
++	      deplibs="$deplib $deplibs"
++	      if $opt_preserve_dup_deps ; then
++		case "$tmp_libs " in
++		*" $deplib "*) func_append specialdeplibs " $deplib" ;;
++		esac
++	      fi
++	      func_append tmp_libs " $deplib"
++	    done
+ 	  elif test "$linkmode" != prog && test "$linkmode" != lib; then
+ 	    func_fatal_error "\`$lib' is not a convenience library"
+ 	  fi
+-	  tmp_libs=
+-	  for deplib in $dependency_libs; do
+-	    deplibs="$deplib $deplibs"
+-	    if $opt_preserve_dup_deps ; then
+-	      case "$tmp_libs " in
+-	      *" $deplib "*) func_append specialdeplibs " $deplib" ;;
+-	      esac
+-	    fi
+-	    func_append tmp_libs " $deplib"
+-	  done
+ 	  continue
+ 	fi # $pass = conv
+ 
+@@ -6831,7 +6848,7 @@
+ 	         test "$hardcode_direct_absolute" = no; then
+ 		add="$dir/$linklib"
+ 	      elif test "$hardcode_minus_L" = yes; then
+-		add_dir="-L$dir"
++		add_dir="-L$absdir"
+ 		# Try looking first in the location we're being installed to.
+ 		if test -n "$inst_prefix_dir"; then
+ 		  case $libdir in
+@@ -7316,6 +7333,7 @@
+ 	  # which has an extra 1 added just for fun
+ 	  #
+ 	  case $version_type in
++	  # correct linux to gnu/linux during the next big refactor
+ 	  darwin|linux|osf|windows|none)
+ 	    func_arith $number_major + $number_minor
+ 	    current=$func_arith_result
+@@ -7334,6 +7352,9 @@
+ 	    revision="$number_minor"
+ 	    lt_irix_increment=no
+ 	    ;;
++	  *)
++	    func_fatal_configuration "$modename: unknown library version type \`$version_type'"
++	    ;;
+ 	  esac
+ 	  ;;
+ 	no)
+@@ -7432,7 +7453,7 @@
+ 	  versuffix="$major.$revision"
+ 	  ;;
+ 
+-	linux)
++	linux) # correct to gnu/linux during the next big refactor
+ 	  func_arith $current - $age
+ 	  major=.$func_arith_result
+ 	  versuffix="$major.$age.$revision"
+@@ -8020,6 +8041,11 @@
+ 
+       # Test again, we may have decided not to build it any more
+       if test "$build_libtool_libs" = yes; then
++	# Remove ${wl} instances when linking with ld.
++	# FIXME: should test the right _cmds variable.
++	case $archive_cmds in
++	  *\$LD\ *) wl= ;;
++        esac
+ 	if test "$hardcode_into_libs" = yes; then
+ 	  # Hardcode the library paths
+ 	  hardcode_libdirs=
+@@ -8050,7 +8076,7 @@
+ 	    elif test -n "$runpath_var"; then
+ 	      case "$perm_rpath " in
+ 	      *" $libdir "*) ;;
+-	      *) func_apped perm_rpath " $libdir" ;;
++	      *) func_append perm_rpath " $libdir" ;;
+ 	      esac
+ 	    fi
+ 	  done
+@@ -8058,11 +8084,7 @@
+ 	  if test -n "$hardcode_libdir_separator" &&
+ 	     test -n "$hardcode_libdirs"; then
+ 	    libdir="$hardcode_libdirs"
+-	    if test -n "$hardcode_libdir_flag_spec_ld"; then
+-	      eval dep_rpath=\"$hardcode_libdir_flag_spec_ld\"
+-	    else
+-	      eval dep_rpath=\"$hardcode_libdir_flag_spec\"
+-	    fi
++	    eval "dep_rpath=\"$hardcode_libdir_flag_spec\""
+ 	  fi
+ 	  if test -n "$runpath_var" && test -n "$perm_rpath"; then
+ 	    # We should set the runpath_var.
+@@ -9152,6 +9174,8 @@
+ 	    esac
+ 	  done
+ 	fi
++	func_to_tool_file "$oldlib" func_convert_file_msys_to_w32
++	tool_oldlib=$func_to_tool_file_result
+ 	eval cmds=\"$old_archive_cmds\"
+ 
+ 	func_len " $cmds"
+@@ -9261,7 +9285,8 @@
+ 	      *.la)
+ 		func_basename "$deplib"
+ 		name="$func_basename_result"
+-		eval libdir=`${SED} -n -e 's/^libdir=\(.*\)$/\1/p' $deplib`
++		func_resolve_sysroot "$deplib"
++		eval libdir=`${SED} -n -e 's/^libdir=\(.*\)$/\1/p' $func_resolve_sysroot_result`
+ 		test -z "$libdir" && \
+ 		  func_fatal_error "\`$deplib' is not a valid libtool archive"
+ 		func_append newdependency_libs " ${lt_sysroot:+=}$libdir/$name"
+--- a/sntp/Makefile.in
++++ b/sntp/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -126,6 +126,12 @@
+ am__base_list = \
+   sed '$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;s/\n/ /g' | \
+   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
++am__uninstall_files_from_dir = { \
++  test -z "$$files" \
++    || { test ! -d "$$dir" && test ! -f "$$dir" && test ! -r "$$dir"; } \
++    || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
++         $(am__cd) "$$dir" && rm -f $$files; }; \
++  }
+ man1dir = $(mandir)/man1
+ NROFF = nroff
+ MANS = $(man_MANS)
+@@ -142,9 +148,11 @@
+ distdir = $(PACKAGE)-$(VERSION)
+ top_distdir = $(distdir)
+ am__remove_distdir = \
+-  { test ! -d "$(distdir)" \
+-    || { find "$(distdir)" -type d ! -perm -200 -exec chmod u+w {} ';' \
+-         && rm -fr "$(distdir)"; }; }
++  if test -d "$(distdir)"; then \
++    find "$(distdir)" -type d ! -perm -200 -exec chmod u+w {} ';' \
++      && rm -rf "$(distdir)" \
++      || { sleep 5 && rm -rf "$(distdir)"; }; \
++  else :; fi
+ am__relativize = \
+   dir0=`pwd`; \
+   sed_first='s,^\([^/]*\)/.*$$,\1,'; \
+@@ -173,6 +181,8 @@
+ DIST_ARCHIVES = $(distdir).tar.gz
+ GZIP_ENV = --best
+ distuninstallcheck_listfiles = find . -type f -print
++am__distuninstallcheck_listfiles = $(distuninstallcheck_listfiles) \
++  | sed 's|^\./|$(prefix)/|' | grep -v '$(infodir)/dir$$'
+ distcleancheck_listfiles = find . -type f -print
+ ACLOCAL = @ACLOCAL@
+ AMTAR = @AMTAR@
+@@ -372,7 +382,7 @@
+ 
+ .SUFFIXES:
+ .SUFFIXES: .c .lo .o .obj
+-am--refresh:
++am--refresh: Makefile
+ 	@:
+ $(srcdir)/Makefile.in:  $(srcdir)/Makefile.am $(top_srcdir)/bincheck.mf $(top_srcdir)/depsver.mf $(am__configure_deps)
+ 	@for dep in $?; do \
+@@ -397,6 +407,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/bincheck.mf $(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	$(SHELL) ./config.status --recheck
+@@ -408,10 +419,8 @@
+ $(am__aclocal_m4_deps):
+ 
+ config.h: stamp-h1
+-	@if test ! -f $@; then \
+-	  rm -f stamp-h1; \
+-	  $(MAKE) $(AM_MAKEFLAGS) stamp-h1; \
+-	else :; fi
++	@if test ! -f $@; then rm -f stamp-h1; else :; fi
++	@if test ! -f $@; then $(MAKE) $(AM_MAKEFLAGS) stamp-h1; else :; fi
+ 
+ stamp-h1: $(srcdir)/config.h.in $(top_builddir)/config.status
+ 	@rm -f stamp-h1
+@@ -509,7 +518,7 @@
+ 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+ 	echo " rm -f" $$list; \
+ 	rm -f $$list
+-sntp$(EXEEXT): $(sntp_OBJECTS) $(sntp_DEPENDENCIES) 
++sntp$(EXEEXT): $(sntp_OBJECTS) $(sntp_DEPENDENCIES) $(EXTRA_sntp_DEPENDENCIES) 
+ 	@rm -f sntp$(EXEEXT)
+ 	$(LINK) $(sntp_OBJECTS) $(sntp_LDADD) $(LIBS)
+ 
+@@ -592,9 +601,7 @@
+ 	  sed -n '/\.1[a-z]*$$/p'; \
+ 	} | sed -e 's,.*/,,;h;s,.*\.,,;s,^[^1][0-9a-z]*$$,1,;x' \
+ 	      -e 's,\.[0-9a-z]*$$,,;$(transform);G;s,\n,.,'`; \
+-	test -z "$$files" || { \
+-	  echo " ( cd '$(DESTDIR)$(man1dir)' && rm -f" $$files ")"; \
+-	  cd "$(DESTDIR)$(man1dir)" && rm -f $$files; }
++	dir='$(DESTDIR)$(man1dir)'; $(am__uninstall_files_from_dir)
+ 
+ # This directory's subdirectories are mostly independent; you can cd
+ # into them and run `make' without going through this Makefile.
+@@ -816,7 +823,11 @@
+ 	$(am__remove_distdir)
+ 
+ dist-bzip2: distdir
+-	tardir=$(distdir) && $(am__tar) | bzip2 -9 -c >$(distdir).tar.bz2
++	tardir=$(distdir) && $(am__tar) | BZIP2=$${BZIP2--9} bzip2 -c >$(distdir).tar.bz2
++	$(am__remove_distdir)
++
++dist-lzip: distdir
++	tardir=$(distdir) && $(am__tar) | lzip -c $${LZIP_OPT--9} >$(distdir).tar.lz
+ 	$(am__remove_distdir)
+ 
+ dist-lzma: distdir
+@@ -824,7 +835,7 @@
+ 	$(am__remove_distdir)
+ 
+ dist-xz: distdir
+-	tardir=$(distdir) && $(am__tar) | xz -c >$(distdir).tar.xz
++	tardir=$(distdir) && $(am__tar) | XZ_OPT=$${XZ_OPT--e} xz -c >$(distdir).tar.xz
+ 	$(am__remove_distdir)
+ 
+ dist-tarZ: distdir
+@@ -855,6 +866,8 @@
+ 	  bzip2 -dc $(distdir).tar.bz2 | $(am__untar) ;;\
+ 	*.tar.lzma*) \
+ 	  lzma -dc $(distdir).tar.lzma | $(am__untar) ;;\
++	*.tar.lz*) \
++	  lzip -dc $(distdir).tar.lz | $(am__untar) ;;\
+ 	*.tar.xz*) \
+ 	  xz -dc $(distdir).tar.xz | $(am__untar) ;;\
+ 	*.tar.Z*) \
+@@ -874,6 +887,7 @@
+ 	  && am__cwd=`pwd` \
+ 	  && $(am__cd) $(distdir)/_build \
+ 	  && ../configure --srcdir=.. --prefix="$$dc_install_base" \
++	    $(AM_DISTCHECK_CONFIGURE_FLAGS) \
+ 	    $(DISTCHECK_CONFIGURE_FLAGS) \
+ 	  && $(MAKE) $(AM_MAKEFLAGS) \
+ 	  && $(MAKE) $(AM_MAKEFLAGS) dvi \
+@@ -902,8 +916,16 @@
+ 	  list='$(DIST_ARCHIVES)'; for i in $$list; do echo $$i; done) | \
+ 	  sed -e 1h -e 1s/./=/g -e 1p -e 1x -e '$$p' -e '$$x'
+ distuninstallcheck:
+-	@$(am__cd) '$(distuninstallcheck_dir)' \
+-	&& test `$(distuninstallcheck_listfiles) | wc -l` -le 1 \
++	@test -n '$(distuninstallcheck_dir)' || { \
++	  echo 'ERROR: trying to run $@ with an empty' \
++	       '$$(distuninstallcheck_dir)' >&2; \
++	  exit 1; \
++	}; \
++	$(am__cd) '$(distuninstallcheck_dir)' || { \
++	  echo 'ERROR: cannot chdir into $(distuninstallcheck_dir)' >&2; \
++	  exit 1; \
++	}; \
++	test `$(am__distuninstallcheck_listfiles) | wc -l` -eq 0 \
+ 	   || { echo "ERROR: files left after uninstall:" ; \
+ 	        if test -n "$(DESTDIR)"; then \
+ 	          echo "  (check DESTDIR support)"; \
+@@ -939,10 +961,15 @@
+ 
+ installcheck: installcheck-recursive
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:
+@@ -1041,9 +1068,9 @@
+ .PHONY: $(RECURSIVE_CLEAN_TARGETS) $(RECURSIVE_TARGETS) CTAGS GTAGS \
+ 	all all-am am--refresh check check-am clean clean-binPROGRAMS \
+ 	clean-generic clean-libtool clean-sbinPROGRAMS ctags \
+-	ctags-recursive dist dist-all dist-bzip2 dist-gzip dist-lzma \
+-	dist-shar dist-tarZ dist-xz dist-zip distcheck distclean \
+-	distclean-compile distclean-generic distclean-hdr \
++	ctags-recursive dist dist-all dist-bzip2 dist-gzip dist-lzip \
++	dist-lzma dist-shar dist-tarZ dist-xz dist-zip distcheck \
++	distclean distclean-compile distclean-generic distclean-hdr \
+ 	distclean-libtool distclean-tags distcleancheck distdir \
+ 	distuninstallcheck dvi dvi-am html html-am info info-am \
+ 	install install-am install-binPROGRAMS install-data \
+--- a/util/Makefile.in
++++ b/util/Makefile.in
+@@ -1,9 +1,9 @@
+-# Makefile.in generated by automake 1.11.1 from Makefile.am.
++# Makefile.in generated by automake 1.11.3 from Makefile.am.
+ # @configure_input@
+ 
+ # Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+-# 2003, 2004, 2005, 2006, 2007, 2008, 2009  Free Software Foundation,
+-# Inc.
++# 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
++# Foundation, Inc.
+ # This Makefile.in is free software; the Free Software Foundation
+ # gives unlimited permission to copy and/or distribute it,
+ # with or without modifications, as long as this notice is preserved.
+@@ -51,8 +51,7 @@
+ 	sht$(EXEEXT) testrs6000$(EXEEXT) tg$(EXEEXT) tickadj$(EXEEXT) \
+ 	timetrim$(EXEEXT)
+ DIST_COMMON = README $(srcdir)/Makefile.am $(srcdir)/Makefile.in \
+-	$(top_srcdir)/bincheck.mf $(top_srcdir)/depsver.mf ansi2knr.1 \
+-	ansi2knr.c
++	$(top_srcdir)/bincheck.mf $(top_srcdir)/depsver.mf
+ subdir = util
+ ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
+ am__aclocal_m4_deps = $(top_srcdir)/sntp/libopts/m4/libopts.m4 \
+@@ -175,6 +174,12 @@
+ am__base_list = \
+   sed '$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;$$!N;s/\n/ /g' | \
+   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
++am__uninstall_files_from_dir = { \
++  test -z "$$files" \
++    || { test ! -d "$$dir" && test ! -f "$$dir" && test ! -r "$$dir"; } \
++    || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
++         $(am__cd) "$$dir" && rm -f $$files; }; \
++  }
+ man1dir = $(mandir)/man1
+ NROFF = nroff
+ MANS = $(man_MANS)
+@@ -382,9 +387,9 @@
+ 	      exit 1;; \
+ 	  esac; \
+ 	done; \
+-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign util/Makefile'; \
++	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu util/Makefile'; \
+ 	$(am__cd) $(top_srcdir) && \
+-	  $(AUTOMAKE) --foreign util/Makefile
++	  $(AUTOMAKE) --gnu util/Makefile
+ .PRECIOUS: Makefile
+ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
+ 	@case '$?' in \
+@@ -394,6 +399,7 @@
+ 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe)'; \
+ 	    cd $(top_builddir) && $(SHELL) ./config.status $(subdir)/$@ $(am__depfiles_maybe);; \
+ 	esac;
++$(top_srcdir)/bincheck.mf $(top_srcdir)/depsver.mf:
+ 
+ $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
+ 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
+@@ -489,49 +495,49 @@
+ 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
+ 	echo " rm -f" $$list; \
+ 	rm -f $$list
+-audio-pcm$(EXEEXT): $(audio_pcm_OBJECTS) $(audio_pcm_DEPENDENCIES) 
++audio-pcm$(EXEEXT): $(audio_pcm_OBJECTS) $(audio_pcm_DEPENDENCIES) $(EXTRA_audio_pcm_DEPENDENCIES) 
+ 	@rm -f audio-pcm$(EXEEXT)
+ 	$(LINK) $(audio_pcm_OBJECTS) $(audio_pcm_LDADD) $(LIBS)
+-byteorder$(EXEEXT): $(byteorder_OBJECTS) $(byteorder_DEPENDENCIES) 
++byteorder$(EXEEXT): $(byteorder_OBJECTS) $(byteorder_DEPENDENCIES) $(EXTRA_byteorder_DEPENDENCIES) 
+ 	@rm -f byteorder$(EXEEXT)
+ 	$(LINK) $(byteorder_OBJECTS) $(byteorder_LDADD) $(LIBS)
+-hist$(EXEEXT): $(hist_OBJECTS) $(hist_DEPENDENCIES) 
++hist$(EXEEXT): $(hist_OBJECTS) $(hist_DEPENDENCIES) $(EXTRA_hist_DEPENDENCIES) 
+ 	@rm -f hist$(EXEEXT)
+ 	$(LINK) $(hist_OBJECTS) $(hist_LDADD) $(LIBS)
+-jitter$(EXEEXT): $(jitter_OBJECTS) $(jitter_DEPENDENCIES) 
++jitter$(EXEEXT): $(jitter_OBJECTS) $(jitter_DEPENDENCIES) $(EXTRA_jitter_DEPENDENCIES) 
+ 	@rm -f jitter$(EXEEXT)
+ 	$(LINK) $(jitter_OBJECTS) $(jitter_LDADD) $(LIBS)
+-kern$(EXEEXT): $(kern_OBJECTS) $(kern_DEPENDENCIES) 
++kern$(EXEEXT): $(kern_OBJECTS) $(kern_DEPENDENCIES) $(EXTRA_kern_DEPENDENCIES) 
+ 	@rm -f kern$(EXEEXT)
+ 	$(LINK) $(kern_OBJECTS) $(kern_LDADD) $(LIBS)
+-longsize$(EXEEXT): $(longsize_OBJECTS) $(longsize_DEPENDENCIES) 
++longsize$(EXEEXT): $(longsize_OBJECTS) $(longsize_DEPENDENCIES) $(EXTRA_longsize_DEPENDENCIES) 
+ 	@rm -f longsize$(EXEEXT)
+ 	$(LINK) $(longsize_OBJECTS) $(longsize_LDADD) $(LIBS)
+-ntp-keygen$(EXEEXT): $(ntp_keygen_OBJECTS) $(ntp_keygen_DEPENDENCIES) 
++ntp-keygen$(EXEEXT): $(ntp_keygen_OBJECTS) $(ntp_keygen_DEPENDENCIES) $(EXTRA_ntp_keygen_DEPENDENCIES) 
+ 	@rm -f ntp-keygen$(EXEEXT)
+ 	$(LINK) $(ntp_keygen_OBJECTS) $(ntp_keygen_LDADD) $(LIBS)
+-ntptime$(EXEEXT): $(ntptime_OBJECTS) $(ntptime_DEPENDENCIES) 
++ntptime$(EXEEXT): $(ntptime_OBJECTS) $(ntptime_DEPENDENCIES) $(EXTRA_ntptime_DEPENDENCIES) 
+ 	@rm -f ntptime$(EXEEXT)
+ 	$(LINK) $(ntptime_OBJECTS) $(ntptime_LDADD) $(LIBS)
+-pps-api$(EXEEXT): $(pps_api_OBJECTS) $(pps_api_DEPENDENCIES) 
++pps-api$(EXEEXT): $(pps_api_OBJECTS) $(pps_api_DEPENDENCIES) $(EXTRA_pps_api_DEPENDENCIES) 
+ 	@rm -f pps-api$(EXEEXT)
+ 	$(LINK) $(pps_api_OBJECTS) $(pps_api_LDADD) $(LIBS)
+-precision$(EXEEXT): $(precision_OBJECTS) $(precision_DEPENDENCIES) 
++precision$(EXEEXT): $(precision_OBJECTS) $(precision_DEPENDENCIES) $(EXTRA_precision_DEPENDENCIES) 
+ 	@rm -f precision$(EXEEXT)
+ 	$(LINK) $(precision_OBJECTS) $(precision_LDADD) $(LIBS)
+-sht$(EXEEXT): $(sht_OBJECTS) $(sht_DEPENDENCIES) 
++sht$(EXEEXT): $(sht_OBJECTS) $(sht_DEPENDENCIES) $(EXTRA_sht_DEPENDENCIES) 
+ 	@rm -f sht$(EXEEXT)
+ 	$(LINK) $(sht_OBJECTS) $(sht_LDADD) $(LIBS)
+-testrs6000$(EXEEXT): $(testrs6000_OBJECTS) $(testrs6000_DEPENDENCIES) 
++testrs6000$(EXEEXT): $(testrs6000_OBJECTS) $(testrs6000_DEPENDENCIES) $(EXTRA_testrs6000_DEPENDENCIES) 
+ 	@rm -f testrs6000$(EXEEXT)
+ 	$(LINK) $(testrs6000_OBJECTS) $(testrs6000_LDADD) $(LIBS)
+-tg$(EXEEXT): $(tg_OBJECTS) $(tg_DEPENDENCIES) 
++tg$(EXEEXT): $(tg_OBJECTS) $(tg_DEPENDENCIES) $(EXTRA_tg_DEPENDENCIES) 
+ 	@rm -f tg$(EXEEXT)
+ 	$(LINK) $(tg_OBJECTS) $(tg_LDADD) $(LIBS)
+-tickadj$(EXEEXT): $(tickadj_OBJECTS) $(tickadj_DEPENDENCIES) 
++tickadj$(EXEEXT): $(tickadj_OBJECTS) $(tickadj_DEPENDENCIES) $(EXTRA_tickadj_DEPENDENCIES) 
+ 	@rm -f tickadj$(EXEEXT)
+ 	$(LINK) $(tickadj_OBJECTS) $(tickadj_LDADD) $(LIBS)
+-timetrim$(EXEEXT): $(timetrim_OBJECTS) $(timetrim_DEPENDENCIES) 
++timetrim$(EXEEXT): $(timetrim_OBJECTS) $(timetrim_DEPENDENCIES) $(EXTRA_timetrim_DEPENDENCIES) 
+ 	@rm -f timetrim$(EXEEXT)
+ 	$(LINK) $(timetrim_OBJECTS) $(timetrim_LDADD) $(LIBS)
+ 
+@@ -619,9 +625,7 @@
+ 	  sed -n '/\.1[a-z]*$$/p'; \
+ 	} | sed -e 's,.*/,,;h;s,.*\.,,;s,^[^1][0-9a-z]*$$,1,;x' \
+ 	      -e 's,\.[0-9a-z]*$$,,;$(transform);G;s,\n,.,'`; \
+-	test -z "$$files" || { \
+-	  echo " ( cd '$(DESTDIR)$(man1dir)' && rm -f" $$files ")"; \
+-	  cd "$(DESTDIR)$(man1dir)" && rm -f $$files; }
++	dir='$(DESTDIR)$(man1dir)'; $(am__uninstall_files_from_dir)
+ 
+ ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)
+ 	list='$(SOURCES) $(HEADERS) $(LISP) $(TAGS_FILES)'; \
+@@ -737,10 +741,15 @@
+ 
+ installcheck: installcheck-am
+ install-strip:
+-	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
+-	  install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
+-	  `test -z '$(STRIP)' || \
+-	    echo "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'"` install
++	if test -z '$(STRIP)'; then \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	      install; \
++	else \
++	  $(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
++	    install_sh_PROGRAM="$(INSTALL_STRIP_PROGRAM)" INSTALL_STRIP_FLAG=-s \
++	    "INSTALL_PROGRAM_ENV=STRIPPROG='$(STRIP)'" install; \
++	fi
+ mostlyclean-generic:
+ 
+ clean-generic:

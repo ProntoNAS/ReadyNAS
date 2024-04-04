@@ -1,0 +1,46 @@
+From 39df7d3a6414920e6c241c23655acecb31bee0de Mon Sep 17 00:00:00 2001
+From: Peter TB Brett <peter@peter-b.co.uk>
+Date: Sun, 6 Apr 2014 10:51:05 +0100
+Subject: [PATCH] Use statvfs64() for pathconf(_PC_NAME_MAX). [Bug #15514]
+
+---
+ sysdeps/posix/pathconf.c | 14 +++-----------
+ 1 files changed, 9 insertions(+), 11 deletions(-)
+
+diff --git a/sysdeps/posix/pathconf.c b/sysdeps/posix/pathconf.c
+index 8aa55e0..ac617d4 100644
+--- a/sysdeps/posix/pathconf.c
++++ b/sysdeps/posix/pathconf.c
+@@ -65,10 +65,10 @@ __pathconf (const char *path, int name)
+     case _PC_NAME_MAX:
+ #ifdef	NAME_MAX
+       {
+-	struct statfs buf;
++	struct statvfs64 sv;
+ 	int save_errno = errno;
+ 
+-	if (__statfs (path, &buf) < 0)
++	if (__statvfs64 (path, &sv) < 0)
+ 	  {
+ 	    if (errno == ENOSYS)
+ 	      {
+@@ -79,15 +79,7 @@ __pathconf (const char *path, int name)
+ 	  }
+ 	else
+ 	  {
+-#ifdef _STATFS_F_NAMELEN
+-	    return buf.f_namelen;
+-#else
+-# ifdef _STATFS_F_NAME_MAX
+-	    return buf.f_name_max;
+-# else
+-	    return NAME_MAX;
+-# endif
+-#endif
++	    return sv.f_namemax;
+ 	  }
+       }
+ #else
+-- 
+1.9.0
+

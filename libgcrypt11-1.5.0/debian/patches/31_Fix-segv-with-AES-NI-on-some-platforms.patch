@@ -1,0 +1,35 @@
+From d30c86465fef9531766fd7c124a5d87d7645850e Mon Sep 17 00:00:00 2001
+From: Werner Koch <wk@gnupg.org>
+Date: Wed, 21 Nov 2012 10:35:28 +0100
+Subject: [PATCH 16/17] Fix segv with AES-NI on some platforms.
+
+* cipher/rijndael.c (RIJNDAEL_context): Align on 16 bytes.
+--
+
+The trigger for this problem is the allocation of the context in the
+selftest functions.  The other code paths use a 16 byte alignment
+anyway by means of the allocation of the context in cipher.c
+Thanks to Gentoo hacker Joakim Tjernlund for figuring out the reason
+of this problem.
+
+GnuPG-bug-id: 1452
+---
+ cipher/rijndael.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cipher/rijndael.c b/cipher/rijndael.c
+index 2df8ea9..92fa31d 100644
+--- a/cipher/rijndael.c
++++ b/cipher/rijndael.c
+@@ -124,7 +124,7 @@ typedef struct
+ #ifdef USE_AESNI
+   int use_aesni;            /* AES-NI shall be used.  */
+ #endif /*USE_AESNI*/
+-} RIJNDAEL_context;
++} RIJNDAEL_context ATTR_ALIGNED_16;
+ 
+ /* Macros defining alias for the keyschedules.  */
+ #define keyschenc  u1.keyschedule
+-- 
+1.7.10.4
+

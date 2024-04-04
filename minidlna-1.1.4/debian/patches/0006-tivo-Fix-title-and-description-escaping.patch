@@ -1,0 +1,56 @@
+From 0845c2193b583298fd478c141f3fe0725293c0b9 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Wed, 8 Apr 2015 23:38:38 -0700
+Subject: [PATCH 6/7] tivo: Fix title and description escaping.
+
+---
+ tivo_commands.c | 14 +++++---------
+ 1 file changed, 5 insertions(+), 9 deletions(-)
+
+diff --git a/tivo_commands.c b/tivo_commands.c
+index 617d2f1..61e0a6e 100644
+--- a/tivo_commands.c
++++ b/tivo_commands.c
+@@ -123,6 +123,7 @@ tivo_unescape_tag(char *tag)
+ 	modifyString(tag, "&amp;lt;", "&lt;", 1);
+ 	modifyString(tag, "&amp;amp;gt;", "&gt;", 1);
+ 	modifyString(tag, "&amp;gt;", "&gt;", 1);
++	modifyString(tag, "&amp;quot;", "&quot;", 1);
+ 	return tag;
+ }
+ 
+@@ -185,13 +186,8 @@ callback(void *args, int argc, char **argv, char **azColName)
+ 			episode = strstr(title, " - ");
+ 			if( episode )
+ 			{
+-				strcatf(str, "<Title>%.*s</Title>"
+-				             "<EpisodeTitle>%s</EpisodeTitle>", 
+-				             (int)(episode-title), title, episode+3);
+-			}
+-			else
+-			{
+-				strcatf(str, "<Title>%s</Title>", title);
++				strcatf(str, "<EpisodeTitle>%s</EpisodeTitle>", episode+3);
++				*episode = '\0';
+ 			}
+ 			if( date )
+ 			{
+@@ -202,13 +198,13 @@ callback(void *args, int argc, char **argv, char **azColName)
+ 				strcatf(str, "<CaptureDate>0x%X</CaptureDate>", (unsigned int)mktime(&tm));
+ 			}
+ 			if( comment )
+-				strcatf(str, "<Description>%s</Description>", comment);
++				strcatf(str, "<Description>%s</Description>", tivo_unescape_tag(comment));
+ 		}
+ 		else
+ 		{
+ 			return 0;
+ 		}
+-		strcatf(str, "<Title>%s</Title>", tivo_unescape_tag(title));
++		strcatf(str, "<Title>%s</Title>", title);
+ 		if( artist ) {
+ 			strcatf(str, "<ArtistName>%s</ArtistName>", tivo_unescape_tag(artist));
+ 		}
+-- 
+1.9.1
+

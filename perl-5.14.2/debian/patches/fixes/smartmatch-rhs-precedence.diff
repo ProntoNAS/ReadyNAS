@@ -1,0 +1,51 @@
+From 0d0e8db75c2c00e8863043c3efeaedff4fd62aa4 Mon Sep 17 00:00:00 2001
+From: Leon Timmermans <fawaka@gmail.com>
+Date: Mon, 23 Jan 2012 02:01:00 +0100
+Subject: Enforce Any ~~ Object smartmatch precedence
+
+Origin: upstream, http://perl5.git.perl.org/perl.git/commit/011be0badf32a8d73f13b6565fbd8c398f8ab27e
+Bug-Debian: http://bugs.debian.org/691102
+Patch-Name: fixes/smartmatch-rhs-precedence.diff
+
+See the related discussion at
+ http://www.nntp.perl.org/group/perl.perl5.porters/2011/07/msg174260.html
+---
+ pp_ctl.c          |    2 +-
+ t/op/smartmatch.t |    4 +---
+ 2 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/pp_ctl.c b/pp_ctl.c
+index 7c4651c..cbeeeee 100644
+--- a/pp_ctl.c
++++ b/pp_ctl.c
+@@ -4374,7 +4374,7 @@ S_do_smartmatch(pTHX_ HV *seen_this, HV *seen_other, const bool copied)
+ 	DEBUG_M(Perl_deb(aTHX_ "    applying rule Any-Object\n"));
+ 	DEBUG_M(Perl_deb(aTHX_ "        attempting overload\n"));
+ 
+-	tmpsv = amagic_call(d, e, smart_amg, 0);
++	tmpsv = amagic_call(d, e, smart_amg, AMGf_noleft);
+ 	if (tmpsv) {
+ 	    SPAGAIN;
+ 	    (void)POPs;
+diff --git a/t/op/smartmatch.t b/t/op/smartmatch.t
+index da4840e..79c9847 100644
+--- a/t/op/smartmatch.t
++++ b/t/op/smartmatch.t
+@@ -73,7 +73,7 @@ my %keyandmore = map { $_ => 0 } @keyandmore;
+ my %fooormore = map { $_ => 0 } @fooormore;
+ 
+ # Load and run the tests
+-plan tests => 351;
++plan tests => 349;
+ 
+ while (<DATA>) {
+   SKIP: {
+@@ -223,8 +223,6 @@ __DATA__
+ @	"object"	$str_obj
+ @	FALSE		$str_obj
+ # Those will treat the $str_obj as a string because of fallback:
+-!	$ov_obj		$str_obj
+-	$ov_obj_2	$str_obj
+ 
+ # object (overloaded or not) ~~ Any
+ 	$obj		qr/NoOverload/

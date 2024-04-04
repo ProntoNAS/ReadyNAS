@@ -1,0 +1,109 @@
+#!/usr/bin/make -f
+#export DH_VERBOSE=1
+
+# Get upstream tarball version from debian/changelog
+UPSTREAM_VERS= $(shell dpkg-parsechangelog | grep ^Version | cut -d" " -f2 | cut -d"-" -f1)
+
+BUILD_DIR=$(CURDIR)/debian/zigo-build
+
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+CFLAGS = -Wall -g
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2
+endif
+
+config-stamp:
+	dh_testdir
+	mkdir -p $(BUILD_DIR)
+	cp -al $(filter-out debian .git .svk .svn, $(wildcard .[^.]* *)) $(BUILD_DIR)
+	rm -rf $(BUILD_DIR)/doc/programmers-guide $(BUILD_DIR)/doc/programmers-guide.pdf
+	rm -rf $(BUILD_DIR)/doc/driver-guide $(BUILD_DIR)/doc/driver-guide.pdf
+	# upgrade to more recent version before starting the configure process
+	cp /usr/share/misc/config.sub $(BUILD_DIR)
+	cp /usr/share/misc/config.guess $(BUILD_DIR)
+	[ ! -f $(BUILD_DIR)/Makefile ] || $(MAKE) -C $(BUILD_DIR) distclean
+	# Add here commands to configure the package.
+	cd $(BUILD_DIR) && ./autogen.sh
+	cd $(BUILD_DIR) && CFLAGS="$(CFLAGS)" ./configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info
+	cd $(CURDIR)
+	touch config-stamp
+
+
+build-arch: build
+build-indep: build
+
+build: build-stamp
+build-stamp: config-stamp
+	dh_testdir
+	$(MAKE) -C $(BUILD_DIR)
+	#docbook-to-man debian/libdbi0.sgml > libdbi0.1
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -rf $(BUILD_DIR)
+	rm -f build-stamp config-stamp
+
+	dh_clean 
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+
+	# Add here commands to install the package into debian/libdbi1.
+	$(MAKE) -C $(BUILD_DIR) install DESTDIR=$(CURDIR)/debian/libdbi1
+
+	# Remove the doc as we are producing a separate package
+	rm -r debian/libdbi1/usr/share/doc/libdbi-$(UPSTREAM_VERS)/
+
+	# Remove the header files as we are production a separate package
+	rm -r debian/libdbi1/usr/include
+
+	# Remove the symlink as it should go in the -dev package
+	rm debian/libdbi1/usr/lib/libdbi.so
+	rm -rf debian/libdbi1/usr/lib/pkgconfig
+
+	# Removes dependency_libs
+	sed -i "/dependency_libs/ s/'.*'/''/" `find ${CURDIR}/debian -name '*.la'`
+
+	# Moves the .la and .a to the dev package
+	mkdir -p debian/libdbi-dev/usr/lib
+	mv debian/libdbi1/usr/lib/libdbi.a debian/libdbi-dev/usr/lib
+	mv debian/libdbi1/usr/lib/libdbi.la debian/libdbi-dev/usr/lib
+
+# Build architecture-independent files here.
+lib_dir := debian/libdbi1/usr/lib
+binary-indep: build install
+	# set library file permissions (-rw-r--r--)
+	chown 644 $(lib_dir)/*
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs ChangeLog
+	dh_installdocs
+	dh_installexamples
+	dh_install
+	dh_installman
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install

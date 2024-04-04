@@ -1,0 +1,769 @@
+diff --git a/client/commands.c b/client/commands.c
+index 88554d8..7b12bde 100644
+--- a/client/commands.c
++++ b/client/commands.c
+@@ -1000,6 +1000,15 @@ static int cmd_config(char *args[], int num, struct connman_option *options)
+ 					&append);
+ 			index += append.values;
+ 			break;
++		case 'V':
++			res = __connmanctl_dbus_set_property_array(connection,
++					path, "net.connman.Service",
++					config_return, g_strdup(service_name),
++					"VLAN.Configuration",
++					DBUS_TYPE_STRING, config_append_str,
++					&append);
++			index += append.values;
++			break;
+ 
+ 		default:
+ 			res = -EINVAL;
+@@ -1869,6 +1878,7 @@ static struct connman_option config_options[] = {
+ 	{"ipv4", 'i', "off|dhcp|manual <address> <netmask> <gateway>"},
+ 	{"route", 'R', "<dest/CIDR:gateway> [<dest2/CIDR2:gateway2>] [...]"},
+ 	{"remove", 'r', "                 Remove service"},
++	{"vlan", 'V', "<vid> [<vid> ...]"},
+ 	{ NULL, }
+ };
+ 
+diff --git a/gdhcp/client.c b/gdhcp/client.c
+index ff6351e..fd1ae01 100644
+--- a/gdhcp/client.c
++++ b/gdhcp/client.c
+@@ -39,6 +39,8 @@
+ #include <net/ethernet.h>
+ 
+ #include <linux/if.h>
++#include <linux/if_vlan.h>
++#include <linux/sockios.h>
+ #include <linux/filter.h>
+ 
+ #include <glib.h>
+@@ -89,6 +91,7 @@ struct _GDHCPClient {
+ 	int ifindex;
+ 	char *interface;
+ 	uint8_t mac_address[6];
++	int vid;
+ 	uint32_t xid;
+ 	uint32_t server_ip;
+ 	uint32_t requested_ip;
+@@ -590,18 +593,20 @@ static gboolean send_announce_packet(gpointer dhcp_data)
+ 	return TRUE;
+ }
+ 
+-static void get_interface_mac_address(int index, uint8_t *mac_address)
++static int get_interface_mac_address(int index, uint8_t *mac_address)
+ {
+ 	struct ifreq ifr;
++	struct vlan_ioctl_args vifr;
+ 	int sk, err;
+ 
+ 	sk = socket(PF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+ 	if (sk < 0) {
+ 		perror("Open socket error");
+-		return;
++		return -1;
+ 	}
+ 
+ 	memset(&ifr, 0, sizeof(ifr));
++	memset(&vifr, 0, sizeof(vifr));
+ 	ifr.ifr_ifindex = index;
+ 
+ 	err = ioctl(sk, SIOCGIFNAME, &ifr);
+@@ -609,6 +614,7 @@ static void get_interface_mac_address(int index, uint8_t *mac_address)
+ 		perror("Get interface name error");
+ 		goto done;
+ 	}
++	memcpy(vifr.device1, ifr.ifr_ifrn.ifrn_name, sizeof(vifr.device1));
+ 
+ 	err = ioctl(sk, SIOCGIFHWADDR, &ifr);
+ 	if (err < 0) {
+@@ -618,8 +624,11 @@ static void get_interface_mac_address(int index, uint8_t *mac_address)
+ 
+ 	memcpy(mac_address, ifr.ifr_hwaddr.sa_data, 6);
+ 
++	vifr.cmd = GET_VLAN_VID_CMD;
++	err = ioctl(sk, SIOCSIFVLAN, &vifr) ? -1 : vifr.u.VID;
+ done:
+ 	close(sk);
++	return err;
+ }
+ 
+ void g_dhcpv6_client_set_retransmit(GDHCPClient *dhcp_client)
+@@ -1159,7 +1168,8 @@ GDHCPClient *g_dhcp_client_new(GDHCPType type,
+ 		goto error;
+ 	}
+ 
+-	get_interface_mac_address(ifindex, dhcp_client->mac_address);
++	dhcp_client->vid =
++		get_interface_mac_address(ifindex, dhcp_client->mac_address);
+ 
+ 	dhcp_client->listener_sockfd = -1;
+ 	dhcp_client->listen_mode = L_NONE;
+diff --git a/plugins/ethernet.c b/plugins/ethernet.c
+index bafc75d..fd25da7 100644
+--- a/plugins/ethernet.c
++++ b/plugins/ethernet.c
+@@ -25,6 +25,10 @@
+ 
+ #include <errno.h>
+ #include <net/if.h>
++#include <string.h>
++#include <stdio.h>
++#include <linux/sockios.h>
++#include <linux/if_vlan.h>
+ 
+ #ifndef IFF_LOWER_UP
+ #define IFF_LOWER_UP	0x10000
+@@ -89,11 +93,28 @@ static struct connman_network_driver eth_network_driver = {
+ 	.disconnect	= eth_network_disconnect,
+ };
+ 
++int get_vlan_vid(const char *ifname)
++{
++	int vid;
++	struct vlan_ioctl_args ifr;
++	memset(&ifr, '\0', sizeof(ifr));
++
++	int fd = socket(AF_INET, SOCK_STREAM, 0);
++	if (fd < 0)
++		return -errno;
++	ifr.cmd = GET_VLAN_VID_CMD;
++	strncpy(ifr.device1, ifname, sizeof(ifr.device1));
++	vid = ioctl(fd, SIOCSIFVLAN, &ifr) ? -errno : ifr.u.VID;
++	close(fd);
++	return vid;
++}
++
+ static void add_network(struct connman_device *device,
+ 			struct ethernet_data *ethernet)
+ {
+ 	struct connman_network *network;
+-	int index;
++	int index, vid;
++	char *ifname;
+ 
+ 	network = connman_network_create("carrier",
+ 					CONNMAN_NETWORK_TYPE_ETHERNET);
+@@ -102,23 +123,33 @@ static void add_network(struct connman_device *device,
+ 
+ 	index = connman_device_get_index(device);
+ 	connman_network_set_index(network, index);
++	ifname = connman_inet_ifname(index);
++	if (!ifname)
++		return;
++	vid = get_vlan_vid(ifname);
+ 
+-	connman_network_set_name(network, "Wired");
++	connman_network_set_name(network, (vid >= 0) ? "VLAN" : "Wired");
+ 
+ 	if (connman_device_add_network(device, network) < 0) {
+ 		connman_network_unref(network);
++		g_free(ifname);
+ 		return;
+ 	}
+ 
+-	if (!eth_tethering)
++	if (!eth_tethering) {
++		char group[16] = "cable";
+ 		/*
+ 		 * Prevent service from starting the reconnect
+ 		 * procedure as we do not want the DHCP client
+ 		 * to run when tethering.
+ 		 */
+-		connman_network_set_group(network, "cable");
++		if (vid >= 0)
++			snprintf(group, sizeof(group), "vlan%d", vid);
++		connman_network_set_group(network, group);
++	}
+ 
+ 	ethernet->network = network;
++	g_free(ifname);
+ }
+ 
+ static void remove_network(struct connman_device *device,
+diff --git a/src/service.c b/src/service.c
+index ac38c4b..47d7879 100644
+--- a/src/service.c
++++ b/src/service.c
+@@ -30,6 +30,10 @@
+ #include <gdbus.h>
+ #include <ctype.h>
+ #include <stdint.h>
++#include <stdlib.h>
++
++#include <linux/if_vlan.h>
++#include <linux/sockios.h>
+ 
+ #include <connman/storage.h>
+ #include <connman/setting.h>
+@@ -99,6 +103,12 @@ struct connman_service {
+ 	char **timeservers_config;
+ 	char **routes;
+ 	char **routes_config;
++	int *vids;
++	int *vids_config;
++	char **vids_strings;
++	char **vids_config_strings;
++	int *vids2go;
++	int *vids_config2go;
+ 	/* 802.1x settings from the config files */
+ 	char *eap;
+ 	char *identity;
+@@ -135,6 +145,10 @@ static struct connman_ipconfig *create_ip4config(struct connman_service *service
+ static struct connman_ipconfig *create_ip6config(struct connman_service *service,
+ 		int index);
+ 
++static struct connman_service *lookup_by_identifier(const char *identifier);
++
++static int update_vids_strings(DBusMessageIter *iter,
++				int *vids, char ***vids_strings);
+ 
+ struct find_data {
+ 	const char *path;
+@@ -340,6 +454,11 @@ int __connman_service_load_modifiable(struct connman_service *service)
+ 	return 0;
+ }
+ 
++static int connman_service_id_is_vlan(struct connman_service *service)
++{
++	return (strstr(service->identifier, "_vlan") != NULL);
++}
++
+ static int service_load(struct connman_service *service)
+ {
+ 	GKeyFile *keyfile;
+@@ -492,6 +511,24 @@ static int service_load(struct connman_service *service)
+ 		service->routes_config = NULL;
+ 	}
+ 
++	service->vids_config_strings = g_key_file_get_string_list(keyfile,
++			service->identifier, "VLAN", &length, NULL);
++	if ((service->vids_config_strings && !length) ||
++		connman_service_id_is_vlan(service)) {
++		g_strfreev(service->vids_config_strings);
++		service->vids_config_strings = NULL;
++	}
++	if (service->vids_config_strings && length > 0) {
++		service->vids_config2go = g_new(int, length + 1);
++		int i;
++		for (i = 0; i < length; i++)
++			if ((service->vids_config2go[i] =
++				atoi(service->vids_config_strings[i])) < 0)
++				break;
++		service->vids_config2go[i] = -1;
++	} else
++		service->vids_config2go = NULL;
++
+ 	service->domains = g_key_file_get_string_list(keyfile,
+ 			service->identifier, "Domains", &length, NULL);
+ 	if (service->domains && length == 0) {
+@@ -674,7 +711,6 @@ static int service_save(struct connman_service *service)
+ 
+ 	if (service->routes_config) {
+ 		guint len = g_strv_length(service->routes_config);
+-
+ 		g_key_file_set_string_list(keyfile, service->identifier,
+ 								"Routes",
+ 				(const gchar **) service->routes_config, len);
+@@ -682,6 +718,17 @@ static int service_save(struct connman_service *service)
+ 		g_key_file_remove_key(keyfile, service->identifier,
+ 							"Routes", NULL);
+ 
++	if (service->vids_config && !connman_service_id_is_vlan(service)) {
++		guint len = update_vids_strings(NULL,
++						service->vids_config,
++						&service->vids_config_strings);
++		g_key_file_set_string_list(keyfile, service->identifier,
++								"VLAN",
++				(const gchar **) service->vids_config_strings, len);
++	} else
++		g_key_file_remove_key(keyfile, service->identifier,
++							"VLAN", NULL);
++
+ 	if (service->domains) {
+ 		guint len = g_strv_length(service->domains);
+ 
+@@ -1727,7 +1774,7 @@ static char *slash2mask(const char *addr, char mask[])
+ 	return slash;
+ }
+ 
+-void del_routes_config(int index, struct connman_service *service)
++static void del_routes_config(int index, struct connman_service *service)
+ {
+ 	char mask[16];
+ 	char **routes = service->routes_config;
+@@ -1799,12 +1846,10 @@ static void append_rt(DBusMessageIter *iter, void *user_data)
+ 	if (is_connected(service) == FALSE || index < 0)
+ 		return;
+ 
+-	if (service->routes_config != NULL) {
++	if (service->routes_config)
+ 		append_routes(iter, index, service->routes_config);
+-		return;
+-	} else if (service->routes != NULL)
++	else if (service->routes)
+ 		append_routes(iter, index, service->routes);
+-
+ }
+ 
+ static void append_rtconfig(DBusMessageIter *iter, void *user_data)
+@@ -1818,6 +1863,257 @@ static void append_rtconfig(DBusMessageIter *iter, void *user_data)
+ 	append_routes(iter, index, service->routes_config);
+ }
+ 
++/* Delete VLAN IF */
++static int del_vlan(struct connman_service *service)
++{
++	if (!connman_service_id_is_vlan(service))
++		return -1;
++
++	char *vlanname =
++		connman_inet_ifname(__connman_service_get_index(service));
++	if (!vlanname)
++		return -1;
++
++	int fd = socket(AF_INET, SOCK_STREAM, 0);
++	if (fd < 0) {
++		g_free(vlanname);
++		return -1;
++	}
++
++	connman_info("Delete VLAN id=%s %s", service->identifier, vlanname);
++	struct vlan_ioctl_args ifr;
++
++	memset(&ifr, '\0', sizeof(ifr));
++	strncpy(ifr.device1, vlanname, sizeof(ifr.device1));
++	ifr.cmd = DEL_VLAN_CMD;
++	ioctl(fd, SIOCSIFVLAN, &ifr);
++	close(fd);
++	g_free(vlanname);
++	return 0;
++}
++
++static struct connman_service
++*lookup_for_vlanbase(const struct connman_service *service)
++{
++	const char *group = strrchr(service->identifier, '_');
++	if (!group || strncmp(group, "_vlan", 5))
++		return NULL;
++	gchar *identifier = g_strdup_printf("%.*s_cable",
++					(int)(group - service->identifier),
++					service->identifier);
++	struct connman_service *base_service = lookup_by_identifier(identifier);
++	g_free(identifier);
++	return base_service;
++}
++
++static struct connman_service
++*lookup_for_vlan(const struct connman_service *base_service, const int vid)
++{
++	const char *group = strrchr(base_service->identifier, '_');
++	if (!group || !strncmp(group, "_vlan", 5))
++		return NULL;
++	gchar *identifier = g_strdup_printf("%.*s_vlan%d",
++					(int)(group - base_service->identifier),
++					base_service->identifier,
++					vid);
++	struct connman_service *vlan_service = lookup_by_identifier(identifier);
++	g_free(identifier);
++	return vlan_service;
++}
++
++/* Delete child VLAN */
++static void del_vlan_by_vid(struct connman_service *service, const int vid)
++{
++	struct connman_service *vlan_service = lookup_for_vlan(service, vid);
++	if (vlan_service)
++		del_vlan(vlan_service);
++}
++
++/* Create NEW VLAN */
++static void add_vlan_by_vid(struct connman_service *service, const int vid)
++{
++	int index = __connman_service_get_index(service);
++	char *ifname = connman_inet_ifname(index);
++	int fd;
++
++	if (!ifname ||
++		get_vlan_vid(ifname) >= 0 ||
++		(fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
++		g_free(ifname);
++		return;
++	}
++
++	connman_info("Add VLAN base=%s %s.%d",
++			service->identifier, ifname, vid);
++	struct vlan_ioctl_args ifr;
++
++	memset(&ifr, '\0', sizeof(ifr));
++	strncpy(ifr.device1, ifname, sizeof(ifr.device1));
++
++	ifr.cmd = ADD_VLAN_CMD;
++	ifr.u.VID = vid;
++	/* Ignore error. */
++	ioctl(fd, SIOCSIFVLAN, &ifr);
++	close(fd);
++	g_free(ifname);
++}
++
++/* Rebuild VID string list */
++static int update_vids_strings(DBusMessageIter *iter,
++				int *vids, char ***vids_strings)
++{
++	int i;
++
++	if (*vids_strings) {
++		g_strfreev(*vids_strings);
++		*vids_strings = NULL;
++	}
++	if (vids) {
++		for (i = 0; vids[i] >= 0; i++) {
++			*vids_strings = g_renew(char *, *vids_strings, i + 2);
++			(*vids_strings)[i] = g_strdup_printf("%d", vids[i]);
++			(*vids_strings)[i + 1] = NULL;
++
++			if (iter)
++				dbus_message_iter_append_basic(iter,
++						DBUS_TYPE_STRING,
++						&(*vids_strings)[i]);
++		}
++	}
++
++	return i;
++}
++
++static void set_vlans(struct connman_service *service,
++			int **vids, int **vids2go, char ***vids_strings)
++{
++	connman_info("Set VLANs: id=%s vids=%p vids2go=%p",
++			service->identifier, *vids, *vids2go);
++	/* Remove stale VLANs */
++	if (*vids) {
++		int *vidp;
++
++		for (vidp = *vids; *vidp >= 0; vidp++) {
++			int *vidp2 = NULL;
++
++			if (*vids2go)
++				for (vidp2 = *vids2go; *vidp2 >= 0; vidp2++)
++					if (*vidp2 == *vidp)
++						break;
++
++			if (!vidp2 || *vidp2 < 0)
++				del_vlan_by_vid(service, *vidp);
++		}
++	}
++
++	/* Add VLANs (both new and existing). */
++	if (*vids2go) {
++		int *vidp;
++
++		for (vidp = *vids2go; *vidp >= 0; vidp++)
++			add_vlan_by_vid(service, *vidp);
++
++	}
++	g_free(*vids);
++	*vids = *vids2go;
++	*vids2go = NULL;
++}
++
++static void set_vlan(DBusMessageIter *iter, void *user_data)
++{
++	struct connman_service *service = user_data;
++
++	set_vlans(service,
++			&service->vids_config,
++			&service->vids_config2go,
++			&service->vids_config_strings);
++
++	set_vlans(service,
++			&service->vids,
++			&service->vids2go,
++			&service->vids_strings);
++}
++
++static void set_vlanconfig(DBusMessageIter *iter, void *user_data)
++{
++	struct connman_service *service = user_data;
++
++	set_vlans(service,
++			&service->vids_config,
++			&service->vids_config2go,
++			&service->vids_config_strings);
++}
++
++static void merge_vids(const int *vids, int **vids2go)
++{
++	int i, len = 0, clen;
++
++	if (!vids)
++		return;
++
++	if (*vids2go) {
++		while ((*vids2go)[len] >= 0)
++			len++;
++	}
++
++	clen = len;
++
++	if (vids) {
++		/* Continue to get total length. */
++		for (i = 0; vids[i] >= 0; i++)
++			len++;
++	}
++
++	*vids2go = g_renew(int, *vids2go, len + 1);
++
++	for (i = 0; vids[i] >= 0; i++) {
++		int j;
++
++		/* Search for duplicate */
++		for (j = 0; j < clen; j++)
++			if ((*vids2go)[j] == vids[i])
++				break;
++		if (j >= clen)
++			(*vids2go)[clen++] = vids[i];
++	}
++
++	if (clen)
++		(*vids2go)[clen] = -1;
++	else {
++		g_free(*vids2go);
++		*vids2go = NULL;
++	}
++}
++
++static void add_vlan(DBusMessageIter *iter, void *user_data)
++{
++	struct connman_service *service = user_data;
++
++	if (service->vids2go || service->vids_config2go) {
++		merge_vids(service->vids, &service->vids2go);
++		merge_vids(service->vids_config, &service->vids_config2go);
++		set_vlan(iter, service);
++		service_save(service);
++	}
++	update_vids_strings(iter, service->vids,
++				&service->vids_strings);
++	update_vids_strings(iter, service->vids_config,
++				&service->vids_config_strings);
++}
++
++static void add_vlanconfig(DBusMessageIter *iter, void *user_data)
++{
++	struct connman_service *service = user_data;
++
++	if (service->vids_config2go) {
++		merge_vids(service->vids_config, &service->vids_config2go);
++		set_vlanconfig(iter, service);
++		service_save(service);
++	}
++	update_vids_strings(iter, service->vids_config,
++				&service->vids_config_strings);
++}
++
+ static void append_domainconfig(DBusMessageIter *iter, void *user_data)
+ {
+ 	struct connman_service *service = user_data;
+@@ -1974,6 +2270,45 @@ static void append_provider(DBusMessageIter *iter, void *user_data)
+ 		__connman_provider_append_properties(service->provider, iter);
+ }
+ 
++static void rem_vid(int **list, int vid)
++{
++	int *vidp = *list;
++
++	if (!vidp)
++		return;
++
++	while (*vidp >= 0 && *vidp != vid)
++		vidp++;
++
++	if (*vidp == vid) {
++		do
++			vidp[0] = vidp[1];
++		while (*vidp++ >= 0);
++
++		if (vidp - *list == 1) {
++			g_free(*list);
++			*list = NULL;
++		} else
++			*list = g_renew(int, *list, vidp - *list);
++	}
++}
++
++/* Delete a VLAN service and remove it from its base's lists */
++static int delete_vlan(struct connman_service *service, int vid)
++{
++	struct connman_service *base_service = lookup_for_vlanbase(service);
++
++	if (base_service) {
++		rem_vid(&base_service->vids, vid);
++		update_vids_strings(NULL, service->vids,
++					&service->vids_strings);
++		rem_vid(&base_service->vids_config, vid);
++		update_vids_strings(NULL, service->vids_config,
++					&service->vids_config_strings);
++		service_save(base_service);
++	}
++	return del_vlan(service);
++}
+ 
+ static void settings_changed(struct connman_service *service,
+ 				struct connman_ipconfig *ipconfig)
+@@ -2111,6 +2446,18 @@ static void routes_configuration_changed(struct connman_service *service)
+ 			append_rtconfig, service);
+ }
+ 
++static void vlan_configuration_changed(struct connman_service *service)
++{
++	if (allow_property_changed(service) == FALSE)
++		return;
++
++	connman_dbus_property_changed_array(service->path,
++				CONNMAN_SERVICE_INTERFACE,
++				"VLAN.Configuration",
++				DBUS_TYPE_STRING,
++				set_vlanconfig, service);
++}
++
+ static void link_changed(struct connman_service *service)
+ {
+ 	if (!allow_property_changed(service))
+@@ -2470,6 +2817,12 @@ static void append_properties(DBusMessageIter *dict, dbus_bool_t limited,
+ 	connman_dbus_dict_append_array(dict, "Routes.Configuration",
+ 				DBUS_TYPE_STRING, append_rtconfig, service);
+ 
++	connman_dbus_dict_append_array(dict, "VLAN",
++				DBUS_TYPE_STRING, add_vlan, service);
++
++	connman_dbus_dict_append_array(dict, "VLAN.Configuration",
++				DBUS_TYPE_STRING, add_vlanconfig, service);
++
+ 	connman_dbus_dict_append_array(dict, "Domains",
+ 				DBUS_TYPE_STRING, append_domain, service);
+ 
+@@ -2867,7 +3220,6 @@ void __connman_service_timeserver_changed(struct connman_service *service,
+ 			DBUS_TYPE_STRING, append_ts, ts_list);
+ }
+ 
+-
+ int __connman_service_route_append(struct connman_service *service,
+ 						const char *route)
+ {
+@@ -2970,20 +3322,6 @@ int __connman_service_route_remove(struct connman_service *service,
+ 	return 0;
+ }
+ 
+-void __connman_service_route_changed(struct connman_service *service,
+-		GSList *rt_list)
+-{
+-	if (service == NULL)
+-		return;
+-
+-	if (allow_property_changed(service) == FALSE)
+-		return;
+-
+-	connman_dbus_property_changed_array(service->path,
+-			CONNMAN_SERVICE_INTERFACE, "Routes",
+-			DBUS_TYPE_STRING, append_rt, rt_list);
+-}
+-
+ void __connman_service_set_pac(struct connman_service *service,
+ 					const char *pac)
+ {
+@@ -3609,6 +3947,49 @@ static DBusMessage *set_property(DBusConnection *conn,
+ 		routes_configuration_changed(service);
+ 
+ 		service_save(service);
++	} else if (g_str_equal(name, "VLAN.Configuration") == TRUE &&
++		!connman_service_id_is_vlan(service)) {
++		DBusMessageIter entry;
++		int count = 0;
++
++		if (service->immutable == TRUE)
++			return __connman_error_not_supported(msg);
++
++		if (type != DBUS_TYPE_ARRAY)
++			return __connman_error_invalid_arguments(msg);
++
++		g_strfreev(service->vids_config_strings);
++		service->vids_config_strings = NULL;
++		dbus_message_iter_recurse(&value, &entry);
++
++		while (dbus_message_iter_get_arg_type(&entry) == DBUS_TYPE_STRING) {
++			const char *val;
++			int vid;
++
++			dbus_message_iter_get_basic(&entry, &val);
++			dbus_message_iter_next(&entry);
++			if ((vid = atoi(val)) < 0)
++				return __connman_error_invalid_arguments(msg);
++
++			if (service->vids_config2go) {/* Check duplicates */
++				int i;
++
++				for (i = 0; i < count; i++)
++					if (service->vids_config2go[i] == vid)
++						break;
++				if (i < count)
++					continue;
++			}
++
++			service->vids_config2go = g_renew(int, 
++				service->vids_config2go, count + 2);
++			service->vids_config2go[count++] = vid;
++			service->vids_config2go[count] = -1;
++		}
++
++		vlan_configuration_changed(service);
++
++		service_save(service);
+ 	} else if (g_str_equal(name, "Domains.Configuration")) {
+ 		DBusMessageIter entry;
+ 		GString *str;
+@@ -4338,10 +4719,20 @@ static DBusMessage *disconnect_service(DBusConnection *conn,
+ 
+ bool __connman_service_remove(struct connman_service *service)
+ {
+-	if (service->type == CONNMAN_SERVICE_TYPE_ETHERNET ||
++	int index = __connman_service_get_index(service);
++	char *ifname = connman_inet_ifname(index);
++	int vid = -1;
++
++	if (ifname) {
++		vid = get_vlan_vid(ifname);
++		g_free(ifname);
++	}
++
++	if ((service->type == CONNMAN_SERVICE_TYPE_ETHERNET && vid < 0) ||
+ 			service->type == CONNMAN_SERVICE_TYPE_GADGET)
+ 		return false;
+ 
++
+ 	if (service->immutable || service->hidden ||
+ 			__connman_provider_is_immutable(service->provider))
+ 		return false;
+@@ -4351,6 +4742,8 @@ bool __connman_service_remove(struct connman_service *service)
+ 		return false;
+ 
+ 	__connman_service_disconnect(service);
++	if (vid >= 0)
++		delete_vlan(service, vid);
+ 
+ 	g_free(service->passphrase);
+ 	service->passphrase = NULL;
+@@ -4795,6 +5188,12 @@ static void service_free(gpointer user_data)
+ 	g_strfreev(service->timeservers_config);
+ 	g_strfreev(service->routes);
+ 	g_strfreev(service->routes_config);
++	g_free(service->vids);
++	g_free(service->vids_config);
++	g_free(service->vids2go);
++	g_free(service->vids_config2go);
++	g_strfreev(service->vids_strings);
++	g_strfreev(service->vids_config_strings);
+ 	g_strfreev(service->nameservers);
+ 	g_strfreev(service->nameservers_config);
+ 	g_strfreev(service->nameservers_auto);

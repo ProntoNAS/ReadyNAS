@@ -1,0 +1,249 @@
+#!/usr/bin/perl -w
+
+=head1 NAME
+
+dpkg-preconfigure - let packages ask questions prior to their installation
+
+=head1 SYNOPSIS
+
+ dpkg-preconfigure [options] package.deb
+
+ dpkg-preconfigure --apt
+
+=head1 DESCRIPTION
+
+B<dpkg-preconfigure> lets packages ask questions before they are installed.
+It operates on a set of debian packages, and all packages that use debconf
+will have their config script run so they can examine the system and ask
+questions.
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<-f>I<type>, B<--frontend=>I<type>
+
+Select the frontend to use.
+
+=item B<-p>I<value>, B<--priority=>I<value>
+
+Set the lowest priority of questions you are interested in. Any questions
+with a priority below the selected priority will be ignored and their
+default answers will be used.
+
+=item B<--terse>
+
+Enables terse output mode. This affects only some frontends.
+
+=item B<--apt>
+
+Run in apt mode. It will expect to read a set of package filenames from
+stdin, rather than getting them as parameters. Typically this is used to
+make apt run dpkg-preconfigure on all packages before they are installed.
+To do this, add something like this to /etc/apt/apt.conf:
+
+ // Pre-configure all packages before
+ // they are installed.
+ DPkg::Pre-Install-Pkgs {
+ 	"dpkg-preconfigure --apt --priority=low";
+ };
+
+=item B<-h>, B<--help>
+
+Display usage help.
+
+=back
+
+=cut
+
+=head1 SEE ALSO
+
+L<debconf(7)>
+
+=cut
+
+# This program may be running from apt. If so, if it fails, apt is going to
+# fail as well, which will make it hard for people to fix whatever the failure
+# was. One thing someone encountered was perl failing to install. Apt then
+# was re-run with perl unpacked and not configured, and modules weren't
+# able to be loaded. As a sanity check, detect that case. If found, exit with
+# an error message, but a return code of 0 so apt continues.
+BEGIN {
+	eval qq{
+		use strict;
+		use FileHandle;
+		use Debconf::Log qw(:all);
+		use Debconf::Db;
+		use Debconf::Template;
+		use Debconf::Config;
+		use Debconf::AutoSelect qw(:all);
+		use Debconf::Gettext;
+		use Debconf::Path;
+	};
+	if ($@) {
+		# Don't use gettext() on this because it may have failed to
+		# load!
+		print STDERR "debconf: Perl may be unconfigured ($@) -- aborting\n";
+		exit 0;
+	}
+}
+
+if (exists $ENV{DEBCONF_USE_CDEBCONF} and $ENV{DEBCONF_USE_CDEBCONF} ne '') {
+    exec "/usr/lib/cdebconf/dpkg-preconfigure", @ARGV;
+}
+
+Debconf::Db->load;
+
+my $apt=0;
+Debconf::Config->getopt(
+qq{Usage: dpkg-preconfigure [options] [debs]
+       --apt			Apt mode.},
+	"apt"			=> \$apt,
+);
+
+# In apt mode, need unbuffered output. Let's just enable it.
+$|=1;
+
+my @debs=@ARGV;
+@ARGV=();
+
+my $have_tty=1;
+
+# If running from apt, read package filenames on stdin.
+if ($apt) {
+	while (<>) {
+		chomp;
+		push @debs, $_ if length $_;
+	}
+	
+	exit unless @debs;
+	
+	# We have now reached the end of the first file on stdin.
+	# Future reads from stdin should get input from the user, so re-open.
+	$have_tty=0 unless open (STDIN, "/dev/tty");
+}
+elsif (! @debs) {
+	print STDERR sprintf("dpkg-preconfigure: ".gettext("must specify some debs to preconfigure")), "\n";
+	exit(1);
+}
+
+if (! Debconf::Path::find("apt-extracttemplates")) {
+	warn gettext("delaying package configuration, since apt-utils is not installed");
+	exit;
+}
+
+my $frontend=make_frontend();
+
+if (! $have_tty && $frontend->need_tty) {
+	print STDERR sprintf("dpkg-preconfigure: ".gettext("unable to re-open stdin: %s"), $!)."\n";
+	exit 0;
+}
+
+# Use the external package scanner for speed. It takes a list of debs
+# and outputs to stdout a table with these fields separated by spaces:
+my ($package, $version, $template, $config);
+# Note that it also handles making sure the current version of debconf can
+# deal with the package, because apt-extracttemplates skips over any
+# package that depends on a version of debconf newer than what is
+# installed.
+unless (open(INFO, "-|")) {
+	# The kernel can accept command lines up to 20k worth of
+	# characters. It has happened that the list of packages to
+	# configure is more than that, which requires splitting it up into
+	# multiple apt-extracttemplates runs.
+	my $command_max=20000; # LINUX SPECIFIC!!
+		# I could use POSIX::ARG_MAX, but that would be slow.
+	my $static_len=length("apt-extracttemplates");
+	my $len=$static_len;
+	my @collect;
+	if ($apt && @debs > 30) {
+		STDERR->autoflush(1);
+	}
+	foreach my $deb (@debs) {
+		$len += length($deb) + 1;
+		if ($len < $command_max && @collect < 30) {
+			push @collect, $deb;
+		}
+		else {
+			if (system("apt-extracttemplates", @collect) != 0) {
+				print STDERR sprintf("debconf: ".gettext("apt-extracttemplates failed: %s")."\n",$!);
+			}
+			if ($apt && @debs > 30) {
+				$progress += @collect;
+				printf STDERR "\r".gettext("Extracting templates from packages: %d%%"), $progress * 100 / @debs;
+			}
+				
+			@collect=($deb);
+			$len=$static_len + length($deb) + 1;
+		}
+	}
+	if (system("apt-extracttemplates", @collect) != 0) {
+		print STDERR sprintf("debconf: ".gettext("apt-extracttemplates failed: %s")."\n",$!);
+	}
+	if ($apt && @debs > 30) {
+		$progress += @collect;
+		printf STDERR "\r".gettext("Extracting templates from packages: %d%%")."\n", $progress * 100 / @debs;
+	}
+	exit;
+}
+# Why buffer here? Well, suppose 300 packages are being installed, and
+# only the first and last use debconf. The first is preconfigured. Then
+# the user watches their UI lock up until it scans all the way to the last..
+# Blowing a bit of memory on a buffer seems like a saner approach.
+my @buffer=<INFO>;
+if ($apt && @buffer) {
+	print gettext("Preconfiguring packages ...\n");
+}
+foreach my $line (@buffer) {
+	($package, $version, $template, $config)=split /\s/, $line;
+	
+	# Load templates if any.
+	if (defined $template && length $template) {
+		eval q{
+			Debconf::Template->load($template, $package)
+		};
+		unlink $template;
+		if ($@) {
+			print STDERR "$package ".sprintf(gettext("template parse error: %s"), $@)."\n";
+			unlink $config;
+			next;
+		}
+	}
+}
+
+foreach my $line (@buffer) {
+	($package, $version, $template, $config)=split /\s/, $line;
+
+	# Run config script if any.
+	if (defined $config && length $config && -e $config) {
+		debug user => sprintf("preconfiguring %s (%s)",$package,$version);
+		chmod(0755, $config) or
+			die sprintf(gettext("debconf: can't chmod: %s"), $!);
+		$frontend->default_title($package);
+		$frontend->info(undef);
+		my $confmodule=make_confmodule($config, 'configure', $version);
+		# Make sure any questions created are owned by the correct package.
+		$confmodule->owner($package);
+		1 while ($confmodule->communicate);
+		# I could just exit, but it's good to be robust so
+		# other packages can still be configured and installed.
+		if ($confmodule->exitcode > 0) {
+			print STDERR sprintf(
+				gettext("%s failed to preconfigure, with exit status %s"),
+				$package, $confmodule->exitcode)."\n";
+		}
+		unlink $config;
+	}
+}
+
+$frontend->shutdown;
+
+# Save state.
+Debconf::Db->save;
+
+=head1 AUTHOR
+
+Joey Hess <joeyh@debian.org>
+
+=cut
+

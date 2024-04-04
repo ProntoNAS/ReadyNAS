@@ -1,0 +1,46 @@
+From e0e69ec825e63fac9bb41c0126670a90591fa204 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pasi=20Sj=C3=B6holm?= <pasi.sjoholm@jollamobile.com>
+Date: Wed, 11 Feb 2015 12:14:21 +0200
+Subject: [PATCH 07/11] network: Set network->connecting after ip address is
+ set
+
+network->connecting was incorrectly set to false on
+autoconf_ipv6_set and it needs to be set only after we have
+ip addresses for the interface.
+---
+ src/network.c |   10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/src/network.c b/src/network.c
+index 217be32..0cef220 100644
+--- a/src/network.c
++++ b/src/network.c
+@@ -521,10 +521,14 @@ static void check_dhcpv6(struct nd_router_advert *reply,
+ 	/*
+ 	 * We do stateful/stateless DHCPv6 if router advertisement says so.
+ 	 */
+-	if (reply->nd_ra_flags_reserved & ND_RA_FLAG_MANAGED)
++	if (reply->nd_ra_flags_reserved & ND_RA_FLAG_MANAGED) {
+ 		__connman_dhcpv6_start(network, prefixes, dhcpv6_callback);
+-	else if (reply->nd_ra_flags_reserved & ND_RA_FLAG_OTHER)
++	} else if (reply->nd_ra_flags_reserved & ND_RA_FLAG_OTHER) {
+ 		__connman_dhcpv6_start_info(network, dhcpv6_info_callback);
++		network->connecting = false;
++	} else {
++		network->connecting = false;
++	}
+ 
+ 	connman_network_unref(network);
+ }
+@@ -604,8 +608,6 @@ static void autoconf_ipv6_set(struct connman_network *network)
+ 
+ 	connman_device_set_disconnected(network->device, false);
+ 
+-	network->connecting = false;
+-
+ 	service = connman_service_lookup_from_network(network);
+ 	if (!service)
+ 		return;
+-- 
+1.7.10.4
+

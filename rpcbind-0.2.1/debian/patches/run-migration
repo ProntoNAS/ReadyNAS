@@ -1,0 +1,44 @@
+Author: Steve Langasek <steve.langasek@canonical.com>
+Description: Fix to look directly in /run instead of via the /var/run symlink
+ Because /var may be a separate partition, and could even be mounted via NFS,
+ and in wheezy and later /var/run is a symlink to /run, look up our files in
+ /run directly.  This ensures rpcbind can be started early in boot without
+ any races.
+Index: rpcbind-0.2.1/src/rpcbind.c
+===================================================================
+--- rpcbind-0.2.1.orig/src/rpcbind.c
++++ rpcbind-0.2.1/src/rpcbind.c
+@@ -93,7 +93,14 @@ char *rpcbinduser = NULL;
+ /* who to suid to if -s is given */
+ #define RUN_AS  "daemon"
+ 
+-#define RPCBINDDLOCK "/var/run/rpcbind.lock"
++#define RPCBINDDLOCK "/run/rpcbind.lock"
++
++/* Bypass the libtirpc definition, because we know that /var/run is a compat
++ * symlink to /run. */
++#ifdef _PATH_RPCBINDSOCK
++#undef _PATH_RPCBINDSOCK
++#endif
++#define _PATH_RPCBINDSOCK "/run/rpcbind.sock"
+ 
+ int runasdaemon = 0;
+ int insecure = 0;
+Index: rpcbind-0.2.1/src/rpcinfo.c
+===================================================================
+--- rpcbind-0.2.1.orig/src/rpcinfo.c
++++ rpcbind-0.2.1/src/rpcinfo.c
+@@ -75,6 +75,13 @@
+ #define	MAX_VERS	((u_long)4294967295UL)
+ #define	UNKNOWN		"unknown"
+ 
++/* Bypass the libtirpc definition, because we know that /var/run is a compat
++ * symlink to /run. */
++#ifdef _PATH_RPCBINDSOCK
++#undef _PATH_RPCBINDSOCK
++#endif
++#define _PATH_RPCBINDSOCK "/run/rpcbind.sock"
++
+ /*
+  * Functions to be performed.
+  */

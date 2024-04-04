@@ -1,0 +1,89 @@
+From c3492954a5e9c5a358dea824be027746f0c817c5 Mon Sep 17 00:00:00 2001
+From: David Mitchell <davem@iabyn.com>
+Date: Fri, 7 Dec 2012 11:07:30 +0000
+Subject: PL_eval_start use-after-free
+
+PL_eval_start is used for two purposes.
+
+First, it indicates the start op of a freshly-compiled eval. It is set in
+newPROG(), and used by entereval etc to know where to begin executing.
+After execution has begun, its value is meaningless (and may well point
+to a freed op).
+
+Second, it's used as a temporary pointer to indicate, within an assignment
+to $] (which has been optimised into a const), that it's not to croak in
+op_lvalue() with "Can't modify constant item", but instead to set
+CopARYBASE.
+
+This second use temporarily sets it in Perl_newASSIGNOP(), which calls
+op_lvalue(), which uses and then clears it. The issue is that it can also
+be left set by a previous eval, so something like 'local $[' will see it
+set and try to use its value.
+
+The quickest fix is to just set it NULL directly after each eval where its
+used.
+
+This change has been applied directly to maint-5.14 rather than going via
+bleed, since the old $[ mechanism was ripped out for 5.15.3.
+
+Bug: https://rt.perl.org/rt3//Ticket/Display.html?id=115992
+Origin: http://perl5.git.perl.org/perl.git/commit/eae139f3f1da0f91ca0fb543c5f5bc3b2b94cbc9
+Patch-Name: fixes/pl_eval_start_use_after_free.diff
+---
+ pp_ctl.c |   14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/pp_ctl.c b/pp_ctl.c
+index cbeeeee..615b82e 100644
+--- a/pp_ctl.c
++++ b/pp_ctl.c
+@@ -3088,6 +3088,7 @@ Perl_sv_compile_2op_is_broken(pTHX_ SV *sv, OP **startop, const char *code,
+     CV* runcv = NULL;	/* initialise to avoid compiler warnings */
+     STRLEN len;
+     bool need_catch;
++    OP* ret;
+ 
+     PERL_ARGS_ASSERT_SV_COMPILE_2OP_IS_BROKEN;
+ 
+@@ -3182,7 +3183,9 @@ Perl_sv_compile_2op_is_broken(pTHX_ SV *sv, OP **startop, const char *code,
+     PERL_UNUSED_VAR(newsp);
+     PERL_UNUSED_VAR(optype);
+ 
+-    return PL_eval_start;
++    ret = PL_eval_start;
++    PL_eval_start = NULL;
++    return ret;
+ }
+ 
+ 
+@@ -3903,8 +3906,10 @@ PP(pp_require)
+     encoding = PL_encoding;
+     PL_encoding = NULL;
+ 
+-    if (doeval(gimme, NULL, NULL, PL_curcop->cop_seq))
++    if (doeval(gimme, NULL, NULL, PL_curcop->cop_seq)) {
+ 	op = DOCATCH(PL_eval_start);
++	PL_eval_start = NULL;
++    }
+     else
+ 	op = PL_op->op_next;
+ 
+@@ -4029,6 +4034,7 @@ PP(pp_entereval)
+     PUTBACK;
+ 
+     if (doeval(gimme, NULL, runcv, seq)) {
++	OP *ret;
+ 	if (was != PL_breakable_sub_gen /* Some subs defined here. */
+ 	    ? (PERLDB_LINE || PERLDB_SAVESRC)
+ 	    :  PERLDB_SAVESRC_NOSUBS) {
+@@ -4037,7 +4043,9 @@ PP(pp_entereval)
+ 	    char *const safestr = savepvn(tmpbuf, len);
+ 	    SAVEDELETE(PL_defstash, safestr, len);
+ 	}
+-	return DOCATCH(PL_eval_start);
++	ret = DOCATCH(PL_eval_start);
++	PL_eval_start = NULL;
++	return ret;
+     } else {
+ 	/* We have already left the scope set up earlier thanks to the LEAVE
+ 	   in doeval().  */

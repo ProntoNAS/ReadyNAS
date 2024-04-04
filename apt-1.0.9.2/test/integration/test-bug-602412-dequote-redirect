@@ -1,0 +1,38 @@
+#!/bin/sh
+set -e
+
+TESTDIR=$(readlink -f $(dirname $0))
+. $TESTDIR/framework
+setupenvironment
+configarchitecture 'amd64'
+
+buildsimplenativepackage 'unrelated' 'all' '0.5~squeeze1' 'unstable'
+
+setupaptarchive
+changetowebserver -o aptwebserver::redirect::replace::/pool/=/newpool/ \
+		  -o aptwebserver::redirect::replace::/dists/=/newdists/
+
+mv aptarchive/pool aptarchive/newpool
+mv aptarchive/dists aptarchive/newdists
+
+testrun() {
+	msgtest 'Test redirection works in' 'apt-get update'
+	testsuccess --nomsg aptget update
+
+	# check that I-M-S header is kept in redirections
+	testequal "Hit $1 unstable InRelease
+Hit $1 unstable/main Sources
+Hit $1 unstable/main amd64 Packages
+Hit $1 unstable/main Translation-en
+Reading package lists..." aptget update
+
+	msgtest 'Test redirection works in' 'package download'
+	testsuccess --nomsg aptget install unrelated --download-only -y
+}
+
+testrun 'http://localhost:8080'
+
+rm -rf rootdir/var/lib/apt/lists rootdir/var/cache/apt/archives
+changetohttpswebserver
+
+testrun 'https://localhost:4433'

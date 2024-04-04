@@ -1,0 +1,103 @@
+2014-10-27  Andreas Schwab  <schwab@suse.de>
+
+	[BZ #17501]
+	* sysdeps/i386/i686/multiarch/strcasecmp.S (__strcasecmp): Fix
+	check for Slow_SSE4_2 feature bit.
+	* sysdeps/i386/i686/multiarch/strcmp.S (STRCMP): Likewise.
+	* sysdeps/i386/i686/multiarch/strncase.S (__strncasecmp): Likewise.
+	* sysdeps/x86_64/multiarch/strcmp.S (STRCMP, __strcascmp):
+	Likewise.  Fix check for Fast_Unaligned_Load feature bit.
+
+--- a/sysdeps/i386/i686/multiarch/strcasecmp.S
++++ b/sysdeps/i386/i686/multiarch/strcasecmp.S
+@@ -37,7 +37,7 @@ ENTRY(__strcasecmp)
+ 	leal	__strcasecmp_ssse3@GOTOFF(%ebx), %eax
+ 	testl	$bit_SSE4_2, CPUID_OFFSET+index_SSE4_2+__cpu_features@GOTOFF(%ebx)
+ 	jz	2f
+-	testl	$bit_Slow_SSE4_2, CPUID_OFFSET+index_Slow_SSE4_2+__cpu_features@GOTOFF(%ebx)
++	testl	$bit_Slow_SSE4_2, FEATURE_OFFSET+index_Slow_SSE4_2+__cpu_features@GOTOFF(%ebx)
+ 	jnz	2f
+ 	leal	__strcasecmp_sse4_2@GOTOFF(%ebx), %eax
+ 2:	popl	%ebx
+@@ -58,7 +58,7 @@ ENTRY(__strcasecmp)
+ 	leal	__strcasecmp_ssse3, %eax
+ 	testl	$bit_SSE4_2, CPUID_OFFSET+index_SSE4_2+__cpu_features
+ 	jz	2f
+-	testl	$bit_Slow_SSE4_2, CPUID_OFFSET+index_Slow_SSE4_2+__cpu_features
++	testl	$bit_Slow_SSE4_2, FEATURE_OFFSET+index_Slow_SSE4_2+__cpu_features
+ 	jnz	2f
+ 	leal	__strcasecmp_sse4_2, %eax
+ 2:	ret
+--- a/sysdeps/i386/i686/multiarch/strcmp.S
++++ b/sysdeps/i386/i686/multiarch/strcmp.S
+@@ -68,7 +68,7 @@ ENTRY(STRCMP)
+ 	leal	__STRCMP_SSSE3@GOTOFF(%ebx), %eax
+ 	testl	$bit_SSE4_2, CPUID_OFFSET+index_SSE4_2+__cpu_features@GOTOFF(%ebx)
+ 	jz	2f
+-	testl	$bit_Slow_SSE4_2, CPUID_OFFSET+index_Slow_SSE4_2+__cpu_features@GOTOFF(%ebx)
++	testl	$bit_Slow_SSE4_2, FEATURE_OFFSET+index_Slow_SSE4_2+__cpu_features@GOTOFF(%ebx)
+ 	jnz	2f
+ 	leal	__STRCMP_SSE4_2@GOTOFF(%ebx), %eax
+ 2:	popl	%ebx
+@@ -89,7 +89,7 @@ ENTRY(STRCMP)
+ 	leal	__STRCMP_SSSE3, %eax
+ 	testl	$bit_SSE4_2, CPUID_OFFSET+index_SSE4_2+__cpu_features
+ 	jz	2f
+-	testl	$bit_Slow_SSE4_2, CPUID_OFFSET+index_Slow_SSE4_2+__cpu_features
++	testl	$bit_Slow_SSE4_2, FEATURE_OFFSET+index_Slow_SSE4_2+__cpu_features
+ 	jnz	2f
+ 	leal	__STRCMP_SSE4_2, %eax
+ 2:	ret
+--- a/sysdeps/i386/i686/multiarch/strncase.S
++++ b/sysdeps/i386/i686/multiarch/strncase.S
+@@ -37,7 +37,7 @@ ENTRY(__strncasecmp)
+ 	leal	__strncasecmp_ssse3@GOTOFF(%ebx), %eax
+ 	testl	$bit_SSE4_2, CPUID_OFFSET+index_SSE4_2+__cpu_features@GOTOFF(%ebx)
+ 	jz	2f
+-	testl	$bit_Slow_SSE4_2, CPUID_OFFSET+index_Slow_SSE4_2+__cpu_features@GOTOFF(%ebx)
++	testl	$bit_Slow_SSE4_2, FEATURE_OFFSET+index_Slow_SSE4_2+__cpu_features@GOTOFF(%ebx)
+ 	jnz	2f
+ 	leal	__strncasecmp_sse4_2@GOTOFF(%ebx), %eax
+ 2:	popl	%ebx
+@@ -58,7 +58,7 @@ ENTRY(__strncasecmp)
+ 	leal	__strncasecmp_ssse3, %eax
+ 	testl	$bit_SSE4_2, CPUID_OFFSET+index_SSE4_2+__cpu_features
+ 	jz	2f
+-	testl	$bit_Slow_SSE4_2, CPUID_OFFSET+index_Slow_SSE4_2+__cpu_features
++	testl	$bit_Slow_SSE4_2, FEATURE_OFFSET+index_Slow_SSE4_2+__cpu_features
+ 	jnz	2f
+ 	leal	__strncasecmp_sse4_2, %eax
+ 2:	ret
+--- a/sysdeps/x86_64/multiarch/strcmp.S
++++ b/sysdeps/x86_64/multiarch/strcmp.S
+@@ -91,10 +91,10 @@ ENTRY(STRCMP)
+ 1:
+ #ifdef USE_AS_STRCMP
+ 	leaq	__strcmp_sse2_unaligned(%rip), %rax
+-	testl   $bit_Fast_Unaligned_Load, __cpu_features+CPUID_OFFSET+index_Fast_Unaligned_Load(%rip)
++	testl   $bit_Fast_Unaligned_Load, __cpu_features+FEATURE_OFFSET+index_Fast_Unaligned_Load(%rip)
+ 	jnz     3f
+ #else
+-	testl	$bit_Slow_SSE4_2, __cpu_features+CPUID_OFFSET+index_Slow_SSE4_2(%rip)
++	testl	$bit_Slow_SSE4_2, __cpu_features+FEATURE_OFFSET+index_Slow_SSE4_2(%rip)
+ 	jnz	2f
+ 	leaq	STRCMP_SSE42(%rip), %rax
+ 	testl	$bit_SSE4_2, __cpu_features+CPUID_OFFSET+index_SSE4_2(%rip)
+@@ -120,7 +120,7 @@ ENTRY(__strcasecmp)
+ 	testl	$bit_AVX_Usable, __cpu_features+FEATURE_OFFSET+index_AVX_Usable(%rip)
+ 	jnz	3f
+ #  endif
+-	testl	$bit_Slow_SSE4_2, __cpu_features+CPUID_OFFSET+index_Slow_SSE4_2(%rip)
++	testl	$bit_Slow_SSE4_2, __cpu_features+FEATURE_OFFSET+index_Slow_SSE4_2(%rip)
+ 	jnz	2f
+ 	leaq	__strcasecmp_sse42(%rip), %rax
+ 	testl	$bit_SSE4_2, __cpu_features+CPUID_OFFSET+index_SSE4_2(%rip)
+@@ -146,7 +146,7 @@ ENTRY(__strncasecmp)
+ 	testl	$bit_AVX_Usable, __cpu_features+FEATURE_OFFSET+index_AVX_Usable(%rip)
+ 	jnz	3f
+ #  endif
+-	testl	$bit_Slow_SSE4_2, __cpu_features+CPUID_OFFSET+index_Slow_SSE4_2(%rip)
++	testl	$bit_Slow_SSE4_2, __cpu_features+FEATURE_OFFSET+index_Slow_SSE4_2(%rip)
+ 	jnz	2f
+ 	leaq	__strncasecmp_sse42(%rip), %rax
+ 	testl	$bit_SSE4_2, __cpu_features+CPUID_OFFSET+index_SSE4_2(%rip)

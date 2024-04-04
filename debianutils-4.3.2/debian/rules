@@ -1,0 +1,129 @@
+#! /usr/bin/make -f
+
+package = debianutils
+
+CFLAGS = -Wall -g
+INSTALL = install
+INSTALL_FILE    = $(INSTALL) -p    -o root -g root  -m  644
+INSTALL_PROGRAM = $(INSTALL) -p    -o root -g root  -m  755
+INSTALL_SCRIPT  = $(INSTALL) -p    -o root -g root  -m  755
+INSTALL_DIR     = $(INSTALL) -p -d -o root -g root  -m  755
+
+DEB_BUILD_ARCH_OS ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH_OS)
+DEB_BUILD_GNU_TYPE = $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE = $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+
+STRIP=strip
+
+ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+CONFARGS = --build=$(DEB_BUILD_GNU_TYPE) --host=$(DEB_HOST_GNU_TYPE)
+STRIP=$(DEB_HOST_GNU_TYPE)-strip
+endif
+
+CFLAGS := $(shell dpkg-buildflags --get CFLAGS)
+CPPFLAGS := $(shell dpkg-buildflags --get CPPFLAGS)
+LDFLAGS := $(shell dpkg-buildflags --get LDFLAGS)
+
+build: build-indep build-arch
+build-indep:
+
+build-arch:
+	$(checkdir)
+	./configure CFLAGS="$(CFLAGS)" \
+			CPPFLAGS="$(CPPFLAGS)" \
+			LDFLAGS="$(LDFLAGS)" \
+			--prefix=/usr \
+			--mandir=/usr/share/man $(CONFARGS)
+	$(MAKE)
+	touch build-arch
+
+clean:
+	$(checkdir)
+	test ! -f Makefile || $(MAKE) distclean
+	$(RM) -rf autom4te.cache
+	$(RM) -r debian/tmp* debianutils*
+	$(RM) build-arch debian/files* debian/substvars
+	find . -name '*~' -print0 | xargs -0 rm -f
+
+binary-indep:	checkroot build
+	$(checkdir)
+
+binary-arch:	checkroot build
+	$(checkdir)
+	-rm -rf debian/tmp
+	$(INSTALL_DIR) debian/tmp/DEBIAN \
+		       debian/tmp/bin \
+		       debian/tmp/sbin \
+		       debian/tmp/usr/bin \
+		       debian/tmp/usr/sbin \
+		       debian/tmp/usr/share/man/man1 \
+		       debian/tmp/usr/share/man/man8 \
+		       debian/tmp/usr/share/doc/$(package) \
+		       debian/tmp/usr/share/$(package)
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp INSTALL_PROGRAM="$(INSTALL_PROGRAM)"
+	mv debian/tmp/usr/bin/run-parts \
+	   debian/tmp/usr/bin/tempfile \
+	   debian/tmp/usr/bin/which \
+	   debian/tmp/bin/
+
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+	$(STRIP) --remove-section=.comment --remove-section=.note \
+		debian/tmp/bin/run-parts \
+	   	debian/tmp/bin/tempfile \
+	   	debian/tmp/usr/bin/ischroot
+endif
+
+ifneq ($(DEB_HOST_ARCH_OS),hurd)
+	ln -s /bin/which debian/tmp/usr/bin/which
+endif
+ifeq ($(DEB_HOST_ARCH_OS),linux)
+	mv debian/tmp/usr/sbin/installkernel debian/tmp/sbin/
+else
+	rm debian/tmp/usr/sbin/installkernel \
+	   debian/tmp/usr/share/man/man8/installkernel.8
+endif
+	$(INSTALL_FILE) debian/shells debian/tmp/usr/share/$(package)
+	$(INSTALL_FILE) debian/changelog debian/tmp/usr/share/doc/$(package)
+	$(INSTALL_FILE) debian/README.shells debian/tmp/usr/share/doc/$(package)
+	find debian/tmp/usr/share/man/man[18] \
+	     debian/tmp/usr/share/man/fr/man[18] \
+	     debian/tmp/usr/share/man/sl/man[18] \
+	     debian/tmp/usr/share/man/de/man[18] \
+	     debian/tmp/usr/share/man/es/man[18] \
+             debian/tmp/usr/share/doc/$(package) -type f | xargs gzip -9
+	$(INSTALL_FILE) debian/copyright debian/tmp/usr/share/doc/$(package)
+	$(INSTALL_SCRIPT) debian/postinst debian/tmp/DEBIAN/
+	$(INSTALL_SCRIPT) debian/postrm debian/tmp/DEBIAN/
+
+	cd debian/tmp && find * -type f ! -regex '^DEBIAN/.*' -print0 | xargs -r0 md5sum > DEBIAN/md5sums
+
+	dpkg-shlibdeps debian/tmp/bin/run-parts \
+			debian/tmp/bin/tempfile \
+			debian/tmp/usr/bin/ischroot
+	dpkg-gencontrol -isp
+	dpkg --build debian/tmp ..
+
+define checkdir
+	test -f run-parts.c && test -f debian/rules
+endef
+
+binary:	binary-indep binary-arch
+
+checkroot:
+	$(checkdir)
+	test 0 = `id -u`
+
+prebuild:
+	printf "define(DEBIANUTILS_VERSION, %s)\n" $$(dpkg-parsechangelog | sed -n '/^Version: \(.*\)$$/ {s//\1/;p}') >acinclude.m4
+
+	autoreconf -fi
+	$(RM) -rf autom4te.cache
+
+	cd po4a && po4a --no-backups po4a.conf
+
+
+.PHONY: build build-indep binary binary-arch binary-indep clean checkroot prebuild
+
+# Local Variables:
+# mode:Makefile
+# End:

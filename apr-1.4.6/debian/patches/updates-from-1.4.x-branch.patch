@@ -1,0 +1,635 @@
+Pull https://svn.apache.org/repos/asf/apr/apr/branches/1.4.x up to r1343251:
+
+   *) Add various gcc function attributes. [Stefan Fritsch]
+ 
+   *) Fix some problems in apr_sockaddr_info_get() when trying to resolve
+      the loopback addresses of a protocol family that is not otherwise
+      configured on the system. PR 52709. [Nirgal Vourgère
+      <jmv_deb nirgal com>, Stefan Fritsch]
+ 
+   *) Fix file not being unlocked if truncate call on a file fails.
+      [Mladen Turk]
+ 
+   *) apr_mcast_hops: Fix EINVAL for IPv6 sockets caused by using byte
+      instead integer for setsockopt. [Mladen Turk]
+ 
+   *) Windows: Fix compile-time checks for 64-bit builds, resolving a
+      crash in httpd's mod_rewrite.  PR 49155.  [<anindyabaruah gmail.com>]
+
+This also includes various hurd build fixes
+ 
+Index: apr/test/testsockets.c
+===================================================================
+--- apr.orig/test/testsockets.c
++++ apr/test/testsockets.c
+@@ -131,6 +131,10 @@
+     APR_ASSERT_SUCCESS(tc, "Could not bind socket", rv);
+     if (rv != APR_SUCCESS)
+         return;
++    rv = apr_mcast_hops(sock, 10);
++    APR_ASSERT_SUCCESS(tc, "Could not set multicast hops", rv);
++    if (rv != APR_SUCCESS)
++        return;
+ 
+     rv = apr_socket_bind(sock2, from);
+     APR_ASSERT_SUCCESS(tc, "Could not bind second socket", rv);
+Index: apr/network_io/unix/multicast.c
+===================================================================
+--- apr.orig/network_io/unix/multicast.c
++++ apr/network_io/unix/multicast.c
+@@ -194,7 +194,7 @@
+ }
+ 
+ static apr_status_t do_mcast_opt(int type, apr_socket_t *sock,
+-                                 apr_byte_t value)
++                                 apr_uint32_t value)
+ {
+     apr_status_t rv = APR_SUCCESS;
+ 
+@@ -205,24 +205,19 @@
+         }
+     }
+ #if APR_HAVE_IPV6
+-    else if (sock_is_ipv6(sock) && type == IP_MULTICAST_LOOP) {
+-        unsigned int loopopt = value;
+-        type = IPV6_MULTICAST_LOOP;
+-        if (setsockopt(sock->socketdes, IPPROTO_IPV6, type,
+-                       (const void *) &loopopt, sizeof(loopopt)) == -1) {
+-            rv = errno;
+-        }
+-    }
+     else if (sock_is_ipv6(sock)) {
+         if (type == IP_MULTICAST_TTL) {
+             type = IPV6_MULTICAST_HOPS;
+         }
++        else if (type == IP_MULTICAST_LOOP) {
++            type = IPV6_MULTICAST_LOOP;
++        }
+         else {
+             return APR_ENOTIMPL;
+         }
+ 
+         if (setsockopt(sock->socketdes, IPPROTO_IPV6, type,
+-                       &value, sizeof(value)) == -1) {
++                       (const void *) &value, sizeof(value)) == -1) {
+             rv = errno;
+         }
+     }
+Index: apr/network_io/unix/sendrecv.c
+===================================================================
+--- apr.orig/network_io/unix/sendrecv.c
++++ apr/network_io/unix/sendrecv.c
+@@ -245,7 +245,7 @@
+ /* Define a structure to pass in when we have a NULL header value */
+ static apr_hdtr_t no_hdtr;
+ 
+-#if defined(__linux__) && defined(HAVE_WRITEV)
++#if (defined(__linux__) || defined(__GNU__)) && defined(HAVE_WRITEV)
+ 
+ apr_status_t apr_socket_sendfile(apr_socket_t *sock, apr_file_t *file,
+                                  apr_hdtr_t *hdtr, apr_off_t *offset,
+Index: apr/network_io/unix/sockaddr.c
+===================================================================
+--- apr.orig/network_io/unix/sockaddr.c
++++ apr/network_io/unix/sockaddr.c
+@@ -356,9 +356,27 @@
+     }
+     error = getaddrinfo(hostname, servname, &hints, &ai_list);
+ #ifdef HAVE_GAI_ADDRCONFIG
+-    if (error == EAI_BADFLAGS && family == APR_UNSPEC) {
+-        /* Retry with no flags if AI_ADDRCONFIG was rejected. */
+-        hints.ai_flags = 0;
++    /*
++     * Using AI_ADDRCONFIG involves some unfortunate guesswork because it
++     * does not consider loopback addresses when trying to determine if
++     * IPv4 or IPv6 is configured on a system (see RFC 3493).
++     * This is a problem if one actually wants to listen on or connect to
++     * the loopback address of a protocol family that is not otherwise
++     * configured on the system. See PR 52709.
++     * To work around some of the problems, retry without AI_ADDRCONFIG
++     * in case of EAI_ADDRFAMILY.
++     * XXX: apr_sockaddr_info_get() should really accept a flag to determine
++     * XXX: if AI_ADDRCONFIG's guesswork is wanted and if the address is
++     * XXX: to be used for listen() or connect().
++     *
++     * In case of EAI_BADFLAGS, AI_ADDRCONFIG is not supported.
++     */
++    if ((family == APR_UNSPEC) && (error == EAI_BADFLAGS
++#ifdef EAI_ADDRFAMILY
++                                   || error == EAI_ADDRFAMILY
++#endif
++                                                             )) {
++        hints.ai_flags &= ~AI_ADDRCONFIG;
+         error = getaddrinfo(hostname, servname, &hints, &ai_list);
+     }
+ #endif
+Index: apr/include/apr_strings.h
+===================================================================
+--- apr.orig/include/apr_strings.h
++++ apr/include/apr_strings.h
+@@ -106,7 +106,11 @@
+  *         has 'n' or more characters.  If the string might contain
+  *         fewer characters, use apr_pstrndup.
+  */
+-APR_DECLARE(char *) apr_pstrmemdup(apr_pool_t *p, const char *s, apr_size_t n);
++APR_DECLARE(char *) apr_pstrmemdup(apr_pool_t *p, const char *s, apr_size_t n)
++#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4))
++    __attribute__((alloc_size(3)))
++#endif
++    ;
+ 
+ /**
+  * Duplicate at most n characters of a string into memory allocated 
+@@ -128,7 +132,11 @@
+  * @param n The number of bytes to duplicate
+  * @return The new block of memory
+  */
+-APR_DECLARE(void *) apr_pmemdup(apr_pool_t *p, const void *m, apr_size_t n);
++APR_DECLARE(void *) apr_pmemdup(apr_pool_t *p, const void *m, apr_size_t n)
++#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4))
++    __attribute__((alloc_size(3)))
++#endif
++    ;
+ 
+ /**
+  * Concatenate multiple strings, allocating memory out a pool
+Index: apr/include/apr_pools.h
+===================================================================
+--- apr.orig/include/apr_pools.h
++++ apr/include/apr_pools.h
+@@ -196,7 +196,8 @@
+ APR_DECLARE(apr_status_t) apr_pool_create_ex(apr_pool_t **newpool,
+                                              apr_pool_t *parent,
+                                              apr_abortfunc_t abort_fn,
+-                                             apr_allocator_t *allocator);
++                                             apr_allocator_t *allocator)
++                          __attribute__((nonnull(1)));
+ 
+ /**
+  * Create a new pool.
+@@ -220,7 +221,8 @@
+  */
+ APR_DECLARE(apr_status_t) apr_pool_create_unmanaged_ex(apr_pool_t **newpool,
+                                                    apr_abortfunc_t abort_fn,
+-                                                   apr_allocator_t *allocator);
++                                                   apr_allocator_t *allocator)
++                          __attribute__((nonnull(1)));
+ 
+ /**
+  * Debug version of apr_pool_create_ex.
+@@ -242,7 +244,8 @@
+                                                    apr_pool_t *parent,
+                                                    apr_abortfunc_t abort_fn,
+                                                    apr_allocator_t *allocator,
+-                                                   const char *file_line);
++                                                   const char *file_line)
++                          __attribute__((nonnull(1)));
+ 
+ #if APR_POOL_DEBUG
+ #define apr_pool_create_ex(newpool, parent, abort_fn, allocator)  \
+@@ -277,7 +280,8 @@
+ APR_DECLARE(apr_status_t) apr_pool_create_unmanaged_ex_debug(apr_pool_t **newpool,
+                                                    apr_abortfunc_t abort_fn,
+                                                    apr_allocator_t *allocator,
+-                                                   const char *file_line);
++                                                   const char *file_line)
++                          __attribute__((nonnull(1)));
+ 
+ #if APR_POOL_DEBUG
+ #define apr_pool_create_core_ex(newpool, abort_fn, allocator)  \
+@@ -343,7 +347,8 @@
+  * Find the pool's allocator
+  * @param pool The pool to get the allocator from.
+  */
+-APR_DECLARE(apr_allocator_t *) apr_pool_allocator_get(apr_pool_t *pool);
++APR_DECLARE(apr_allocator_t *) apr_pool_allocator_get(apr_pool_t *pool)
++                               __attribute__((nonnull(1)));
+ 
+ /**
+  * Clear all memory in the pool and run all the cleanups. This also destroys all
+@@ -353,7 +358,7 @@
+  *         to re-use this memory for the next allocation.
+  * @see apr_pool_destroy()
+  */
+-APR_DECLARE(void) apr_pool_clear(apr_pool_t *p);
++APR_DECLARE(void) apr_pool_clear(apr_pool_t *p) __attribute__((nonnull(1)));
+ 
+ /**
+  * Debug version of apr_pool_clear.
+@@ -369,7 +374,8 @@
+  *         and don't call apr_pool_destroy_clear directly.
+  */
+ APR_DECLARE(void) apr_pool_clear_debug(apr_pool_t *p,
+-                                       const char *file_line);
++                                       const char *file_line)
++                  __attribute__((nonnull(1)));
+ 
+ #if APR_POOL_DEBUG
+ #define apr_pool_clear(p) \
+@@ -382,7 +388,7 @@
+  * @param p The pool to destroy
+  * @remark This will actually free the memory
+  */
+-APR_DECLARE(void) apr_pool_destroy(apr_pool_t *p);
++APR_DECLARE(void) apr_pool_destroy(apr_pool_t *p) __attribute__((nonnull(1)));
+ 
+ /**
+  * Debug version of apr_pool_destroy.
+@@ -398,7 +404,8 @@
+  *         and don't call apr_pool_destroy_debug directly.
+  */
+ APR_DECLARE(void) apr_pool_destroy_debug(apr_pool_t *p,
+-                                         const char *file_line);
++                                         const char *file_line)
++                  __attribute__((nonnull(1)));
+ 
+ #if APR_POOL_DEBUG
+ #define apr_pool_destroy(p) \
+@@ -416,7 +423,11 @@
+  * @param size The amount of memory to allocate
+  * @return The allocated memory
+  */
+-APR_DECLARE(void *) apr_palloc(apr_pool_t *p, apr_size_t size);
++APR_DECLARE(void *) apr_palloc(apr_pool_t *p, apr_size_t size)
++#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4))
++                    __attribute__((alloc_size(2)))
++#endif
++                    __attribute__((nonnull(1)));
+ 
+ /**
+  * Debug version of apr_palloc
+@@ -427,7 +438,11 @@
+  * @return See: apr_palloc
+  */
+ APR_DECLARE(void *) apr_palloc_debug(apr_pool_t *p, apr_size_t size,
+-                                     const char *file_line);
++                                     const char *file_line)
++#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4))
++                    __attribute__((alloc_size(2)))
++#endif
++                    __attribute__((nonnull(1)));
+ 
+ #if APR_POOL_DEBUG
+ #define apr_palloc(p, size) \
+@@ -455,7 +470,8 @@
+  * @return See: apr_pcalloc
+  */
+ APR_DECLARE(void *) apr_pcalloc_debug(apr_pool_t *p, apr_size_t size,
+-                                      const char *file_line);
++                                      const char *file_line)
++                    __attribute__((nonnull(1)));
+ 
+ #if APR_POOL_DEBUG
+ #define apr_pcalloc(p, size) \
+@@ -476,21 +492,24 @@
+  *      deal with the error accordingly.
+  */
+ APR_DECLARE(void) apr_pool_abort_set(apr_abortfunc_t abortfunc,
+-                                     apr_pool_t *pool);
++                                     apr_pool_t *pool)
++                  __attribute__((nonnull(2)));
+ 
+ /**
+  * Get the abort function associated with the specified pool.
+  * @param pool The pool for retrieving the abort function.
+  * @return The abort function for the given pool.
+  */
+-APR_DECLARE(apr_abortfunc_t) apr_pool_abort_get(apr_pool_t *pool);
++APR_DECLARE(apr_abortfunc_t) apr_pool_abort_get(apr_pool_t *pool)
++                             __attribute__((nonnull(1)));
+ 
+ /**
+  * Get the parent pool of the specified pool.
+  * @param pool The pool for retrieving the parent pool.
+  * @return The parent of the given pool.
+  */
+-APR_DECLARE(apr_pool_t *) apr_pool_parent_get(apr_pool_t *pool);
++APR_DECLARE(apr_pool_t *) apr_pool_parent_get(apr_pool_t *pool)
++                          __attribute__((nonnull(1)));
+ 
+ /**
+  * Determine if pool a is an ancestor of pool b.
+@@ -510,7 +529,8 @@
+  * @param pool The pool to tag
+  * @param tag  The tag
+  */
+-APR_DECLARE(void) apr_pool_tag(apr_pool_t *pool, const char *tag);
++APR_DECLARE(void) apr_pool_tag(apr_pool_t *pool, const char *tag)
++                  __attribute__((nonnull(1)));
+ 
+ 
+ /*
+@@ -536,11 +556,11 @@
+  *      key names is a typical way to help ensure this uniqueness.
+  *
+  */
+-APR_DECLARE(apr_status_t) apr_pool_userdata_set(
+-    const void *data,
+-    const char *key,
+-    apr_status_t (*cleanup)(void *),
+-    apr_pool_t *pool);
++APR_DECLARE(apr_status_t) apr_pool_userdata_set(const void *data,
++                                                const char *key,
++                                                apr_status_t (*cleanup)(void *),
++                                                apr_pool_t *pool)
++                          __attribute__((nonnull(2,4)));
+ 
+ /**
+  * Set the data associated with the current pool
+@@ -562,10 +582,10 @@
+  *
+  */
+ APR_DECLARE(apr_status_t) apr_pool_userdata_setn(
+-    const void *data,
+-    const char *key,
+-    apr_status_t (*cleanup)(void *),
+-    apr_pool_t *pool);
++                                const void *data, const char *key,
++                                apr_status_t (*cleanup)(void *),
++                                apr_pool_t *pool)
++                          __attribute__((nonnull(2,4)));
+ 
+ /**
+  * Return the data associated with the current pool.
+@@ -574,7 +594,8 @@
+  * @param pool The current pool.
+  */
+ APR_DECLARE(apr_status_t) apr_pool_userdata_get(void **data, const char *key,
+-                                                apr_pool_t *pool);
++                                                apr_pool_t *pool)
++                          __attribute__((nonnull(1,2,3)));
+ 
+ 
+ /**
+@@ -601,10 +622,10 @@
+  *                      to exec - this function is called in the child, obviously!
+  */
+ APR_DECLARE(void) apr_pool_cleanup_register(
+-    apr_pool_t *p,
+-    const void *data,
+-    apr_status_t (*plain_cleanup)(void *),
+-    apr_status_t (*child_cleanup)(void *));
++                            apr_pool_t *p, const void *data,
++                            apr_status_t (*plain_cleanup)(void *),
++                            apr_status_t (*child_cleanup)(void *))
++                  __attribute__((nonnull(3,4)));
+ 
+ /**
+  * Register a function to be called when a pool is cleared or destroyed.
+@@ -619,9 +640,9 @@
+  *                      or destroyed
+  */
+ APR_DECLARE(void) apr_pool_pre_cleanup_register(
+-    apr_pool_t *p,
+-    const void *data,
+-    apr_status_t (*plain_cleanup)(void *));
++                            apr_pool_t *p, const void *data,
++                            apr_status_t (*plain_cleanup)(void *))
++                  __attribute__((nonnull(3)));
+ 
+ /**
+  * Remove a previously registered cleanup function.
+@@ -636,7 +657,8 @@
+  *          function
+  */
+ APR_DECLARE(void) apr_pool_cleanup_kill(apr_pool_t *p, const void *data,
+-                                        apr_status_t (*cleanup)(void *));
++                                        apr_status_t (*cleanup)(void *))
++                  __attribute__((nonnull(3)));
+ 
+ /**
+  * Replace the child cleanup function of a previously registered cleanup.
+@@ -651,10 +673,10 @@
+  * @param child_cleanup The function to register as the child cleanup
+  */
+ APR_DECLARE(void) apr_pool_child_cleanup_set(
+-    apr_pool_t *p,
+-    const void *data,
+-    apr_status_t (*plain_cleanup)(void *),
+-    apr_status_t (*child_cleanup)(void *));
++                        apr_pool_t *p, const void *data,
++                        apr_status_t (*plain_cleanup)(void *),
++                        apr_status_t (*child_cleanup)(void *))
++                  __attribute__((nonnull(3,4)));
+ 
+ /**
+  * Run the specified cleanup function immediately and unregister it.
+@@ -667,10 +689,9 @@
+  * @param data The data to remove from cleanup
+  * @param cleanup The function to remove from cleanup
+  */
+-APR_DECLARE(apr_status_t) apr_pool_cleanup_run(
+-    apr_pool_t *p,
+-    void *data,
+-    apr_status_t (*cleanup)(void *));
++APR_DECLARE(apr_status_t) apr_pool_cleanup_run(apr_pool_t *p, void *data,
++                                               apr_status_t (*cleanup)(void *))
++                          __attribute__((nonnull(3)));
+ 
+ /**
+  * An empty cleanup function.
+@@ -739,7 +760,8 @@
+  * @param p The parent pool
+  * @param sub The subpool
+  */
+-APR_DECLARE(void) apr_pool_join(apr_pool_t *p, apr_pool_t *sub);
++APR_DECLARE(void) apr_pool_join(apr_pool_t *p, apr_pool_t *sub)
++                  __attribute__((nonnull(2)));
+ 
+ /**
+  * Find a pool from something allocated in it.
+@@ -754,7 +776,8 @@
+  * @param recurse Recurse/include the subpools' sizes
+  * @return The number of bytes
+  */
+-APR_DECLARE(apr_size_t) apr_pool_num_bytes(apr_pool_t *p, int recurse);
++APR_DECLARE(apr_size_t) apr_pool_num_bytes(apr_pool_t *p, int recurse)
++                        __attribute__((nonnull(1)));
+ 
+ /**
+  * Lock a pool
+Index: apr/include/apr.hw
+===================================================================
+--- apr.orig/include/apr.hw
++++ apr/include/apr.hw
+@@ -377,7 +377,7 @@
+ typedef  int         apr_socklen_t;
+ typedef  apr_uint64_t      apr_ino_t;
+ 
+-#ifdef WIN64
++#ifdef _WIN64
+ #define APR_SIZEOF_VOIDP   8
+ #else
+ #define APR_SIZEOF_VOIDP   4
+@@ -552,7 +552,7 @@
+ #define APR_DECLARE_DATA             __declspec(dllimport)
+ #endif
+ 
+-#ifdef WIN64
++#ifdef _WIN64
+ #define APR_SSIZE_T_FMT          "I64d"
+ #define APR_SIZE_T_FMT           "I64u"
+ #else
+Index: apr/include/apr_allocator.h
+===================================================================
+--- apr.orig/include/apr_allocator.h
++++ apr/include/apr_allocator.h
+@@ -71,7 +71,8 @@
+  * @param allocator The allocator we have just created.
+  *
+  */
+-APR_DECLARE(apr_status_t) apr_allocator_create(apr_allocator_t **allocator);
++APR_DECLARE(apr_status_t) apr_allocator_create(apr_allocator_t **allocator)
++                          __attribute__((nonnull(1)));
+ 
+ /**
+  * Destroy an allocator
+@@ -79,7 +80,8 @@
+  * @remark Any memnodes not given back to the allocator prior to destroying
+  *         will _not_ be free()d.
+  */
+-APR_DECLARE(void) apr_allocator_destroy(apr_allocator_t *allocator);
++APR_DECLARE(void) apr_allocator_destroy(apr_allocator_t *allocator)
++                  __attribute__((nonnull(1)));
+ 
+ /**
+  * Allocate a block of mem from the allocator
+@@ -88,7 +90,8 @@
+  *        memnode structure)
+  */
+ APR_DECLARE(apr_memnode_t *) apr_allocator_alloc(apr_allocator_t *allocator,
+-                                                 apr_size_t size);
++                                                 apr_size_t size)
++                             __attribute__((nonnull(1)));
+ 
+ /**
+  * Free a list of blocks of mem, giving them back to the allocator.
+@@ -98,7 +101,8 @@
+  * @param memnode The memory node to return
+  */
+ APR_DECLARE(void) apr_allocator_free(apr_allocator_t *allocator,
+-                                     apr_memnode_t *memnode);
++                                     apr_memnode_t *memnode)
++                  __attribute__((nonnull(1,2)));
+ 
+ #include "apr_pools.h"
+ 
+@@ -114,13 +118,15 @@
+  * the allocator will never be destroyed.
+  */
+ APR_DECLARE(void) apr_allocator_owner_set(apr_allocator_t *allocator,
+-                                          apr_pool_t *pool);
++                                          apr_pool_t *pool)
++                  __attribute__((nonnull(1)));
+ 
+ /**
+  * Get the current owner of the allocator
+  * @param allocator The allocator to get the owner from
+  */
+-APR_DECLARE(apr_pool_t *) apr_allocator_owner_get(apr_allocator_t *allocator);
++APR_DECLARE(apr_pool_t *) apr_allocator_owner_get(apr_allocator_t *allocator)
++                          __attribute__((nonnull(1)));
+ 
+ /**
+  * Set the current threshold at which the allocator should start
+@@ -129,7 +135,8 @@
+  * @param size The threshold.  0 == unlimited.
+  */
+ APR_DECLARE(void) apr_allocator_max_free_set(apr_allocator_t *allocator,
+-                                             apr_size_t size);
++                                             apr_size_t size)
++                  __attribute__((nonnull(1)));
+ 
+ #include "apr_thread_mutex.h"
+ 
+@@ -140,14 +147,16 @@
+  * @param mutex The mutex
+  */
+ APR_DECLARE(void) apr_allocator_mutex_set(apr_allocator_t *allocator,
+-                                          apr_thread_mutex_t *mutex);
++                                          apr_thread_mutex_t *mutex)
++                  __attribute__((nonnull(1)));
+ 
+ /**
+  * Get the mutex currently set for the allocator
+  * @param allocator The allocator
+  */
+ APR_DECLARE(apr_thread_mutex_t *) apr_allocator_mutex_get(
+-                                      apr_allocator_t *allocator);
++                                          apr_allocator_t *allocator)
++                                  __attribute__((nonnull(1)));
+ 
+ #endif /* APR_HAS_THREADS */
+ 
+Index: apr/build/mkdir.sh
+===================================================================
+--- apr.orig/build/mkdir.sh
++++ apr/build/mkdir.sh
+@@ -28,7 +28,13 @@
+         esac
+         if test ! -d "$pathcomp"; then
+             echo "mkdir $pathcomp" 1>&2
+-            mkdir "$pathcomp" || errstatus=$?
++            thiserrstatus=0
++            mkdir "$pathcomp" || thiserrstatus=$?
++            # ignore errors due to races if a parallel mkdir.sh already
++            # created the dir
++            if test $thiserrstatus != 0 && test ! -d "$pathcomp" ; then
++                errstatus=$thiserrstatus
++            fi
+         fi
+         pathcomp="$pathcomp/"
+     done
+Index: apr/build/apr_hints.m4
+===================================================================
+--- apr.orig/build/apr_hints.m4
++++ apr/build/apr_hints.m4
+@@ -129,9 +129,6 @@
+         esac
+ 	APR_ADDTO(CPPFLAGS, [-D_REENTRANT -D_GNU_SOURCE])
+ 	;;
+-    *-GNU*)
+-	APR_ADDTO(CPPFLAGS, [-DHURD -D_GNU_SOURCE])
+-	;;
+     *-lynx-lynxos)
+ 	APR_ADDTO(CPPFLAGS, [-D__NO_INCLUDE_WARN__ -DLYNXOS])
+ 	APR_ADDTO(LIBS, [-lbsd])
+@@ -180,6 +177,9 @@
+     *-k*bsd*-gnu)
+         APR_ADDTO(CPPFLAGS, [-D_REENTRANT -D_GNU_SOURCE])
+         ;;
++    *-gnu*|*-GNU*)
++        APR_ADDTO(CPPFLAGS, [-D_REENTRANT -D_GNU_SOURCE -DHURD])
++        ;;
+     *-next-nextstep*)
+ 	APR_SETIFNULL(CFLAGS, [-O])
+ 	APR_ADDTO(CPPFLAGS, [-DNEXT])
+Index: apr/file_io/unix/seek.c
+===================================================================
+--- apr.orig/file_io/unix/seek.c
++++ apr/file_io/unix/seek.c
+@@ -117,10 +117,10 @@
+             /* Reset buffer positions for write mode */
+             fp->bufpos = fp->direction = fp->dataRead = 0;
+         }
++        file_unlock(fp);
+         if (rc) {
+             return rc;
+         }
+-        file_unlock(fp);
+     }
+     if (ftruncate(fp->filedes, offset) == -1) {
+         return errno;
+Index: apr/shmem/win32/shm.c
+===================================================================
+--- apr.orig/shmem/win32/shm.c
++++ apr/shmem/win32/shm.c
+@@ -82,7 +82,7 @@
+     /* Compute the granualar multiple of the pagesize */
+     size = memblock * (1 + (reqsize - 1) / memblock);
+     sizelo = (DWORD)size;
+-#ifdef WIN64
++#ifdef _WIN64
+     sizehi = (DWORD)(size >> 32);
+ #else
+     sizehi = 0;

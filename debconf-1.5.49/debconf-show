@@ -1,0 +1,158 @@
+#!/usr/bin/perl
+
+=head1 NAME
+
+debconf-show - query the debconf database
+
+=cut
+
+sub usage {
+	print STDERR <<EOF;
+Usage: 
+    debconf-show packagename [...] [--db=dbname]
+    debconf-show --listowners [--db=dbname]
+    debconf-show --listdbs
+EOF
+	exit(1);
+}
+
+=head1 SYNOPSIS
+
+ debconf-show packagename [...] [--db=dbname]
+ debconf-show --listowners [--db=dbname]
+ debconf-show --listdbs
+
+=head1 DESCRIPTION
+
+B<debconf-show> lets you query the debconf database in different ways.
+
+The most common use is "debconf-show packagename", which displays all items
+in the debconf database owned by a given package, and their current values.
+Questions that have been asked already are prefixed with an '*'.
+
+This can be useful as a debugging aid, and especially handy in bug reports
+involving a package's use of debconf.
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--db=>I<dbname>
+
+Specify the database to query. By default, debconf-show queries the main
+database.
+
+=item B<--listowners>
+
+Lists all owners of questions in the database. Generally an owner is
+equivalent to a debian package name.
+
+=item B<--listdbs>
+
+Lists all available databases.
+
+=back
+
+=cut
+
+use strict;
+use warnings;
+use Debconf::Db;
+use Debconf::Template;
+use Debconf::Question;
+use Getopt::Long;
+
+my $db='';
+my $listowners=0;
+my @packages;
+my $listdbs=0;
+
+# command options
+GetOptions(
+	"db=s" => \$db,
+	"listowners" => \$listowners,
+	"listdbs" => \$listdbs,
+) || usage();
+
+unless ($listowners or $listdbs) {
+	@packages=@ARGV;
+	usage() unless @packages;
+}
+
+Debconf::Db->load(readonly => 'true');
+
+my %drivers = %Debconf::DbDriver::drivers;
+my $conf = Debconf::Config->config;
+
+# Recursive function to get the config tree.
+sub tree {
+	my $node=shift;
+	my $string=shift || "";
+	my $driver = Debconf::DbDriver->driver($node);
+	my $name = $driver->{name};
+
+	$string = $string.$name;
+	print $string."\n";
+
+	# If the node is a stack, call tree again to get the subtree.
+	if ($driver->isa("Debconf::DbDriver::Stack")) {
+		$string=$string.'/';
+		map { tree($_->{name},$string) } @{$driver->{stack}};
+	}
+}
+
+# If a specific database is given (with --db), redefine the global config
+# database to use it.
+if ($db) {
+	my $driver = $drivers{$db};
+	die $db.": unknown database" unless defined($driver);
+	$Debconf::Db::config = $driver;
+}
+
+my $qi=Debconf::Question->iterator;
+
+if ($listdbs) {
+	# Display the config tree.
+	tree($conf);
+}
+elsif (@packages) {
+	while (my $q=$qi->iterate) {
+		foreach my $package (@packages) {
+			# Show the questions of a package.
+			if (grep { $package eq $_} split(/, /, $q->owners)) {
+				if ($q->flag("seen") eq 'true') {
+					print "* ";
+				}
+				else {
+					print "  ";
+				}
+				print $q->name.":";
+				if ($q->type eq 'password') {
+					print " (password omitted)";
+				}
+				elsif (length $q->value) {
+					print " ".$q->value;
+				}
+				print "\n";
+			}
+		}
+	}
+}
+elsif ($listowners) {
+	# Show all the owners in the database.
+	my %seen;
+	while (my $q=$qi->iterate) {
+		foreach (split(/, /, $q->owners)) {
+			unless ($seen{$_}) {
+				print "$_\n";
+				$seen{$_}=1;
+			}
+		}
+	}
+}
+
+=head1 AUTHOR
+
+Joey Hess <joeyh@debian.org> and Sylvain Ferriol
+
+=cut

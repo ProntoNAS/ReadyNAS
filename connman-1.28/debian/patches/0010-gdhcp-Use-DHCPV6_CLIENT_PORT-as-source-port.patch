@@ -1,0 +1,49 @@
+From a5237e09c924f09354402633f80fbdaf714efbda Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pasi=20Sj=C3=B6holm?= <pasi.sjoholm@jollamobile.com>
+Date: Sun, 22 Feb 2015 01:53:26 +0200
+Subject: [PATCH 3/3] gdhcp: Use DHCPV6_CLIENT_PORT as source port
+
+Some buggy DHCPv6 server implementations are re-using the original
+source port from the DHCPv6 client messages to their DHCPv6 reply
+packets (eg. Cisco EPC3940L) as a destination port. Due to this we
+need to make sure that we use DHCPV6_CLIENT_PORT (udp/546) as the
+source port when sending client DHCPv6 messages.
+---
+ gdhcp/common.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/gdhcp/common.c b/gdhcp/common.c
+index 140d6f0..f3d4677 100644
+--- a/gdhcp/common.c
++++ b/gdhcp/common.c
+@@ -479,7 +479,8 @@ int dhcpv6_send_packet(int index, struct dhcpv6_packet *dhcp_pkt, int len)
+ 	struct iovec v;
+ 	struct in6_pktinfo *pktinfo;
+ 	struct cmsghdr *cmsg;
+-	int fd, ret;
++	int fd, ret, opt = 1;
++	struct sockaddr_in6 src;
+ 	struct sockaddr_in6 dst;
+ 	void *control_buf;
+ 	size_t control_buf_len;
+@@ -488,6 +489,17 @@ int dhcpv6_send_packet(int index, struct dhcpv6_packet *dhcp_pkt, int len)
+ 	if (fd < 0)
+ 		return -errno;
+ 
++	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
++
++	memset(&src, 0, sizeof(src));
++	src.sin6_family = AF_INET6;
++	src.sin6_port = htons(DHCPV6_CLIENT_PORT);
++
++	if (bind(fd, (struct sockaddr *) &src, sizeof(src)) <0) {
++		close(fd);
++		return -errno;
++	}
++
+ 	memset(&dst, 0, sizeof(dst));
+ 	dst.sin6_family = AF_INET6;
+ 	dst.sin6_port = htons(DHCPV6_SERVER_PORT);
+-- 
+1.9.1
+

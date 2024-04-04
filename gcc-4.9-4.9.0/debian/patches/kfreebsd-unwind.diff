@@ -1,0 +1,229 @@
+# DP: DWARF2 EH unwinding support for AMD x86-64 and x86 KFreeBSD.
+
+Index: b/src/libgcc/config.host
+===================================================================
+--- a/src/libgcc/config.host
++++ b/src/libgcc/config.host
+@@ -567,7 +567,12 @@ i[34567]86-*-linux*)
+ 	tmake_file="${tmake_file} i386/t-crtpc i386/t-crtfm i386/t-crtstuff t-dfprules"
+ 	md_unwind_header=i386/linux-unwind.h
+ 	;;
+-i[34567]86-*-kfreebsd*-gnu | i[34567]86-*-knetbsd*-gnu | i[34567]86-*-gnu* | i[34567]86-*-kopensolaris*-gnu)
++i[34567]86-*-kfreebsd*-gnu)
++	extra_parts="$extra_parts crtprec32.o crtprec64.o crtprec80.o crtfastmath.o"
++	tmake_file="${tmake_file} i386/t-crtpc i386/t-crtfm i386/t-crtstuff t-dfprules"
++	md_unwind_header=i386/freebsd-unwind.h
++	;;
++i[34567]86-*-knetbsd*-gnu | i[34567]86-*-gnu* | i[34567]86-*-kopensolaris*-gnu)
+ 	extra_parts="$extra_parts crtprec32.o crtprec64.o crtprec80.o crtfastmath.o"
+ 	tmake_file="${tmake_file} i386/t-crtpc i386/t-crtfm i386/t-crtstuff t-dfprules"
+ 	;;
+@@ -576,7 +581,12 @@ x86_64-*-linux*)
+ 	tmake_file="${tmake_file} i386/t-crtpc i386/t-crtfm i386/t-crtstuff t-dfprules"
+ 	md_unwind_header=i386/linux-unwind.h
+ 	;;
+-x86_64-*-kfreebsd*-gnu | x86_64-*-knetbsd*-gnu)
++x86_64-*-kfreebsd*-gnu)
++	extra_parts="$extra_parts crtprec32.o crtprec64.o crtprec80.o crtfastmath.o"
++	tmake_file="${tmake_file} i386/t-crtpc i386/t-crtfm i386/t-crtstuff t-dfprules"
++	md_unwind_header=i386/freebsd-unwind.h
++	;;
++x86_64-*-knetbsd*-gnu)
+ 	extra_parts="$extra_parts crtprec32.o crtprec64.o crtprec80.o crtfastmath.o"
+ 	tmake_file="${tmake_file} i386/t-crtpc i386/t-crtfm i386/t-crtstuff t-dfprules"
+ 	;;
+Index: b/src/libgcc/config/i386/freebsd-unwind.h
+===================================================================
+--- /dev/null
++++ b/src/libgcc/config/i386/freebsd-unwind.h
+@@ -0,0 +1,190 @@
++/* DWARF2 EH unwinding support for AMD x86-64 and x86.
++   Copyright (C) 2004-2013 Free Software Foundation, Inc.
++
++This file is part of GCC.
++
++GCC is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 3, or (at your option)
++any later version.
++
++GCC is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++Under Section 7 of GPL version 3, you are granted additional
++permissions described in the GCC Runtime Library Exception, version
++3.1, as published by the Free Software Foundation.
++
++You should have received a copy of the GNU General Public License and
++a copy of the GCC Runtime Library Exception along with this program;
++see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
++<http://www.gnu.org/licenses/>.  */
++
++/* Do code reading to identify a signal frame, and set the frame
++   state data appropriately.  See unwind-dw2.c for the structs.
++   Don't use this at all if inhibit_libc is used.  */
++
++#ifndef inhibit_libc
++
++#include <signal.h>
++#include <sys/ucontext.h>
++#include <machine/sigframe.h>
++
++#ifdef __x86_64__
++
++#define MD_FALLBACK_FRAME_STATE_FOR x86_64_fb_fallback_frame_state
++
++static _Unwind_Reason_Code
++x86_64_fb_fallback_frame_state (struct _Unwind_Context *context,
++			     _Unwind_FrameState *fs)
++{
++  unsigned int *pc = context->ra;
++  struct sigframe *sf;
++  long new_cfa;
++
++/*  sys/amd64/amd64/sigtramp.S:
++               
++      48 8d 7c 24 10          lea    0x10(%rsp),%rdi
++      6a 00                   pushq  $0x0
++      48 c7 c0 a1 01 00 00    mov    $0x1a1,%rax
++      0f 05                   syscall 
++*/
++
++  if (   (pc[0] == 0x247c8d48U)
++      && (pc[1] == 0x48006a10U)
++      && (pc[2] == 0x01a1c0c7U)
++      && (pc[3] == 0x050f0000U))
++    {
++      sf = (struct sigframe *) context->cfa;
++    }
++  else
++    return _URC_END_OF_STACK;
++
++  new_cfa = sf->sf_uc.uc_mcontext.mc_rsp;
++  fs->regs.cfa_how = CFA_REG_OFFSET;
++  /* Register 7 is rsp  */
++  fs->regs.cfa_reg = 7;
++  fs->regs.cfa_offset = new_cfa - (long) context->cfa;
++
++  /* The SVR4 register numbering macros aren't usable in libgcc.  */
++  fs->regs.reg[0].how = REG_SAVED_OFFSET;
++  fs->regs.reg[0].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_rax - new_cfa;
++  fs->regs.reg[1].how = REG_SAVED_OFFSET;
++  fs->regs.reg[1].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_rdx - new_cfa;
++  fs->regs.reg[2].how = REG_SAVED_OFFSET;
++  fs->regs.reg[2].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_rcx - new_cfa;
++  fs->regs.reg[3].how = REG_SAVED_OFFSET;
++  fs->regs.reg[3].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_rbx - new_cfa;
++  fs->regs.reg[4].how = REG_SAVED_OFFSET;
++  fs->regs.reg[4].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_rsi - new_cfa;
++  fs->regs.reg[5].how = REG_SAVED_OFFSET;
++  fs->regs.reg[5].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_rdi - new_cfa;
++  fs->regs.reg[6].how = REG_SAVED_OFFSET;
++  fs->regs.reg[6].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_rbp - new_cfa;
++  fs->regs.reg[8].how = REG_SAVED_OFFSET;
++  fs->regs.reg[8].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_r8 - new_cfa;
++  fs->regs.reg[9].how = REG_SAVED_OFFSET;
++  fs->regs.reg[9].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_r9 - new_cfa;
++  fs->regs.reg[10].how = REG_SAVED_OFFSET;
++  fs->regs.reg[10].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_r10 - new_cfa;
++  fs->regs.reg[11].how = REG_SAVED_OFFSET;
++  fs->regs.reg[11].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_r11 - new_cfa;
++  fs->regs.reg[12].how = REG_SAVED_OFFSET;
++  fs->regs.reg[12].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_r12 - new_cfa;
++  fs->regs.reg[13].how = REG_SAVED_OFFSET;
++  fs->regs.reg[13].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_r13 - new_cfa;
++  fs->regs.reg[14].how = REG_SAVED_OFFSET;
++  fs->regs.reg[14].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_r14 - new_cfa;
++  fs->regs.reg[15].how = REG_SAVED_OFFSET;
++  fs->regs.reg[15].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_r15 - new_cfa;
++  fs->regs.reg[16].how = REG_SAVED_OFFSET;
++  fs->regs.reg[16].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_rip - new_cfa;
++  fs->retaddr_column = 16;
++  fs->signal_frame = 1;
++  return _URC_NO_REASON;
++}
++
++#else /* ifdef __x86_64__  */
++
++#define MD_FALLBACK_FRAME_STATE_FOR x86_fb_fallback_frame_state
++
++static _Unwind_Reason_Code
++x86_fb_fallback_frame_state (struct _Unwind_Context *context,
++			  _Unwind_FrameState *fs)
++{
++  unsigned int *pc = context->ra;
++  struct sigframe *sf;
++  long new_cfa;
++
++/* sys/amd64/ia32/ia32_sigtramp.S 
++
++     8d 44 24 20             lea    0x20(%esp),%eax
++     50                      push   %eax
++     b8 a1 01 00 00          mov    $0x1a1,%eax
++     50                      push   %eax
++     cd 80                   int    $0x80
++     eb fe                   jmp    -
++*/
++
++/* sys/i386/i386/locore.s: sigcode()
++
++     8d 44 24 20             lea    0x20(%esp),%eax
++     50                      push   %eax
++     f7 40 54 00 00 02 00    testl  $0x20000,0x54(%eax)
++     75 03                   jne    +
++     8e 68 14                mov    0x14(%eax),%gs
++     b8 a1 01 00 00          mov    $0x1a1,%eax
++     50                      push   %eax
++     cd 80                   int    $0x80
++     eb fe                   jmp    -
++*/
++
++  if ((pc[0] == 0x2024448dU)
++      &&  ((
++	          (pc[1] == 0x01a1b850U)
++	      &&  (pc[2] == 0xcd500000U)
++	      && ((pc[3] & 0xFF) == 0x80)
++	   )
++         
++        || (
++	          (pc[4] == 0x01a1b814U)
++	      &&  (pc[5] == 0xcd500000U)
++	      && ((pc[6] & 0xFF) == 0x80)
++	   )))
++    {
++      sf = (struct sigframe *) context->cfa;
++    }
++  else
++    return _URC_END_OF_STACK;
++
++  new_cfa = sf->sf_uc.uc_mcontext.mc_esp;
++  fs->regs.cfa_how = CFA_REG_OFFSET;
++  fs->regs.cfa_reg = 4;
++  fs->regs.cfa_offset = new_cfa - (long) context->cfa;
++
++  /* The SVR4 register numbering macros aren't usable in libgcc.  */
++  fs->regs.reg[0].how = REG_SAVED_OFFSET;
++  fs->regs.reg[0].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_eax - new_cfa;
++  fs->regs.reg[3].how = REG_SAVED_OFFSET;
++  fs->regs.reg[3].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_ebx - new_cfa;
++  fs->regs.reg[1].how = REG_SAVED_OFFSET;
++  fs->regs.reg[1].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_ecx - new_cfa;
++  fs->regs.reg[2].how = REG_SAVED_OFFSET;
++  fs->regs.reg[2].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_edx - new_cfa;
++  fs->regs.reg[6].how = REG_SAVED_OFFSET;
++  fs->regs.reg[6].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_esi - new_cfa;
++  fs->regs.reg[7].how = REG_SAVED_OFFSET;
++  fs->regs.reg[7].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_edi - new_cfa;
++  fs->regs.reg[5].how = REG_SAVED_OFFSET;
++  fs->regs.reg[5].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_ebp - new_cfa;
++  fs->regs.reg[8].how = REG_SAVED_OFFSET;
++  fs->regs.reg[8].loc.offset = (long)&sf->sf_uc.uc_mcontext.mc_eip - new_cfa;
++  fs->retaddr_column = 8;
++  fs->signal_frame = 1;
++  return _URC_NO_REASON;
++}
++
++#endif /* ifdef __x86_64__  */
++#endif /* ifdef inhibit_libc  */

@@ -1,0 +1,38 @@
+#! /usr/bin/make -f
+
+# Ensure that builds are self-hosting, which means I have to use the .pm
+# files in this package, not any that may be on the system.
+export PERL5LIB=.
+
+%:
+	dh $@ --with python2,python3
+
+override_dh_auto_install:
+	$(MAKE) prefix=`pwd`/debian/debconf-utils install-utils
+	$(MAKE) prefix=`pwd`/debian/debconf-i18n install-i18n
+	$(MAKE) prefix=`pwd`/debian/debconf install-rest
+
+# Run dh_link earlier so that it has an opportunity to link documentation
+# directories.
+override_dh_installdocs:
+	dh_link
+	dh_installdocs
+
+override_dh_installdebconf:
+	# Don't modify postrm, I purge differently than normal packages
+	# using me
+	dh_installdebconf -n
+
+override_dh_install:
+	dh_install
+	cp debian/apt.conf debian/debconf/etc/apt/apt.conf.d/70debconf
+	cp bash_completion debian/debconf/etc/bash_completion.d/debconf
+
+override_dh_installchangelogs:
+	# Changelog reduction hack for debconf. Only include top 100 entries.
+	perl -ne '$$c++ if /^debconf /; last if $$c > 100 ; print $$_' \
+		< debian/changelog > debian/debconf.changelog
+	dh_installchangelogs
+
+override_dh_compress:
+	dh_compress -X demo.templates -X tutorial.templates

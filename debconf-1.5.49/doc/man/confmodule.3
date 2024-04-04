@@ -1,0 +1,43 @@
+.TH CONFMODULE 3
+.SH NAME
+confmodule \- communicate with Debian configuration system FrontEnd.
+.SH SYNOPSIS
+  #!/bin/sh -e
+  . /usr/share/debconf/confmodule
+  db_version 2.0
+  db_capb 'backup'
+  CAPB=$RET
+  db_input 'foo/bar' || true
+  db_go || true
+.SH DESCRIPTION
+This is a library of shell functions that eases communication with Debian's
+configuration management system. It can communicate with a FrontEnd via the
+debconf protocol. The design is that each command in the protocol is
+represented by one function in this module. The functionname is the same as
+the command, except it is prefixed with "db_" and is lower-case. Call
+the function and pass in any parameters you want to follow the command. Any
+textual return code from the FrontEnd will be returned to you in the $RET
+variable, while the numeric return code from the FrontEnd will be returned
+as a return code (and so those return codes must be captured or ignored).
+.SH NOTES
+Once this library is loaded, any text you later output will go to standard
+error, rather than standard output. This is a good thing in general, because
+text sent to standard output is interpreted by the FrontEnd as commands. If
+you do want to send a command directly to the FrontEnd, you must output it
+to file descriptor 3, like this:
+  echo GET foo/bar >&3
+.P
+The library checks to make sure it is actually speaking to a FrontEnd by
+examining the DEBIAN_HAS_FRONTEND variable. If it is set, a FrontEnd is
+assumed to be running. If not, the library turns into one, and runs a copy
+of the script that loaded the library connected to it. This means that if you
+source this library, you should do so very near to the top of your script,
+because everything before the sourcing of the library may well be run again.
+.SH SEE ALSO
+.BR debconf-devel (7),
+.BR dpkg-preconfigure (8),
+.BR dpkg-reconfigure (8),
+debconf_specification in the debian-policy package
+.BR
+.SH AUTHOR
+Joey Hess <joeyh@debian.org>

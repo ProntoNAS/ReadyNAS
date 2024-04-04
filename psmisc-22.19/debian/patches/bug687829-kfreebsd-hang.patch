@@ -1,0 +1,127 @@
+Description: pstree backport fix for kFreeBSD
+Author: Steven Chamberlain <steven@pyro.eu.org>
+Last-Update: 2012-01-28
+Index: psmisc-22.19/src/pstree.c
+===================================================================
+--- psmisc-22.19.orig/src/pstree.c	2012-05-20 00:10:36.000000000 +0100
++++ psmisc-22.19/src/pstree.c	2013-01-29 14:05:26.080464900 +0000
+@@ -53,6 +53,12 @@
+ 
+ #define PROC_BASE    "/proc"
+ 
++#if defined(__FreeBSD_kernel__) || defined(__FreeBSD__)
++#define ROOT_PID 0
++#else
++#define ROOT_PID 1
++#endif /* __FreeBSD__ */
++
+ /* UTF-8 defines by Johan Myreen, updated by Ben Winslow */
+ #define UTF_V        "\342\224\202"        /* U+2502, Vertical line drawing char */
+ #define UTF_VR        "\342\224\234"        /* U+251C, Vertical and right */
+@@ -375,19 +381,21 @@
+ 	 * then we need fake root pid */
+ 	if (!isthread && pid != 1) {
+ 		PROC *root;
+-		if (!(root = find_proc(1))) {
++		if (!(root = find_proc(ROOT_PID))) {
+ #ifdef WITH_SELINUX
+-			root = new_proc("?", 1, 0, scontext);
++			root = new_proc("?", ROOT_PID, 0, scontext);
+ #else                                /*WITH_SELINUX */
+-			root = new_proc("?", 1, 0);
++			root = new_proc("?", ROOT_PID, 0);
+ #endif
+ 		}
+ 		add_child(root, parent);
+ 		parent->parent = root;
+ 	}
+     }
+-    add_child(parent, this);
+-    this->parent = parent;
++    if (pid != 0) {
++      add_child(parent, this);
++      this->parent = parent;
++    }
+ }
+ 
+ 
+@@ -634,7 +642,7 @@
+   char *buffer;
+   size_t buffer_size;
+   char readbuf[BUFSIZ + 1];
+-  char *tmpptr;
++  char *tmpptr, *endptr;
+   pid_t pid, ppid, pgid;
+   int fd, size;
+   int empty;
+@@ -659,8 +667,9 @@
+     exit(1);
+   }
+   empty = 1;
+-  while ((de = readdir(dir)) != NULL)
+-    if ((pid = (pid_t) atoi(de->d_name)) != 0) {
++  while ((de = readdir(dir)) != NULL) {
++    pid = (pid_t) strtol(de->d_name, &endptr, 10);
++    if (endptr != de->d_name && endptr[0] == '\0') {
+       if (! (path = malloc(strlen(PROC_BASE) + strlen(de->d_name) + 10)))
+         exit(2);
+       sprintf(path, "%s/%d/stat", PROC_BASE, pid);
+@@ -769,6 +778,7 @@
+       }
+       free(path);
+     }
++  }
+   (void) closedir(dir);
+   if (print_args)
+     free(buffer);
+@@ -859,8 +869,8 @@
+     const struct passwd *pw;
+     pid_t pid, highlight;
+     char termcap_area[1024];
+-    char *termname;
+-    int c;
++    char *termname, *endptr;
++    int c, pid_set;
+ 
+     struct option options[] = {
+         {"arguments", 0, NULL, 'a'},
+@@ -886,7 +896,7 @@
+     if (ioctl(1, TIOCGWINSZ, &winsz) >= 0)
+         if (winsz.ws_col)
+             output_width = winsz.ws_col;
+-    pid = 1;
++    pid = ROOT_PID;
+     highlight = 0;
+     pw = NULL;
+ 
+@@ -1006,7 +1016,9 @@
+         }
+     if (optind == argc - 1) {
+         if (isdigit(*argv[optind])) {
+-            if (!(pid = (pid_t) atoi(argv[optind++])))
++            pid = (pid_t) strtol(argv[optind++], &endptr, 10);
++            pid_set = 1;
++            if (endptr[0] != '\0')
+                 usage();
+         } else if (!(pw = getpwnam(argv[optind++]))) {
+             fprintf(stderr, _("No such user name: %s\n"),
+@@ -1021,16 +1033,16 @@
+          current = current->parent)
+         current->flags |= PFLAG_HILIGHT;
+ 
+-    if(show_parents && pid != 0) {
++    if(show_parents && pid_set == 1) {
+       trim_tree_by_parent(find_proc(pid));
+ 
+-      pid = 1;
++      pid = ROOT_PID;
+     }
+ 
+     if (!pw)
+         dump_tree(find_proc(pid), 0, 1, 1, 1, 0, 0);
+     else {
+-        dump_by_user(find_proc(1), pw->pw_uid);
++        dump_by_user(find_proc(ROOT_PID), pw->pw_uid);
+         if (!dumped) {
+             fprintf(stderr, _("No processes found.\n"));
+             return 1;

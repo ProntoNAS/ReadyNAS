@@ -1,0 +1,41 @@
+diff --git a/etc/netatalk/afp_avahi.c b/etc/netatalk/afp_avahi.c
+index 63bc950..ecb8b4b 100644
+--- a/etc/netatalk/afp_avahi.c
++++ b/etc/netatalk/afp_avahi.c
+@@ -98,10 +98,11 @@ static void register_stuff(void) {
+                            ctx->obj->options.hostname,
+                            -1,
+                            name,
+-                           MAXINSTANCENAMELEN) <= 0) {
++                           MAXINSTANCENAMELEN - 6) <= 0) {
+             LOG(log_error, logtype_afpd, "Could not set Zeroconf instance name: %s", ctx->obj->options.hostname);
+             goto fail;
+         }
++        strcat(name, " (AFP)");
+ 
+         LOG(log_info, logtype_afpd, "Registering server '%s' with Bonjour", name);            
+ 
+@@ -120,6 +121,23 @@ static void register_stuff(void) {
+             goto fail;
+         }
+ 
++        if (i) {
++            char *c;
++            c = strrchr(name, ' ');
++            if (c)
++                *c = '\0';
++            avahi_entry_group_add_service(ctx->group,
++                                          AVAHI_IF_UNSPEC,
++                                          AVAHI_PROTO_UNSPEC,
++                                          0,
++                                          name,
++                                          AFP_DNS_SERVICE_TYPE,
++                                          NULL,
++                                          NULL,
++                                          port,
++                                          NULL);
++        }
++
+         if (i && avahi_entry_group_add_service_strlst(ctx->group,
+                                                       AVAHI_IF_UNSPEC,
+                                                       AVAHI_PROTO_UNSPEC,

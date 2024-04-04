@@ -1,0 +1,48 @@
+From f18c3cee6f9aa85337452648a79c2d13ff815685 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Mon, 9 Feb 2015 18:01:54 -0800
+Subject: [PATCH 3/7] image: Improve resize quality at the edges.
+
+get_pix() returns opaque black pixels for out-of-bounds coordinates, resulting
+in spurious averages at the edges. The attached patch appears to fix the
+problem, at least for the floating-point resizers.
+
+From SF user R.L. Horn.
+---
+ image_utils.c | 20 +++++++++++---------
+ 1 file changed, 11 insertions(+), 9 deletions(-)
+
+diff --git a/image_utils.c b/image_utils.c
+index c0d1f2c..0570e0d 100644
+--- a/image_utils.c
++++ b/image_utils.c
+@@ -210,15 +210,17 @@ image_free(image_s *pimage)
+ pix
+ get_pix(image_s *pimage, int32_t x, int32_t y)
+ {
+-	if((x >= 0) && (y >= 0) && (x < pimage->width) && (y < pimage->height))
+-	{
+-		return(pimage->buf[(y * pimage->width) + x]);
+-	}
+-	else
+-	{
+-		pix vpix = BLACK;
+-		return(vpix);
+-	}
++	if (x < 0)
++		x = 0;
++	else if (x >= pimage->width)
++		x = pimage->width - 1;
++
++	if (y < 0)
++		y = 0;
++	else if (y >= pimage->height)
++		y = pimage->height - 1;
++
++	return(pimage->buf[(y * pimage->width) + x]);
+ }
+ 
+ void
+-- 
+1.9.1
+

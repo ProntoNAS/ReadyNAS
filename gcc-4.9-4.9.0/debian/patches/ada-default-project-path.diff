@@ -1,0 +1,134 @@
+# DP: - Change the default search path for project files to the one specified
+# DP:   by the Debian Policy for Ada: /usr/share/ada/adainclude.
+
+Index: b/src/gcc/ada/Make-generated.in
+===================================================================
+--- a/src/gcc/ada/Make-generated.in
++++ b/src/gcc/ada/Make-generated.in
+@@ -118,6 +118,7 @@
+ 	$(ECHO) "   S2 : constant String := \"$(ADA_RTL_OBJ_DIR)/\";" >>tmp-sdefault.adb
+ 	$(ECHO) "   S3 : constant String := \"$(target_noncanonical)/\";" >>tmp-sdefault.adb
+ 	$(ECHO) "   S4 : constant String := \"$(libsubdir)/\";" >>tmp-sdefault.adb
++	$(ECHO) "   S5 : constant String := \"/usr/share/ada/adainclude/\";" >>tmp-sdefault.adb
+ 	$(ECHO) "   function Include_Dir_Default_Name return String_Ptr is" >>tmp-sdefault.adb
+ 	$(ECHO) "   begin" >>tmp-sdefault.adb
+ 	$(ECHO) "      return Relocate_Path (S0, S1);" >>tmp-sdefault.adb
+@@ -134,6 +135,10 @@
+ 	$(ECHO) "   begin" >>tmp-sdefault.adb
+ 	$(ECHO) "      return Relocate_Path (S0, S4);" >>tmp-sdefault.adb
+ 	$(ECHO) "   end Search_Dir_Prefix;" >>tmp-sdefault.adb
++	$(ECHO) "   function Project_Dir_Prefix return String_Ptr is" >>tmp-sdefault.adb
++	$(ECHO) "   begin" >>tmp-sdefault.adb
++	$(ECHO) "      return Relocate_Path (S0, S5);" >>tmp-sdefault.adb
++	$(ECHO) "   end Project_Dir_Prefix;" >>tmp-sdefault.adb
+ 	$(ECHO) "end Sdefault;" >> tmp-sdefault.adb
+ 	$(MOVE_IF_CHANGE) tmp-sdefault.adb $(ADA_GEN_SUBDIR)/sdefault.adb
+ 	touch $(ADA_GEN_SUBDIR)/stamp-sdefault
+Index: b/src/gcc/ada/prj-env.adb
+===================================================================
+--- a/src/gcc/ada/prj-env.adb
++++ b/src/gcc/ada/prj-env.adb
+@@ -25,7 +25,6 @@
+ 
+ with Fmap;
+ with Hostparm;
+-with Makeutl;  use Makeutl;
+ with Opt;
+ with Osint;    use Osint;
+ with Output;   use Output;
+@@ -1905,6 +1904,7 @@
+      (Self        : in out Project_Search_Path;
+       Target_Name : String)
+    is
++      pragma Unreferenced (Target_Name);
+       Add_Default_Dir : Boolean := True;
+       First           : Positive;
+       Last            : Positive;
+@@ -2084,74 +2084,9 @@
+ 
+       --  Set the initial value of Current_Project_Path
+ 
+-      if Add_Default_Dir then
+-         declare
+-            Prefix : String_Ptr;
+-
+-         begin
+-            if Sdefault.Search_Dir_Prefix = null then
+-
+-               --  gprbuild case
+-
+-               Prefix := new String'(Executable_Prefix_Path);
+-
+-            else
+-               Prefix := new String'(Sdefault.Search_Dir_Prefix.all
+-                                     & ".." & Dir_Separator
+-                                     & ".." & Dir_Separator
+-                                     & ".." & Dir_Separator
+-                                     & ".." & Dir_Separator);
+-            end if;
+-
+-            if Prefix.all /= "" then
+-               if Target_Name /= "" then
+-
+-                  --  $prefix/$target/lib/gnat
+-
+-                  Add_Str_To_Name_Buffer
+-                    (Path_Separator & Prefix.all & Target_Name);
+-
+-                  --  Note: Target_Name has a trailing / when it comes from
+-                  --  Sdefault.
+-
+-                  if Name_Buffer (Name_Len) /= '/' then
+-                     Add_Char_To_Name_Buffer (Directory_Separator);
+-                  end if;
+-
+-                  Add_Str_To_Name_Buffer
+-                    ("lib" & Directory_Separator & "gnat");
+-
+-                  --  $prefix/$target/share/gpr
+-
+-                  Add_Str_To_Name_Buffer
+-                    (Path_Separator & Prefix.all & Target_Name);
+-
+-                  --  Note: Target_Name has a trailing / when it comes from
+-                  --  Sdefault.
+-
+-                  if Name_Buffer (Name_Len) /= '/' then
+-                     Add_Char_To_Name_Buffer (Directory_Separator);
+-                  end if;
+-
+-                  Add_Str_To_Name_Buffer
+-                    ("share" & Directory_Separator & "gpr");
+-               end if;
+-
+-               --  $prefix/share/gpr
+-
+-               Add_Str_To_Name_Buffer
+-                 (Path_Separator & Prefix.all &
+-                  "share" & Directory_Separator & "gpr");
+-
+-               --  $prefix/lib/gnat
+-
+-               Add_Str_To_Name_Buffer
+-                 (Path_Separator & Prefix.all &
+-                  "lib" & Directory_Separator & "gnat");
+-            end if;
+-
+-            Free (Prefix);
+-         end;
++      if Add_Default_Dir and Sdefault.Project_Dir_Prefix /= null then
++         Add_Str_To_Name_Buffer (Path_Separator
++                                 & Sdefault.Project_Dir_Prefix.all);
+       end if;
+ 
+       Self.Path := new String'(Name_Buffer (1 .. Name_Len));
+Index: b/src/gcc/ada/sdefault.ads
+===================================================================
+--- a/src/gcc/ada/sdefault.ads
++++ b/src/gcc/ada/sdefault.ads
+@@ -35,4 +35,5 @@
+    function Object_Dir_Default_Name  return String_Ptr;
+    function Target_Name              return String_Ptr;
+    function Search_Dir_Prefix        return String_Ptr;
++   function Project_Dir_Prefix       return String_Ptr;
+ end Sdefault;

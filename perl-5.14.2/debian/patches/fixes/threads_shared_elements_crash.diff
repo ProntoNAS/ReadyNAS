@@ -1,0 +1,178 @@
+From 4e07a8e0c8772662e962688a7f7eef04c1540a0c Mon Sep 17 00:00:00 2001
+From: Nicholas Clark <nick@ccl4.org>
+Date: Fri, 2 Aug 2013 12:08:33 +0200
+Subject: threads::shared should not crash if shared elements outlive their
+ aggregate.
+
+If an element of a shared aggregate is returned from a function, it is
+possible for it to outlive the aggregate itself. As the element has a pointer
+to the underlying shared aggregate and might use it, it is necessary for that
+pointer to remain valid. Hence threads::shared needs to ensure that cleanup
+of the shared aggregate is performed by the last proxy pointing to it, which
+is not necessarily the proxy for the aggregate itself. This can happen with
+lvalue subroutines.
+
+See the discussion in perl #119089 for more details.
+
+Backport to 5.14 via discussion in the upstream RT ticket.
+
+Bug-Debian: http://bugs.debian.org/718438
+Bug: https://rt.perl.org/rt3/Ticket/Display.html?id=119089
+Patch-Name: fixes/threads_shared_elements_crash.diff
+---
+ dist/threads-shared/shared.xs   |   39 +++++++++++++++++++++++++++++++++++++--
+ dist/threads-shared/t/av_refs.t |   27 ++++++++++++++++++++++++++-
+ dist/threads-shared/t/hv_refs.t |   24 +++++++++++++++++++++++-
+ 3 files changed, 86 insertions(+), 4 deletions(-)
+
+diff --git a/dist/threads-shared/shared.xs b/dist/threads-shared/shared.xs
+index 7f1cd06..a21606c 100644
+--- a/dist/threads-shared/shared.xs
++++ b/dist/threads-shared/shared.xs
+@@ -998,6 +998,27 @@ sharedsv_elem_mg_DELETE(pTHX_ SV *sv, MAGIC *mg)
+     return (0);
+ }
+ 
++int
++sharedsv_elem_mg_free(pTHX_ SV *sv, MAGIC *mg)
++{
++    dTHXc;
++    PERL_UNUSED_ARG(sv);
++    ENTER_LOCK;
++    if (mg->mg_obj) {
++        if (!PL_dirty) {
++            assert(SvROK(mg->mg_obj));
++        }
++        if (SvREFCNT(mg->mg_obj) == 1) {
++            /* If the element has the last pointer to the shared aggregate, then
++               it has to free the shared aggregate.  mg->mg_obj itself is freed
++               by Perl_mg_free()  */
++            S_sharedsv_dec(aTHX_ S_sharedsv_from_obj(aTHX_ mg->mg_obj));
++        }
++    }
++    LEAVE_LOCK;
++    return (0);
++}
++
+ /* Called during cloning of PERL_MAGIC_tiedelem(p) magic in new
+  * thread */
+ 
+@@ -1015,7 +1036,7 @@ MGVTBL sharedsv_elem_vtbl = {
+     sharedsv_elem_mg_STORE,     /* set */
+     0,                          /* len */
+     sharedsv_elem_mg_DELETE,    /* clear */
+-    0,                          /* free */
++    sharedsv_elem_mg_free,      /* free */
+     0,                          /* copy */
+     sharedsv_elem_mg_dup,       /* dup */
+ #ifdef MGf_LOCAL
+@@ -1069,7 +1090,21 @@ int
+ sharedsv_array_mg_free(pTHX_ SV *sv, MAGIC *mg)
+ {
+     PERL_UNUSED_ARG(sv);
+-    S_sharedsv_dec(aTHX_ (SV*)mg->mg_ptr);
++    if (!PL_dirty) {
++        assert(mg->mg_obj);
++        assert(SvROK(mg->mg_obj));
++        assert(SvUV(SvRV(mg->mg_obj)) == PTR2UV(mg->mg_ptr));
++    }
++    if (mg->mg_obj) {
++        if (SvREFCNT(mg->mg_obj) == 1) {
++            S_sharedsv_dec(aTHX_ (SV*)mg->mg_ptr);
++        } else {
++            /* An element of this aggregate still has PERL_MAGIC_tied(p)
++               pointing to this shared aggregate.  It will take responsibility
++               for freeing the shared aggregate.  Perl_mg_free() drops the
++               reference count on mg->mg_obj.  */
++        }
++    }
+     return (0);
+ }
+ 
+diff --git a/dist/threads-shared/t/av_refs.t b/dist/threads-shared/t/av_refs.t
+index 8106e32..5243c54 100644
+--- a/dist/threads-shared/t/av_refs.t
++++ b/dist/threads-shared/t/av_refs.t
+@@ -27,7 +27,7 @@ sub ok {
+ 
+ BEGIN {
+     $| = 1;
+-    print("1..14\n");   ### Number of tests that will be run ###
++    print("1..16\n");   ### Number of tests that will be run ###
+ };
+ 
+ use threads;
+@@ -90,6 +90,31 @@ ok(13, is_shared(@av), "Check for sharing");
+ my $x :shared;
+ ok(14, is_shared($x), "Check for sharing");
+ 
++# This is a reduction of the test case from perl #119089. Whilst the bug that
++# this exposes was fixed by a core change in 5.15.7, the variant with lvalues
++# below would still crash, and the fix for it also a fix for this bug on earlier
++# perl versions:
++
++sub elem_on_stack {
++    my @a :shared;
++    $a[0] = 6;
++    $a[0];
++}
++
++ok(15, defined elem_on_stack(), "element on stack should be defined");
++
++sub lvalue_elem_on_stack :lvalue {
++    my @a :shared;
++    $a[0];
++}
++
++if ($] >= 5.008008) {
++    lvalue_elem_on_stack() = 9;
++    ok(16, 1, "assigning to lvalue element on stack does not crash");
++} else {
++    print "ok 16 # skip $] can't return temporaries from lvalue subs\n";
++}
++
+ exit(0);
+ 
+ # EOF
+diff --git a/dist/threads-shared/t/hv_refs.t b/dist/threads-shared/t/hv_refs.t
+index ecefdc6..3b9b36b 100644
+--- a/dist/threads-shared/t/hv_refs.t
++++ b/dist/threads-shared/t/hv_refs.t
+@@ -27,7 +27,7 @@ sub ok {
+ 
+ BEGIN {
+     $| = 1;
+-    print("1..20\n");   ### Number of tests that will be run ###
++    print("1..22\n");   ### Number of tests that will be run ###
+ };
+ 
+ use threads;
+@@ -106,6 +106,28 @@ ok(10, keys %foo == 0, "And make sure we realy have deleted the values");
+ ok(19, is_shared($foo), "Check for sharing");
+ ok(20, is_shared(%foo), "Check for sharing");
+ 
++# See av_refs.t for a description.
++
++sub elem_on_stack {
++    my %h :shared;
++    $h{''} = 6;
++    $h{''};
++}
++
++ok(21, defined elem_on_stack(), "element on stack should be defined");
++
++sub lvalue_elem_on_stack :lvalue {
++    my %h :shared;
++    $h{''};
++}
++
++if ($] >= 5.008008) {
++    lvalue_elem_on_stack() = 9;
++    ok(22, 1, "assigning to lvalue element on stack does not crash");
++} else {
++    print "ok 22 # skip $] can't return temporaries from lvalue subs\n";
++}
++
+ exit(0);
+ 
+ # EOF

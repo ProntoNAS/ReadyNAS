@@ -1,0 +1,41 @@
+From 3e8dba6224f8991e4974ef0857503957193a0cdf Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Tue, 23 Dec 2014 11:26:11 -0800
+Subject: [PATCH] btrfs-progs: Fix btrfs fi show by uuid and label
+
+Commit 8be2fff (btrfs-progs: apply realpath for btrfs fi
+show when mount point is given) changed the behavior of
+btrfs fi show to return an error if the call to realpath()
+failed.  This broke the ability to specify a filesystem by
+uuid or label.
+
+So let's not consider a failed call to realpath() as an
+error.  If the user really specified a bad device, just
+return nothing like we did before.
+---
+ cmds-filesystem.c |    9 ++-------
+ 1 file changed, 2 insertions(+), 7 deletions(-)
+
+diff --git a/cmds-filesystem.c b/cmds-filesystem.c
+index 8f037dd..a654e6f 100644
+--- a/cmds-filesystem.c
++++ b/cmds-filesystem.c
+@@ -901,13 +901,8 @@ static int cmd_show(int argc, char **argv)
+ 		 *     realpath do  /mnt/btrfs/  => /mnt/btrfs
+ 		 *     which shall be recognized by btrfs_scan_kernel()
+ 		 */
+-		if (!realpath(search, path)) {
+-			fprintf(stderr, "ERROR: Could not show %s: %s\n",
+-					search, strerror(errno));
+-			return 1;
+-		}
+-
+-		search = path;
++		if (realpath(search, path))
++			search = path;
+ 
+ 		/*
+ 		 * Needs special handling if input arg is block dev And if
+-- 
+1.7.10.4
+

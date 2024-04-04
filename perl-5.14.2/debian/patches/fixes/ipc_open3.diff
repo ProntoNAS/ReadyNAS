@@ -1,0 +1,38 @@
+From 5e7b5cf45e085503003bc8b37a85c3b889be9131 Mon Sep 17 00:00:00 2001
+From: Salvador Fandino <sfandino@yahoo.com>
+Date: Wed, 27 Jul 2011 09:20:29 -0700
+Subject: IPC::Open3::open3(..., '-') broken
+
+IPC::Open3::open3($in, $out, $err, '-') is broken in 5.14.1
+
+Because the old "return 0" used to return to user code now is wrapped inside and eval block.
+
+This patch solves the problem.
+
+Bug-Debian: http://bugs.debian.org/683894
+Bug: https://rt.perl.org/rt3//Public/Bug/Display.html?id=114454
+Patch-Name: fixes/ipc_open3.diff
+---
+ ext/IPC-Open3/lib/IPC/Open3.pm |    5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/ext/IPC-Open3/lib/IPC/Open3.pm b/ext/IPC-Open3/lib/IPC/Open3.pm
+index 7015d27..e238528 100644
+--- a/ext/IPC-Open3/lib/IPC/Open3.pm
++++ b/ext/IPC-Open3/lib/IPC/Open3.pm
+@@ -284,11 +284,14 @@ sub _open3 {
+ 		} else {
+ 		    xopen \*STDERR, ">&STDOUT" if fileno(STDERR) != fileno(STDOUT);
+ 		}
+-		return 0 if ($cmd[0] eq '-');
++		return 1 if ($cmd[0] eq '-');
+ 		exec @cmd or do {
+ 		    local($")=(" ");
+ 		    croak "$Me: exec of @cmd failed";
+ 		};
++	    } and do {
++                close $stat_w;
++		return 0;
+ 	    };
+ 
+ 	    my $bang = 0+$!;

@@ -1,0 +1,55 @@
+From: Pino Toscano <pino@debian.org>
+Bug: #656880
+
+# * hurd_shm_flock.diff
+# This patch disables all the methods for shared memory and file locking
+# found by the configure checks, forcing the only working ones.
+# This patch should stay Debian-specific, as it is not that suitable for
+# upstream inclusion. (As you can guess, ideally all of those
+# non-working methods should be ideally fixed in Hurd...)
+
+Index: apr/configure.in
+===================================================================
+--- apr.orig/configure.in
++++ apr/configure.in
+@@ -1188,6 +1188,13 @@
+         APR_DECISION_OVERRIDE(USE_SHMEM_SHMGET_ANON)
+         ;;
+ esac
++case $host_os in
++    gnu* )
++        haveshmgetanon="0"
++        havemmapanon="0"
++        APR_DECISION_OVERRIDE(USE_SHMEM_MMAP_ZERO)
++        ;;
++esac
+ APR_END_DECISION
+ AC_DEFINE_UNQUOTED($ac_decision)
+ 
+@@ -1256,6 +1263,13 @@
+         fi
+         ;;
+ esac
++case $host_os in
++    gnu* )
++        havemmapshm="0"
++        haveshmget="0"
++        APR_DECISION_OVERRIDE(USE_SHMEM_MMAP_TMP)
++        ;;
++esac
+ APR_END_DECISION
+ AC_DEFINE_UNQUOTED($ac_decision)
+ 
+@@ -2215,6 +2229,12 @@
+ if test "x$apr_lock_method" != "x"; then
+     APR_DECISION_FORCE($apr_lock_method)
+ fi
++case $host_os in
++    gnu* )
++        hasfcntlser="0"
++        APR_DECISION_OVERRIDE(USE_FLOCK_SERIALIZE)
++        ;;
++esac
+ APR_END_DECISION
+ AC_DEFINE_UNQUOTED($ac_decision)
+ 

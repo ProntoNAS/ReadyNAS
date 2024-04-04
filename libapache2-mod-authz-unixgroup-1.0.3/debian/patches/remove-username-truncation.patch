@@ -1,0 +1,73 @@
+Description: Remove username truncation at '@' character.
+ .
+ libapache2-mod-authz-unixgroup (1.0.3-1.netgear2) unstable; urgency=low
+ .
+   * Remove username truncation at '@' character.
+Author: Justin Maggard <justin.maggard@netgear.com>
+
+---
+--- libapache2-mod-authz-unixgroup-1.0.3.orig/mod_authz_unixgroup.c
++++ libapache2-mod-authz-unixgroup-1.0.3/mod_authz_unixgroup.c
+@@ -104,23 +104,13 @@ static int check_unix_group(request_rec
+     char **p;
+     struct group *grp;
+     char *user= r->user;
+-    char *w, *at;
+-
+-    /* Strip @ sign and anything following it from the username.  Some
+-     * authentication modules, like mod_auth_kerb like appending such
+-     * stuff to user names, but an @ sign is never legal in a unix login
+-     * name, so it should be safe to always discard such stuff.
+-     */
+-    if ((at= strchr(user, '@')) != NULL) *at= '\0';
++    char *w;
+ 
+     /* Get info about login */
+     struct passwd *pwd= getpwnam(user);
+     if (pwd == NULL)
+-    {
+ 	/* No such user - forget it */
+-	if (at != NULL) *at= '@';
+     	return 0;
+-    }
+ 
+     /* Loop through list of groups passed in */
+     while (*grouplist != '\0')
+@@ -133,10 +123,7 @@ static int check_unix_group(request_rec
+ 
+ 	    /* Check if it matches the user's primary group */
+ 	    if (gid == pwd->pw_gid)
+-	    {
+-		if (at != NULL) *at= '@';
+ 		return 1;
+-	    }
+ 
+ 	    /* Get list of group members for numeric group id */
+ 	    grp= getgrgid(gid);
+@@ -147,10 +134,7 @@ static int check_unix_group(request_rec
+ 	    grp= getgrnam(w);
+ 	    /* Check if gid of this group matches user's primary gid */
+ 	    if (grp != NULL && grp->gr_gid == pwd->pw_gid)
+-	    {
+-		if (at != NULL) *at= '@';
+ 		return 1;
+-	    }
+ 	}
+ 
+ 	/* Walk through list of members, seeing if any match user login */
+@@ -158,15 +142,11 @@ static int check_unix_group(request_rec
+ 	    for (p= grp->gr_mem; *p != NULL; p++)
+ 	    {
+ 		if (!strcmp(user, *p))
+-		{
+-		    if (at != NULL) *at= '@';
+ 		    return 1;
+-		}
+ 	    }
+     }
+ 
+     /* Didn't find any matches, flunk him */
+-    if (at != NULL) *at= '@';
+     return 0;
+ }
+ 

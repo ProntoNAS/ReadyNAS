@@ -1,0 +1,175 @@
+.TH NTPD 8 "2007-12-07" "Debian" "The Network Time Protocol (NTP) Distribution"
+.SH NAME
+ntpd \- Network Time Protocol (NTP) daemon
+.SH SYNOPSIS
+.B ntpd
+[ \-46aAbgLmnNqx ]
+[ \-c \fIconffile\fR ]
+[ \-f \fIdriftfile\fR ]
+[ \-i \fIjaildir\fR ]
+[ \-k \fIkeyfile\fR ]
+[ \-l \fIlogfile\fR ]
+[ \-p \fIpidfile\fR ]
+[ \-P \fIpriority\fR ]
+[ \-r \fIbroadcastdelay\fR ]
+[ \-s \fIstatsdir\fR ]
+[ \-t \fIkey\fR ]
+[ \-u \fIuser\fR[:\fIgroup\fR] ]
+[ \-U \fIinterface_update_interval\fR ]
+[ \-v \fIvariable\fR ]
+[ \-V \fIvariable\fR ]
+.SH DESCRIPTION
+The \fBntpd\fR program is an operating system daemon which sets and maintains the system time of day in synchronism with Internet standard time servers.
+It is a complete implementation of the Network Time Protocol (NTP) version 4, but also retains compatibility with version 3, as defined by RFC-1305, and version 1 and 2, as defined by RFC-1059 and RFC-1119, respectively.
+\fBntpd\fR does most computations in 64-bit floating-point arithmetic and does relatively clumsy 64-bit fixed-point operations only when necessary to preserve the ultimate precision, about 232 picoseconds.
+While the ultimate precision is not achievable with ordinary workstations and networks of today, it may be required with future gigahertz CPU clocks and gigabit LANs.
+.PP
+The daemon can operate in any of several modes, including symmetric
+active/passive, client/server broadcast/multicast and manycast.  A
+broadcast/multicast or manycast client can discover remote servers,
+compute server-client propagation delay correction factors and configure
+itself automatically.  This makes it possible to deploy a fleet of
+workstations without specifying configuration details specific to the
+local environment.
+.PP
+Ordinarily, \fBntpd\fR reads the \fIntp.conf\fR configuration file at startup time
+in order to determine the synchronization sources and operating modes.
+It is also possible to specify a working, although limited
+configuration entirely on the command line, obviating the need for a
+configuration file.  This may be particularly appropriate when the
+local host is to be configured as a broadcast/multicast client or manycast
+client, with all peers being determined by listening to broadcasts at
+run time.
+.PP
+Various internal
+.B ntpd
+variables can be displayed and configuration
+options altered while the daemon is running using the
+.B ntpq
+and
+.B ntpd
+utility programs.
+.PP
+When
+.B ntpd
+starts it looks at the value of umask, and if it is zero
+.B ntpd
+will set the umask to 0222.
+.SH OPTIONS
+.TP
+.B \-a
+Require cryptographic authentication for broadcast client, multicast client and symmetric passive associations.
+This is the default.
+.TP
+.B \-A
+Do not require cryptographic authentication for broadcast client, multicast client and symmetric passive associations.
+This is almost never a good idea.
+.TP
+.B \-b
+Enable the client to synchronize to broadcast servers.
+.TP
+\fB\-c\fR \fIconffile\fR
+Specify the name and path of the configuration file, default \fI/etc/ntp.conf\fR.
+.TP
+\fB\-f\fR \fIdriftfile\fR
+Specify the name and path of the frequency file, default \fI/etc/ntp.drift\fR.
+This is the same operation as the driftfile \fIdriftfile\fR configuration command.
+.TP
+.B \-g
+Normally, \fBntpd\fR exits with a message to the system log if the offset exceeds the panic threshold, which is 1000 s by default.
+This option allows the time to be set to any value without restriction; however, this can happen only once.
+If the threshold is exceeded after that, \fBntpd\fR will exit with a message to the system log.
+This option can be used with the \fB\-q\fR and \fB\-x\fR options.
+.TP
+\fB\-i\fR \fIjaildir\fR
+Chroot the server to the directory \fIjaildir\fR.
+This option also implies that the server attempts to drop root privileges at startup (otherwise, chroot gives very little additional security).
+You may need to also specify a \fB\-u\fR option.
+.TP
+.B \-I \fR[\fIaddress\fR | \fIinterface name\fR]
+Open the network address given, or all the addresses associated with
+the given interface name.  This option may appear multiple times.
+This option also implies not opening other addresses, except wildcard
+and localhost.  This option is deprecated.  Please consider using the
+configuration file \fBinterface\fR command, which is more versatile.
+.TP
+\fB\-k\fR \fIkeyfile\fR
+Specify the name and path of the symmetric key file, default \fI/etc/ntp.keys\fR.
+This is the same operation as the keys \fIkeyfile\fR configuration command.
+.TP
+\fB\-l\fR \fIlogfile\fR
+Specify the name and path of the log file.
+The default is the system log file.
+This is the same operation as the logfile \fIlogfile\fR configuration command.
+.TP
+.B \-L
+Do not listen to virtual IPs.
+The default is to listen.
+.TP
+.B \-n
+Don't fork.
+.TP
+.B \-N
+To the extent permitted by the operating system, run the \fBntpd\fR at the highest priority.
+.TP
+\fB\-p\fR \fIpidfile\fR
+Specify the name and path of the file used to record the \fBntpd\fR process ID.
+This is the same operation as the pidfile \fIpidfile\fR configuration command.
+.TP
+\fB\-P\fR \fIpriority\fR
+To the extent permitted by the operating system, run the \fBntpd\fR at the specified priority.
+.TP
+.B \-q
+Exit the \fBntpd\fR just after the first time the clock is set.
+This behavior mimics that of the \fBntpdate\fR program, which is to be retired.
+The \fB\-g\fR and \fB\-x\fR options can be used with this option.
+Note: The kernel time discipline is disabled with this option.
+.TP
+\fB\-r\fR \fIbroadcastdelay\fR
+Specify the default propagation delay from the broadcast/multicast server to this client.
+This is necessary only if the delay cannot be computed automatically by the protocol.
+.TP
+\fB\-s\fR \fIstatsdir\fR
+Specify the directory path for files created by the statistics facility.
+This is the same operation as the statsdir \fIstatsdir\fR configuration command.
+.TP
+\fB\-t\fR \fIkey\fR
+Add a key number to the trusted key list.
+This option can occur more than once.
+.TP
+\fB\-u\fR \fIuser\fR[:\fIgroup\fR]
+Specify a user, and optionally a group, to switch to.
+.TP
+\fB\-U\fR \fIinterface_update_interval\fR
+Number of seconds to wait between interface list scans to pick up new and delete network interface.
+Set to 0 to disable dynamic interface list updating.
+The default is to scan every 5 minutes.
+.TP
+\fB\-v\fR \fIvariable\fR, \fB\-V\fR \fIvariable\fR
+Add a system variable listed by default.
+.TP
+.B \-x
+Normally, the time is slewed if the offset is less than the step threshold, which is 128 ms by default, and stepped if above the threshold.
+This option sets the threshold to 600 s, which is well within the accuracy window to set the clock manually.
+Note: Since the slew rate of typical Unix kernels is limited to 0.5 ms/s, each second of adjustment requires an amortization interval of 2000 s.
+Thus, an adjustment as much as 600 s will take almost 14 days to complete.
+This option can be used with the \fB\-g\fR and \fB\-q\fR options.
+Note: The kernel time discipline is disabled with this option.
+.TP
+.B \-4
+Force IPv4 DNS name resolution.
+.TP
+.B \-6
+Force IPv6 DNS name resolution.
+.SH FILES
+.TP
+.I /etc/ntp.conf
+default name of the configuration file
+.TP
+.I /etc/ntp.drift
+default name of the drift file
+.SH SEE ALSO
+.BR ntp.conf (5),
+.BR ntpdate (8)
+.PP
+The complete documentation can be found at \fI/usr/share/doc/ntp\-doc/html/ntpd.html\fR in the package ntp\-doc.

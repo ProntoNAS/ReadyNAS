@@ -1,0 +1,79 @@
+.\"                                      Hey, EMACS: -*- nroff -*-
+.\" First parameter, NAME, should be all caps
+.\" Second parameter, SECTION, should be 1-8, maybe w/ subsection
+.\" other parameters are allowed: see man(7), man(1)
+.TH PWAUTH 8 2009-05-02
+.\" Please adjust this date whenever revising the manpage.
+.\"
+.\" Some roff macros, for reference:
+.\" .nh        disable hyphenation
+.\" .hy        enable hyphenation
+.\" .ad l      left justify
+.\" .ad b      justify to both left and right margins
+.\" .nf        disable filling
+.\" .fi        enable filling
+.\" .br        insert line break
+.\" .sp <n>    insert n+1 empty lines
+.\" for manpage-specific macros, see man(7)
+.SH NAME
+pwauth \- authenticator for mod_authnz_external and the Apache HTTP Daemon
+.SH SYNOPSIS
+.B pwauth
+.SH DESCRIPTION
+
+Pwauth is an authenticator designed to be used with
+mod_auth_external or mod_authnz_external and the Apache
+HTTP Daemon to support reasonably secure web
+authentication out of the system password database on most
+versions of Unix. Particulary - secure authentication against PAM.
+
+The simplest test pwauth is to start a root shell and just run pwauth. It will attempt to read the login and password from standard input, so type a login name, hit return, then type a password, and hit return (the password will echo on your screen). The check the status code that was returned (in csh: "echo $status" in sh: "echo $?").
+
+If the login/password were correct you should get a zero status code. If not, you will get some other value. See below the list of status codes to find the meaning of the various values returned. Any values 50 or greater indicate a configuration error. 
+
+
+.SH STATUS CODES
+.BR
+.TP
+.B 0 STATUS_OK
+Login OK.
+.TP
+.B 1 STATUS_UNKNOWN
+Nonexistant login or (for some configurations) incorrect password.
+.TP
+.B 2 STATUS_INVALID
+Incorrect password (for some configurations).
+.TP
+.B 3 STATUS_BLOCKED
+Uid number is below MIN_UNIX_UID value configured in config.h.
+.TP
+.B 4 STATUS_EXPIRED
+Login ID has expired.
+.TP
+.B 5 STATUS_PW_EXPIRED
+Login's password has expired.
+.TP
+.B 6 SSTATUS_NOLOGIN
+Logins to system have been turned off (usually by /etc/nologin file).
+.TP
+.B 7 STATUS_MANYFAILES 
+Limit on number of bad logins exceeded.
+.TP
+.B 50 STATUS_INT_USER
+pwauth was invoked by a uid not on the SERVER_UIDS list. If you get this error code, you probably have SERVER_UIDS set incorrectly in pwauth's config.h file.
+.TP
+.B 51 STATUS_INT_ARGS
+pwauth was not given a login & password to check. The means the passing of data from mod_auth_external to pwauth is messed up. Most likely one is trying to pass data via environment variables, while the other is trying to pass data via a pipe.
+.TP
+.B 52 STATUS_INT_ERR
+one of several rare and unlikely internal errors occurred. You'll have to read the source code to figure these out.
+.TP
+.B 53 STATUS_INT_NOROOT
+pwauth was not able to read the password database. Usually this means it is not running as root. (PAM and login.conf configurations will return 1 in this case.) 
+
+.SH AUTHOR
+.B pwauth
+was written by Jan Wolter <jan@unixpapa.com>.
+.PP
+This manual page was written by Hai Zaar <haizaar@haizaar.com>,
+for the Debian project (but may be used by others).

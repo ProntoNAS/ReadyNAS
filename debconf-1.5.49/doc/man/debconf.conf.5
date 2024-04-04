@@ -1,0 +1,540 @@
+.TH DEBCONF.CONF 5
+.SH NAME
+debconf.conf \- debconf configuration file
+.SH DESCRIPTION
+Debconf is a configuration system for Debian packages. /etc/debconf.conf
+and ~/.debconfrc are configuration files debconf uses to determine which
+databases it should use. These databases are used for storing two types of
+information; dynamic config data the user enters into it, and static
+template data. Debconf offers a flexible, extensible database backend. New
+drivers can be created with a minimum of effort, and sets of drivers
+can be combined in various ways.
+.SH SYNOPSIS
+  # This is a sample config file that is
+  # sufficient to use debconf.
+  Config: configdb
+  Templates: templatedb
+
+  Name: configdb
+  Driver: File
+  Filename: /var/cache/debconf/config.dat
+
+  Name: templatedb
+  Driver: File
+  Mode: 644
+  Filename: /var/cache/debconf/templates.dat
+.SH "FILE FORMAT"
+The format of this file is a series of stanzas, each separated by at least
+one wholly blank line. Comment lines beginning with a "#" character are
+ignored.
+.P
+The first stanza of the file is special, is used to configure debconf as a
+whole. Two fields are required to be in this first stanza:
+.RS
+.TP
+.B Config
+Specifies the name of the database from which to load config data.
+.TP
+.B Templates
+Specifies the name of the database to use for the template cache.
+.RE
+.P
+Additional fields that can be used include:
+.RS
+.TP
+.B Frontend
+The frontend Debconf should use, overriding any frontend set in the debconf
+database.
+.TP
+.B Priority
+The priority Debconf should use, overriding any priority set in the debconf
+database.
+.TP
+.B Admin-Email
+The email address Debconf should send mail to if it needs to make sure that
+the admin has seen an important message. Defaults to "root", but can be set to
+any valid email address to send the mail there. If you prefer to never have
+debconf send you mail, specify a blank address. This can be overridden on
+the fly with the DEBCONF_ADMIN_EMAIL environment variable.
+.TP
+.B Debug
+If set, this will cause debconf to output debugging information to standard
+error. The value it is set to can be something like "user", "developer",
+"db", or a regular expression. Typically, rather than setting it
+permanently in a config file, you will only want to temporarily turn on
+debugging, and the DEBCONF_DEBUG environment variable can be set instead to
+accomplish that.
+.TP
+.B NoWarnings
+If set, this will make debconf not display warnings about various things. 
+This can be overridden on the fly with the DEBCONF_NOWARNINGS environment
+variable.
+.TP
+.B Log
+Makes debconf log debugging information as it runs, to the syslog. The
+value it is set to controls that is logged. See Debug, above for an
+explanation of the values that can be set to control what is logged.
+.TP
+.B Terse
+If set to "true", makes some debconf frontends use a special terse display
+mode that outputs as little as possible. Defaults to false. Terse mode may
+be temporarily set via the DEBCONF_TERSE environment variable.
+.RE
+.P
+For example, the first stanza of a file might look like this:
+  Config: configdb
+  Templates: templatedb
+.P
+Each remaining stanza in the file sets up a database. A database stanza
+begins by naming the database:
+  Name: configdb
+.P
+Then it indicates what database driver should be used for this database.
+See DRIVERS, below, for information about what drivers are available.
+  Driver: File
+.P
+You can indicate that the database is not essential to the proper
+functioning of debconf by saying it is not required. This will make debconf
+muddle on if the database fails for some reason.
+  Required: false
+.P
+You can mark any database as readonly and debconf will not write anything
+to it.
+  Readonly: true
+.P
+You can also limit what types of data can go into the database with Accept-
+and Reject- lines; see ACCESS CONTROLS, below.
+.P
+The remainder of each database stanza is used to provide configuration
+specific to that driver. For example, the Text driver needs to know
+a directory to put the database in, so you might say:
+  Filename: /var/cache/debconf/config.dat
+.SH DRIVERS
+A number of drivers are available, and more can be written with little
+difficulty. Drivers come in two general types. First there are real drivers
+-- drivers that actually access and store data in some kind of database,
+which might be on the local filesystem, or on a remote system. Then
+there are meta-drivers that combine other drivers together to form more
+interesting systems. Let's start with the former.
+.TP
+.TP
+.B File
+.RS
+This database driver allows debconf to store a whole database in a single
+flat text file. This makes it easy to archive, transfer between machines,
+and edit. It is one of the more compact database formats in terms of disk
+space used. It is also one of the slowest.
+.P
+On the downside, the entire file has to be read in each time debconf starts
+up, and saving it is also slow.
+.P
+The following things are configurable for this driver.
+.RS
+.TP
+.B Filename
+The file to use as the database. This is a required field.
+.TP
+.B Mode
+The permissions to create the file with if it does not exist. Defaults to
+600, since the file could contain passwords in some circumstances.
+.TP
+.B Format
+The format of the file. See FORMATS below. Defaults to using a rfc-822
+like format.
+.TP
+.B Backup
+Whether a backup should be made of the old file before changing it.
+Defaults to true.
+.RE
+.P
+As example stanza setting up a database using this driver:
+.P
+  Name: mydb
+  Driver: File
+  Filename: /var/cache/debconf/mydb.dat
+.RE
+.TP
+.B DirTree
+.RS
+This database driver allows debconf to store data in a hierarchical
+directory structure. The names of the various debconf templates and
+questions are used as-is to form directories with files in them. This
+format for the database is the easiest to browse and fiddle with by hand.
+It has very good load and save speeds. It also typically occupies the most
+space, since a lot of small files and subdirectories do take up some
+additional room.
+.P
+The following things are configurable for this driver.
+.RS
+.TP
+.B Directory
+The directory to put the files in. Required.
+.TP
+.B Extension
+An extension to add to the names of files. Must be set to a non-empty string;
+defaults to ".dat"
+.TP
+.B Format
+The format of the file. See FORMATS below. Defaults to using a rfc-822
+like format.
+.TP
+.B Backup
+Whether a backup should be made of the old file before changing it.
+Defaults to true.
+.RE
+.P
+As example stanza setting up a database using this driver:
+.P
+  Name: mydb
+  Driver: DirTree
+  Directory: /var/cache/debconf/mydb
+  Extension: .txt
+.RE
+.TP
+.B PackageDir
+.RS
+This database driver is a compromise between the File and DirTree
+databases. It uses a directory, in which there is (approximately) one file
+per package that uses debconf. This is fairly fast, while using little more
+room than the File database driver. 
+.P
+This driver is configurable in the same ways as is the DirTree driver,
+plus:
+.TP
+.B Mode
+The permissions to create files with. Defaults to 600, since the files could
+contain passwords in some circumstances.
+.P
+As example stanza setting up a database using this driver:
+.P
+  Name: mydb
+  Driver: PackageDir
+  Directory: /var/cache/debconf/mydb
+.RE
+.TP
+.B LDAP
+.RS
+WARNING: This database driver is currently experimental. Use with caution.
+.P
+This database driver accesses a LDAP directory for debconf configuration
+data. Due to the nature of the beast, LDAP directories should typically be
+accessed in read-only mode. This is because multiple accesses can take
+place, and it's generally better for data consistency if nobody tries to
+modify the data while this is happening. Of course, write access is
+supported for those cases where you do want to update the config data in
+the directory.
+.P
+For information about setting up a LDAP server for debconf, read
+/usr/share/doc/debconf-doc/README.LDAP (from the debconf-doc package).
+.P
+To use this database driver, you must have the libnet-ldap-perl package
+installed. Debconf suggests that package, but does not depend on it.
+.P
+Please carefully consider the security implications of using a remote
+debconf database. Unless you trust the source, and you trust the
+intervening network, it is not a very safe thing to do.
+.P
+The following things are configurable for this driver.
+.RS
+.TP
+.B server
+The host name or IP address of an LDAP server to connect to.
+.TP
+.B port
+The port on which to connect to the LDAP server. If none is given, the
+default port is used.
+.TP
+.B basedn
+The DN under which all config items will be stored. Each config item will
+be assumed to live in a DN of cn=<item name>,<Base DN>. If this structure
+is not followed, all bets are off.
+.TP
+.B binddn
+The DN to bind to the directory as. Anonymous bind will be used if none is
+specified.
+.TP
+.B bindpasswd
+The password to use in an authenticated bind (used with binddn, above). If
+not specified, anonymous bind will be used.
+.P
+.RS
+This option should not be used in the general case. Anonymous binding
+should be sufficient most of the time for read-only access. Specifying a
+bind DN and password should be reserved for the occasional case where you
+wish to update the debconf configuration data.
+.RE
+.TP
+.B keybykey
+Enable access to individual LDAP entries, instead of fetching them
+all at once in the beginning. This is very useful if you want to monitor
+your LDAP logs for specific debconf keys requested. In this way, you could also
+write custom handling code on the LDAP server part.
+.P
+.RS
+Note that when this option is enabled, the connection to the LDAP server
+is kept active during the whole Debconf run. This is a little different
+from the all-in-one behavior where two brief connections are made to LDAP;
+in the beginning to retrieve all the entries, and in the end to save 
+eventual changes.
+.RE
+.RE
+.P
+An example stanza setting up a database using this driver, assuming the
+remote database is on example.com and can be accessed anonymously:
+.P
+  Name: ldapdb
+  Driver: LDAP
+  Readonly: true
+  Server: example.com
+  BaseDN: cn=debconf,dc=example,dc=com
+  KeyByKey: 0
+.P
+Another example, this time the LDAP database is on localhost, and can be
+written to:
+.P
+  Name: ldapdb
+  Driver: LDAP
+  Server: localhost
+  BaseDN: cn=debconf,dc=domain,dc=com
+  BindPasswd: secret
+  KeyByKey: 1
+.RE
+.TP
+.B Pipe
+.RS
+This special-purpose database driver reads and writes the database from
+standard input/output. It may be useful for people with special needs.
+.P
+The following things are configurable for this driver.
+.RS
+.TP
+.B Format
+The format to read and write. See FORMATS below. Defaults to using a rfc-822
+like format.
+.TP
+.B Infd
+File descriptor number to read from. Defaults to reading from stdin. If set
+to "none", the database will not read any data on startup.
+.TP
+.B Outfd
+File descriptor number to write to. Defaults to writing to stdout. If set to
+"none", the database will be thrown away on shutdown.
+.RE
+.RE
+.P
+That's all of the real drivers, now moving on to meta-drivers..
+.TP
+.B Stack
+.RS
+This driver stacks up a number of other databases (of any type), and allows
+them to be accessed as one. When debconf asks for a value, the first
+database on the stack that contains the value returns it. If debconf writes
+something to the database, the write normally goes to the first driver on
+the stack that has the item debconf is modifying, and if none do, the new
+item is added to the first writable database on the stack.
+.P
+Things become more interesting if one of the databases on the stack is
+readonly. Consider a stack of the databases foo, bar, and baz, where foo
+and baz are both readonly. Debconf wants to change an item, and this item
+is only present in baz, which is readonly. The stack driver is smart enough
+to realize that won't work, and it will copy the item from baz to bar, and
+the write will take place in bar. Now the item in baz is shadowed by the
+item in bar, and it will not longer be visible to debconf.
+.P
+This kind of thing is particularly useful if you want to point many systems
+at a central, readonly database, while still allowing things to be
+overridden on each system. When access controls are added to the picture,
+stacks allow you to do many other interesting things, like redirect all
+passwords to one database while a database underneath it handles everything
+else.
+.P
+Only one piece of configuration is needed to set up a stack:
+.P
+.RS
+.TP
+.B Stack
+This is where you specify a list of other databases, by name, to tell it
+what makes up the stack.
+.RE
+.P
+For example:
+.P
+  Name: megadb
+  Driver: stack
+  Stack: passworddb, configdb, companydb
+.P
+WARNING: The stack driver is not very well tested yet. Use at your own
+risk.
+.RE
+.P
+.B Backup
+.RS
+This driver passes all requests on to another database driver. But it also
+copies all write requests to a backup database driver.
+.P
+You must specify the following fields to set up this driver:
+.P
+.RS
+.TP
+.B Db
+The database to read from and write to.
+.TP
+.B Backupdb
+The name of the database to send copies of writes to.
+.RE
+.P
+For example:
+.P
+  Name: backup
+  Driver: Backup
+  Db: mydb
+  Backupdb: mybackupdb
+.RE
+.P
+.B Debug
+.RS
+This driver passes all requests on to another database driver, outputting verbose
+debugging output about the request and the result.
+.P
+You must specify the following fields to set up this driver:
+.P
+.RS
+.TP
+.B Db
+The database to read from and write to.
+.RE
+.P
+.SH "ACCESS CONTROLS"
+When you set up a database, you can also use some fields to specify access
+controls. You can specify that a database only accepts passwords, for
+example, or make a database only accept things with "foo" in their name.
+.TP
+.B Readonly
+As was mentioned earlier, this access control, if set to "true", makes a
+database readonly. Debconf will read values from it, but will never write
+anything to it.
+.TP
+.B Accept-Name
+The text in this field is a perl-compatible regular expression that is
+matched against the names of items as they are requested from the
+database. Only if an items name matches the regular expression, will the
+database allow debconf to access or modify it.
+.TP
+.B Reject-Name
+Like Accept-Name, except any item name matching this regular expression
+will be rejected.
+.TP
+.B Accept-Type
+Another regular expression, this matches against the type of the item
+that is being accessed. Only if the type matches the regex will access be
+granted.
+.TP
+.B Reject-Type
+Like Accept-Type, except any type matching this regular expression
+will be rejected.
+.SH FORMATS
+Some of the database drivers use format modules to control the actual
+format in which the database is stored on disk. These formats are currently
+supported:
+.TP
+.B 822
+This is a file format loosely based upon the rfc-822 format for email
+message headers. Similar formats are used throughout Debian; in the dpkg
+status file, and so on.
+.SH EXAMPLE
+Here is a more complicated example of a debconf.conf file.
+.P
+  # This stanza is used for general debconf setup.
+  Config: stack
+  Templates: templates
+  Log: developer
+  Debug: developer
+
+  # This is my own local database.
+  Name: mydb
+  Driver: DirTree
+  Directory: /var/cache/debconf/config
+
+  # This is another database that I use to hold
+  # only X server configuration.
+  Name: X
+  Driver: File
+  Filename: /etc/X11/debconf.dat
+  Mode: 644
+  # It's sorta hard to work out what questions
+  # belong to X; it should be using a deeper
+  # tree structure so I could just match on ^X/
+  # Oh well.
+  Accept-Name: xserver|xfree86|xbase
+
+  # This is our company's global, read-only
+  # (for me!) debconf database.
+  Name: company
+  Driver: LDAP
+  Server: debconf.foo.com
+  BaseDN: cn=debconf,dc=foo,dc=com
+  BindDN: uid=admin,dc=foo,dc=com
+  BindPasswd: secret
+  Readonly: true
+  # I don't want any passwords that might be
+  # floating around in there.
+  Reject-Type: password
+  # If this db is not accessible for whatever
+  # reason, carry on anyway.
+  Required: false
+
+  # I use this database to hold
+  # passwords safe and secure.
+  Name: passwords
+  Driver: File
+  Filename: /etc/debconf/passwords
+  Mode: 600
+  Accept-Type: password
+
+  # Let's put them all together
+  # in a database stack.
+  Name: stack
+  Driver: Stack
+  Stack: passwords, X, mydb, company
+  # So, all passwords go to the password database.
+  # Most X configuration stuff goes to the X
+  # database, and anything else goes to my main
+  # database. Values are looked up in each of those
+  # in turn, and if none has a particular value, it
+  # is looked up in the company-wide LDAP database
+  # (unless it's a password).
+
+  # A database is also used to hold templates. We 
+  # don't need to make this as fancy.
+  Name: templates
+  Driver: File
+  Mode: 644
+  Format: 822
+  Filename: /var/cache/debconf/templates
+.SH NOTES
+If you use something like ${HOME} in this file, it will be replaced with
+the value of the named environment variable.
+.P
+Environment variables can also be used to override the databases on the fly,
+see
+.BR debconf (7)
+.P
+The field names (the part of the line before the colon) is
+case-insensitive. The values, though, are case sensitive.
+.SH "PLANNED ENHANCEMENTS"
+More drivers and formats. Some ideas include:
+A SQL driver, with the capability to access a remote database.
+A DHCP driver, that makes available some special things like hostname, IP
+address, and DNS servers.
+A driver that pulls values out of public DNS records TXT fields.
+A format that is compatible with the output of cdebconf.
+An override driver, which can override the value field or flags of
+all requests that pass through it.
+.SH FILES
+/etc/debconf.conf
+.P
+~/.debconfrc
+.SH SEE ALSO
+.BR debconf (7)
+.SH AUTHOR
+Joey Hess <joeyh@debian.org>

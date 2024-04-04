@@ -1,0 +1,39 @@
+BUGS and LIMITATIONS
+
+* Works only for IDE, SCSI requires a kernel patch.
+
+* Journaling filesystems like ext3 or reiserfs bypasse the kernel's delayed
+  write mechanisms and write straight to disk. Therefore noflushd is unable to
+  postpone writing of journaling data. As a result, expect lousy spindown
+  behaviour when working off ext3/reiserfs/jfs/xfs/... partitions. Fixing
+  the issue requires a) a kernel change to make the journal's update interval
+  configurable, and b) a new noflushd release to make use of the new feature.
+  a) is on the ext3 folks' todo list, b) will have to wait for a).
+
+* Doesn't work on kernel version 2.3.99pre8 to 2.4.0-test8 due to a format
+  change in /proc/stat.
+
+* noflushd, heavy swap activity, and APM suspend obviously don't go together
+  too well. Upon resume, syslogd has a tendency to get stuck in 'D' state.
+  Reportedly, noflushd and kupdate are up and running though, so I suspect
+  this might be a kernel bug rather than a noflushd one. The best kludge I
+  know of (thanks to Tom Holroyd) is to put a line with
+    sync && sync && sync
+  in the apmd suspend script.
+
+* Calling sync with no dirty buffers pending will cause the disk to
+  spin up but leave kupdate stopped (noflushd is still in spindown mode). 
+  kupdate is restarted on the next read or write request though.
+
+* Remounting a partition from read-only to read-write while noflushd's internal
+  syncer is active will go unnoticed, i.e. no sync will occur. (This should be
+  extremely rare - it requires that not only were e.g. /dev/hda{1,2...} all
+  read-only before, but also the full disk device /dev/hda. A filesystem on
+  an unpartitioned disk is probably the only real-world case where this bug
+  might trigger.)
+
+If you encountered a misfeature that isn't listed here, please use the bug
+reporting system of your distribution, the noflushd bug tracker at the
+SourceForge project page at http://sourceforge.net/projects/noflushd, or
+send an e-mail to noflushd-devel@lists.sourceforge.net.
+

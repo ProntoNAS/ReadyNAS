@@ -1,0 +1,186 @@
+.\" -*- nroff -*-
+.TH noflushd 8 "Version 2.7.4 - Aug 2004"
+.SH NAME
+noflushd \- userland daemon to spin down idle disks.
+.SH SYNOPSIS
+.B noflushd -[dhirtvV] [<optargs>] [<disk>] [ -t <optargs> ] [ <disks> ... ]
+.SH DESCRIPTION
+.B noflushd
+monitors disk activity and spins down <disk>s that have been idle for a certain
+amount of time.  The <disk> argument has to be a device node to a
+raw disk like, e. g. /dev/hda.  It must not be a device node to a partition
+inside the disk, e. g. /dev/hda1.  Unless at least one <disk> argument is
+given, noflushd tries to monitor all disks on the system as listed in
+/proc/partitions using the default timeout list.  Some of the options
+take additional arguments <optargs>.  See below for a complete list.
+.PP
+.B noflushd
+actually used to live in some versions of bdflush, but since kernel version
+2.2.11, bdflush had been completely replaced by the kernel-level kupdate
+daemon, which was renamed into kupdated, and finally replaced again by the
+pdflush daemon in the Linux 2.5 kernel series.
+.PP
+.SH "COMMAND\-LINE OPTIONS"
+.TP 0.5i
+.B "-h "
+Print the usage message (help).
+.TP 0.5i
+.B "-v "
+Print information on monitored disks upon startup.
+Log information about events such as disk spinup to syslog.
+Combined with -d option, produce extra verbose debugging messages.
+.TP 0.5i
+.B "-d "
+Don't detach daemon.  Print additional debugging information.
+.TP 0.5i
+.B "-V "
+Display version information.
+.TP 0.5i
+.B "-r <disk>"
+Mark <disk> as read-only, meaning that noflushd will make no attempt to
+sync <disk> even if it's still spinning.  Usually you'll need this option for
+CD-ROMs or other read-only media that are reported in /proc/partitions.
+(noflushd detects IDE CD-ROMs itself.  SCSI CD-ROMs aren't listed in
+/proc/partitions so just assume you don't need this option for a start.)
+.TP 0.5i
+.B "-n <timeout-list>"
+Set default timeouts.  Can be overridden for a single disk using the
+.B "-t "
+option.  See below for how to specify the timeout values.
+.TP 0.5i
+.B "-t <timeout-list>"
+Send disk to sleep after timeout minutes have passed
+without read activity.  Unlike
+.BR "-n" ,
+this option only applies to the next <disk> argument following on the
+command-line.  See below for how to specify the timeout values.
+.TP 0.5i
+.B "<timeout-list>"
+A <timeout-list> comprises of one or more comma-separated integer values
+indicating a timeout value in minutes.  Usually you'll only supply a single
+value and ignore the rest of this section.  Read on however if you want to 
+pass several configurations to noflushd.  Upon startup, noflushd uses the
+first timeout value of each list.  When a
+.I SIGHUP
+signal is sent to noflushd, it switches to the next set of timeout values in
+the list, or jumps back to the first, if the end of the list was reached.
+This is different from restarting the daemon with a new set of parameters
+because the idle times for each disk are preserved.  You can make use of two
+special timeout values with the
+.B "-t "
+option.  -1 or the keyword "default" uses the current default timeout.  0 or
+the keyword "skip" advises noflushd to skip monitoring the particular disk
+in this set of parameters.  Different timeout-lists may have different numbers
+of entries, but this is probably not very useful at all.  Nevertheless it is
+considered a feature, not a bug.  It is considered a bug however that this
+description is far too confusing.
+.TP 0.5i
+.B "-i <irq list>"
+Monitor interrupts for interactivity.  If one or more interrupts are raised
+within the 
+.I default
+timeout, disks won't get spun down.  Interrupts are given
+as a comma-separated list of either numbers or names as in
+.IR /proc/interrupts.
+You can use this option to prevent spindown when the machine is in interactive
+use.  Keyboard, and mouse interrupts are good candidates to monitor in this
+case.
+.TP 0.5i
+.B "-yes-scsi-idle-patch-is-in-kernel"
+Enable support for SCSI disks.  The name of this option is gross for a reason:
+Unless your running kernel has the scsi-idle patch applied, once spun down,
+SCSI disks will not spin up again, no matter if noflushd is running or not.
+(You might still be able to trigger a manual spinup, but by Murphy's Law the
+program to do so resides on the spun-down disk.) Furthermore, the scsi-idle
+patch is rumored to be buggy on multi-processor systems. Some people have
+even blamed scsi-idle as the cause of occasional data loss on their disks.
+In other words, by enabling this option, you assert that you know what you're
+doing, and that you won't get at me if it turns out that in fact you didn't.
+More information on SCSI support and the scsi-idle patch is provided in the
+noflushd README, and in the contrib directory of the noflushd source
+distribution.
+.SH EXAMPLES
+.TP 0.5i
+.B 'noflushd -n 60 /dev/hda'
+This is the recommended commandline for the most common laptop setup: one IDE
+hard disk, optionally one IDE CD-ROM.  The CD-ROM is auto-detected as a
+read-only drive.  Usually CD-ROM drives spin down themselves, so they should
+not be given on the commandline for noflushd to monitor.
+.TP 0.5i
+.B 'noflushd -r /dev/sdb -n 60,5 /dev/hda -t 15,default /dev/hdc'
+Here noflushd is told about a read-only device at /dev/sdb (e.g. a
+magneto-optical drive mounted read-only).  noflushd needs this information to
+decide what disks to sync and when to start/stop kupdated/pdflush.  Next, two
+sets of timeout values are defined: First a 1 hour timeout for the first hard
+disk, and a 15 minute timeout for the second hard disk.  Then a 5 minute
+timeout for both the first and the second hard disk.  Sending SIGHUP to
+noflushd will toggle between both parameter sets.
+.TP 0.5i
+.B 'noflushd -i keyboard,"PS/2 Mouse" -n 5 -t 60 /dev/hda'
+Spin down the first IDE disk after one hour, but only if the machine hasn't
+been used interactively in the past five minutes.
+.SH LIMITATIONS
+When running a devfs-enabled kernel, noflushd won't work unless devfs is
+mounted.  Devfs need not be used, or mounted on /dev, but it needs to be
+mounted somewhere.  That's because the kernel exposes different device names in
+/proc/partitions, depending whether devfs is compiled in or not.
+.PP
+Kernels prior to version 2.3.99pre8 will only provide disk statistics for the
+first and second IDE controller.  Thus noflushd can't support any more.
+Improvements in later kernels curiously enough led to also the second IDE
+controller not being supported anymore by default.  It's a kernel limitation,
+not a noflushd bug.  If noflushd refuses to work with your UDMA-100 IDE disks,
+this is most likely the cause.  Check noflushd's README in the doc section for
+information on how to change this.
+.PP
+As if this hadn't been enough, 2.4.0-test9 changed the /proc/stat layout once
+again. Current versions of noflushd only support the new format, meaning
+that noflushd won't run on kernels 2.3.99pre8 to 2.4.0-test8.  Please consider
+upgrading.
+.SH BUGS
+Heavy swap activity and spun down disks upon APM suspend sometimes leave
+syslogd stuck in 'D' state after resuming. This is probably not a noflushd bug
+but a kernel bug that can be triggered with the help of noflushd.  The best
+known workaround is to put a line
+.I "sync && sync && sync "
+in apmd's suspend script.
+.PP
+Remounting a partition from read-only to read-write while noflushd's internal
+syncer is active will go unnoticed, i.e. no sync will occur. (This should be
+extremely rare - it requires that not only were e.g. /dev/hda{1,2...} all
+read-only before, but also the full disk device /dev/hda. A filesystem on
+an unpartitioned disk is probably the only real-world case where this bug
+might trigger.)
+.PP
+Journaling filesystems like ext3, or reiserfs bypass the kernel's delayed
+write mechanisms and write straight to disk.  Therefore noflushd is unable to
+postpone writing of journaling data.  As a result, expect lousy spindown
+behaviour when working off ext3/reiserfs/... partitions.
+.PP
+Handling of hotplugged drives is well below the optimum, especially when
+removable drives like card readers are plugged in.  Until noflushd becomes
+more clever about them, it is recommended to intelligently restart it
+from the hotplug daemon (e.g. hotplug or usbmgr) as soon as a new drive
+is added or removed.  Option -r might come in handy for the hotplugged
+disk.
+.PP
+Some of the early 2.4 kernels apparently do not properly reap noflushd's
+starting process after it has forked off the daemon: The entries in
+/proc/<pid>/ are still around, but the pid doesn't show up anymore in the
+directory contents of /proc/.  Which means chkrootkit reports noflushd as a
+hidden process.  This bug is just so weird.  To daemonize itself, noflushd
+uses a standard libc call, and there are no tricks in the source that should
+be able to confuse the kernel.  Current kernels for all I know don't exhibit
+this behaviour anymore.  Still why exactly noflushd triggered this bug remains
+a mystery.
+.PP
+.SH AUTHOR
+.B noflushd
+was written by Daniel Kobras <kobras@linux.de>, based on
+bdflush's sleep support.
+.B bdflush
+was written as a quick hack by Eric Youngdale <ericy@gnu.ai.mit.edu> with
+various other hacks by Phil Bostley <bostley@cs.colorado.edu> and
+Daniel Quinlan <quinlan@yggdrasil.com>.  Sleep support was added to bdflush
+by Pavel Machek <pavel@atrey.karlin.mff.cuni.cz>.
+

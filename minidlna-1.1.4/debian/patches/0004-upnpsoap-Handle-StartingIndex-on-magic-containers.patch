@@ -1,0 +1,33 @@
+From f09f4416076ea6bd54491ec2a81ff0cc013f52ba Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Wed, 8 Apr 2015 01:21:21 -0700
+Subject: [PATCH 4/7] upnpsoap: Handle StartingIndex on magic containers
+
+We need to subtract StartingIndex when we limit SQL query
+results based on the max number of items in a magic container.
+---
+ upnpsoap.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/upnpsoap.c b/upnpsoap.c
+index 04e7996..d9816a8 100644
+--- a/upnpsoap.c
++++ b/upnpsoap.c
+@@ -1251,10 +1251,11 @@ BrowseContentDirectory(struct upnphttp * h, const char * action)
+ 				strncpyt(where, magic->where, sizeof(where));
+ 			if (magic->max_count > 0)
+ 			{
++				int limit = MAX(magic->max_count - StartingIndex, 0);
+ 				ret = get_child_count(ObjectID, magic);
+-				totalMatches = ret > magic->max_count ? magic->max_count : ret;
+-				if (RequestedCount > magic->max_count || RequestedCount < 0)
+-					RequestedCount = magic->max_count;
++				totalMatches = MIN(ret, limit);
++				if (RequestedCount > limit || RequestedCount < 0)
++					RequestedCount = limit;
+ 			}
+ 		}
+ 		if (!where[0])
+-- 
+1.9.1
+

@@ -1,0 +1,29 @@
+Description: Fix issue with allow-* in ifupdown parser.
+ .
+ llconf (0.4.6-netgear1) unstable; urgency=low
+ .
+   * New upstream release.
+   * Fix issue with allow-* in ifupdown parser.
+Author: Justin Maggard <justin.maggard@netgear.com>
+
+---
+
+--- llconf-0.4.6.orig/src/parsers/ifupdown.c
++++ llconf-0.4.6/src/parsers/ifupdown.c
+@@ -263,6 +263,16 @@ int unparse_ifupdown(struct cnfmodule *c
+ 			}
+ 			snprintf(b1, 255, "%s\n", b0);
+ 			cl_list = append_confline(cl_list, cl = create_confline(b1));
++		}else if(strncmp(cn_top->name, "allow-", 6) == 0){
++			char buf1[256], *b0 = buf, *b1 = buf1, *tmp;
++
++			snprintf(b0, 255, "%s", cn_top->name);
++			for(cn = cn_top->first_child; cn; cn = cn->next){
++				snprintf(b1, 255, "%s %s", b0, cn->name);
++				tmp = b0; b0 = b1; b1 = tmp;
++			}
++			snprintf(b1, 255, "%s\n", b0);
++			cl_list = append_confline(cl_list, cl = create_confline(b1));
+ 		}else if(strcmp(cn_top->name, "mapping") == 0){
+ 			cn = cn_top->first_child;
+ 

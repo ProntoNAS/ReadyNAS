@@ -1,0 +1,46 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## From 91a5badc7b8b96916147f28b1d094af98efa5aa7 Mon Sep 17 00:00:00 2001
+## From: Paul Eggert <eggert@cs.ucla.edu>
+## Date: Sat, 12 Nov 2011 00:20:01 -0800
+## Subject: [PATCH] * tests/misc/sort-continue: Port to Fedora 15.
+## 
+## Redirect with the shell command, not in a separate 'exec'.
+## Without this patch, Fedora 15 x86-64 /bin/sh (i.e., Bash 4.2.10)
+## complained about running out of file descriptors in the shell.
+
+diff --git a/tests/misc/sort-continue b/tests/misc/sort-continue
+index 42db01e..2ea06b7 100755
+--- a/tests/misc/sort-continue
++++ b/tests/misc/sort-continue
+@@ -20,7 +20,7 @@
+ print_ver_ sort
+ 
+ # Skip the test when running under valgrind.
+-( ulimit -n 6; sort < /dev/null ) \
++( ulimit -n 6; sort 3<&- 4<&- 5<&- < /dev/null ) \
+   || skip_ 'fd-limited sort failed; are you running under valgrind?'
+ 
+ for i in $(seq 31); do
+@@ -30,8 +30,7 @@ done
+ 
+ (
+  ulimit -n 6
+- exec 0</dev/null 3<&- 4<&- 5<&-
+- sort -n -m __test.* > out
++ sort -n -m __test.* 3<&- 4<&- 5<&- < /dev/null > out
+ ) &&
+ compare in out ||
+   { fail=1; echo 'file descriptor exhaustion not handled' 1>&2; }
+@@ -39,8 +38,7 @@ compare in out ||
+ echo 32 | tee -a in > in1
+ (
+  ulimit -n 6
+- exec 3<&- 4<&- 5<&-
+- sort -n -m __test.* - < in1 > out
++ sort -n -m __test.* - 3<&- 4<&- 5<&- < in1 > out
+ ) &&
+ compare in out || { fail=1; echo 'stdin not handled properly' 1>&2; }
+ 
+-- 
+1.7.9.5
+

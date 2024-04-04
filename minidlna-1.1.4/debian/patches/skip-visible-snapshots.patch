@@ -1,0 +1,73 @@
+ minidlna (1.1.4-netgear2) stable; urgency=low
+ .
+   * Skip visible snapshot directories.
+Author: Justin Maggard <justin.maggard@netgear.com>
+
+---
+
+--- minidlna-1.1.4.orig/utils.h
++++ minidlna-1.1.4/utils.h
+@@ -27,6 +27,8 @@
+ #include <stdarg.h>
+ #include <dirent.h>
+ #include <sys/param.h>
++#include <sys/vfs.h>
++#include <linux/magic.h>
+ 
+ #include "minidlnatypes.h"
+ 
+@@ -96,4 +98,5 @@ const char *mime_to_ext(const char * mim
+ int make_dir(char * path, mode_t mode);
+ unsigned int DJBHash(uint8_t *data, int len);
+ 
++int is_snapdir(const char *name, const char *path);
+ #endif
+--- minidlna-1.1.4.orig/inotify.c
++++ minidlna-1.1.4/inotify.c
+@@ -451,6 +451,11 @@ inotify_insert_directory(int fd, char *n
+ 		DPRINTF(E_WARN, L_INOTIFY, "Could not access %s [%s]\n", path, strerror(errno));
+ 		return -1;
+ 	}
++	if (is_snapdir(name, path))
++	{
++		DPRINTF(E_INFO, L_INOTIFY, "Skipping snapshot directory %s\n", path);
++		return -1;
++	}
+ 	if( sql_get_int_field(db, "SELECT ID from DETAILS where PATH = '%q'", path) > 0 )
+ 	{
+ 		DPRINTF(E_DEBUG, L_INOTIFY, "%s already exists\n", path);
+--- minidlna-1.1.4.orig/scanner.c
++++ minidlna-1.1.4/scanner.c
+@@ -790,7 +790,11 @@ ScanDirectory(const char *dir, const cha
+ 		{
+ 			type = resolve_unknown_type(full_path, dir_types);
+ 		}
+-		if( (type == TYPE_DIR) && (access(full_path, R_OK|X_OK) == 0) )
++		if( (type == TYPE_DIR) && is_snapdir(namelist[i]->d_name, full_path))
++		{
++			DPRINTF(E_INFO, L_SCANNER, "Skipping snapshot directory %s\n", full_path);
++		}
++		else if( (type == TYPE_DIR) && (access(full_path, R_OK|X_OK) == 0) )
+ 		{
+ 			char *parent_id;
+ 			insert_directory(name, full_path, BROWSEDIR_ID, THISORNUL(parent), i+startID);
+--- minidlna-1.1.4.orig/utils.c
++++ minidlna-1.1.4/utils.c
+@@ -501,3 +501,17 @@ resolve_unknown_type(const char * path,
+ 	return type;
+ }
+ 
++int
++is_snapdir(const char *name, const char *path)
++{
++	struct statfs f;
++
++	if (strncmp(name, "snapshot", 8) != 0)
++		return 0;
++
++	if (statfs(path, &f) == 0 && f.f_type == TMPFS_MAGIC)
++		return 1;
++
++	return 0;
++}
++

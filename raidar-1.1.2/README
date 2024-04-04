@@ -1,0 +1,91 @@
+README
+
+iproxy
+UDP - TCP proxy
+Copyright (C) 2001  Andrew Tridgell <tridge@samba.org>
+                    Horms <horms@vergenet.net>
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2 of the License, or (at your option)
+any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+more details.
+
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc., 59
+Temple Place, Suite 330, Boston, MA 02111-1307  USA
+
+
+Note: interfaces.c has been taken verbatim from Samba 2.2.1a and
+      as such is covered bu the GNU GPL.
+      Please see that file for copyright information.
+
+----------------------------------------------------------------------
+
+
+Overview
+--------
+
+Iproxy is allows access to TCP based services via broadcast or multicast UDP.
+The intent is to be able to access TCP services on a host which has
+interfaces up but may not be configured 
+
+Iproxy is split into two separate programms. 
+
+iproxy-client is a TCP to broadcast or multicast UDP proxy. It accepts
+TCP connections from end-users and sends the request over UDP.
+
+To probe for iproxy-server: iproxy-client -l
+To send connections to iproxy-server the default ID: iproxy-client
+
+
+iproxy-server is a UDP broadcast or multicast UDP proxy. It
+listends for UDP packets sent by iproxy-client and sends them
+to a local TCP service.
+
+To recieve connections from iproxy-client for the default ID: iproxy-server
+
+
+
+Implementation details
+----------------------
+
+Each iproxy-client identifies the host that it is running on by a uniqe
+Client ID (CID).  The id is a 16bit unsigned integer. At this stage the ID
+is supplied on the command line but it is intended that this should be
+autmatically generated where possible, most likely using the last 16bits of
+the mac address for the first ethernet card on the machine.
+
+Simmilarly each iproxy-server identifies its host using a unique Server ID
+(SID). 
+
+Iproxy attemts to implement a connection based protocol over UDP.
+To do this it identifies incoming UDP packets by their source port,
+source IP address and Client ID.
+
+
+Current Problems
+
+Multicast Mode
+* mrouted (and proabably other mrouting deamons) seem to ignore
+  group adds if the source address is not known to come from
+  that interface. If this is so then an unconfigered NAS won't be
+  able to multicast beyond its subnet. Even so multicast does
+  seem to avoid the rp_filter and is probably worth it for
+  that alone.
+
+  This does not appear to effect Cisco IOS 11.1. It is not known
+  how many mrouting implemenatations this effects.
+
+  This just reduces us to LAN only communication the same
+  as broadcast mode.
+
+Both Modes
+* Replies are caught by rp_filter if address of iproxy-server
+  is not routed to the interface that the reply is recieved on
+  by iproxy.
+* Doen't filter duplicate replies to a discovery packet.

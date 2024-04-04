@@ -1,0 +1,457 @@
+diff --git a/modules/dav/fs/repos.c b/modules/dav/fs/repos.c
+--- a/modules/dav/fs/repos.c
++++ b/modules/dav/fs/repos.c
+@@ -35,6 +35,7 @@
+ #include "http_log.h"
+ #include "http_protocol.h"      /* for ap_set_* (in dav_fs_set_headers) */
+ #include "http_request.h"       /* for ap_update_mtime() */
++#include "privsep.h"
+ 
+ #include "mod_dav.h"
+ #include "repos.h"
+@@ -50,6 +51,7 @@ struct dav_resource_private {
+     apr_pool_t *pool;        /* memory storage pool associated with request */
+     const char *pathname;   /* full pathname to resource */
+     apr_finfo_t finfo;       /* filesystem info */
++    request_rec *r;
+ };
+ 
+ /* private context for doing a filesystem walk */
+@@ -202,6 +204,7 @@ struct dav_stream {
+     const char *pathname;       /* we may need to remove it at close time */
+     char *temppath;
+     int unlink_on_error;
++    request_rec *r;
+ };
+ 
+ /* returns an appropriate HTTP status code given an APR status code for a
+@@ -329,7 +332,8 @@ static dav_error * dav_fs_copymove_file(
+     const char *dst,
+     const apr_finfo_t *src_finfo,
+     const apr_finfo_t *dst_finfo,
+-    dav_buffer *pbuf)
++    dav_buffer *pbuf,
++    request_rec *r)
+ {
+     dav_buffer work_buf = { 0 };
+     apr_file_t *inf = NULL;
+@@ -347,7 +351,7 @@ static dav_error * dav_fs_copymove_file(
+ 
+         if (dst_finfo != NULL) {
+             /* chmod it if it already exist */
+-            if (apr_file_perms_set(dst, perms)) {
++            if (ap_privsep_file_perms_set(ap_privsep_token(r), dst, perms)) {
+                 return dav_new_error(p, HTTP_INTERNAL_SERVER_ERROR, 0,
+                                      "Could not set permissions on destination");
+             }
+@@ -359,7 +363,8 @@ static dav_error * dav_fs_copymove_file(
+ 
+     dav_set_bufsize(p, pbuf, DAV_FS_COPY_BLOCKSIZE);
+ 
+-    if ((apr_file_open(&inf, src, APR_READ | APR_BINARY, APR_OS_DEFAULT, p))
++    if ((ap_privsep_file_open(ap_privsep_token(r), &inf, src,
++			      APR_READ | APR_BINARY, APR_OS_DEFAULT, p))
+             != APR_SUCCESS) {
+         /* ### use something besides 500? */
+         return dav_new_error(p, HTTP_INTERNAL_SERVER_ERROR, 0,
+@@ -367,8 +372,9 @@ static dav_error * dav_fs_copymove_file(
+     }
+ 
+     /* ### do we need to deal with the umask? */
+-    status = apr_file_open(&outf, dst, APR_WRITE | APR_CREATE | APR_TRUNCATE
+-                           | APR_BINARY, perms, p);
++    status = ap_privsep_file_open(ap_privsep_token(r), &outf, dst,
++                                  APR_WRITE | APR_CREATE | APR_TRUNCATE| APR_BINARY,
++                                  perms, p);
+     if (status != APR_SUCCESS) {
+         apr_file_close(inf);
+ 
+@@ -384,7 +390,7 @@ static dav_error * dav_fs_copymove_file(
+             apr_file_close(inf);
+             apr_file_close(outf);
+ 
+-            if (apr_file_remove(dst, p) != APR_SUCCESS) {
++            if (ap_privsep_file_remove(ap_privsep_token(r), dst, p) != APR_SUCCESS) {
+                 /* ### ACK! Inconsistent state... */
+ 
+                 /* ### use something besides 500? */
+@@ -408,7 +414,7 @@ static dav_error * dav_fs_copymove_file(
+             apr_file_close(inf);
+             apr_file_close(outf);
+ 
+-            if (apr_file_remove(dst, p) != APR_SUCCESS) {
++            if (ap_privsep_file_remove(ap_privsep_token(r), dst, p) != APR_SUCCESS) {
+                 /* ### ACK! Inconsistent state... */
+ 
+                 /* ### use something besides 500? */
+@@ -426,7 +432,7 @@ static dav_error * dav_fs_copymove_file(
+     apr_file_close(inf);
+     apr_file_close(outf);
+ 
+-    if (is_move && (status = apr_file_remove(src, p)) != APR_SUCCESS) {
++    if (is_move && (status = ap_privsep_file_remove(ap_privsep_token(r), src, p)) != APR_SUCCESS) {
+         dav_error *err;
+         int save_errno = errno;   /* save the errno that got us here */
+ 
+@@ -443,7 +449,7 @@ static dav_error * dav_fs_copymove_file(
+             err->save_errno = save_errno;
+             return err;
+         } 
+-        else if (apr_file_remove(dst, p) != APR_SUCCESS) {
++        else if (ap_privsep_file_remove(ap_privsep_token(r), dst, p) != APR_SUCCESS) {
+             /* ### ACK. this creates an inconsistency. do more!? */
+ 
+             /* ### use something besides 500? */
+@@ -472,7 +478,8 @@ static dav_error * dav_fs_copymove_state(
+     apr_pool_t * p,
+     const char *src_dir, const char *src_file,
+     const char *dst_dir, const char *dst_file,
+-    dav_buffer *pbuf)
++    dav_buffer *pbuf,
++    request_rec *r)
+ {
+     apr_finfo_t src_finfo;        /* finfo for source file */
+     apr_finfo_t dst_state_finfo;        /* finfo for STATE directory */
+@@ -484,7 +491,7 @@ static dav_error * dav_fs_copymove_state(
+     src = apr_pstrcat(p, src_dir, "/" DAV_FS_STATE_DIR "/", src_file, NULL);
+ 
+     /* the source file doesn't exist */
+-    rv = apr_stat(&src_finfo, src, APR_FINFO_NORM, p);
++    rv = ap_privsep_stat(ap_privsep_token(r), &src_finfo, src, APR_FINFO_NORM, p);
+     if (rv != APR_SUCCESS && rv != APR_INCOMPLETE) {
+         return NULL;
+     }
+@@ -495,7 +502,7 @@ static dav_error * dav_fs_copymove_state(
+     /* ### do we need to deal with the umask? */
+ 
+     /* ensure that it exists */
+-    rv = apr_dir_make(dst, APR_OS_DEFAULT, p);
++    rv = ap_privsep_dir_make(ap_privsep_token(r), dst, APR_OS_DEFAULT, p);
+     if (rv != APR_SUCCESS) {
+         if (!APR_STATUS_IS_EEXIST(rv)) {
+             /* ### use something besides 500? */
+@@ -505,7 +512,7 @@ static dav_error * dav_fs_copymove_state(
+     }
+ 
+     /* get info about the state directory */
+-    rv = apr_stat(&dst_state_finfo, dst, APR_FINFO_NORM, p);
++    rv = ap_privsep_stat(ap_privsep_token(r), &dst_state_finfo, dst, APR_FINFO_NORM, p);
+     if (rv != APR_SUCCESS && rv != APR_INCOMPLETE) {
+         /* Ack! Where'd it go? */
+         /* ### use something besides 500? */
+@@ -527,9 +534,9 @@ static dav_error * dav_fs_copymove_state(
+     /* copy/move the file now */
+     if (is_move) {
+         /* try simple rename first */
+-        rv = apr_file_rename(src, dst, p);
++        rv = ap_privsep_file_rename(ap_privsep_token(r), src, dst, p);
+         if (APR_STATUS_IS_EXDEV(rv)) {
+-            return dav_fs_copymove_file(is_move, p, src, dst, NULL, NULL, pbuf);
++            return dav_fs_copymove_file(is_move, p, src, dst, NULL, NULL, pbuf, r);
+         }
+         if (rv != APR_SUCCESS) {
+             /* ### use something besides 500? */
+@@ -540,7 +547,7 @@ static dav_error * dav_fs_copymove_state(
+     else
+     {
+         /* gotta copy (and delete) */
+-        return dav_fs_copymove_file(is_move, p, src, dst, NULL, NULL, pbuf);
++        return dav_fs_copymove_file(is_move, p, src, dst, NULL, NULL, pbuf, r);
+     }
+ 
+     return NULL;
+@@ -581,13 +588,13 @@ static dav_error *dav_fs_copymoveset(int is_move, apr_pool_t *p,
+     err = dav_fs_copymove_state(is_move, p,
+                                 src_dir, src_state1,
+                                 dst_dir, dst_state1,
+-                                pbuf);
++                                pbuf, src->info->r);
+ 
+     if (err == NULL && src_state2 != NULL) {
+         err = dav_fs_copymove_state(is_move, p,
+                                     src_dir, src_state2,
+                                     dst_dir, dst_state2,
+-                                    pbuf);
++                                    pbuf, src->info->r);
+ 
+         if (err != NULL) {
+             /* ### CRAP. inconsistency. */
+@@ -627,7 +634,7 @@ static dav_error *dav_fs_deleteset(apr_pool_t *p, const dav_resource *resource)
+                           NULL);
+ 
+     /* note: we may get ENOENT if the state dir is not present */
+-    if ((status = apr_file_remove(pathname, p)) != APR_SUCCESS
++    if ((status = ap_privsep_file_remove(ap_privsep_token(resource->info->r), pathname, p)) != APR_SUCCESS
+         && !APR_STATUS_IS_ENOENT(status)) {
+         return dav_new_error(p, HTTP_INTERNAL_SERVER_ERROR, 0,
+                              "Could not remove properties.");
+@@ -641,7 +648,7 @@ static dav_error *dav_fs_deleteset(apr_pool_t *p, const dav_resource *resource)
+                               state2,
+                               NULL);
+ 
+-        if ((status = apr_file_remove(pathname, p)) != APR_SUCCESS
++        if ((status = ap_privsep_file_remove(ap_privsep_token(resource->info->r), pathname, p)) != APR_SUCCESS
+             && !APR_STATUS_IS_ENOENT(status)) {
+             /* ### CRAP. only removed half. */
+             return dav_new_error(p, HTTP_INTERNAL_SERVER_ERROR, 0,
+@@ -677,6 +684,7 @@ static dav_error * dav_fs_get_resource(
+     /* Create private resource context descriptor */
+     ctx = apr_pcalloc(r->pool, sizeof(*ctx));
+     ctx->finfo = r->finfo;
++    ctx->r = r;
+ 
+     /* ### this should go away */
+     ctx->pool = r->pool;
+@@ -798,6 +806,7 @@ static dav_error * dav_fs_get_parent_resource(const dav_resource *resource,
+ 
+     /* Create private resource context descriptor */
+     parent_ctx = apr_pcalloc(ctx->pool, sizeof(*parent_ctx));
++    parent_ctx->r = ctx->r;
+ 
+     /* ### this should go away */
+     parent_ctx->pool = ctx->pool;
+@@ -820,8 +829,9 @@ static dav_error * dav_fs_get_parent_resource(const dav_resource *resource,
+         parent_resource->uri = uri;
+     }
+ 
+-    rv = apr_stat(&parent_ctx->finfo, parent_ctx->pathname,
+-                  APR_FINFO_NORM, ctx->pool);
++    rv = ap_privsep_stat(ap_privsep_token(ctx->r),
++			 &parent_ctx->finfo, parent_ctx->pathname,
++			 APR_FINFO_NORM, ctx->pool);
+     if (rv == APR_SUCCESS || rv == APR_INCOMPLETE) {
+         parent_resource->exists = 1;
+     }
+@@ -872,13 +882,13 @@ static int dav_fs_is_parent_resource(
+ static apr_status_t tmpfile_cleanup(void *data) {
+         dav_stream *ds = data;
+         if (ds->temppath) {
+-                apr_file_remove(ds->temppath, ds->p);
++                ap_privsep_file_remove(ap_privsep_token(ds->r), ds->temppath, ds->p);
+         }
+         return APR_SUCCESS;
+ }
+ 
+ /* custom mktemp that creates the file with APR_OS_DEFAULT permissions */
+-static apr_status_t dav_fs_mktemp(apr_file_t **fp, char *templ, apr_pool_t *p)
++static apr_status_t dav_fs_mktemp(request_rec *r, apr_file_t **fp, char *templ, apr_pool_t *p)
+ {
+     apr_status_t rv;
+     int num = ((getpid() << 7) + (int)templ % (1 << 16) ) % ( 1 << 23 ) ;
+@@ -889,7 +899,8 @@ static apr_status_t dav_fs_mktemp(apr_file_t **fp, char *templ, apr_pool_t *p)
+     do {
+         num = (num + 1) % ( 1 << 23 );
+         snprintf(numstr, 7, "%06x", num);
+-        rv = apr_file_open(fp, templ,
++        rv = ap_privsep_file_open(ap_privsep_token(r),
++                           fp, templ,
+                            APR_WRITE | APR_CREATE | APR_BINARY | APR_EXCL,
+                            APR_OS_DEFAULT, p);
+     } while (APR_STATUS_IS_EEXIST(rv));
+@@ -903,6 +914,7 @@ static dav_error * dav_fs_open_stream(const dav_resource *resource,
+ {
+     apr_pool_t *p = resource->info->pool;
+     dav_stream *ds = apr_pcalloc(p, sizeof(*ds));
++    ds->r = resource->info->r;
+     apr_int32_t flags;
+     apr_status_t rv;
+ 
+@@ -927,24 +939,24 @@ static dav_error * dav_fs_open_stream(const dav_resource *resource,
+     if (mode == DAV_MODE_WRITE_TRUNC) {
+         ds->temppath = apr_pstrcat(p, ap_make_dirstr_parent(p, ds->pathname),
+                                    DAV_FS_TMP_PREFIX "XXXXXX", NULL);
+-        rv = dav_fs_mktemp(&ds->f, ds->temppath, ds->p);
++        rv = dav_fs_mktemp(ds->r, &ds->f, ds->temppath, ds->p);
+         apr_pool_cleanup_register(p, ds, tmpfile_cleanup,
+                                   apr_pool_cleanup_null);
+     }
+     else if (mode == DAV_MODE_WRITE_SEEKABLE) {
+-        rv = apr_file_open(&ds->f, ds->pathname, flags | APR_FOPEN_EXCL,
++        rv = ap_privsep_file_open(ap_privsep_token(ds->r), &ds->f, ds->pathname, flags | APR_FOPEN_EXCL,
+                            APR_OS_DEFAULT, ds->p);
+         if (rv == APR_SUCCESS) {
+             /* we have created a new file */
+             ds->unlink_on_error = 1;
+         }
+         else if (APR_STATUS_IS_EEXIST(rv)) {
+-            rv = apr_file_open(&ds->f, ds->pathname, flags, APR_OS_DEFAULT,
++            rv = ap_privsep_file_open(ap_privsep_token(ds->r), &ds->f, ds->pathname, flags, APR_OS_DEFAULT,
+                                ds->p);
+         }
+     }
+     else {
+-        rv = apr_file_open(&ds->f, ds->pathname, flags, APR_OS_DEFAULT, ds->p);
++        rv = ap_privsep_file_open(ap_privsep_token(ds->r), &ds->f, ds->pathname, flags, APR_OS_DEFAULT, ds->p);
+     }
+ 
+     if (rv != APR_SUCCESS) {
+@@ -969,7 +981,7 @@ static dav_error * dav_fs_close_stream(dav_stream *stream, int commit)
+             apr_pool_cleanup_run(stream->p, stream, tmpfile_cleanup);
+         }
+         else if (stream->unlink_on_error) {
+-            if (apr_file_remove(stream->pathname, stream->p) != APR_SUCCESS) {
++            if (ap_privsep_file_remove(ap_privsep_token(stream->r), stream->pathname, stream->p) != APR_SUCCESS) {
+                 /* ### use a better description? */
+                 return dav_new_error(stream->p, HTTP_INTERNAL_SERVER_ERROR, 0,
+                                      "There was a problem removing (rolling "
+@@ -979,7 +991,7 @@ static dav_error * dav_fs_close_stream(dav_stream *stream, int commit)
+         }
+     }
+     else if (stream->temppath) {
+-        rv = apr_file_rename(stream->temppath, stream->pathname, stream->p);
++        rv = ap_privsep_file_rename(ap_privsep_token(stream->r), stream->temppath, stream->pathname, stream->p);
+         if (rv) {
+             return dav_new_error(stream->p, HTTP_INTERNAL_SERVER_ERROR, rv,
+                                  "There was a problem writing the file "
+@@ -1078,9 +1090,10 @@ static dav_error * dav_fs_deliver(const dav_resource *resource,
+                              "collection.");
+     }
+ 
+-    if ((status = apr_file_open(&fd, resource->info->pathname,
+-                                APR_READ | APR_BINARY, 0,
+-                                pool)) != APR_SUCCESS) {
++    if ((status = ap_privsep_file_open(ap_privsep_token(r),
++				       &fd, resource->info->pathname,
++				       APR_READ | APR_BINARY, 0,
++				       pool)) != APR_SUCCESS) {
+         return dav_new_error(pool, HTTP_FORBIDDEN, 0,
+                              "File permissions deny server access.");
+     }
+@@ -1112,7 +1125,8 @@ static dav_error * dav_fs_create_collection(dav_resource *resource)
+     dav_resource_private *ctx = resource->info;
+     apr_status_t status;
+ 
+-    status = apr_dir_make(ctx->pathname, APR_OS_DEFAULT, ctx->pool);
++    status = ap_privsep_dir_make(ap_privsep_token(resource->info->r),
++				 ctx->pathname, APR_OS_DEFAULT, ctx->pool);
+     if (APR_STATUS_IS_ENOSPC(status)) {
+         return dav_new_error(ctx->pool, HTTP_INSUFFICIENT_STORAGE, 0,
+                              "There is not enough storage to create "
+@@ -1150,12 +1164,14 @@ static dav_error * dav_fs_copymove_walker(dav_walk_resource *wres,
+              * Note: when copying, we do not enable the postfix-traversal.
+              */
+             /* ### we are ignoring any error here; what should we do? */
+-            (void) apr_dir_remove(srcinfo->pathname, ctx->pool);
++            (void) ap_privsep_dir_remove(ap_privsep_token(srcinfo->r),
++					 srcinfo->pathname, ctx->pool);
+         }
+         else {
+             /* copy/move of a collection. Create the new, target collection */
+-            if (apr_dir_make(dstinfo->pathname, APR_OS_DEFAULT,
+-                             ctx->pool) != APR_SUCCESS) {
++            if (ap_privsep_dir_make(ap_privsep_token(srcinfo->r),
++				    dstinfo->pathname, APR_OS_DEFAULT,
++				    ctx->pool) != APR_SUCCESS) {
+                 /* ### assume it was a permissions problem */
+                 /* ### need a description here */
+                 err = dav_new_error(ctx->pool, HTTP_FORBIDDEN, 0, NULL);
+@@ -1167,7 +1183,7 @@ static dav_error * dav_fs_copymove_walker(dav_walk_resource *wres,
+                                    srcinfo->pathname, dstinfo->pathname,
+                                    &srcinfo->finfo,
+                                    ctx->res_dst->exists ? &dstinfo->finfo : NULL,
+-                                   &ctx->work_buf);
++                                   &ctx->work_buf, srcinfo->r);
+         /* ### push a higher-level description? */
+     }
+ 
+@@ -1250,7 +1266,7 @@ static dav_error *dav_fs_copymove_resource(
+                                     src->info->pathname, dst->info->pathname,
+                                     &src->info->finfo,
+                                     dst->exists ? &dst->info->finfo : NULL,
+-                                    &work_buf)) != NULL) {
++                                    &work_buf, src->info->r)) != NULL) {
+         /* ### push a higher-level description? */
+         return err;
+     }
+@@ -1314,7 +1330,7 @@ static dav_error * dav_fs_move_resource(
+ 
+ 
+     /* try rename first */
+-    rv = apr_file_rename(srcinfo->pathname, dstinfo->pathname, srcinfo->pool);
++    rv = ap_privsep_file_rename(ap_privsep_token(srcinfo->r), srcinfo->pathname, dstinfo->pathname, srcinfo->pool);
+ 
+     /* if we can't simply rename, then do it the hard way... */
+     if (APR_STATUS_IS_EXDEV(rv)) {
+@@ -1352,8 +1368,9 @@ static dav_error * dav_fs_move_resource(
+     }
+ 
+     /* error occurred during properties move; try to put resource back */
+-    if (apr_file_rename(dstinfo->pathname, srcinfo->pathname,
+-                       srcinfo->pool) != APR_SUCCESS) {
++    if (ap_privsep_file_rename(ap_privsep_token(dstinfo->r),
++			       dstinfo->pathname, srcinfo->pathname,
++			       srcinfo->pool) != APR_SUCCESS) {
+         /* couldn't put it back! */
+         return dav_push_error(srcinfo->pool,
+                               HTTP_INTERNAL_SERVER_ERROR, 0,
+@@ -1396,8 +1413,10 @@ static dav_error * dav_fs_delete_walker(dav_walk_resource *wres, int calltype)
+         apr_status_t result;
+ 
+         result = wres->resource->collection
+-            ? apr_dir_remove(info->pathname, wres->pool)
+-            : apr_file_remove(info->pathname, wres->pool);
++            ? ap_privsep_dir_remove(ap_privsep_token(info->r),
++				    info->pathname, wres->pool)
++	    : ap_privsep_file_remove(ap_privsep_token(info->r),
++				     info->pathname, wres->pool);
+ 
+         /*
+         ** If an error occurred, then add it to multistatus response.
+@@ -1460,7 +1479,8 @@ static dav_error * dav_fs_remove_resource(dav_resource *resource,
+     }
+ 
+     /* not a collection; remove the file and its properties */
+-    if (apr_file_remove(info->pathname, info->pool) != APR_SUCCESS) {
++    if (ap_privsep_file_remove(ap_privsep_token(info->r),
++			       info->pathname, info->pool) != APR_SUCCESS) {
+         /* ### put a description in here */
+         return dav_new_error(info->pool, HTTP_FORBIDDEN, 0, NULL);
+     }
+@@ -1533,11 +1553,13 @@ static dav_error * dav_fs_walker(dav_fs_walker_context *fsctx, int depth)
+     fsctx->res2.collection = 0;
+ 
+     /* open and scan the directory */
+-    if ((apr_dir_open(&dirp, fsctx->path1.buf, pool)) != APR_SUCCESS) {
++    if ((ap_privsep_dir_open(ap_privsep_token(fsctx->info1.r),
++			     &dirp, fsctx->path1.buf, pool)) != APR_SUCCESS) {
+         /* ### need a better error */
+         return dav_new_error(pool, HTTP_NOT_FOUND, 0, NULL);
+     }
+-    while ((apr_dir_read(&dirent, APR_FINFO_DIRENT, dirp)) == APR_SUCCESS) {
++    while ((ap_privsep_dir_read(ap_privsep_token(fsctx->info1.r),
++				&dirent, APR_FINFO_DIRENT, dirp)) == APR_SUCCESS) {
+         apr_size_t len;
+         apr_status_t status;
+ 
+@@ -1572,8 +1594,9 @@ static dav_error * dav_fs_walker(dav_fs_walker_context *fsctx, int depth)
+         /* append this file onto the path buffer (copy null term) */
+         dav_buffer_place_mem(pool, &fsctx->path1, dirent.name, len + 1, 0);
+ 
+-        status = apr_stat(&fsctx->info1.finfo, fsctx->path1.buf,
+-                          DAV_FINFO_MASK, pool);
++        status = ap_privsep_stat(ap_privsep_token(fsctx->info1.r),
++                                 &fsctx->info1.finfo, fsctx->path1.buf,
++                                 DAV_FINFO_MASK, pool);
+         if (status != APR_SUCCESS && status != APR_INCOMPLETE) {
+             /* woah! where'd it go? */
+             /* ### should have a better error here */
+@@ -2114,7 +2137,8 @@ static dav_error *dav_fs_patch_exec(const dav_resource *resource,
+     if (value)
+         perms |= APR_UEXECUTE;
+ 
+-    if (apr_file_perms_set(resource->info->pathname, perms) != APR_SUCCESS) {
++    if (ap_privsep_file_perms_set(ap_privsep_token(resource->info->r),
++				  resource->info->pathname, perms) != APR_SUCCESS) {
+         return dav_new_error(resource->info->pool,
+                              HTTP_INTERNAL_SERVER_ERROR, 0,
+                              "Could not set the executable flag of the "
+@@ -2150,7 +2174,8 @@ static dav_error *dav_fs_patch_rollback(const dav_resource *resource,
+     if (value)
+         perms |= APR_UEXECUTE;
+ 
+-    if (apr_file_perms_set(resource->info->pathname, perms) != APR_SUCCESS) {
++    if (ap_privsep_file_perms_set(ap_privsep_token(resource->info->r),
++				  resource->info->pathname, perms) != APR_SUCCESS) {
+         return dav_new_error(resource->info->pool,
+                              HTTP_INTERNAL_SERVER_ERROR, 0,
+                              "After a failure occurred, the resource's "

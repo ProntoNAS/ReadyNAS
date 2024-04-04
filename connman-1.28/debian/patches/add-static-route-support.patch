@@ -1,0 +1,575 @@
+From 2f119ee2fb9bc8dae2a78a3c02b753c3a3d40170 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Wed, 15 Oct 2014 15:50:48 -0700
+Subject: [PATCH] add-static-route-support.patch
+
+---
+ client/commands.c |   11 ++
+ src/config.c      |   17 +++
+ src/inet.c        |   21 +++-
+ src/rtnl.c        |    5 +
+ src/service.c     |  332 ++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 5 files changed, 383 insertions(+), 3 deletions(-)
+
+diff --git a/client/commands.c b/client/commands.c
+index 9208016..92c4999 100644
+--- a/client/commands.c
++++ b/client/commands.c
+@@ -1044,6 +1044,16 @@ static int cmd_config(char *args[], int num, struct connman_option *options)
+ 					config_return, g_strdup(service_name),
+ 					NULL, NULL);
+ 			break;
++		case 'R':
++			res = __connmanctl_dbus_set_property_array(connection,
++					path, "net.connman.Service",
++					config_return, g_strdup(service_name),
++					"Routes.Configuration",
++					DBUS_TYPE_STRING, config_append_str,
++					&append);
++			index += append.values;
++			break;
++
+ 		default:
+ 			res = -EINVAL;
+ 			break;
+@@ -2024,6 +2034,7 @@ static struct connman_option config_options[] = {
+ 	               "\t\t\t[exclude <exclude1> [<exclude2>] [...]]"},
+ 	{"autoconnect", 'a', "yes|no"},
+ 	{"ipv4", 'i', "off|dhcp|manual <address> <netmask> <gateway>"},
++	{"route", 'R', "<dest/CIDR:gateway> [<dest2/CIDR2:gateway2>] [...]"},
+ 	{"remove", 'r', "                 Remove service"},
+ 	{ NULL, }
+ };
+diff --git a/src/config.c b/src/config.c
+index 93a788a..6ecb032 100644
+--- a/src/config.c
++++ b/src/config.c
+@@ -70,6 +70,7 @@ struct connman_config_service {
+ 	char **nameservers;
+ 	char **search_domains;
+ 	char **timeservers;
++	char **routes;
+ 	char *domain_name;
+ };
+ 
+@@ -110,6 +111,7 @@ static bool cleanup = false;
+ #define SERVICE_KEY_NAMESERVERS        "Nameservers"
+ #define SERVICE_KEY_SEARCH_DOMAINS     "SearchDomains"
+ #define SERVICE_KEY_TIMESERVERS        "Timeservers"
++#define SERVICE_KEY_ROUTES             "Routes"
+ #define SERVICE_KEY_DOMAIN             "Domain"
+ 
+ static const char *config_possible_keys[] = {
+@@ -237,6 +239,7 @@ free_only:
+ 	g_strfreev(config_service->nameservers);
+ 	g_strfreev(config_service->search_domains);
+ 	g_strfreev(config_service->timeservers);
++	g_strfreev(config_service->routes);
+ 	g_free(config_service->domain_name);
+ 	g_slist_free_full(config_service->service_identifiers, g_free);
+ 	g_free(config_service->config_ident);
+@@ -494,6 +497,17 @@ static bool load_service_generic(GKeyFile *keyfile,
+ 			g_strfreev(strlist);
+ 	}
+ 
++	strlist = __connman_config_get_string_list(keyfile, group,
++					SERVICE_KEY_ROUTES,
++					&length, NULL);
++	if (strlist) {
++		if (length != 0) {
++			g_strfreev(service->routes);
++			service->routes = strlist;
++		} else
++			g_strfreev(strlist);
++	}
++
+ 	return true;
+ 
+ err:
+@@ -1290,6 +1304,9 @@ static int try_provision_service(struct connman_config_service *config,
+ 		__connman_service_set_timeservers(service,
+ 						config->timeservers);
+ 
++	if (config->routes)
++		__connman_service_set_routes(service, config->routes);
++
+ 	if (type == CONNMAN_SERVICE_TYPE_WIFI) {
+ 		provision_service_wifi(config, service, network,
+ 							ssid, ssid_len);
+diff --git a/src/inet.c b/src/inet.c
+index cd220ff..b7913ba 100644
+--- a/src/inet.c
++++ b/src/inet.c
+@@ -520,7 +520,8 @@ out:
+ 	return err;
+ }
+ 
+-int connman_inet_del_network_route(int index, const char *host)
++int connman_inet_del_network_route2(int index, const char *host,
++				const char *gateway, const char *netmask)
+ {
+ 	struct ifreq ifr;
+ 	struct rtentry rt;
+@@ -547,13 +548,24 @@ int connman_inet_del_network_route(int index, const char *host)
+ 	DBG("ifname %s", ifr.ifr_name);
+ 
+ 	memset(&rt, 0, sizeof(rt));
+-	rt.rt_flags = RTF_UP | RTF_HOST;
++	rt.rt_flags = RTF_UP;
++	if (!netmask || !strcmp(netmask, "255.255.255.255"))
++		rt.rt_flags |= RTF_HOST;
+ 
+ 	memset(&addr, 0, sizeof(addr));
+ 	addr.sin_family = AF_INET;
+ 	addr.sin_addr.s_addr = inet_addr(host);
+ 	memcpy(&rt.rt_dst, &addr, sizeof(rt.rt_dst));
+ 
++	if (netmask) {
++		addr.sin_addr.s_addr = inet_addr(netmask);
++		memcpy(&rt.rt_genmask, &addr, sizeof(rt.rt_genmask));
++	}
++	if (gateway) {
++		addr.sin_addr.s_addr = inet_addr(gateway);
++		memcpy(&rt.rt_gateway, &addr, sizeof(rt.rt_gateway));
++	}
++
+ 	rt.rt_dev = ifr.ifr_name;
+ 
+ 	if (ioctl(sk, SIOCDELRT, &rt) < 0 && errno != ESRCH)
+@@ -569,6 +581,11 @@ out:
+ 	return err;
+ }
+ 
++int connman_inet_del_network_route(int index, const char *host)
++{
++	return connman_inet_del_network_route2(index, host, NULL, NULL);
++}
++
+ int connman_inet_del_ipv6_network_route(int index, const char *host,
+ 						unsigned char prefix_len)
+ {
+diff --git a/src/rtnl.c b/src/rtnl.c
+index e2f2368..dee6c49 100644
+--- a/src/rtnl.c
++++ b/src/rtnl.c
+@@ -630,6 +630,11 @@ static void process_newaddr(unsigned char family, unsigned char prefixlen,
+ 		 * autoconfigured address.
+ 		 */
+ 		__connman_resolver_redo_servers(index);
++	} else {/* IPv4 */
++		struct connman_service *service =
++			__connman_service_lookup_from_index(index);
++		if (service)
++			add_routes_config(index, service);
+ 	}
+ }
+ 
+diff --git a/src/service.c b/src/service.c
+index 8d58791..779f24b 100644
+--- a/src/service.c
++++ b/src/service.c
+@@ -97,6 +97,8 @@ struct connman_service {
+ 	char *domainname;
+ 	char **timeservers;
+ 	char **timeservers_config;
++	char **routes;
++	char **routes_config;
+ 	/* 802.1x settings from the config files */
+ 	char *eap;
+ 	char *identity;
+@@ -532,6 +534,13 @@ static int service_load(struct connman_service *service)
+ 		service->timeservers_config = NULL;
+ 	}
+ 
++	service->routes_config = g_key_file_get_string_list(keyfile,
++			service->identifier, "Routes", &length, NULL);
++	if (service->routes_config != NULL && length == 0) {
++		g_strfreev(service->routes_config);
++		service->routes_config = NULL;
++	}
++
+ 	service->domains = g_key_file_get_string_list(keyfile,
+ 			service->identifier, "Domains", &length, NULL);
+ 	if (service->domains && length == 0) {
+@@ -692,7 +701,7 @@ static int service_save(struct connman_service *service)
+ 								"Nameservers",
+ 				(const gchar **) service->nameservers_config, len);
+ 	} else
+-	g_key_file_remove_key(keyfile, service->identifier,
++		g_key_file_remove_key(keyfile, service->identifier,
+ 							"Nameservers", NULL);
+ 
+ 	if (service->timeservers_config) {
+@@ -705,6 +714,16 @@ static int service_save(struct connman_service *service)
+ 		g_key_file_remove_key(keyfile, service->identifier,
+ 							"Timeservers", NULL);
+ 
++	if (service->routes_config) {
++		guint len = g_strv_length(service->routes_config);
++
++		g_key_file_set_string_list(keyfile, service->identifier,
++								"Routes",
++				(const gchar **) service->routes_config, len);
++	} else
++		g_key_file_remove_key(keyfile, service->identifier,
++							"Routes", NULL);
++
+ 	if (service->domains) {
+ 		guint len = g_strv_length(service->domains);
+ 
+@@ -1720,6 +1739,114 @@ static void append_tsconfig(DBusMessageIter *iter, void *user_data)
+ 	}
+ }
+ 
++static char *slash2mask(const char *addr, char mask[])
++{
++	char *slash = strchr(addr, '/');
++
++	if (slash) {
++		int shift = atoi(slash + 1);
++		unsigned long m = ~0 << (32 - shift);
++
++		sprintf(mask, "%lu.%lu.%lu.%lu",
++				(m >> 24) & 0xff,
++				(m >> 16) & 0xff, 
++				(m >> 8) & 0xff, 
++				(m >> 0) & 0xff); 
++	}
++	return slash;
++}
++
++void del_routes_config(int index, struct connman_service *service)
++{
++	char mask[16];
++	char **routes = service->routes_config;
++
++	if (!routes)
++		return;
++
++	while (*routes) {
++		char *slash, *target, *gw = strchr(*routes, ':');
++
++		target = gw	? g_strndup(*routes, gw++ - *routes)
++				: g_strdup(*routes);
++		if ((slash = slash2mask(target, mask)))
++			*slash = '\0';
++		connman_inet_del_network_route2(index, target, gw, mask);
++		g_free(target);
++		routes++;
++	}
++}
++
++static void add_route(int index, const char *route)
++{
++	char *target, *slash;
++	char mask[16];
++	const char *gw = strchr(route, ':');
++
++	if (!gw)
++		return;
++	target = g_strndup(route, gw++ - route);
++	if (!target)
++		return;
++	if ((slash = slash2mask(target, mask)))
++		*slash = '\0';
++
++	connman_inet_add_network_route(index, target, gw, mask);
++	g_free(target);
++}
++
++void add_routes_config(int index, struct connman_service *service)
++{
++	char **routes = service->routes_config;
++
++	if (!routes)
++		return;
++
++	while (*routes)
++		add_route(index, *routes++);
++}
++
++static void append_routes(DBusMessageIter *iter, int index, char **routes)
++{
++	int i;
++
++	DBG("%p", routes);
++
++	for (i = 0; routes[i] != NULL; i++) {
++		DBG("routes[%d] %s", i, routes[i]);
++		dbus_message_iter_append_basic(iter,
++					DBUS_TYPE_STRING, &routes[i]);
++		add_route(index, routes[i]);
++	}
++}
++
++static void append_rt(DBusMessageIter *iter, void *user_data)
++{
++	struct connman_service *service = user_data;
++	int index = __connman_service_get_index(service);
++
++	if (is_connected(service) == FALSE || index < 0)
++		return;
++
++	if (service->routes_config != NULL) {
++		append_routes(iter, index, service->routes_config);
++		return;
++	} else if (service->routes != NULL)
++		append_routes(iter, index, service->routes);
++
++}
++
++static void append_rtconfig(DBusMessageIter *iter, void *user_data)
++{
++	struct connman_service *service = user_data;
++	int index = __connman_service_get_index(service);
++
++	if (service->routes_config == NULL || index < 0)
++		return;
++
++	append_routes(iter, index, service->routes_config);
++}
++
+ static void append_domainconfig(DBusMessageIter *iter, void *user_data)
+ {
+ 	struct connman_service *service = user_data;
+@@ -2001,6 +2128,18 @@ static void timeservers_configuration_changed(struct connman_service *service)
+ 			append_tsconfig, service);
+ }
+ 
++static void routes_configuration_changed(struct connman_service *service)
++{
++	if (allow_property_changed(service) == FALSE)
++		return;
++
++	connman_dbus_property_changed_array(service->path,
++			CONNMAN_SERVICE_INTERFACE,
++			"Routes.Configuration",
++			DBUS_TYPE_STRING,
++			append_rtconfig, service);
++}
++
+ static void link_changed(struct connman_service *service)
+ {
+ 	if (!allow_property_changed(service))
+@@ -2355,6 +2494,12 @@ static void append_properties(DBusMessageIter *dict, dbus_bool_t limited,
+ 	connman_dbus_dict_append_array(dict, "Timeservers.Configuration",
+ 				DBUS_TYPE_STRING, append_tsconfig, service);
+ 
++	connman_dbus_dict_append_array(dict, "Routes",
++				DBUS_TYPE_STRING, append_rt, service);
++
++	connman_dbus_dict_append_array(dict, "Routes.Configuration",
++				DBUS_TYPE_STRING, append_rtconfig, service);
++
+ 	connman_dbus_dict_append_array(dict, "Domains",
+ 				DBUS_TYPE_STRING, append_domain, service);
+ 
+@@ -2752,6 +2897,123 @@ void __connman_service_timeserver_changed(struct connman_service *service,
+ 			DBUS_TYPE_STRING, append_ts, ts_list);
+ }
+ 
++
++int __connman_service_route_append(struct connman_service *service,
++						const char *route)
++{
++	int len;
++
++	DBG("service %p route %s", service, route);
++
++	if (route == NULL)
++		return -EINVAL;
++
++	if (service->routes != NULL) {
++		int i;
++
++		for (i = 0; service->routes[i] != NULL; i++)
++			if (g_strcmp0(service->routes[i], route) == 0)
++				return -EEXIST;
++
++		len = g_strv_length(service->routes);
++		service->routes = g_try_renew(char *, service->routes,
++							len + 2);
++	} else {
++		len = 0;
++		service->routes = g_try_new0(char *, len + 2);
++	}
++
++	if (service->routes == NULL)
++		return -ENOMEM;
++
++	service->routes[len] = g_strdup(route);
++	service->routes[len + 1] = NULL;
++
++	return 0;
++}
++
++void __connman_service_set_routes(struct connman_service *service,
++				char **routes)
++{
++	int i;
++
++	if (service == NULL)
++		return;
++
++	g_strfreev(service->routes);
++	service->routes = NULL;
++
++	for (i = 0; routes != NULL && routes[i] != NULL; i++)
++		__connman_service_route_append(service, routes[i]);
++}
++
++int __connman_service_route_remove(struct connman_service *service,
++						const char *route)
++{
++	char **servers;
++	int len, i, j, found = 0;
++
++	DBG("service %p route %s", service, route);
++
++	if (route == NULL)
++		return -EINVAL;
++
++	if (service->routes == NULL)
++		return 0;
++
++	for (i = 0; service->routes != NULL &&
++					service->routes[i] != NULL; i++)
++		if (g_strcmp0(service->routes[i], route) == 0) {
++			found = 1;
++			break;
++		}
++
++	if (found == 0)
++		return 0;
++
++	len = g_strv_length(service->routes);
++
++	if (len == 1) {
++		g_strfreev(service->routes);
++		service->routes = NULL;
++
++		return 0;
++	}
++
++	servers = g_try_new0(char *, len);
++	if (servers == NULL)
++		return -ENOMEM;
++
++	for (i = 0, j = 0; i < len; i++) {
++		if (g_strcmp0(service->routes[i], route) != 0) {
++			servers[j] = g_strdup(service->routes[i]);
++			if (servers[j] == NULL)
++				return -ENOMEM;
++			j++;
++		}
++	}
++	servers[len - 1] = NULL;
++
++	g_strfreev(service->routes);
++	service->routes = servers;
++
++	return 0;
++}
++
++void __connman_service_route_changed(struct connman_service *service,
++		GSList *rt_list)
++{
++	if (service == NULL)
++		return;
++
++	if (allow_property_changed(service) == FALSE)
++		return;
++
++	connman_dbus_property_changed_array(service->path,
++			CONNMAN_SERVICE_INTERFACE, "Routes",
++			DBUS_TYPE_STRING, append_rt, rt_list);
++}
++
+ void __connman_service_set_pac(struct connman_service *service,
+ 					const char *pac)
+ {
+@@ -3324,6 +3586,72 @@ static DBusMessage *set_property(DBusConnection *conn,
+ 		if (service == __connman_service_get_default())
+ 			__connman_timeserver_sync(service);
+ 
++	} else if (g_str_equal(name, "Routes.Configuration") == TRUE) {
++		DBusMessageIter entry;
++		GString *str;
++		int count = 0, index;
++
++		if (service->immutable == TRUE)
++			return __connman_error_not_supported(msg);
++
++		if (type != DBUS_TYPE_ARRAY)
++			return __connman_error_invalid_arguments(msg);
++
++		if (!(str = g_string_new(NULL)))
++			return __connman_error_invalid_arguments(msg);
++
++		dbus_message_iter_recurse(&value, &entry);
++		index = connman_network_get_index(service->network);
++
++		while (dbus_message_iter_get_arg_type(&entry) == DBUS_TYPE_STRING) {
++			const char *val;
++			char *colon, *slash, save;
++			int mask = 32;
++			int target;
++
++			dbus_message_iter_get_basic(&entry, &val);
++			dbus_message_iter_next(&entry);
++
++			if (!(colon = strchr(val, ':')))
++				continue;
++			if (connman_inet_check_ipaddress(colon + 1) <= 0)
++				continue;
++			if ((slash = strchr(val, '/'))) {
++				if (sscanf(slash + 1, "%d:", &mask) != 1 ||
++					mask < 1 || 32 < mask)
++					continue;
++			} else
++				slash = colon;
++
++			save = *slash;
++			*slash = '\0';
++			if (connman_inet_check_ipaddress(val) <= 0) {
++				*slash = save;
++				continue;
++			}
++			*slash = save;
++
++			if (str->len > 0)
++				g_string_append_printf(str, " %s", val);
++			else
++				g_string_append(str, val);
++		}
++
++		del_routes_config(index, service);
++		g_strfreev(service->routes_config);
++		service->routes_config = NULL;
++
++		if (str->len > 0)
++			service->routes_config =
++				g_strsplit_set(str->str, " ", 0);
++		else
++			service->routes_config = NULL;
++
++		g_string_free(str, TRUE);
++
++		routes_configuration_changed(service);
++
++		service_save(service);
+ 	} else if (g_str_equal(name, "Domains.Configuration")) {
+ 		DBusMessageIter entry;
+ 		GString *str;
+@@ -4438,6 +4766,8 @@ static void service_free(gpointer user_data)
+ 
+ 	g_strfreev(service->timeservers);
+ 	g_strfreev(service->timeservers_config);
++	g_strfreev(service->routes);
++	g_strfreev(service->routes_config);
+ 	g_strfreev(service->nameservers);
+ 	g_strfreev(service->nameservers_config);
+ 	g_strfreev(service->nameservers_auto);
+-- 
+1.7.10.4
+

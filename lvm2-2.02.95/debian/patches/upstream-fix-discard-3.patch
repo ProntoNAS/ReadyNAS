@@ -1,0 +1,93 @@
+From: Alasdair G Kergon <agk@redhat.com>
+Subject: discards: don't discard reconfigured extents
+
+Update release_lv_segment_area not to discard any PV extents,
+as it also gets used when moving extents between LVs.
+Instead, call a new function release_and_discard_lv_segment_area() in
+the two places where data should be discarded - lv_reduce() and
+remove_mirrors_from_segments().
+
+Origin: upstream, https://lists.fedorahosted.org/pipermail/lvm2-commits/2012-June/000039.html
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=832392
+Bug-Debian: http://bugs.debian.org/691271
+---
+diff --git a/lib/metadata/lv_alloc.h b/lib/metadata/lv_alloc.h
+index 71ca1ab..9f8e0e3 100644
+--- a/lib/metadata/lv_alloc.h
++++ b/lib/metadata/lv_alloc.h
+@@ -42,6 +42,7 @@ int move_lv_segment_area(struct lv_segment *seg_to, uint32_t area_to,
+ 			 struct lv_segment *seg_from, uint32_t area_from);
+ int release_lv_segment_area(struct lv_segment *seg, uint32_t s,
+ 			    uint32_t area_reduction);
++int release_and_discard_lv_segment_area(struct lv_segment *seg, uint32_t s, uint32_t area_reduction);
+ 
+ struct alloc_handle;
+ struct alloc_handle *allocate_extents(struct volume_group *vg,
+diff --git a/lib/metadata/lv_manip.c b/lib/metadata/lv_manip.c
+index bdcc925..a0be887 100644
+--- a/lib/metadata/lv_manip.c
++++ b/lib/metadata/lv_manip.c
+@@ -299,17 +299,22 @@ struct lv_segment *alloc_snapshot_seg(struct logical_volume *lv,
+ 	return seg;
+ }
+ 
+-int release_lv_segment_area(struct lv_segment *seg, uint32_t s,
+-			    uint32_t area_reduction)
++static int _release_and_discard_lv_segment_area(struct lv_segment *seg, uint32_t s,
++						uint32_t area_reduction, int with_discard)
+ {
+ 	if (seg_type(seg, s) == AREA_UNASSIGNED)
+ 		return 1;
+ 
+ 	if (seg_type(seg, s) == AREA_PV) {
++		if (with_discard && !discard_pv_segment(seg_pvseg(seg, s), area_reduction))
++			return_0;
++
+ 		if (!release_pv_segment(seg_pvseg(seg, s), area_reduction))
+ 			return_0;
++
+ 		if (seg->area_len == area_reduction)
+ 			seg_type(seg, s) = AREA_UNASSIGNED;
++
+ 		return 1;
+ 	}
+ 
+@@ -365,6 +370,16 @@ int release_lv_segment_area(struct lv_segment *seg, uint32_t s,
+ 	return 1;
+ }
+ 
++int release_and_discard_lv_segment_area(struct lv_segment *seg, uint32_t s, uint32_t area_reduction)
++{
++	return _release_and_discard_lv_segment_area(seg, s, area_reduction, 1);
++}
++
++int release_lv_segment_area(struct lv_segment *seg, uint32_t s, uint32_t area_reduction)
++{
++	return _release_and_discard_lv_segment_area(seg, s, area_reduction, 0);
++}
++
+ /*
+  * Move a segment area from one segment to another
+  */
+@@ -501,7 +516,7 @@ static int _lv_segment_reduce(struct lv_segment *seg, uint32_t reduction)
+ 		area_reduction = reduction;
+ 
+ 	for (s = 0; s < seg->area_count; s++)
+-		if (!release_lv_segment_area(seg, s, area_reduction))
++		if (!release_and_discard_lv_segment_area(seg, s, area_reduction))
+ 			return_0;
+ 
+ 	seg->len -= reduction;
+diff --git a/lib/metadata/mirror.c b/lib/metadata/mirror.c
+index d943175..61e4b47 100644
+--- a/lib/metadata/mirror.c
++++ b/lib/metadata/mirror.c
+@@ -1469,7 +1469,7 @@ int remove_mirrors_from_segments(struct logical_volume *lv,
+ 		}
+ 
+ 		for (s = new_mirrors + 1; s < seg->area_count; s++)
+-			if (!release_lv_segment_area(seg, s, seg->area_len))
++			if (!release_and_discard_lv_segment_area(seg, s, seg->area_len))
+ 				return_0;
+ 
+ 		seg->area_count = new_mirrors + 1;

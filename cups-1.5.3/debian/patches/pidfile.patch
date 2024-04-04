@@ -1,0 +1,117 @@
+Description: Add support for creating pid files.
+Author: Maritn Pitt <mpitt@debian.org>
+Bug: http://www.cups.org/str.php?L2465
+
+--- a/scheduler/conf.c
++++ b/scheduler/conf.c
+@@ -157,7 +157,7 @@
+   { "ServerName",		&ServerName,		CUPSD_VARTYPE_STRING },
+   { "Timeout",			&Timeout,		CUPSD_VARTYPE_INTEGER },
+   { "UseNetworkDefault",	&UseNetworkDefault,	CUPSD_VARTYPE_BOOLEAN },
+-  { "WebInterface",		&WebInterface,		CUPSD_VARTYPE_BOOLEAN }
++  { "WebInterface",		&WebInterface,		CUPSD_VARTYPE_BOOLEAN },
+ };
+ static const cupsd_var_t	cupsfiles_vars[] =
+ {
+@@ -189,6 +189,7 @@
+   { "SystemGroupAuthKey",	&SystemGroupAuthKey,	CUPSD_VARTYPE_STRING },
+ #endif /* HAVE_AUTHORIZATION_H */
+   { "TempDir",			&TempDir,		CUPSD_VARTYPE_PATHNAME },
++  { "PidFile",			&PidFile,		CUPSD_VARTYPE_STRING }
+ };
+ 
+ static const unsigned	ones[4] =
+@@ -515,6 +516,7 @@
+   cupsdSetStringf(&ServerHeader, "CUPS/%d.%d", CUPS_VERSION_MAJOR,
+                   CUPS_VERSION_MINOR);
+   cupsdSetString(&StateDir, CUPS_STATEDIR);
++  cupsdSetString(&PidFile, "/var/run/cups/cupsd.pid");
+ 
+   if (!strcmp(CUPS_DEFAULT_PRINTCAP, "/etc/printers.conf"))
+     PrintcapFormat = PRINTCAP_SOLARIS;
+--- a/scheduler/conf.h
++++ b/scheduler/conf.h
+@@ -248,6 +248,8 @@
+ VAR int			SSLOptions		VALUE(CUPSD_SSL_NONE);
+ 					/* SSL/TLS options */
+ #endif /* HAVE_SSL */
++VAR char		*PidFile		VALUE(NULL);
++					/* Debian CUPS pid file */
+ 
+ #ifdef HAVE_LAUNCHD
+ VAR int			LaunchdTimeout		VALUE(DEFAULT_KEEPALIVE);
+--- a/scheduler/main.c
++++ b/scheduler/main.c
+@@ -85,6 +85,8 @@
+ static void		sigterm_handler(int sig);
+ static long		select_timeout(int fds);
+ static void		usage(int status);
++int			write_pid(void);
++int			remove_pid(void);
+ 
+ 
+ /*
+@@ -666,6 +668,11 @@
+   }
+ #endif /* __sgi */
+ 
++  if (write_pid() == 0) {
++    cupsdLogMessage(CUPSD_LOG_ERROR, "Unable to write pid file");
++    return (1);
++  }
++
+  /*
+   * Initialize authentication certificates...
+   */
+@@ -1250,10 +1257,41 @@
+ 
+   cupsdStopSelect();
+ 
++  remove_pid();
++
+   return (!stop_scheduler);
+ }
+ 
+ 
++/* 'write_pid()' - Write PID file.
++   'remove_pid()' - Delete PID file.
++*/
++int
++write_pid()
++{
++  FILE *f;
++  int fd;
++  int pid;
++  if (((fd = open(PidFile, O_RDWR|O_CREAT, 0644)) == -1)
++      || ((f = fdopen(fd, "r+")) == NULL) ) {
++    return 0;
++  }
++  pid = getpid();
++  if (!fprintf(f, "%d\n", pid)) {
++    close(fd);
++    return 0;
++  }
++  fflush(f);
++  close(fd);
++
++  return pid;
++}
++
++int
++remove_pid() {
++  return unlink(PidFile);
++}
++
+ /*
+  * 'cupsdAddString()' - Copy and add a string to an array.
+  */
+--- a/test/run-stp-tests.sh
++++ b/test/run-stp-tests.sh
+@@ -368,6 +368,7 @@
+ DocumentRoot $root/doc
+ RequestRoot /tmp/cups-$user/spool
+ TempDir /tmp/cups-$user/spool/temp
++PidFile /tmp/cups-$user/cupsd.pid
+ AccessLog /tmp/cups-$user/log/access_log
+ ErrorLog /tmp/cups-$user/log/error_log
+ PageLog /tmp/cups-$user/log/page_log

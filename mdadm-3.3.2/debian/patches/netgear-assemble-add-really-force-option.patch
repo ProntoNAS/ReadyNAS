@@ -1,0 +1,86 @@
+From 5bf09d3b74654d84b03f874ba60ac341bcf59079 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Wed, 5 Mar 2014 17:48:03 -0800
+Subject: [PATCH] assemble: add --really-force option
+
+Using --force is necessary for certain things, but also dangerous.
+Add --really-force option to allow mdadm to do those dangerous
+operations if commanded to, without affecting the other things that
+--force is good for.
+
+---
+ Assemble.c |   12 +++++++++++-
+ ReadMe.c   |    1 +
+ mdadm.c    |    3 +++
+ mdadm.h    |    1 +
+ 4 files changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/Assemble.c b/Assemble.c
+index 63e09ac..a2f6d02 100644
+--- a/Assemble.c
++++ b/Assemble.c
+@@ -832,12 +832,22 @@ static int force_array(struct mdinfo *content,
+ 			break;
+ 		current_events = devices[chosen_drive].i.events;
+ 	add_another:
+-		if (c->verbose >= 0)
++		if (c->verbose >= 0) {
++			if (c->force < 2) {
++				pr_err("NOT forcing event count in %s(%d) from %d up to %d\n",
++					devices[chosen_drive].devname,
++					devices[chosen_drive].i.disk.raid_disk,
++					(int)(devices[chosen_drive].i.events),
++					(int)(devices[most_recent].i.events));
++				pr_err("You can use --really-force to do that (DANGEROUS)\n");
++				break;
++			}
+ 			pr_err("forcing event count in %s(%d) from %d upto %d\n",
+ 			       devices[chosen_drive].devname,
+ 			       devices[chosen_drive].i.disk.raid_disk,
+ 			       (int)(devices[chosen_drive].i.events),
+ 			       (int)(devices[most_recent].i.events));
++		}
+ 		fd = dev_open(devices[chosen_drive].devname,
+ 			      devices[chosen_drive].included ? O_RDWR
+ 			      : (O_RDWR|O_EXCL));
+diff --git a/ReadMe.c b/ReadMe.c
+index 02cea08..a1cef73 100644
+--- a/ReadMe.c
++++ b/ReadMe.c
+@@ -150,6 +150,7 @@ struct option long_options[] = {
+     {"force",	  0, 0, Force},
+     {"update",	  1, 0, 'U'},
+     {"freeze-reshape", 0, 0, FreezeReshape},
++    {"really-force", 0, 0, ReallyForce},
+ 
+     /* Management */
+     {"add",       0, 0, Add},
+diff --git a/mdadm.c b/mdadm.c
+index be990b8..9510dd7 100644
+--- a/mdadm.c
++++ b/mdadm.c
+@@ -646,6 +646,9 @@ int main(int argc, char *argv[])
+ 		case O(MANAGE,Force): /* add device which is too large */
+ 			c.force=1;
+ 			continue;
++		case O(ASSEMBLE,ReallyForce): /* really force assembly */
++			c.force=2;
++			continue;
+ 			/* now for the Assemble options */
+ 		case O(ASSEMBLE, FreezeReshape):   /* Freeze reshape during
+ 						    * initrd phase */
+diff --git a/mdadm.h b/mdadm.h
+index c0726bf..9a1d296 100644
+--- a/mdadm.h
++++ b/mdadm.h
+@@ -343,6 +343,7 @@ enum special_options {
+ 	Dump,
+ 	Restore,
+ 	Action,
++	ReallyForce,
+ };
+ 
+ enum prefix_standard {
+-- 
+1.7.9.5
+

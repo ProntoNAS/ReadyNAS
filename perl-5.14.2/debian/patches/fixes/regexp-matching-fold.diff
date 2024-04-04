@@ -1,0 +1,51 @@
+From df7aadd27f9aa2fcd9467d1a2c6f02ddf97a84b9 Mon Sep 17 00:00:00 2001
+From: Karl Williamson <public@khwilliamson.com>
+Date: Thu, 13 Oct 2011 19:56:45 -0600
+Subject: regexec.c: Fix "\x{FB01}\x{FB00}" =~ /ff/i
+
+Only the first character of the string was being checked when scanning
+for the beginning position of the pattern match.
+
+This was so wrong, it looks like it has to be a regression.  I
+experimented a little and did not find any.  I believe (but am not
+certain) that a multi-char fold has to be involved.  The the handling of
+these was so broken before 5.14 that there very well may not be a
+regression.
+
+Bug-Debian: http://bugs.debian.org/690976
+Origin: upstream, http://perl5.git.perl.org/perl.git/commit/399fb9c0594c29de7dc8815c6596bd6a67ddc9e6
+Patch-Name: fixes/regexp-matching-fold.diff
+---
+ regexec.c     |    3 ++-
+ t/re/re_tests |    6 ++++++
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/regexec.c b/regexec.c
+index 2354be1..021ab8e 100644
+--- a/regexec.c
++++ b/regexec.c
+@@ -1507,7 +1507,8 @@ S_find_byclass(pTHX_ regexp * prog, const regnode *c, char *s,
+ 		    ? utf8_length((U8 *) pat_string, (U8 *) pat_end)
+ 		    : ln;
+ 
+-	    e = HOP3c(strend, -((I32)lnc), s);
++	    /* Set the end position to the final character available */
++	    e = HOP3c(strend, -1, s);
+ 
+ 	    if (!reginfo && e < s) {
+ 		e = s;			/* Due to minlen logic of intuit() */
+diff --git a/t/re/re_tests b/t/re/re_tests
+index 35a7220..ae12452 100644
+--- a/t/re/re_tests
++++ b/t/re/re_tests
+@@ -1522,4 +1522,10 @@ abc\N{def	-	c	-	\\N{NAME} must be resolved by the lexer
+ # See [perl #89750].  This makes sure that the simple fold gets generated
+ # in that case, to DF.
+ /[^\x{1E9E}]/i	\x{DF}	n	-	-
++
++/ff/i	\x{FB00}\x{FB01}	y	$&	\x{FB00}
++/ff/i	\x{FB01}\x{FB00}	y	$&	\x{FB00}
++/fi/i	\x{FB01}\x{FB00}	y	$&	\x{FB01}
++/fi/i	\x{FB00}\x{FB01}	y	$&	\x{FB01}
++
+ # vim: softtabstop=0 noexpandtab

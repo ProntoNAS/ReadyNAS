@@ -1,0 +1,24 @@
+Description: Don't try to set new_data_offset on older kernels
+ The SLE11-SP3 kernel has partially-implemented support for setting
+ new_data_offset.  This makes RAID 5 reshaping fail, since it can
+ be set but not used.  So we'll add a test to check the kernel version
+ before trying to set new_data_offset.
+ .
+ mdadm (3.3-0.netgear2) unstable; urgency=low
+ .
+   * Don't set new_data_offset on older kernels.
+Author: Justin Maggard <justin.maggard@netgear.com>
+
+---
+
+--- mdadm-3.3.orig/Grow.c
++++ mdadm-3.3/Grow.c
+@@ -3057,7 +3057,7 @@ static int reshape_array(char *container
+ 		goto release;
+ 	}
+ 
+-	if (!backup_file)
++	if (!backup_file && (get_linux_version() > 3005000))
+ 		switch(set_new_data_offset(sra, st, devname,
+ 					   reshape.after.data_disks - reshape.before.data_disks,
+ 					   data_offset,

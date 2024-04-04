@@ -1,0 +1,37 @@
+From 1d95aa96823a930a9c4aa54baa4f23e956b145b8 Mon Sep 17 00:00:00 2001
+From: Chip <chip@pobox.com>
+Date: Mon, 19 Sep 2011 23:51:49 -0700
+Subject: add a couple missing LEAVEs in perlio_async_run()
+
+Origin: upstream, http://perl5.git.perl.org/perl.git/commit/be48bbe8d671b6841c3ec7cb734b98071afe3cd9
+Bug: https://rt.perl.org/rt3/Public/Bug/Display.html?id=116621
+Bug-Debian: http://bugs.debian.org/700171
+Patch-Name: fixes/stdin-sigchld.diff
+---
+ perlio.c |    5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/perlio.c b/perlio.c
+index 6c40e34..3170e57 100644
+--- a/perlio.c
++++ b/perlio.c
+@@ -2587,8 +2587,10 @@ S_perlio_async_run(pTHX_ PerlIO* f) {
+     SAVEDESTRUCTOR_X(S_lockcnt_dec, (void*)f);
+     PerlIO_lockcnt(f)++;
+     PERL_ASYNC_CHECK();
+-    if ( !(PerlIOBase(f)->flags & PERLIO_F_CLEARED) )
++    if ( !(PerlIOBase(f)->flags & PERLIO_F_CLEARED) ) {
++	LEAVE;
+ 	return 0;
++    }
+     /* we've just run some perl-level code that could have done
+      * anything, including closing the file or clearing this layer.
+      * If so, free any lower layers that have already been
+@@ -2600,6 +2602,7 @@ S_perlio_async_run(pTHX_ PerlIO* f) {
+ 	*f = l->next;
+ 	Safefree(l);
+     }
++    LEAVE;
+     return 1;
+ }
+ 

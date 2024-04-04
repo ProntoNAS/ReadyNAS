@@ -1,0 +1,93 @@
+Upgrade implementation notes
+============================
+
+The first version in Debian was 0.3-2.
+
+Postinst
+========
+
+Starting with version 0.8-4.2 inclusive, the package started touching
+/etc/nsswitch.conf in debian/postinst.
+
+In versions 0.8-4.2, for first installs and upgrades from versions lower or
+equal to 0.8-4.1, the postinst would:
+- avoid doing anything if any of "mdns4_minimal", "mdns4", "mdns",
+  "mdns_minimal", "mdns6", "mdns6_minimal" was found in the hosts line; that
+  is, manually configured /etc/nsswitch.conf were kept intact
+- otherwise change the "dns" entry in /etc/hosts into:
+  "mdns4_minimal [NOTFOUND=return] dns mdns4"
+
+Problems with this version:
+1) does not preserve spacing ("foo   bar" becomes "foo bar")
+2) breaks local reaction overrides ("[STATUS=ACTION]")
+
+In version 0.8-5, the postinst is identical to the postinst of version 0.8-4.2.
+
+In version 0.8-6, the postinst was really messed up:
+* for first installs:
+  - avoid doing anything if any of "mdns4_minimal", "mdns4", "mdns",
+    "mdns_minimal", "mdns6", "mdns6_minimal" was found in the hosts line; that
+    is, manually configured /etc/nsswitch.conf were kept intact
+  - otherwise change the "dns" entry in /etc/hosts into:
+    "mdns_minimal dns mdns"
+  - if the hosts line contained "... mdns4_minimal [NOTFOUND=return] ... dns
+    ... mdns4 ...", remove these "mdns4_minimal [NOTFOUND=return]" and "mdns4"
+    entries
+* for upgrades from versions lower or equal to 0.8-4.1:
+  - avoid doing anything if any of "mdns4_minimal", "mdns4", "mdns",
+    "mdns_minimal", "mdns6", "mdns6_minimal" was found in the hosts line; that
+    is, manually configured /etc/nsswitch.conf were kept intact
+  - otherwise change the "dns" entry in /etc/hosts into:
+    "mdns_minimal dns mdns"
+* for upgrades from versions 0.8-4.2 and 0.8-5:
+  - if the hosts line contained "... mdns4_minimal [NOTFOUND=return] ... dns
+    ... mdns4 ...", remove these "mdns4_minimal [NOTFOUND=return]" and "mdns4"
+    entries
+* for upgrades from versions higher or equal to 0.8-6 (i.e. reinstalls of
+  0.8-6!):
+  - avoid doing anything if any of "mdns4_minimal", "mdns4", "mdns",
+    "mdns_minimal", "mdns6", "mdns6_minimal" was found in the hosts line; that
+    is, manually configured /etc/nsswitch.conf were kept intact
+  - otherwise change the "dns" entry in /etc/hosts into:
+    "mdns_minimal dns mdns"
+
+Problems with this version:
+1) does not preserve spacing ("foo   bar" becomes "foo bar") in many cases
+2) breaks local reaction overrides ("[STATUS=ACTION]") in many cases
+3) does not handle all versions (e.g. local versions, versions from Ubuntu)
+4) installs a configuration which does not match the upstream recommendations
+   for new installs or upgrades from >= 0.8-4.1
+5) removes any local or automatic configuration and breaks the mdns setup when
+   upgrading from versions 0.8-4.2 and 0.8-5
+6) results in ugly spacing when upgrading from versions 0.8-4.2 and 0.8-5 (note
+   the trailing space and the double space between files and dns):
+    hosts:          files  dns 
+
+In version 0.8-6.1 and later, the postinst would:
+- if upgrading from 0.8-6:
+  - revert breakage introduced in 0.8-6
+  - avoid doing anything if any of "mdns4_minimal", "mdns4", "mdns",
+    "mdns_minimal", "mdns6", "mdns6_minimal" was found in the hosts line; that
+    is, manually configured /etc/nsswitch.conf were kept intact
+  - otherwise change the "dns" entry in /etc/hosts into:
+    "mdns4_minimal [NOTFOUND=return] dns mdns4"
+- for first installs and upgrades from versions lower than
+  0.8-4.2, the postinst would:
+  - avoid doing anything if any of "mdns4_minimal", "mdns4", "mdns",
+    "mdns_minimal", "mdns6", "mdns6_minimal" was found in the hosts line; that
+    is, manually configured /etc/nsswitch.conf were kept intact
+  - otherwise change the "dns" entry in /etc/hosts into:
+    "mdns4_minimal [NOTFOUND=return] dns mdns4"
+
+
+Postrm
+======
+
+Concerning postrm, one was introduced in version 0.8-4.2 to remove any
+keyword from a set of mdns keywords from the "hosts:" line of nsswitch.conf
+during purge.  This postinst snippet was dropped in 0.8-6.
+
+In version 0.9-0.1, the same snippet was reintroduced, but is run on package
+removal instead of purge to ensure perl is still present and to avoid DNS
+issues in case of a removed package.
+

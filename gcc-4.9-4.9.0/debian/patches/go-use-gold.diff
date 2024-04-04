@@ -1,0 +1,103 @@
+# DP: Pass -fuse-ld=gold to gccgo on targets supporting -fsplit-stack
+
+gcc/go/                                                                                      
+                                                                                             
+        * gospec.c (lang_specific_driver): Pass -fuse-ld=gold on targets                     
+        supporting -fsplit-stack, unless overwritten.                                        
+                                                                                             
+gcc/                                                                                         
+        * configure.ac: New define HAVE_GOLD_NON_DEFAULT.                                    
+        * config.in: Regenerate.                                                             
+                                                                                             
+Index: b/src/gcc/go/gospec.c
+===================================================================
+--- a/src/gcc/go/gospec.c
++++ b/src/gcc/go/gospec.c
+@@ -117,6 +117,10 @@ lang_specific_driver (struct cl_decoded_
+   /* Whether the -S option was used.  */
+   bool saw_opt_S = false;
+ 
++  /* "-fuse-ld=" if it appears on the command line.  */
++  bool saw_use_ld ATTRIBUTE_UNUSED = false;
++  int need_gold = 0;
++
+   /* The first input file with an extension of .go.  */
+   const char *first_go_file = NULL;  
+ 
+@@ -217,6 +221,11 @@ lang_specific_driver (struct cl_decoded_
+ 	    }
+ 
+ 	  break;
++
++	case OPT_fuse_ld_bfd:
++	case OPT_fuse_ld_gold:
++	  saw_use_ld = true;
++	  break;
+ 	}
+     }
+ 
+@@ -226,8 +235,14 @@ lang_specific_driver (struct cl_decoded_
+   shared_libgcc = 0;
+ #endif
+ 
++#if defined(TARGET_CAN_SPLIT_STACK) && defined(HAVE_GOLD_NON_DEFAULT)
++  if (!saw_use_ld)
++    need_gold = 1;
++#endif
++
+   /* Make sure to have room for the trailing NULL argument.  */
+-  num_args = argc + need_math + shared_libgcc + (library > 0) * 5 + 10;
++  num_args = argc + need_math + shared_libgcc + need_gold +
++    (library > 0) * 5 + 10;
+   new_decoded_options = XNEWVEC (struct cl_decoded_option, num_args);
+ 
+   i = 0;
+@@ -244,6 +259,14 @@ lang_specific_driver (struct cl_decoded_
+ 		       &new_decoded_options[j]);
+       j++;
+     }
++#ifdef HAVE_GOLD_NON_DEFAULT
++  if (need_gold)
++    {
++      generate_option (OPT_fuse_ld_gold, NULL, 1, CL_DRIVER,
++		       &new_decoded_options[j]);
++      j++;
++    }
++#endif
+ #endif
+ 
+   /* NOTE: We start at 1 now, not 0.  */
+Index: b/src/gcc/config.in
+===================================================================
+--- a/src/gcc/config.in
++++ b/src/gcc/config.in
+@@ -1175,6 +1175,12 @@
+ #endif
+ 
+ 
++/* Define if the gold linker is available as a non-default */
++#ifndef USED_FOR_TARGET
++#undef HAVE_GOLD_NON_DEFAULT
++#endif
++
++
+ /* Define if you have the iconv() function. */
+ #ifndef USED_FOR_TARGET
+ #undef HAVE_ICONV
+Index: b/src/gcc/configure.ac
+===================================================================
+--- a/src/gcc/configure.ac
++++ b/src/gcc/configure.ac
+@@ -2117,6 +2117,12 @@ if test x$gcc_cv_ld != x; then
+ fi
+ AC_MSG_RESULT($ld_is_gold)
+ 
++# Check to see if ld is used, and gold is available
++if test x$ld_is_gold = xno && which ${gcc_cv_ld}.gold >/dev/null 2>&1; then
++  AC_DEFINE(HAVE_GOLD_NON_DEFAULT, 1,
++  	    [Define if the gold linker is available as a non-default])
++fi
++
+ ORIGINAL_LD_FOR_TARGET=$gcc_cv_ld
+ AC_SUBST(ORIGINAL_LD_FOR_TARGET)
+ case "$ORIGINAL_LD_FOR_TARGET" in

@@ -1,0 +1,58 @@
+Description: Dynamically adjust NTP poll interval
+ Currently, NTP is hard-coded to poll once very 17 minutes.  This patch
+ adjusts that interval up or down, depending on the skew detected from
+ the last poll.
+ .
+ connman (1.15-netgear1) stable; urgency=low
+ .
+   * Dymamically adjust NTP poll interval.
+Author: Justin Maggard <justin.maggard@netgear.com>
+
+---
+
+--- connman-1.15.orig/src/ntp.c
++++ connman-1.15/src/ntp.c
+@@ -66,6 +66,8 @@ struct ntp_msg {
+ #define OFFSET_1900_1970  2208988800UL	/* 1970 - 1900 in seconds */
+ 
+ #define STEPTIME_MIN_OFFSET  0.128
++#define NTP_MIN_INTERVAL     4
++#define NTP_MAX_INTERVAL     10
+ 
+ #define LOGTOD(a)  ((a) < 0 ? 1. / (1L << -(a)) : 1L << (int)(a))
+ 
+@@ -121,6 +123,7 @@ static struct sockaddr_in timeserver_addr;
+ static gint poll_id = 0;
+ static gint timeout_id = 0;
+ static guint retries = 0;
++static int8_t poll_interval = NTP_MIN_INTERVAL;
+ 
+ static void send_packet(int fd, const char *server, uint32_t timeout);
+ 
+@@ -164,8 +167,7 @@ static void send_packet(int fd, const char *server, uint32_t timeout)
+ 	memset(&msg, 0, sizeof(msg));
+ 	msg.flags = NTP_FLAGS_ENCODE(NTP_FLAG_LI_NOTINSYNC, NTP_FLAG_VN_VER4,
+ 	    NTP_FLAG_MD_CLIENT);
+-	msg.poll = 4;	// min
+-	msg.poll = 10;	// max
++	msg.poll = poll_interval;
+ 	msg.precision = NTP_PRECISION_S;
+ 
+ 	memset(&addr, 0, sizeof(addr));
+@@ -334,6 +336,8 @@ static void decode_msg(void *base, size_t len, struct timeval *tv,
+ 			connman_error("Failed to adjust time");
+ 			return;
+ 		}
++		if (offset < (STEPTIME_MIN_OFFSET / 2) && offset > (-STEPTIME_MIN_OFFSET / 2))
++			poll_interval += (poll_interval >= NTP_MAX_INTERVAL ? 0 : 1);
+ 
+ 		DBG("%lu seconds, %lu msecs", adj.tv_sec, adj.tv_usec);
+ 	} else {
+@@ -351,6 +355,7 @@ static void decode_msg(void *base, size_t len, struct timeval *tv,
+ 			connman_error("Failed to set time");
+ 			return;
+ 		}
++		poll_interval -= (poll_interval <= NTP_MIN_INTERVAL ? 0 : 1);
+ 
+ 		DBG("%lu seconds, %lu msecs", cur.tv_sec, cur.tv_usec);
+ 	}

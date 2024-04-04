@@ -1,0 +1,226 @@
+From d58552760b26d840824658814d59c8b1a25a4219 Mon Sep 17 00:00:00 2001
+From: Werner Koch <wk@gnupg.org>
+Date: Wed, 6 Aug 2014 17:11:21 +0200
+Subject: [PATCH 2/2] gpg: Fix regression due to the keyserver import filter.
+
+* g10/keyserver.c (keyserver_retrieval_filter): Change args.  Rewrite
+to take subpakets in account.
+* g10/import.c (import_one, import_secret_one): Pass keyblock to
+filter.
+--
+
+GnuPG-bug-id: 1680
+
+Resolved conflicts:
+	g10/main.h - s/import_filter/import_filter_t/g
+---
+ g10/import.c    | 20 +++++++--------
+ g10/keyserver.c | 76 ++++++++++++++++++++++++++++++++++-----------------------
+ g10/main.h      |  4 +--
+ 3 files changed, 58 insertions(+), 42 deletions(-)
+
+--- a/g10/import.c
++++ b/g10/import.c
+@@ -60,16 +60,16 @@ struct stats_s {
+ 
+ static int import( IOBUF inp, const char* fname,struct stats_s *stats,
+ 		   unsigned char **fpr,size_t *fpr_len,unsigned int options,
+-		   import_filter filter, void *filter_arg );
++		   import_filter_t filter, void *filter_arg );
+ static int read_block( IOBUF a, PACKET **pending_pkt, KBNODE *ret_root );
+ static void revocation_present(KBNODE keyblock);
+ static int import_one(const char *fname, KBNODE keyblock,struct stats_s *stats,
+ 		      unsigned char **fpr,size_t *fpr_len,
+ 		      unsigned int options,int from_sk,
+-		      import_filter filter, void *filter_arg);
++		      import_filter_t filter, void *filter_arg);
+ static int import_secret_one( const char *fname, KBNODE keyblock,
+                               struct stats_s *stats, unsigned int options,
+-                              import_filter filter, void *filter_arg);
++                              import_filter_t filter, void *filter_arg);
+ static int import_revoke_cert( const char *fname, KBNODE node,
+                                struct stats_s *stats);
+ static int chk_self_sigs( const char *fname, KBNODE keyblock,
+@@ -167,7 +167,7 @@ static int
+ import_keys_internal( IOBUF inp, char **fnames, int nnames,
+ 		      void *stats_handle, unsigned char **fpr, size_t *fpr_len,
+ 		      unsigned int options,
+-		      import_filter filter, void *filter_arg)
++		      import_filter_t filter, void *filter_arg)
+ {
+     int i, rc = 0;
+     struct stats_s *stats = stats_handle;
+@@ -236,7 +236,7 @@ import_keys( char **fnames, int nnames,
+ int
+ import_keys_stream( IOBUF inp, void *stats_handle,
+ 		    unsigned char **fpr, size_t *fpr_len,unsigned int options,
+-	            import_filter filter, void *filter_arg )
++	            import_filter_t filter, void *filter_arg )
+ {
+   return import_keys_internal (inp, NULL, 0, stats_handle, fpr, fpr_len,
+                                options, filter, filter_arg);
+@@ -245,7 +245,7 @@ import_keys_stream( IOBUF inp, void *sta
+ static int
+ import( IOBUF inp, const char* fname,struct stats_s *stats,
+ 	unsigned char **fpr,size_t *fpr_len,unsigned int options,
+-	import_filter filter, void *filter_arg)
++	import_filter_t filter, void *filter_arg)
+ {
+     PACKET *pending_pkt = NULL;
+     KBNODE keyblock = NULL;
+@@ -750,7 +750,7 @@ check_prefs(KBNODE keyblock)
+ static int
+ import_one( const char *fname, KBNODE keyblock, struct stats_s *stats,
+ 	    unsigned char **fpr,size_t *fpr_len,unsigned int options,
+-	    int from_sk, import_filter filter, void *filter_arg)
++	    int from_sk, import_filter_t filter, void *filter_arg)
+ {
+     PKT_public_key *pk;
+     PKT_public_key *pk_orig;
+@@ -790,7 +790,7 @@ import_one( const char *fname, KBNODE ke
+ 	return 0;
+       }
+ 
+-    if (filter && filter (pk, NULL, filter_arg))
++    if (filter && filter (keyblock, filter_arg))
+       {
+         log_error (_("key %s: %s\n"), keystr_from_pk(pk),
+                    _("rejected by import filter"));
+@@ -1166,7 +1166,7 @@ sec_to_pub_keyblock(KBNODE sec_keyblock)
+ static int
+ import_secret_one( const char *fname, KBNODE keyblock,
+                    struct stats_s *stats, unsigned int options,
+-                   import_filter filter, void *filter_arg)
++                   import_filter_t filter, void *filter_arg)
+ {
+     PKT_secret_key *sk;
+     KBNODE node, uidnode;
+@@ -1182,7 +1182,7 @@ import_secret_one( const char *fname, KB
+     keyid_from_sk( sk, keyid );
+     uidnode = find_next_kbnode( keyblock, PKT_USER_ID );
+ 
+-    if (filter && filter (NULL, sk, filter_arg)) {
++    if (filter && filter (keyblock, filter_arg)) {
+         log_error (_("secret key %s: %s\n"), keystr_from_sk(sk),
+                    _("rejected by import filter"));
+         return 0;
+--- a/g10/keyserver.c
++++ b/g10/keyserver.c
+@@ -966,52 +966,68 @@ struct ks_retrieval_filter_arg_s
+    returns 0 if the key shall be imported.  Note that this kind of
+    filter is not related to the iobuf filters. */
+ static int
+-keyserver_retrieval_filter (PKT_public_key *pk, PKT_secret_key *sk,
+-                            void *opaque)
++keyserver_retrieval_filter (kbnode_t keyblock, void *opaque)
+ {
+   struct ks_retrieval_filter_arg_s *arg = opaque;
+   KEYDB_SEARCH_DESC *desc = arg->desc;
+   int ndesc = arg->ndesc;
++  kbnode_t node;
++  PKT_public_key *pk;
+   int n;
+   u32 keyid[2];
+   byte fpr[MAX_FINGERPRINT_LEN];
+   size_t fpr_len = 0;
+ 
+-  /* Secret keys are not expected from a keyserver.  Do not import.  */
+-  if (sk)
+-    return G10ERR_GENERAL;
++  /* Secret keys are not expected from a keyserver.  We do not
++     care about secret subkeys because the import code takes care
++     of skipping them.  Not allowing an import of a public key
++     with a secret subkey would make it too easy to inhibit the
++     downloading of a public key.  Recall that keyservers do only
++     limited checks.  */
++  node = find_kbnode (keyblock, PKT_SECRET_KEY);
++  if (node)
++    return G10ERR_GENERAL;   /* Do not import. */
+ 
+   if (!ndesc)
+     return 0; /* Okay if no description given.  */
+ 
+-  fingerprint_from_pk (pk, fpr, &fpr_len);
+-  keyid_from_pk (pk, keyid);
+-
+-  /* Compare requested and returned fingerprints if available. */
+-  for (n = 0; n < ndesc; n++)
++  /* Loop over all key packets.  */
++  for (node = keyblock; node; node = node->next)
+     {
+-      if (desc[n].mode == KEYDB_SEARCH_MODE_FPR20)
+-        {
+-          if (fpr_len == 20 && !memcmp (fpr, desc[n].u.fpr, 20))
+-            return 0;
+-        }
+-      else if (desc[n].mode == KEYDB_SEARCH_MODE_FPR16)
+-        {
+-          if (fpr_len == 16 && !memcmp (fpr, desc[n].u.fpr, 16))
+-            return 0;
+-        }
+-      else if (desc[n].mode == KEYDB_SEARCH_MODE_LONG_KID)
+-        {
+-          if (keyid[0] == desc[n].u.kid[0] && keyid[1] == desc[n].u.kid[1])
+-            return 0;
+-        }
+-      else if (desc[n].mode == KEYDB_SEARCH_MODE_SHORT_KID)
++      if (node->pkt->pkttype != PKT_PUBLIC_KEY
++          && node->pkt->pkttype != PKT_PUBLIC_SUBKEY)
++        continue;
++
++      pk = node->pkt->pkt.public_key;
++      fingerprint_from_pk (pk, fpr, &fpr_len);
++      keyid_from_pk (pk, keyid);
++
++      /* Compare requested and returned fingerprints if available. */
++      for (n = 0; n < ndesc; n++)
+         {
+-          if (keyid[1] == desc[n].u.kid[1])
+-            return 0;
++          if (desc[n].mode == KEYDB_SEARCH_MODE_FPR20)
++            {
++              if (fpr_len == 20 && !memcmp (fpr, desc[n].u.fpr, 20))
++                return 0;
++            }
++          else if (desc[n].mode == KEYDB_SEARCH_MODE_FPR16)
++            {
++              if (fpr_len == 16 && !memcmp (fpr, desc[n].u.fpr, 16))
++                return 0;
++            }
++          else if (desc[n].mode == KEYDB_SEARCH_MODE_LONG_KID)
++            {
++              if (keyid[0] == desc[n].u.kid[0] && keyid[1] == desc[n].u.kid[1])
++                return 0;
++            }
++          else if (desc[n].mode == KEYDB_SEARCH_MODE_SHORT_KID)
++            {
++              if (keyid[1] == desc[n].u.kid[1])
++                return 0;
++            }
++          else /* No keyid or fingerprint - can't check.  */
++            return 0; /* allow import.  */
+         }
+-      else
+-        return 0;
+     }
+ 
+   return G10ERR_GENERAL;
+--- a/g10/main.h
++++ b/g10/main.h
+@@ -214,14 +214,14 @@ MPI encode_md_value( PKT_public_key *pk,
+ 
+ /*-- import.c --*/
+ 
+-typedef int (*import_filter)(PKT_public_key *pk, PKT_secret_key *sk, void *arg);
++typedef int (*import_filter_t)(kbnode_t keyblock, void *arg);
+ 
+ int parse_import_options(char *str,unsigned int *options,int noisy);
+ void import_keys( char **fnames, int nnames,
+ 		  void *stats_hd, unsigned int options );
+ int import_keys_stream (IOBUF inp,void *stats_hd,unsigned char **fpr,
+                         size_t *fpr_len,unsigned int options,
+-                        import_filter filter, void *filter_arg);
++                        import_filter_t filter, void *filter_arg);
+ void *import_new_stats_handle (void);
+ void import_release_stats_handle (void *p);
+ void import_print_stats (void *hd);

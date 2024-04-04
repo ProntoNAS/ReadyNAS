@@ -1,0 +1,64 @@
+From 93f6c83c7454de33df00a0e3fde3a890d6c87e91 Mon Sep 17 00:00:00 2001
+From: chansen <chansen@cpan.org>
+Date: Sun, 3 Mar 2013 22:43:53 +0100
+Subject: Encode: Fixed a memory leak that occurred in the UTF-8 encoding.
+
+The decode and encode methods allocated a SV for the result, this SV
+is passed to the process_utf8() function which may croak() if the
+CHECK flag has FB_CROAK set.
+
+Origin: upstream, http://perl5.git.perl.org/perl.git/commit/5814803a8fa15d6b5fd483efdaf849a7166f9ac4
+Bug: https://github.com/dankogai/p5-encode/issues/8
+Bug-Debian: http://bugs.debian.org/702416
+Patch-Name: fixes/encode-memleak.diff
+---
+ cpan/Encode/Encode.xs |    8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/cpan/Encode/Encode.xs b/cpan/Encode/Encode.xs
+index 723170c..4fa4ac3 100644
+--- a/cpan/Encode/Encode.xs
++++ b/cpan/Encode/Encode.xs
+@@ -440,7 +440,6 @@ CODE:
+     if (src == &PL_sv_undef || SvROK(src)) src = sv_2mortal(newSV(0));
+     s = (U8 *) SvPV(src, slen);
+     e = (U8 *) SvEND(src);
+-    dst = newSV(slen>0?slen:1); /* newSV() abhors 0 -- inaba */
+     check = SvROK(check_sv) ? ENCODE_PERLQQ|ENCODE_LEAVE_SRC : SvIV(check_sv);
+     /* 
+      * PerlIO check -- we assume the object is of PerlIO if renewed
+@@ -471,6 +470,7 @@ CODE:
+     }
+     }
+ 
++    dst = sv_2mortal(newSV(slen>0?slen:1)); /* newSV() abhors 0 -- inaba */
+     s = process_utf8(aTHX_ dst, s, e, check_sv, 0, strict_utf8(aTHX_ obj), renewed);
+ 
+     /* Clear out translated part of source unless asked not to */
+@@ -482,7 +482,7 @@ CODE:
+     SvCUR_set(src, slen);
+     }
+     SvUTF8_on(dst);
+-    ST(0) = sv_2mortal(dst);
++    ST(0) = dst;
+     XSRETURN(1);
+ }
+ 
+@@ -504,7 +504,7 @@ CODE:
+     if (src == &PL_sv_undef || SvROK(src)) src = sv_2mortal(newSV(0));
+     s = (U8 *) SvPV(src, slen);
+     e = (U8 *) SvEND(src);
+-    dst = newSV(slen>0?slen:1); /* newSV() abhors 0 -- inaba */
++    dst = sv_2mortal(newSV(slen>0?slen:1)); /* newSV() abhors 0 -- inaba */
+     if (SvUTF8(src)) {
+     /* Already encoded */
+     if (strict_utf8(aTHX_ obj)) {
+@@ -543,7 +543,7 @@ CODE:
+     }
+     SvPOK_only(dst);
+     SvUTF8_off(dst);
+-    ST(0) = sv_2mortal(dst);
++    ST(0) = dst;
+     XSRETURN(1);
+ }
+ 

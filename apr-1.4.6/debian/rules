@@ -1,0 +1,165 @@
+#!/usr/bin/make -f
+
+# Turn on VERBOSE output
+#export DH_VERBOSE=1
+
+# These are used for cross-compiling and for saving the configure script
+# # from having to guess our platform (since we know it already)
+DEB_HOST_GNU_TYPE    ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_BUILD_ARCH       ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH)
+DEB_BUILD_ARCH_OS    ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH_OS)
+
+BUILDDIR := build-$(DEB_BUILD_ARCH)
+
+CFLAGS := $(CFLAGS) -pipe -Wall -g
+
+# hardening options
+H_CFLAGS := -Wformat -Wformat-security -D_FORTIFY_SOURCE=2 -fstack-protector
+H_LDFLAGS := -Wl,-z,relro
+
+CONFFLAGS += ac_cv_prog_AWK=mawk apr_cv_sctp=no
+
+# apr_cv_mutex_robust_shared causes hangs in procmutex test on arm(el|hf) and alpha
+# let's just disable this for squeeze
+ifneq (,$(findstring armel,$(DEB_BUILD_ARCH)))
+  CONFFLAGS += apr_cv_mutex_robust_shared=no
+endif
+ifneq (,$(findstring armhf,$(DEB_BUILD_ARCH)))
+  CONFFLAGS += apr_cv_mutex_robust_shared=no
+endif
+ifneq (,$(findstring alpha,$(DEB_BUILD_ARCH)))
+  CONFFLAGS += apr_cv_mutex_robust_shared=no
+endif
+
+# SH4 cannot use proc_pthread.
+ifneq (,$(findstring sh4,$(DEB_BUILD_ARCH)))
+  CONFFLAGS += apr_cv_hasprocpthreadser=no ac_cv_define_PTHREAD_PROCESS_SHARED=no
+endif
+
+# Enable debug builds
+ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+  CFLAGS += -O0
+else
+  ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+    CFLAGS += -O0
+  else
+    CFLAGS += -O2
+  endif
+endif
+
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+  NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+  MAKEFLAGS += -j$(NUMJOBS)
+endif
+
+ifeq (,$(findstring notest,$(DEB_BUILD_OPTIONS))$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
+	TEST_TARGET = test
+else
+	TEST_TARGET =
+endif
+
+SHELL=/bin/bash
+
+$(BUILDDIR)/config.status:
+	dh_testdir
+	mkdir -p $(BUILDDIR)/docs
+	./buildconf
+	# we need to force the use of bash here. Otherwise, if apr is built with
+	# /bin/sh -> /bin/bash, the resulting libtool will not work on systems
+	# where /bin/sh -> /bin/dash
+	cd $(BUILDDIR) && $(CONFFLAGS) CONFIG_SHELL=/bin/bash /bin/bash ../configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) --enable-layout=Debian --includedir=\$${prefix}/usr/include/apr-1.0 --with-installbuilddir=\$${prefix}/usr/share/apr-1.0/build  --enable-nonportable-atomics --enable-allocator-uses-mmap
+	# Determine whether upstream's configure gives the same definition of apr_ino_t as we had until 1.2.11-1
+	rm -f debian/ino_t_test
+	gcc -I$(CURDIR)/include -I$(BUILDDIR)/include `$(BUILDDIR)/apr-1-config --cppflags` -o debian/ino_t_test debian/ino_t_test.c
+	debian/ino_t_test
+	rm -f debian/ino_t_test
+ifeq (hurd, $(DEB_BUILD_ARCH_OS))
+	# multicast not supported on Hurd
+	sed -i '/HAVE_STRUCT_IPMREQ/ d' $(BUILDDIR)/include/arch/unix/apr_private.h
+endif
+ifeq (linux, $(DEB_BUILD_ARCH_OS))
+	if grep -q APR_HAS_POSIXSEM_SERIALIZE.*0 $(BUILDDIR)/include/apr.h ;\
+	then \
+		echo "WARNING: This is Linux but configure did not detect POSIX semaphores." ;\
+		if [ "$(stat -c '%d' /dev/shm)" = "$(stat -c '%d' /dev)" ] ;\
+		then \
+			echo "ERROR: POSIX semaphores not usable and /dev/shm not mounted." ;\
+			echo "ERROR: Aborting." ;\
+			echo "HINT: If you are using pbuilder or cowbuilder, add /dev/shm to BINDMOUNTS" ;\
+			echo "HINT: in pbuilderrc" ;\
+			exit 1 ;\
+		fi ;\
+	fi
+endif
+
+build: build-arch build-indep
+build-arch: build-stamp
+build-indep: build-stamp
+
+build-stamp: $(BUILDDIR)/config.status
+	dh_testdir
+
+	$(MAKE) -C $(BUILDDIR) CFLAGS="$(H_CFLAGS) $(CFLAGS)" LDFLAGS="$(H_LDFLAGS) $(LDFLAGS)"
+	$(MAKE) -C $(BUILDDIR) dox
+
+	touch $@
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp test-stamp debian/ino_t_test
+	rm -f configure build/lt* build/libtool.m4 build-outputs.mk include/arch/unix/apr_private.h.in
+	rm -rf $(BUILDDIR)
+
+	dh_clean
+
+test: test-stamp
+
+# the testsockets test will fail on vservers (no 127.0.0.1) or if ipv6 is
+# enabled in the kernel but not configured on any interface
+IGNORE_TESTSOCK = $(shell IGN=false; \
+	/sbin/ifconfig|grep -q 127.0.0.1 || IGN=true; \
+	grep -q ipv6 /proc/net/protocols && ( /sbin/ifconfig|grep -q inet6 || IGN=true ) ; \
+	echo $$IGN )
+
+test-stamp: build
+	dh_testdir
+	$(MAKE) -C $(BUILDDIR)/test all CFLAGS="$(H_CFLAGS) $(CFLAGS)" LDFLAGS="$(H_LDFLAGS) $(LDFLAGS)"
+	cd $(BUILDDIR)/test && ./testall -v testsockets testsock || $(IGNORE_TESTSOCK)
+	cd $(BUILDDIR)/test && ( ulimit -S -s 8192 ; ./testall -v testatomic)
+	cd $(BUILDDIR)/test && ./testall -v -x testsockets testsock testatomic
+	touch $@
+
+install: build $(TEST_TARGET)
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs -a
+
+	$(MAKE) -C $(BUILDDIR) install DESTDIR=$(CURDIR)/debian/tmp
+	perl -p -i -e "s,^dependency_libs=.*,dependency_libs=''," $(CURDIR)/debian/tmp/usr/lib/libapr-1.la
+
+binary-indep: build install
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs CHANGES
+	dh_installdocs
+	dh_install -a
+	dh_installman -plibapr1-dev debian/apr-1-config.1
+	dh_link
+	dh_strip --dbg-package=libapr1-dbg
+	dh_lintian
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs -- -Idebian/symbols.$(DEB_BUILD_ARCH_OS)
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install

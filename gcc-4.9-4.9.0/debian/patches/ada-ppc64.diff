@@ -1,0 +1,26 @@
+# Fix 32/64 bit detection, broken due to the fact Debian installs 
+# 64-bit libraries in lib and not lib64. Fix based on the s390/s390x
+# detection.
+
+Index: b/src/gcc/ada/gcc-interface/Makefile.in
+===================================================================
+--- a/src/gcc/ada/gcc-interface/Makefile.in
++++ b/src/gcc/ada/gcc-interface/Makefile.in
+@@ -1945,9 +1945,14 @@ ifeq ($(strip $(filter-out powerpc% linu
+     LIBGNAT_TARGET_PAIRS_64 = \
+     system.ads<system-linux-ppc64.ads
+ 
+-    ifeq ($(strip $(shell $(GCC_FOR_TARGET) $(GNATLIBCFLAGS) -print-multi-os-directory)),../lib64)
+-      LIBGNAT_TARGET_PAIRS = \
+-      $(LIBGNAT_TARGET_PAIRS_COMMON) $(LIBGNAT_TARGET_PAIRS_64)
++    ifeq ($(strip $(filter-out powerpc64 powerpc64le,$(target_cpu))),)
++      ifeq ($(strip $(MULTISUBDIR)),/32)
++        LIBGNAT_TARGET_PAIRS = \
++        $(LIBGNAT_TARGET_PAIRS_COMMON) $(LIBGNAT_TARGET_PAIRS_32)
++      else
++        LIBGNAT_TARGET_PAIRS = \
++        $(LIBGNAT_TARGET_PAIRS_COMMON) $(LIBGNAT_TARGET_PAIRS_64)
++      endif
+     else
+       LIBGNAT_TARGET_PAIRS = \
+       $(LIBGNAT_TARGET_PAIRS_COMMON) $(LIBGNAT_TARGET_PAIRS_32)

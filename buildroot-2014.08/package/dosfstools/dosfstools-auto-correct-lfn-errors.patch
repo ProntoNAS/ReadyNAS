@@ -1,0 +1,137 @@
+diff --git dosfstools-3.0.20.orig/src/fatlabel.c dosfstools-3.0.20/src/fatlabel.c
+index 8397a97..bd63097 100644
+--- dosfstools-3.0.20.orig/src/fatlabel.c
++++ dosfstools-3.0.20/src/fatlabel.c
+@@ -40,7 +40,7 @@
+ #include "file.h"
+ #include "check.h"
+ 
+-int interactive = 0, rw = 0, list = 0, test = 0, verbose = 0, write_immed = 0;
++int interactive = 0, rw = 0, list = 0, test = 0, verbose = 0, write_immed = 0, force = 0;
+ int atari_format = 0;
+ unsigned n_files = 0;
+ void *mem_queue = NULL;
+diff --git dosfstools-3.0.20.orig/src/fsck.fat.c dosfstools-3.0.20/src/fsck.fat.c
+index dbf8890..248ef13 100644
+--- dosfstools-3.0.20.orig/src/fsck.fat.c
++++ dosfstools-3.0.20/src/fsck.fat.c
+@@ -42,7 +42,7 @@
+ #include "check.h"
+ #include "charconv.h"
+ 
+-int interactive = 0, rw = 0, list = 0, test = 0, verbose = 0, write_immed = 0;
++int interactive = 0, rw = 0, list = 0, test = 0, verbose = 0, write_immed = 0, force = 0;
+ int atari_format = 0, boot_only = 0;
+ unsigned n_files = 0;
+ void *mem_queue = NULL;
+@@ -118,9 +118,10 @@ int main(int argc, char **argv)
+ 	case 'A':		/* toggle Atari format */
+ 	    atari_format = !atari_format;
+ 	    break;
++	case 'y':
++	    force = 1;
+ 	case 'a':
+ 	case 'p':
+-	case 'y':
+ 	    rw = 1;
+ 	    interactive = 0;
+ 	    salvage_files = 1;
+diff --git dosfstools-3.0.20.orig/src/fsck.fat.h dosfstools-3.0.20/src/fsck.fat.h
+index 8f3374e..2db21b0 100644
+--- dosfstools-3.0.20.orig/src/fsck.fat.h
++++ dosfstools-3.0.20/src/fsck.fat.h
+@@ -173,7 +173,7 @@ typedef struct {
+     char *label;
+ } DOS_FS;
+ 
+-extern int interactive, rw, list, verbose, test, write_immed;
++extern int interactive, rw, list, verbose, test, write_immed, force;
+ extern int atari_format;
+ extern unsigned n_files;
+ extern void *mem_queue;
+diff --git dosfstools-3.0.20.orig/src/lfn.c dosfstools-3.0.20/src/lfn.c
+index 8516cc5..0724d85 100644
+--- dosfstools-3.0.20.orig/src/lfn.c
++++ dosfstools-3.0.20/src/lfn.c
+@@ -232,6 +232,10 @@ void lfn_add_slot(DIR_ENT * de, loff_t dir_offset)
+ 		printf("1: Delete previous LFN\n2: Leave it as it is.\n");
+ 		if (can_clear)
+ 		    printf("3: Clear start bit and concatenate LFNs\n");
++	    } else if (force) {
++		printf("  Deleting LFN.\n");
++		clear_lfn_slots(0, lfn_parts - 1);
++		lfn_reset();
+ 	    } else
+ 		printf("  Not auto-correcting this.\n");
+ 	    if (interactive) {
+@@ -267,6 +271,14 @@ void lfn_add_slot(DIR_ENT * de, loff_t dir_offset)
+ 	if (interactive) {
+ 	    printf("1: Delete fragment\n2: Leave it as it is.\n"
+ 		   "3: Set start bit\n");
++	} else if (force) {
++	    printf("  Deleting fragment.\n");
++	    if (!lfn_offsets)
++		lfn_offsets = alloc(sizeof(loff_t));
++	    lfn_offsets[0] = dir_offset;
++	    clear_lfn_slots(0, 0);
++	    lfn_reset();
++	    return;
+ 	} else
+ 	    printf("  Not auto-correcting this.\n");
+ 	switch (interactive ? get_key("123", "?") : '2') {
+@@ -314,6 +326,16 @@ void lfn_add_slot(DIR_ENT * de, loff_t dir_offset)
+ 		("1: Delete LFN\n2: Leave it as it is (and ignore LFN so far)\n");
+ 	    if (can_fix)
+ 		printf("3: Correct sequence number\n");
++	} else if (force) {
++	    printf("  Deleting LFN.\n");
++	    if (!lfn_offsets) {
++		lfn_offsets = alloc(sizeof(loff_t));
++		lfn_parts = 0;
++	    }
++	    lfn_offsets[lfn_parts++] = dir_offset;
++	    clear_lfn_slots(0, lfn_parts - 1);
++	    lfn_reset();
++	    return;
+ 	} else
+ 	    printf("  Not auto-correcting this.\n");
+ 	switch (interactive ? get_key(can_fix ? "123" : "12", "?") : '2') {
+@@ -347,6 +369,12 @@ void lfn_add_slot(DIR_ENT * de, loff_t dir_offset)
+ 	if (interactive) {
+ 	    printf("1: Delete LFN\n2: Leave it as it is.\n"
+ 		   "3: Correct checksum\n");
++	} else if (force) {
++	    printf("  Deleting LFN.\n");
++	    lfn_offsets[lfn_parts++] = dir_offset;
++	    clear_lfn_slots(0, lfn_parts - 1);
++	    lfn_reset();
++	    return;
+ 	} else
+ 	    printf("  Not auto-correcting this.\n");
+ 	if (interactive) {
+@@ -441,6 +469,11 @@ char *lfn_get(DIR_ENT * de, loff_t * lfn_offset)
+ 	    printf("1: Delete LFN\n2: Leave it as it is.\n"
+ 		   "3: Fix numbering (truncates long name and attaches "
+ 		   "it to short name %s)\n", short_name);
++	} else if (force) {
++	    printf("  Deleting LFN.\n");
++	    clear_lfn_slots(0, lfn_parts - 1);
++	    lfn_reset();
++	    return NULL;
+ 	} else
+ 	    printf("  Not auto-correcting this.\n");
+ 	switch (interactive ? get_key("123", "?") : '2') {
+@@ -480,8 +513,11 @@ char *lfn_get(DIR_ENT * de, loff_t * lfn_offset)
+ 	if (interactive) {
+ 	    printf("1: Delete LFN\n2: Leave it as it is.\n"
+ 		   "3: Fix checksum (attaches to short name %s)\n", short_name);
+-	} else
+-	    printf("  Not auto-correcting this.\n");
++	} else {
++	    clear_lfn_slots(0, lfn_parts - 1);
++	    lfn_reset();
++	    return NULL;
++	}
+ 	if (interactive) {
+ 	    switch (get_key("123", "?")) {
+ 	    case '1':

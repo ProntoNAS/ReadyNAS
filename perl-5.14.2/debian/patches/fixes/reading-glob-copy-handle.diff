@@ -1,0 +1,84 @@
+From 79336c812d09ba475bff661f849514b3876a73dd Mon Sep 17 00:00:00 2001
+From: Father Chrysostomos <sprout@cpan.org>
+Date: Sun, 5 Jun 2011 22:37:54 -0700
+Subject: <$fh> hangs on a glob copy
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Opening a file handle to \$glob causes assertion failures
+(under debugging) or hangs or other erratic behaviour without
+debugging. This might even crash in some cases.
+
+It never really worked properly, but it didn’t start hanging
+apparently until 5.12.2 and 5.14.0.
+
+Bug: http://rt.perl.org/rt3/Public/Bug/Display.html?id=92258
+Bug-Debian: http://bugs.debian.org/629363
+Origin: upstream, http://perl5.git.perl.org/perl.git/commit/fd1564b91b0e38f6c270a1bb7d144762ab1aea5c
+Patch-Name: fixes/reading-glob-copy-handle.diff
+---
+ ext/PerlIO-scalar/scalar.xs |   13 ++++++++++---
+ t/io/perlio.t               |    8 +++++++-
+ 2 files changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/ext/PerlIO-scalar/scalar.xs b/ext/PerlIO-scalar/scalar.xs
+index de98738..e0f75ac 100644
+--- a/ext/PerlIO-scalar/scalar.xs
++++ b/ext/PerlIO-scalar/scalar.xs
+@@ -240,9 +240,13 @@ PerlIOScalar_get_cnt(pTHX_ PerlIO * f)
+ {
+     if (PerlIOBase(f)->flags & PERLIO_F_CANREAD) {
+ 	PerlIOScalar *s = PerlIOSelf(f, PerlIOScalar);
++	STRLEN len;
+ 	SvGETMAGIC(s->var);
+-	if (SvCUR(s->var) > (STRLEN) s->posn)
+-	    return SvCUR(s->var) - (STRLEN)s->posn;
++	if (isGV_with_GP(s->var))
++	    (void)SvPV(s->var,len);
++	else len = SvCUR(s->var);
++	if (len > (STRLEN) s->posn)
++	    return len - (STRLEN)s->posn;
+ 	else
+ 	    return 0;
+     }
+@@ -264,9 +268,12 @@ void
+ PerlIOScalar_set_ptrcnt(pTHX_ PerlIO * f, STDCHAR * ptr, SSize_t cnt)
+ {
+     PerlIOScalar *s = PerlIOSelf(f, PerlIOScalar);
++    STRLEN len;
+     PERL_UNUSED_ARG(ptr);
+     SvGETMAGIC(s->var);
+-    s->posn = SvCUR(s->var) - cnt;
++    if (isGV_with_GP(s->var)) (void)SvPV(s->var,len);
++    else len = SvCUR(s->var);
++    s->posn = len - cnt;
+ }
+ 
+ PerlIO *
+diff --git a/t/io/perlio.t b/t/io/perlio.t
+index 1a330f4..a65b0d3 100644
+--- a/t/io/perlio.t
++++ b/t/io/perlio.t
+@@ -6,7 +6,7 @@ BEGIN {
+ 	skip_all_without_perlio();
+ }
+ 
+-plan tests => 42;
++plan tests => 44;
+ 
+ use_ok('PerlIO');
+ 
+@@ -191,6 +191,12 @@ close ($perlio);
+ close ($no_perlio);
+ }
+ 
++{ # [perl #92258]
++    open my $fh, "<", \(my $f = *f);
++    is join("", <$fh>), '*main::f', 'reading from a glob copy';
++    is ref \$f, 'GLOB', 'the glob copy is unaffected';
++}
++
+ }
+ 
+ 

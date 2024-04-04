@@ -1,0 +1,62 @@
+From a3f1e3e5712257fd279917a9158278534e8f4b72 Mon Sep 17 00:00:00 2001
+From: Daniel Veillard <veillard@redhat.com>
+Date: Mon, 11 Mar 2013 13:57:53 +0800
+Subject: [PATCH] Avoid extra processing on entities
+
+If an entity has already been checked for correctness no
+need to check it on every reference
+---
+ SAX2.c            | 6 ++++--
+ parser.c          | 8 ++++++--
+ result/att11.sax  | 2 --
+ result/att11.sax2 | 2 --
+ 4 files changed, 10 insertions(+), 8 deletions(-)
+
+--- a/SAX2.c
++++ b/SAX2.c
+@@ -574,6 +574,7 @@ xmlSAX2GetEntity(void *ctx, const xmlCha
+ 	 * parse the external entity
+ 	 */
+ 	xmlNodePtr children;
++	unsigned long oldnbent = ctxt->nbentities;
+ 
+         val = xmlParseCtxtExternalEntity(ctxt, ret->URI,
+ 		                         ret->ExternalID, &children);
+@@ -586,8 +587,9 @@ xmlSAX2GetEntity(void *ctx, const xmlCha
+ 	    return(NULL);
+ 	}
+ 	ret->owner = 1;
+-	if (ret->checked == 0)
+-	    ret->checked = 1;
++	if (ret->checked == 0) {
++	    ret->checked = ctxt->nbentities - oldnbent + 1;
++	}
+     }
+     return(ret);
+ }
+--- a/parser.c
++++ b/parser.c
+@@ -3953,9 +3953,13 @@ xmlParseAttValueComplex(xmlParserCtxtPtr
+ 		     * entities problems
+ 		     */
+ 		    if ((ent->etype != XML_INTERNAL_PREDEFINED_ENTITY) &&
+-			(ent->content != NULL)) {
++			(ent->content != NULL) && (ent->checked == 0)) {
++			unsigned long oldnbent = ctxt->nbentities;
++
+ 			rep = xmlStringDecodeEntities(ctxt, ent->content,
+ 						  XML_SUBSTITUTE_REF, 0, 0, 0);
++
++			ent->checked = ctxt->nbentities - oldnbent + 1;
+ 			if (rep != NULL) {
+ 			    xmlFree(rep);
+ 			    rep = NULL;
+@@ -7074,7 +7078,7 @@ xmlParseReference(xmlParserCtxtPtr ctxt)
+ 	 * Store the number of entities needing parsing for this entity
+ 	 * content and do checkings
+ 	 */
+-	ent->checked = ctxt->nbentities - oldnbent;
++	ent->checked = ctxt->nbentities - oldnbent + 1;
+ 	if (ret == XML_ERR_ENTITY_LOOP) {
+ 	    xmlFatalErr(ctxt, XML_ERR_ENTITY_LOOP, NULL);
+ 	    xmlFreeNodeList(list);

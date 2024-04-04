@@ -1,0 +1,61 @@
+From 2a6361c589c39bc3124e49360b54224d89f41fff Mon Sep 17 00:00:00 2001
+From: Reini Urban <rurban@x-ray.at>
+Date: Fri, 9 Mar 2012 09:11:50 -0600
+Subject: sdbm.c: fix off-by-one access to global ".dir"
+
+Detected by clang -faddress-sanitizer.
+
+The bug came in 081f72ad6fa2b76e0b3cd9046371b2dbd9130114, where
+we started calculating lengths with sizeof on string constants
+instead of using strlen.  Since string constants include the null
+byte, sizeof(".dir"), for example, is 5, but we've been copying 6
+bytes.
+
+This patch resolves [perl #111586] and includes revisions by the
+committer.
+
+Bug: https://rt.perl.org/rt3//Ticket/Display.html?id=111586
+Origin: http://perl5.git.perl.org/perl.git/commit/7f5f08b152bb9d0c88efd1dd0f70d45e427efe1c
+Patch-Name: fixes/sdbm_off_by_one.diff
+---
+ ext/SDBM_File/sdbm/sdbm.c |   14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/ext/SDBM_File/sdbm/sdbm.c b/ext/SDBM_File/sdbm/sdbm.c
+index c554e52..46be83e 100644
+--- a/ext/SDBM_File/sdbm/sdbm.c
++++ b/ext/SDBM_File/sdbm/sdbm.c
+@@ -78,8 +78,8 @@ sdbm_open(register char *file, register int flags, register int mode)
+ 	register char *dirname;
+ 	register char *pagname;
+ 	size_t filelen;
+-	const size_t dirfext_len = sizeof(DIRFEXT "");
+-	const size_t pagfext_len = sizeof(PAGFEXT "");
++	const size_t dirfext_size = sizeof(DIRFEXT "");
++	const size_t pagfext_size = sizeof(PAGFEXT "");
+ 
+ 	if (file == NULL || !*file)
+ 		return errno = EINVAL, (DBM *) NULL;
+@@ -88,17 +88,17 @@ sdbm_open(register char *file, register int flags, register int mode)
+  */
+ 	filelen = strlen(file);
+ 
+-	if ((dirname = (char *) malloc(filelen + dirfext_len + 1
+-				       + filelen + pagfext_len + 1)) == NULL)
++	if ((dirname = (char *) malloc(filelen + dirfext_size
++				       + filelen + pagfext_size)) == NULL)
+ 		return errno = ENOMEM, (DBM *) NULL;
+ /*
+  * build the file names
+  */
+ 	memcpy(dirname, file, filelen);
+-	memcpy(dirname + filelen, DIRFEXT, dirfext_len + 1);
+-	pagname = dirname + filelen + dirfext_len + 1;
++	memcpy(dirname + filelen, DIRFEXT, dirfext_size);
++	pagname = dirname + filelen + dirfext_size;
+ 	memcpy(pagname, file, filelen);
+-	memcpy(pagname + filelen, PAGFEXT, pagfext_len + 1);
++	memcpy(pagname + filelen, PAGFEXT, pagfext_size);
+ 
+ 	db = sdbm_prep(dirname, pagname, flags, mode);
+ 	free((char *) dirname);

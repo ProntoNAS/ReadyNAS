@@ -1,0 +1,508 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<HTML
+><HEAD
+><TITLE
+>Driver Infrastructure Functions</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.79"><LINK
+REL="HOME"
+TITLE="Database Independent Abstraction Layer for C"
+HREF="index.html"><LINK
+REL="UP"
+TITLE="Driver Functions"
+HREF="driverfuncs.html"><LINK
+REL="PREVIOUS"
+TITLE="Driver Functions"
+HREF="driverfuncs.html"><LINK
+REL="NEXT"
+TITLE="Internal Database Query Functions"
+HREF="driverfuncs-dbquery.html"></HEAD
+><BODY
+CLASS="SECTION"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+SUMMARY="Header navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>Database Independent Abstraction Layer for C: libdbi Driver Author's Guide</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="driverfuncs.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>Chapter 3. Driver Functions</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="driverfuncs-dbquery.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECTION"
+><H1
+CLASS="SECTION"
+><A
+NAME="DRIVERFUNCS-INFRASTRUCTURE"
+>3.1. Driver Infrastructure Functions</A
+></H1
+><P
+>These functions are called by libdbi at startup and when the libdbi user establishes or takes down a database engine connection.</P
+><DIV
+CLASS="SECTION"
+><H2
+CLASS="SECTION"
+><A
+NAME="DBD-REGISTER-DRIVER"
+>3.1.1. dbd_register_driver</A
+></H2
+><DIV
+CLASS="FUNCSYNOPSIS"
+><P
+></P
+><A
+NAME="AEN105"
+></A
+><P
+><CODE
+><CODE
+CLASS="FUNCDEF"
+>void <B
+CLASS="FSFUNC"
+>dbd_register_driver</B
+></CODE
+>(const dbi_info_t **<VAR
+CLASS="PDPARAM"
+>_driver_info</VAR
+>, const char ***<VAR
+CLASS="PDPARAM"
+>_custom_functions</VAR
+>, const char ***<VAR
+CLASS="PDPARAM"
+>_reserved_words</VAR
+>);</CODE
+></P
+><P
+></P
+></DIV
+><P
+>This is the first function called after the driver module is loaded into memory. It passes back meta-information back to libdbi through the pointers passed as arguments.</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>Arguments</DT
+><DD
+><P
+><TT
+CLASS="LITERAL"
+>_driver_info</TT
+>: A pointer used to link to the driver's information struct.</P
+><P
+><TT
+CLASS="LITERAL"
+>_custom_functions</TT
+>: A pointer used to link to the driver's string array of custom database-specific functions.</P
+><P
+><TT
+CLASS="LITERAL"
+>_reserved_words</TT
+>: A pointer used to link to the driver's string array of reserved words.</P
+></DD
+></DL
+></DIV
+></DIV
+><DIV
+CLASS="SECTION"
+><H2
+CLASS="SECTION"
+><A
+NAME="DBD-INITIALIZE"
+>3.1.2. dbd_initialize</A
+></H2
+><DIV
+CLASS="FUNCSYNOPSIS"
+><P
+></P
+><A
+NAME="AEN128"
+></A
+><P
+><CODE
+><CODE
+CLASS="FUNCDEF"
+>int <B
+CLASS="FSFUNC"
+>dbd_initialize</B
+></CODE
+>(dbi_driver_t *<VAR
+CLASS="PDPARAM"
+>driver</VAR
+>);</CODE
+></P
+><P
+></P
+></DIV
+><P
+>Performs any database-specific server initialization. This is called right after dbd_register_driver().</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>Arguments</DT
+><DD
+><P
+><TT
+CLASS="LITERAL"
+>driver</TT
+>: The driver's pointer.</P
+></DD
+><DT
+>Returns</DT
+><DD
+><P
+>-1 on error, 0 on success. If -1 is returned, the driver will not be added to the list of available drivers.</P
+></DD
+></DL
+></DIV
+></DIV
+><DIV
+CLASS="SECTION"
+><H2
+CLASS="SECTION"
+><A
+NAME="DBD-CONNECT"
+>3.1.3. dbd_connect</A
+></H2
+><DIV
+CLASS="FUNCSYNOPSIS"
+><P
+></P
+><A
+NAME="AEN147"
+></A
+><P
+><CODE
+><CODE
+CLASS="FUNCDEF"
+>int <B
+CLASS="FSFUNC"
+>dbd_connect</B
+></CODE
+>(dbi_conn_t *<VAR
+CLASS="PDPARAM"
+>conn</VAR
+>);</CODE
+></P
+><P
+></P
+></DIV
+><P
+>Connects to the database, setting the connection's DB-specific connection handle and current database name. Connection parameters are already filled through the connection's option settings. The standard options that all drivers must recognize (if applicable) are: host, port, username, password, dbname, and encoding. Any driver-specific functions must be prefixed with the name of the driver and an underscore, such as "mysql_compression".</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>Arguments</DT
+><DD
+><P
+><TT
+CLASS="LITERAL"
+>conn</TT
+>: The target connection instance of the driver.</P
+></DD
+><DT
+>Returns</DT
+><DD
+><P
+>&lt;0 on error, 0 on success.</P
+></DD
+></DL
+></DIV
+></DIV
+><DIV
+CLASS="SECTION"
+><H2
+CLASS="SECTION"
+><A
+NAME="DBD-DISCONNECT"
+>3.1.4. dbd_disconnect</A
+></H2
+><DIV
+CLASS="FUNCSYNOPSIS"
+><P
+></P
+><A
+NAME="AEN166"
+></A
+><P
+><CODE
+><CODE
+CLASS="FUNCDEF"
+>int <B
+CLASS="FSFUNC"
+>dbd_disconnect</B
+></CODE
+>(dbi_conn_t *<VAR
+CLASS="PDPARAM"
+>conn</VAR
+>);</CODE
+></P
+><P
+></P
+></DIV
+><P
+>Disconnects from the database server.</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>Arguments</DT
+><DD
+><P
+><TT
+CLASS="LITERAL"
+>conn</TT
+>: The target connection instance of the driver.</P
+></DD
+><DT
+>Returns</DT
+><DD
+><P
+>-1 on error, 0 on success.</P
+></DD
+></DL
+></DIV
+></DIV
+><DIV
+CLASS="SECTION"
+><H2
+CLASS="SECTION"
+><A
+NAME="DBD-GETERROR"
+>3.1.5. dbd_geterror</A
+></H2
+><DIV
+CLASS="FUNCSYNOPSIS"
+><P
+></P
+><A
+NAME="AEN185"
+></A
+><P
+><CODE
+><CODE
+CLASS="FUNCDEF"
+>int <B
+CLASS="FSFUNC"
+>dbd_geterror</B
+></CODE
+>(dbi_conn_t *<VAR
+CLASS="PDPARAM"
+>conn</VAR
+>, int *<VAR
+CLASS="PDPARAM"
+>errno</VAR
+>, char **<VAR
+CLASS="PDPARAM"
+>errstr</VAR
+>);</CODE
+></P
+><P
+></P
+></DIV
+><P
+>Retrieves and stores error information, in numeric and/or string format.</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>Arguments</DT
+><DD
+><P
+><TT
+CLASS="LITERAL"
+>conn</TT
+>: The target connection.</P
+><P
+><TT
+CLASS="LITERAL"
+>errno</TT
+>: The int variable to hold the error number.</P
+><P
+><TT
+CLASS="LITERAL"
+>errstr</TT
+>: The string to hold the error description.</P
+></DD
+><DT
+>Returns</DT
+><DD
+><P
+>0 if there was an error, 1 if errno was filled, 2 if errstr was filled, 3 if both errno and errstr were filled.</P
+></DD
+></DL
+></DIV
+></DIV
+><DIV
+CLASS="SECTION"
+><H2
+CLASS="SECTION"
+><A
+NAME="DBD-GET-SOCKET"
+>3.1.6. dbd_get_socket</A
+></H2
+><DIV
+CLASS="FUNCSYNOPSIS"
+><P
+></P
+><A
+NAME="AEN212"
+></A
+><P
+><CODE
+><CODE
+CLASS="FUNCDEF"
+>int <B
+CLASS="FSFUNC"
+>dbd_get_socket</B
+></CODE
+>(dbi_conn_t *<VAR
+CLASS="PDPARAM"
+>conn</VAR
+>);</CODE
+></P
+><P
+></P
+></DIV
+><P
+>Retrieves the socket of the client/server connection used by the database client library, if applicable.</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>Arguments</DT
+><DD
+><P
+><TT
+CLASS="LITERAL"
+>conn</TT
+>: The target connection.</P
+></DD
+><DT
+>Returns</DT
+><DD
+><P
+>The file descriptor of the socket if successful, -1 if there was an error. Drivers of database engines that do not use sockets should return 0.</P
+></DD
+></DL
+></DIV
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+SUMMARY="Footer navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="driverfuncs.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="index.html"
+ACCESSKEY="H"
+>Home</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="driverfuncs-dbquery.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Driver Functions</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="driverfuncs.html"
+ACCESSKEY="U"
+>Up</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Internal Database Query Functions</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

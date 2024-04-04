@@ -1,0 +1,113 @@
+This patch adds the --wide option to netstat, to avoid truncation of ipv6
+addresses, by Luar Roji. (Bug #254243)
+
+Already in upstream's CVS (rev 1.60)
+
+Index: net-tools/man/en_US/netstat.8
+===================================================================
+--- net-tools.orig/man/en_US/netstat.8
++++ net-tools/man/en_US/netstat.8
+@@ -8,7 +8,7 @@
+ .\" Modified: Tuan Hoang tqhoang@bigfoot.com 
+ .\"
+ .\"
+-.TH NETSTAT 8 "2008\-10\-03" "net\-tools" "Linux System Administrator's Manual"
++.TH NETSTAT 8 "2008-11-16" "net\-tools" "Linux Programmer's Manual"
+ 
+ .SH NAME
+ netstat \- Print network connections, routing tables, interface statistics, masquerade connections, and multicast memberships
+@@ -118,6 +118,9 @@ Display summary statistics for each prot
+ .SS "\-\-verbose , \-v"
+ Tell the user what is going on by being verbose. Especially print some
+ useful information about unconfigured address families.
++.SS "\-\-wide , \-W"
++Do not truncate IP addresses by using output as wide as needed. This is
++optional for now to not break existing scripts.
+ .SS "\-\-numeric , \-n"
+ Show numerical addresses instead of trying to determine symbolic host, port
+ or user names.
+Index: net-tools/netstat.c
+===================================================================
+--- net-tools.orig/netstat.c
++++ net-tools/netstat.c
+@@ -149,6 +149,7 @@ int flag_udp = 0;
+ int flag_igmp= 0;
+ int flag_rom = 0;
+ int flag_exp = 1;
++int flag_wide= 0;
+ int flag_prg = 0;
+ int flag_arg = 0;
+ int flag_ver = 0;
+@@ -782,16 +783,20 @@ static void tcp_do_one(int lnr, const ch
+ 		 get_sname(htons(local_port), "tcp",
+ 			   flag_not & FLAG_NUM_PORT));
+ 
+-	if ((strlen(local_addr) + strlen(buffer)) > 22)
+-	    local_addr[22 - strlen(buffer)] = '\0';
++	if (!flag_wide) {
++	    if ((strlen(local_addr) + strlen(buffer)) > 22)
++		local_addr[22 - strlen(buffer)] = '\0';
++	}
+ 
+ 	strcat(local_addr, ":");
+ 	strcat(local_addr, buffer);
+ 	snprintf(buffer, sizeof(buffer), "%s",
+ 		 get_sname(htons(rem_port), "tcp", flag_not & FLAG_NUM_PORT));
+ 
+-	if ((strlen(rem_addr) + strlen(buffer)) > 22)
+-	    rem_addr[22 - strlen(buffer)] = '\0';
++	if (!flag_wide) {
++	    if ((strlen(rem_addr) + strlen(buffer)) > 22)
++		rem_addr[22 - strlen(buffer)] = '\0';
++	}
+ 
+ 	strcat(rem_addr, ":");
+ 	strcat(rem_addr, buffer);
+@@ -1511,9 +1516,9 @@ static void version(void)
+ 
+ static void usage(void)
+ {
+-    fprintf(stderr, _("usage: netstat [-veenNcCF] [<Af>] -r         netstat {-V|--version|-h|--help}\n"));
+-    fprintf(stderr, _("       netstat [-vnNcaeol] [<Socket> ...]\n"));
+-    fprintf(stderr, _("       netstat { [-veenNac] -i | [-cnNe] -M | -s }\n\n"));
++    fprintf(stderr, _("usage: netstat [-vWeenNcCF] [<Af>] -r         netstat {-V|--version|-h|--help}\n"));
++    fprintf(stderr, _("       netstat [-vWnNcaeol] [<Socket> ...]\n"));
++    fprintf(stderr, _("       netstat { [-vWeenNac] -i | [-cWnNe] -M | -s }\n\n"));
+ 
+     fprintf(stderr, _("        -r, --route              display routing table\n"));
+     fprintf(stderr, _("        -i, --interfaces         display interface table\n"));
+@@ -1523,6 +1528,7 @@ static void usage(void)
+     fprintf(stderr, _("        -M, --masquerade         display masqueraded connections\n\n"));
+ #endif
+     fprintf(stderr, _("        -v, --verbose            be verbose\n"));
++    fprintf(stderr, _("        -W, --wide               don't truncate IP addresses\n"));
+     fprintf(stderr, _("        -n, --numeric            don't resolve names\n"));
+     fprintf(stderr, _("        --numeric-hosts          don't resolve host names\n"));
+     fprintf(stderr, _("        --numeric-ports          don't resolve port names\n"));
+@@ -1572,6 +1578,7 @@ int main
+ 	{"programs", 0, 0, 'p'},
+ 	{"verbose", 0, 0, 'v'},
+ 	{"statistics", 0, 0, 's'},
++	{"wide", 0, 0, 'W'},
+ 	{"numeric", 0, 0, 'n'},
+ 	{"numeric-hosts", 0, 0, '!'},
+ 	{"numeric-ports", 0, 0, '@'},
+@@ -1591,7 +1598,7 @@ int main
+     getroute_init();		/* Set up AF routing support */
+ 
+     afname[0] = '\0';
+-    while ((i = getopt_long(argc, argv, "MCFA:acdegphinNorstuVv?wxl64", longopts, &lop)) != EOF)
++    while ((i = getopt_long(argc, argv, "MCFA:acdegphinNorstuWVv?wxl64", longopts, &lop)) != EOF)
+ 	switch (i) {
+ 	case -1:
+ 	    break;
+@@ -1635,6 +1642,9 @@ int main
+ 	case 'i':
+ 	    flag_int++;
+ 	    break;
++	case 'W':
++	    flag_wide++;
++	    break;
+ 	case 'n':
+ 	    flag_not |= FLAG_NUM;
+ 	    break;

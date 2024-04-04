@@ -1,0 +1,149 @@
+#!/usr/bin/make -f
+# debian/rules for libcrypto++.
+# Written by Jens Peter Secher <jps@debian.org>.
+
+site := cryptopp.svn.sourceforge.net
+get-orig-source:
+	wget http://$(site)/viewvc/cryptopp/tags/CRYPTOPP_5_6_1/?view=tar \
+	-O libcrypto++_5.6.1.orig.tar.gz
+
+# The shared library must be the first listed in debian/control.
+package := $(firstword $(shell dh_listpackages))
+
+binarypackages := $(filter-out %-doc,$(shell dh_listpackages))
+
+# Setup ./configure arguments to fit Debian environment.
+export DEB_HOST_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+export DEB_HOST_ARCH_OS ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+config_flags := \
+	--config-cache \
+	--prefix=/usr \
+	--sysconfdir=/etc \
+	--mandir=/usr/share/man \
+	--infodir=/usr/share/info \
+	--libexecdir=/usr/lib \
+	--build $(DEB_BUILD_GNU_TYPE)
+ifneq ($(DEB_BUILD_GNU_TYPE), $(DEB_HOST_GNU_TYPE))
+	config_flags += --host $(DEB_HOST_GNU_TYPE)
+endif
+
+# General compile options.
+cflags := -g -fno-strict-aliasing -pipe
+ifeq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	cflags += -DNDEBUG -O2
+else
+	cflags += -O0
+endif
+# Architecture-specific compile options.
+ifeq (hppa-linux-gnu,$(DEB_BUILD_GNU_TYPE))
+	cflags += -ffunction-sections
+endif
+
+export LDFLAGS=-pthread -lpthread
+
+autotools_input := configure.ac Makefile.am config.h.in libcrypto++.pc.in
+
+autoclean:
+	-rm -f a.out aclocal.m4 config.log config.sub config.guess	\
+	configure cryptopp_config.h.in depcomp install-sh ltmain.sh	\
+	Makefile.in missing libcrypto++.pc $(autotools_input)		\
+	m4/libtool.m4 m4/ltoptions.m4 m4/ltsugar.m4 m4/ltversion.m4	\
+	m4/lt~obsolete.m4	
+
+clean: autoclean
+	dh_testdir
+	dh_testroot
+	-rm -f $(CURDIR)/*-stamp
+	-rm -rf $(CURDIR)/doc $(CURDIR)/.deps $(CURDIR)/.libs $(CURDIR)/*.cache
+	-rm -f $(CURDIR)/Makefile* $(CURDIR)/stamp-* $(CURDIR)/libtool
+	-rm -f $(CURDIR)/*.in $(CURDIR)/config.sub $(CURDIR)/config.guess $(CURDIR)/config.status
+	-rm -f $(CURDIR)/configure.ac $(CURDIR)/cryptopp_config.h
+	-rm -f $(CURDIR)/*.lo $(CURDIR)/*.o cryptest* *.la
+	dh_clean
+
+# Put everything of interest in debian/tmp.
+destdir=$(CURDIR)/debian/tmp
+
+# Autoreconf needs the automake input to be Makefile.am, so we make
+# sure the upstream GNUmakefile do not shadow the resulting Makefile.
+config: config-stamp
+config-stamp:
+	dh_testdir
+	ln -sf /usr/share/misc/config.sub /usr/share/misc/config.guess .
+	-rm -f config.cache GNUmakefile
+	cp -f $(patsubst %,debian/%,$(autotools_input)) .
+	autoreconf --force --install
+	$(SHELL) ./configure $(config_flags) CFLAGS="$(cflags)" CXXFLAGS="$(cflags)"
+	touch $@
+
+# Build binaries.
+build-arch: build
+build-indep: build
+
+build: config build-stamp
+build-stamp:
+	$(MAKE)
+	touch $@
+
+# Run the test suite.
+check:
+	$(CURDIR)/cryptestcwd v
+
+# Let Doxygen generate the documentation.
+html: config html-stamp
+html-stamp:
+	$(MAKE) html
+	touch $@
+
+install-stamp: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	$(MAKE) install DESTDIR=$(destdir)
+	rm -f $(destdir)/usr/bin/cryptestcwd
+	mkdir -p $(destdir)/usr/share/crypto--
+	cp -r $(CURDIR)/TestVectors $(destdir)/usr/share/crypto--
+	chmod -x $(destdir)/usr/share/crypto--/TestVectors/*
+	cp -r $(CURDIR)/TestData $(destdir)/usr/share/crypto--
+	mkdir $(destdir)/usr/lib/pkgconfig
+	cp -r $(CURDIR)/*.pc $(destdir)/usr/lib/pkgconfig
+	touch $@
+
+binary-indep: html
+	dh_testdir
+	dh_testroot
+	dh_installdocs -plibcrypto++-doc -X.hhc -X.hhp -X.hhk
+	dh_installchangelogs -plibcrypto++-doc 
+	dh_compress -plibcrypto++-doc 
+	dh_fixperms -plibcrypto++-doc 
+	dh_installdeb -plibcrypto++-doc 
+	dh_gencontrol -plibcrypto++-doc 
+	dh_md5sums -plibcrypto++-doc 
+	dh_builddeb -plibcrypto++-doc 
+
+binaryargs := $(patsubst %,-p%,$(binarypackages))
+
+binary-arch: check install-stamp
+	dh_testdir
+	dh_testroot
+	dh_installdocs $(binaryargs)
+	dh_install --list-missing --sourcedir=$(destdir) $(binaryargs)
+	dh_link $(binaryargs)
+	dh_installchangelogs $(binaryargs)
+	dh_installman -plibcrypto++-utils debian/cryptest.1
+	dh_installexamples -plibcrypto++-dev test.cpp
+	dh_strip --dbg-package=$(package)-dbg $(binaryargs)
+	dh_compress $(binaryargs)
+	dh_fixperms $(binaryargs)
+	dh_makeshlibs $(binaryargs)
+	dh_installdeb $(binaryargs)
+	dh_shlibdeps -L$(package) -ldebian/$(package)/usr/lib
+	dh_gencontrol $(binaryargs)
+	dh_md5sums $(binaryargs)
+	dh_builddeb $(binaryargs)
+
+binary: binary-indep binary-arch
+
+.PHONY: autoclean binary binary-indep binary-arch bootstrap build	\
+	check clean config html get-orig-source

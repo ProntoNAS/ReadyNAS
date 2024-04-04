@@ -1,0 +1,54 @@
+From 1971bffd69270a658346321bb045e8bcbffd2af0 Mon Sep 17 00:00:00 2001
+From: Pino Toscano <pino@debian.org>
+Date: Tue, 1 Nov 2011 18:37:19 +0000
+Subject: enable LFS on GNU/Hurd
+
+at the moment, perl is compiled on GNU/Hurd without large file support.
+This, other than the lacking of support for files > 2 GB, causes the
+failure in the t/op/stat.t test.
+The failure in stat.t happens because of the following: when filtering
+devices in /dev/* using grep {} with -b/-c, stat fails for large
+devices such as /dev/hdX blocks, or /dev/zero chars (this latter case
+should be an Hurd-specific issue, but shouldn't matter for this case),
+hence the counts done with grep {} and the ones done filtering the
+output of `ls' don't match.
+
+The attached patch enables the LFS using the same way used on linux.sh;
+about t/op/lfs.t, it gets skipped at the "kernel/fs not configured to
+use large files?" check, although it correctly detects sparse files and
+(at least by looking at the disk usage) allocates the 5GB (or so) file
+created with system() in that test.
+
+Bug-Debian: http://bugs.debian.org/645790
+Bug: https://rt.perl.org/rt3/Public/Bug/Display.html?id=103014
+Origin: http://perl5.git.perl.org/perl.git/commit/1fda587de9a7b85b90f9599b4b746d258afa2e6c
+
+Patch-Name: fixes/hurd-largefile.diff
+---
+ hints/gnu.sh |   13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/hints/gnu.sh b/hints/gnu.sh
+index f075642..4233371 100644
+--- a/hints/gnu.sh
++++ b/hints/gnu.sh
+@@ -33,6 +33,19 @@ ccdlflags='-Wl,-E'
+ # Debian bug #258618
+ ccflags="-D_GNU_SOURCE $ccflags"
+ 
++cat > UU/uselargefiles.cbu <<'EOCBU'
++# This script UU/uselargefiles.cbu will get 'called-back' by Configure
++# after it has prompted the user for whether to use large files.
++case "$uselargefiles" in
++''|$define|true|[yY]*)
++# Keep this in the left margin.
++ccflags_uselargefiles="-D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64"
++
++	ccflags="$ccflags $ccflags_uselargefiles"
++	;;
++esac
++EOCBU
++
+ # The following routines are only available as stubs in GNU libc.
+ # XXX remove this once metaconf detects the GNU libc stubs.
+ d_msgctl='undef'

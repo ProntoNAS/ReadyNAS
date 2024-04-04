@@ -1,0 +1,702 @@
+<?xml version="1.0" encoding="utf-8"?>
+<refentry id='snapper8'>
+
+  <refentryinfo>
+    <date>2014-04-07</date>
+  </refentryinfo>
+
+  <refmeta>
+    <refentrytitle>snapper</refentrytitle>
+    <manvolnum>8</manvolnum>
+    <refmiscinfo class='date'>2014-04-07</refmiscinfo>
+    <refmiscinfo class='version'>@VERSION@</refmiscinfo>
+    <refmiscinfo class='manual'>Filesystem Snapshot Management</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>snapper</refname>
+    <refpurpose>Command-line program for filesystem snapshot management</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv id='synopsis'>
+    <cmdsynopsis>
+      <command>snapper</command>
+      <arg choice='opt'><replaceable>--global-opts</replaceable></arg>
+      <arg choice='plain'><replaceable>command</replaceable></arg>
+      <arg choice='opt'><replaceable>--command-opts</replaceable></arg>
+      <arg choice='opt'><replaceable>command-arguments</replaceable></arg>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>snapper</command>
+      <arg choice='req'>--help</arg>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+
+  <refsect1 id='description'>
+    <title>DESCRIPTION</title>
+    <para>Snapper is a command-line program for filesystem snapshot management. It can
+    create, delete and compare snapshots and undo changes done between snapshots.</para>
+
+    <para>Snapper never modifies the content of snapshots. Thus snapper creates
+    read-only snapshots if supported by the kernel. Supported filesystems are
+    btrfs and ext4 as well as snapshots of LVM logical volumes with
+    thin-provisioning. Some filesystems might not be supported depending on your
+    installation.</para>
+  </refsect1>
+
+  <refsect1 id='concepts'>
+    <title>CONCEPTS</title>
+
+    <refsect2 id='configurations'>
+      <title>Configurations</title>
+      <para>For each filesystem or subvolume that should be snapshotted by
+      snapper, a configuration file is required, see
+      <citerefentry><refentrytitle>snapper-configs</refentrytitle><manvolnum>5</manvolnum></citerefentry>. The
+      setup can be done with the create-config command.</para>
+    </refsect2>
+
+    <refsect2 id='snapshots'>
+      <title>Snapshots</title>
+      <para>Snapper distinguishes three types of snapshots.</para>
+      <glosslist>
+	<glossentry>
+	  <glossterm>pre</glossterm>
+	  <glossdef>
+	    <para>Pre snapshots should always have a corresponding post
+	    snapshot. The intention of pre/post snapshot pairs is to snapshot the
+	    filesystem before and after a modification.</para>
+	  </glossdef>
+	</glossentry>
+	<glossentry>
+	  <glossterm>post</glossterm>
+	  <glossdef>
+	    <para>See pre type.</para>
+	  </glossdef>
+	</glossentry>
+	<glossentry>
+	  <glossterm>single</glossterm>
+	  <glossdef>
+	    <para>These snapshots have no special relationship to other snapshots.</para>
+	  </glossdef>
+	</glossentry>
+      </glosslist>
+      <para>Note that filesystem-wise all three types are the same.</para>
+    </refsect2>
+
+    <refsect2 id='snapshot_description_and_userdata'>
+      <title>Snapshot Description and Userdata</title>
+
+      <para>With each snapshot a description and some userdata can be associated. The
+      description is a string. The userdata is a list of key-value pairs where the
+      keys and values are strings.</para>
+    </refsect2>
+
+    <refsect2 id='automatic_snapshot_creation'>
+      <title>Automatic Snapshot Creation</title>
+      <para>Next to manual snapshot creation, snapshots are also created automatically.</para>
+      <itemizedlist>
+	<listitem>
+	  <para>A cron-job creates hourly snapshots.</para>
+	</listitem>
+	<listitem>
+	  <para>Certain programs like YaST and zypper create pre/post
+	  snapshot pairs when modifying the system.</para>
+	</listitem>
+      </itemizedlist>
+    </refsect2>
+
+    <refsect2 id='cleanup_algorithms'>
+      <title>Cleanup Algorithms</title>
+
+      <para>Snapper provides several algorithms to clean up old snapshots. The
+      algorithms are executed in a daily cron-job. This can be configured in the
+      corresponding configurations files along with parameters for every
+      algorithm.</para>
+
+      <glosslist>
+	<glossentry>
+	  <glossterm>number</glossterm>
+	  <glossdef>
+	    <para>Deletes old snapshots when a certain number of snapshots is reached.</para>
+	  </glossdef>
+	</glossentry>
+	<glossentry>
+	  <glossterm>timeline</glossterm>
+	  <glossdef>
+	    <para>Deletes old snapshots but keeps a number of hourly, daily,
+	    weekly, monthly and yearly snapshots.</para>
+	  </glossdef>
+	</glossentry>
+	<glossentry>
+	  <glossterm>empty-pre-post</glossterm>
+	  <glossdef>
+	    <para>Deletes pre/post snapshot pairs with empty diffs.</para>
+	  </glossdef>
+	</glossentry>
+      </glosslist>
+    </refsect2>
+
+    <refsect2 id='filters'>
+      <title>Filters</title>
+
+      <para>Some files keep state information of the system,
+      e.g. <filename>/etc/mtab</filename>. Such files should never be
+      reverted. To help users, snapper allows to ignore these files.</para>
+
+      <para>Each line in all
+      files <filename>/etc/snapper/filters/*.txt</filename> specifies a
+      pattern. When snapper computes the difference between two snapshots it
+      ignores all files and directories matching any of those patterns by
+      using
+      <citerefentry role="nolink"><refentrytitle>fnmatch</refentrytitle><manvolnum>3</manvolnum></citerefentry>
+      with the flag FNM_LEADING_DIR.</para>
+
+      <para>Note that filters do not exclude files or directories from being
+      snapshotted. For that, use subvolumes or mount points.</para>
+    </refsect2>
+
+  </refsect1>
+
+  <refsect1 id='global_options'>
+    <title>GLOBAL OPTIONS</title>
+    <variablelist>
+      <varlistentry>
+	<term><option>-q, --quiet</option></term>
+	<listitem>
+	  <para>Suppress normal output. Error messages will still be printed, though.</para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term><option>-v, --verbose</option></term>
+	<listitem>
+	  <para>Increase verbosity.</para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term><option>--utc</option></term>
+	<listitem>
+	  <para>Display dates and times in UTC.</para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term><option>--iso</option></term>
+	<listitem>
+	  <para>Display dates and times in ISO format.</para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term><option>-t, --table-style</option></term>
+	<listitem>
+	  <para>Specifies table style. Table style is identified by an integer number.</para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term><option>-c, --config <replaceable>name</replaceable></option></term>
+	<listitem>
+	  <para>Use specified configuration instead of the default configuration. The default
+	  configuration is named "root".</para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term><option>--no-dbus</option></term>
+	<listitem>
+	  <para>Operate without a DBus connection. Only works for some commands.</para>
+	  <para>Use with caution since a running snapperd will not know about
+	  modifications made to the system.</para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term><option>--version</option></term>
+	<listitem>
+	  <para>Print version and exit.</para>
+	</listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+
+  <refsect1 id='commands'>
+    <title>COMMANDS</title>
+
+    <para>Snapper provides a number of <emphasis>commands</emphasis>. Each
+    command accepts the options listed in the <link
+    linkend='global_options'>GLOBAL OPTIONS</link> section. These options must
+    be specified <emphasis>before</emphasis> the command name. In addition,
+    many commands have specific options, which are listed in this
+    section. These command-specific options must be specified
+    <emphasis>after</emphasis> the name of the command and
+    <emphasis>before</emphasis> any of the command arguments.</para>
+
+    <variablelist>
+
+      <varlistentry>
+	<term><option>help</option></term>
+	<listitem>
+	  <para>Show short help text.</para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>list-configs</option></term>
+	<listitem>
+	  <para>List available configurations.</para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>create-config [options] <replaceable>subvolume</replaceable></option></term>
+	<listitem>
+	  <para>Create a new configuration for a filesystem or subvolume. For this command you
+	  will likely need the global option <option>--config</option>, see
+	  <link linkend='global_options'>GLOBAL OPTIONS</link> and
+	  <link linkend="concepts">CONCEPTS.</link></para>
+
+	  <variablelist>
+	    <varlistentry>
+	      <term><option>-f, --fstype</option> <replaceable>fstype</replaceable></term>
+	      <listitem>
+		<para>Manually set filesystem type. Supported values are btrfs, ext4 and lvm. For
+		lvm, snapper uses LVM thin-provisioned snapshots. The filesystem type on top of
+		LVM must be provided in parentheses, e.g. lvm(xfs).</para>
+		<para>Without this option snapper tries to detect the filesystem.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-t, --template</option> <replaceable>name</replaceable></term>
+	      <listitem>
+		<para>Name of template for the new configuration file.</para>
+	      </listitem>
+	    </varlistentry>
+	  </variablelist>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>delete-config</option></term>
+	<listitem>
+	  <para>Delete a configuration for a filesystem or subvolume. For this
+	  command you will likely need to global option
+	  <option>--config</option>, see <link linkend='global_options'>GLOBAL
+	  OPTIONS</link> and <link linkend="concepts">CONCEPTS.</link></para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>get-config</option></term>
+	<listitem>
+	  <para>Displays the settings of the configuration.</para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>set-config</option> <replaceable>configdata</replaceable></term>
+	<listitem>
+	  <para>Changes the settings of the configuration. The settings
+	  <replaceable>configdata</replaceable> are a list of key-value-pairs separated
+	  by spaces and the key and value must be separated by an equal sign,
+	  e.g. "NUMBER_CLEANUP=yes NUMBER_LIMIT=10". The value of SUBVOLUME and FSTYPE
+	  cannot be changed.</para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>list (ls) [options]</option></term>
+	<listitem>
+	  <para>List snapshots.</para>
+	  <variablelist>
+	    <varlistentry>
+	      <term><option>-t, --type</option> <replaceable>type</replaceable></term>
+	      <listitem>
+		<para>Selects type of snapshots to list. Possible values are
+		all, single and pre-post.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-a, --all-configs</option></term>
+	      <listitem>
+		<para>List snapshots from all configs accessible by the user.</para>
+	      </listitem>
+	    </varlistentry>
+	  </variablelist>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>create [options]</option></term>
+	<listitem>
+	  <para>Create a new snapshot.</para>
+	  <variablelist>
+	    <varlistentry>
+	      <term><option>-t, --type</option> <replaceable>type</replaceable></term>
+	      <listitem>
+		<para>Specifies the type of the new snapshot. Possible values
+		are single, pre and post.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>--pre-number</option> <replaceable>number</replaceable></term>
+	      <listitem>
+		<para>For post snapshots the number of the pre snapshot must
+		be provided.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-p, --print-number</option></term>
+	      <listitem>
+		<para>Print number of the created snapshot.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-d, --description</option> <replaceable>description</replaceable></term>
+	      <listitem>
+		<para>Description for the snapshot.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-c, --cleanup-algorithm</option> <replaceable>cleanup-algorithm</replaceable></term>
+	      <listitem>
+		<para>Set the cleanup algorithm for the snapshot.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-u, --userdata</option> <replaceable>userdata</replaceable></term>
+	      <listitem>
+		<para>Set userdata for the snapshot. The key-value pairs must
+		be separated by comma and the key and value must be separated
+		by an equal sign, e.g. requestid=42,user=arthur.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>--command</option> <replaceable>command</replaceable></term>
+	      <listitem>
+		<para>Create a pre and post snapshot and run command in between.</para>
+	      </listitem>
+	    </varlistentry>
+	  </variablelist>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>modify [options] <replaceable>number</replaceable></option></term>
+	<listitem>
+	  <para>Modify a snapshot.</para>
+	  <variablelist>
+	    <varlistentry>
+	      <term><option>-d, --description</option> <replaceable>description</replaceable></term>
+	      <listitem>
+		<para>New description for snapshot.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-c, --cleanup-algorithm</option> <replaceable>cleanup-algorithm</replaceable></term>
+	      <listitem>
+		<para>Set the cleanup algorithm for the snapshot.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-u, --userdata</option> <replaceable>userdata</replaceable></term>
+	      <listitem>
+		<para>Set userdata for the snapshot. The key-value pairs must
+		be separated by comma and the key and value must be separated
+		by an equal sign, e.g. requestid=42,user=arthur.</para>
+	      </listitem>
+	    </varlistentry>
+	  </variablelist>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>delete (remove|rm) <replaceable>number</replaceable> |
+	<replaceable>number1-number2</replaceable></option></term>
+	<listitem>
+	  <para>Delete a snapshot or a range of snapshots.</para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>mount <replaceable>number</replaceable></option></term>
+	<listitem>
+	  <para>Mount a snapshot. Not required for all filesystem types.</para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>umount <replaceable>number</replaceable></option></term>
+	<listitem>
+	  <para>Unmount a snapshot. Not required for all filesystem types.</para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>status [options] <replaceable>number1</replaceable>..<replaceable>number2</replaceable></option></term>
+	<listitem>
+	  <para>Compare the snapshots <replaceable>number1</replaceable> and
+	  <replaceable>number2</replaceable>. This will show a list of files
+	  and directories that have been created, modified or deleted in the
+	  time between the two snapshots have been made.</para>
+	  <variablelist>
+	    <varlistentry>
+	      <term><option>-o, --output</option> <replaceable>file</replaceable></term>
+	      <listitem>
+		<para>Write output to file <replaceable>file</replaceable>.</para>
+	      </listitem>
+	    </varlistentry>
+	  </variablelist>
+	  <para>The output consists of a string encoding the status followed by
+	  the filename. The characters of the status string are:</para>
+	  <orderedlist>
+	    <listitem>
+	      <para>A "<computeroutput>+</computeroutput>" means the file was
+	      created, a "<computeroutput>-</computeroutput>" means the file was deleted. A
+	      "<computeroutput>c</computeroutput>" means the content of the file has changed
+	      and a "<computeroutput>t</computeroutput>" means the type of the file has
+	      changed (e.g. from regular file to directory).</para>
+	    </listitem>
+	    <listitem>
+	      <para>A "<computeroutput>p</computeroutput>" means the permissions
+	      are have changed.</para>
+	    </listitem>
+	    <listitem>
+	      <para>An "<computeroutput>u</computeroutput>" means the user
+	      ownership has changed.</para>
+	    </listitem>
+	    <listitem>
+	      <para>A "<computeroutput>g</computeroutput>" means the group
+	      ownership has changed.</para>
+	    </listitem>
+	    <listitem>
+	      <para>A "<computeroutput>x</computeroutput>" means the extended
+	      attribute information has changed.</para>
+	    </listitem>
+	    <listitem>
+	      <para>An "<computeroutput>a</computeroutput>" means the ACL
+	      information has changed.</para>
+	    </listitem>
+	  </orderedlist>
+	  <para>If there is no change a "." is outputted.</para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>diff [options] <replaceable>number1</replaceable>..<replaceable>number2</replaceable> [files]</option></term>
+	<listitem>
+	  <para>Compare the snapshots <replaceable>number1</replaceable> and
+	  <replaceable>number2</replaceable>. This will show a diff of the
+	  content of files and directories that have been created, modified or
+	  deleted in the time between the two snapshots have been made.</para>
+	  <variablelist>
+	    <varlistentry>
+	      <term><option>--diff-cmd</option> <replaceable>command</replaceable></term>
+	      <listitem>
+		<para>Command used for comparing files. The default is
+		<filename>/usr/bin/diff --new-file --unified</filename>. The two files to
+		compare are passed as parameters to the command.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-x, --extensions</option> <replaceable>options</replaceable></term>
+	      <listitem>
+		<para>Extra options passed to the diff command.</para>
+	      </listitem>
+	    </varlistentry>
+	  </variablelist>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>undochange [options] <replaceable>number1</replaceable>..<replaceable>number2</replaceable> [files]</option></term>
+	<listitem>
+	  <para>Undo changes done between snapshot <replaceable>number1</replaceable> and <replaceable>number2</replaceable>.</para>
+	  <variablelist>
+	    <varlistentry>
+	      <term><option>-i, --input</option> <replaceable>file</replaceable></term>
+	      <listitem>
+		<para>Read files for which to undo changes from file <replaceable>file</replaceable>.</para>
+	      </listitem>
+	    </varlistentry>
+	  </variablelist>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>rollback [options] [<replaceable>number</replaceable>]</option></term>
+	<listitem>
+	  <para>Creates two new snapshots and sets the default subvolume. Per
+	  default the system boots from the default subvolume of the root filesystem.
+	  The exact actions depend on whether a number is provided or not:</para>
+	  <itemizedlist>
+	    <listitem>
+	      <para>Without a number, a first read-only snapshot of the
+	      default subvolume is created. A second read-write snapshot of the current
+	      system is created. The system is set to boot from the second snapshot.</para>
+	    </listitem>
+	    <listitem>
+	      <para>With a number, a first read-only snapshot of the current
+	      system in created. A second read-write snapshot is created of
+	      <replaceable>number</replaceable>. The system is set to boot from the second
+	      snapshot.</para>
+	    </listitem>
+	  </itemizedlist>
+	  <para>Rollback is only supported with btrfs and requires a properly
+	  configured system.</para>
+	  <variablelist>
+	    <varlistentry>
+	      <term><option>-p, --print-number</option></term>
+	      <listitem>
+		<para>Print number of the second created snapshot.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-d, --description</option> <replaceable>description</replaceable></term>
+	      <listitem>
+		<para>Description for the snapshot.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-c, --cleanup-algorithm</option> <replaceable>cleanup-algorithm</replaceable></term>
+	      <listitem>
+		<para>Set the cleanup algorithm for the snapshot.</para>
+	      </listitem>
+	    </varlistentry>
+	    <varlistentry>
+	      <term><option>-u, --userdata</option> <replaceable>userdata</replaceable></term>
+	      <listitem>
+		<para>Set userdata for the snapshot. The key-value pairs must
+		be separated by comma and the key and value must be separated
+		by an equal sign, e.g. requestid=42,user=arthur.</para>
+	      </listitem>
+	    </varlistentry>
+	  </variablelist>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>cleanup <replaceable>cleanup-algorithm</replaceable></option></term>
+	<listitem>
+	  <para>Run the cleanup algorithm
+	  <replaceable>cleanup-algorithm</replaceable>. Currently implemented
+	  cleanup algorithms are number, timeline and empty-pre-post.</para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term><option>xadiff <replaceable>number1</replaceable>..<replaceable>number2</replaceable> [files]</option></term>
+	<listitem>
+	  <para>Compare the extended attributes between snapshot
+	  <replaceable>number1</replaceable> and
+	  <replaceable>number2</replaceable>. See examples below:</para>
+	  <itemizedlist>
+	    <listitem>
+	      <para><computeroutput> +:user.foo</computeroutput> for created attributes</para>
+	    </listitem>
+	    <listitem>
+	      <para><computeroutput> -:user.bar</computeroutput> for removed attributes</para>
+	    </listitem>
+	    <listitem>
+	      <para><computeroutput>-+:security.selinux</computeroutput> for modified attributes</para>
+	    </listitem>
+	  </itemizedlist>
+	</listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+
+  <refsect1 id='permissions'>
+    <title>PERMISSIONS</title>
+    <para>Non-root users can be allowed to use a configuration by setting
+    ALLOW_USERS or ALLOW_GROUPS in the config file. For all operations to work, the
+    user must also be able to read and access the <filename>.snapshots</filename>
+    directory inside the subvolume. The <filename>.snapshots</filename> directory
+    must be owned by root and must not be writable by anybody else.</para>
+    <para>Here are some methods how to achieve that:</para>
+    <itemizedlist>
+      <listitem>
+	<para>Make the directory accessible for everyone:</para>
+	<para><command>chmod a+rx .snapshots</command></para>
+      </listitem>
+      <listitem>
+	<para>Make the directory accessible for a group the user belongs to, e.g.:</para>
+	<para><command>chown :users .snapshots</command></para>
+      </listitem>
+      <listitem>
+	<para>Make the directory accessible for the user using ACLs, e.g.:</para>
+	<para><command>setfacl -m u:tux:rx .snapshots</command></para>
+      </listitem>
+    </itemizedlist>
+    <para>The last method can be performed by snapper, see the SYNC_ACL setting in
+    <citerefentry><refentrytitle>snapper-configs</refentrytitle><manvolnum>5</manvolnum></citerefentry>.</para>
+  </refsect1>
+
+  <refsect1 id='files'>
+    <title>FILES</title>
+    <variablelist>
+      <varlistentry>
+	<term><filename>/etc/sysconfig/snapper</filename></term>
+	<listitem>
+	  <para>Global configuration file.</para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term><filename>/etc/snapper/configs</filename></term>
+	<listitem>
+	  <para>Directory containing configuration files.</para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term><filename>/etc/snapper/config-templates</filename></term>
+	<listitem>
+	  <para>Directory containing configuration templates.</para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term><filename>/etc/snapper/filters/*.txt</filename></term>
+	<listitem>
+	  <para>Filter files.</para>
+	</listitem>
+      </varlistentry>
+      <varlistentry>
+	<term><filename>/var/log/snapper.log</filename></term>
+	<listitem>
+	  <para>Logfile. Please include this file in bug reports.</para>
+	</listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+
+  <refsect1 id='notes'>
+    <title>NOTES</title>
+    <para>There is no mechanism to ensure consistency of the files while a
+    snapshot it made. E.g. the files of a database can be inconsistent while
+    the database is running.</para>
+
+    <para>Consistency after undochange is not guaranteed. E.g. when the
+    creation of a user is undone, there might still exist files from that
+    user.</para>
+
+    <para>Support for individual filesystems, rollback and extended attributes
+    are compile-time options and may not be available.</para>
+  </refsect1>
+
+  <refsect1 id='homepage'>
+    <title>HOMEPAGE</title>
+    <para><ulink url='http://snapper.io/'>http://snapper.io/</ulink></para>
+  </refsect1>
+
+  <refsect1 id='authors'>
+    <title>AUTHORS</title>
+    <para>Arvin Schnell <email>aschnell@suse.de</email></para>
+  </refsect1>
+
+  <refsect1 id='see_also'>
+    <title>SEE ALSO</title>
+    <para>
+      <citerefentry><refentrytitle>snapper-configs</refentrytitle><manvolnum>5</manvolnum></citerefentry>,
+      <citerefentry><refentrytitle>snapper-zypp-plugin</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
+      <citerefentry><refentrytitle>pam_snapper</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
+      <citerefentry role="nolink"><refentrytitle>btrfs</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
+      <citerefentry role="nolink"><refentrytitle>lvm</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
+      <citerefentry role="nolink"><refentrytitle>attr</refentrytitle><manvolnum>5</manvolnum></citerefentry>,
+      <citerefentry role="nolink"><refentrytitle>acl</refentrytitle><manvolnum>5</manvolnum></citerefentry>
+    </para>
+  </refsect1>
+
+</refentry>

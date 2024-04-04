@@ -1,0 +1,41 @@
+#### ChangeSet ####
+2015-03-30 20:14:46+02:00, jnperlin@hydra.(none)
+  [Bug 2797] ntp-keygen trapped in endless loop for MD5 keys on big-endian machines
+
+==== ChangeLog ====
+2015-03-30 20:14:45+02:00, jnperlin@hydra.(none) +3 -0
+  [Bug 2797] ntp-keygen trapped in endless loop for MD5 keys on big-endian machines
+
+Index: ntp-4.2.6.p5+dfsg/util/ntp-keygen.c
+===================================================================
+--- ntp-4.2.6.p5+dfsg.orig/util/ntp-keygen.c
++++ ntp-4.2.6.p5+dfsg/util/ntp-keygen.c
+@@ -726,24 +726,24 @@ gen_md5(
+ 	ntp_srandom((u_long)epoch);
+ 	for (i = 1; i <= MD5KEYS; i++) {
+ 		for (j = 0; j < MD5SIZE; j++) {
+-			int temp;
++			u_char temp;
+ 
+ 			while (1) {
+ 				int rc;
+ 
+-				rc = ntp_crypto_random_buf(&temp, 1);
++				rc = ntp_crypto_random_buf(
++				    &temp, sizeof(temp));
+ 				if (-1 == rc) {
+ 					fprintf(stderr, "ntp_crypto_random_buf() failed.\n");
+ 					exit (-1);
+ 				}
+-				temp &= 0xff;
+ 				if (temp == '#')
+ 					continue;
+ 
+ 				if (temp > 0x20 && temp < 0x7f)
+ 					break;
+ 			}
+-			md5key[j] = (u_char)temp;
++			md5key[j] = temp;
+ 		}
+ 		md5key[j] = '\0';
+ 		fprintf(str, "%2d MD5 %s  # MD5 key\n", i,

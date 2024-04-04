@@ -1,0 +1,45 @@
+TODO (as of noflushd version 2.6)
+
+* Per-device bdflush parameters. [kernel]
+
+  For saner handling of multiple disks a kernel patch is needed that allows 
+  for separate bdflush parameters on each device.
+  
+* Improve web site.
+
+  Duh! Doomed to be a never ending work in progress, see
+  http://noflushd.sourceforge.net). Contributions welcome.
+  
+* SCSI spinup. [kernel]
+
+  The Linux IDE driver has the nice property of trying to spin up a disk
+  if an access fails. SCSI leaves it to the user instead. We cannot trap
+  reads or writes that haven't yet completed from userland though (at least
+  not without sard). Furthermore, we cannot issue a spinup ioctl that will
+  'overtake' the first rw request on the request queue. This, however,
+  would be needed to insure that the first rw request on a spun down disk
+  doesn't fail. Mimicking the IDE behaviour with a kernel patch for SCSI
+  looks like the better option, but then the SCSI midlayer is full of
+  pitfalls. (Think of request queues with a maximum length of one request.
+  *shudder*)
+
+* Better IPC. [noflushd, long term (3.0)]
+
+  The current way of changing noflushd behaviour at runtime sucks. Some
+  advanced form of IPC would be much preferred, eg. a user app that
+  communicates with the noflushd daemon via a local socket/named pipe
+  to update and query its parameters.
+
+* Backoff scheme on zero spindown times. [noflushd, 2.x]
+
+  When we detect that a disk spins back up immediately, increase its timeout
+  value to prevent too many bogus spinup cycles when things go severely wrong.
+  (Suggested by Joey Hess.) [Shouldn't be too difficult to implement. The
+  tricky part is finding a clever heuristic that modifies the timeout sanely
+  in all cases. I've spent some time on this issue, and haven't come up with
+  a satisfying solution yet. Suggestions welcome!]
+
+* LSB compliant init skript. [noflushd, 2.x]
+
+  Hopefully this finally provides a standard way to install init skripts and
+  rc symlinks on all distributions.

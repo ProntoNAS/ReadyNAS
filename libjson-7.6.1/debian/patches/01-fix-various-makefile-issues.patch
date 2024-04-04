@@ -1,0 +1,54 @@
+Description: Fix various makefile issues
+ libjson (7.6.1-netgear1) stable; urgency=low
+ .
+   * Initial release.
+Author: Justin Maggard <justin.maggard@netgear.com>
+
+---
+
+--- libjson-7.6.1.orig/makefile
++++ libjson-7.6.1/makefile
+@@ -134,7 +134,7 @@ OS=$(shell uname)
+ ifeq ($(OS), Darwin)
+ 	cxxflags_default = -fast -ffast-math -fexpensive-optimizations -DNDEBUG
+ else
+-	cxxflags_default = -O3 -ffast-math -fexpensive-optimizations -DNDEBUG
++	cxxflags_default = -O3 -ffast-math -fexpensive-optimizations -DNDEBUG -D_FORTIFY_SOURCE=2 -g -fstack-protector --param=ssp-buffer-size=4 -Wformat -Werror=format-security
+ endif
+ cxxflags_small   = -Os -ffast-math -DJSON_LESS_MEMORY -DNDEBUG
+ cxxflags_debug   = -g -DJSON_SAFE -DJSON_DEBUG
+@@ -222,7 +222,7 @@ $(lib_target): banner installdirs $(addp
+ 	if test "$(OS)" = "Darwin" ; then \
+ 		$(CXX) -shared -Wl,-dylib_install_name -Wl,$(libname_shared_major_version) -o $@ $(objects) ; \
+ 	else \
+-		$(CXX) -shared -Wl,-soname,$(libname_shared_major_version) -o $@ $(objects) ; \
++		$(CXX) -shared -Wl,-z,relro,-soname,$(libname_shared_major_version) -o $@ $(objects) ; \
+ 	fi ; \
+ 	mv -f $@ ../
+ 	@echo "Link: Done"
+@@ -242,13 +242,13 @@ $(objdir)/%.o: $(srcdir)/%.cpp
+ ifeq ($(SHARED),1)
+ install: banner install_headers $(lib_target)
+ 	@echo "Install shared library"
++	if ! test -d $(inst_path) ; then \
++		mkdir -p $(inst_path) ; \
++	fi
+ 	cp -f ./$(lib_target) $(inst_path)
+ 	cd $(inst_path) ; \
+ 	ln -sf $(lib_target) $(libname_shared_major_version) ; \
+ 	ln -sf $(libname_shared_major_version) $(libname_shared)
+-ifneq ($(OS),Darwin)
+-	ldconfig
+-endif
+ 	@echo "Install shared library: Done."
+ else
+ install: banner install_headers $(lib_target)
+@@ -266,7 +266,7 @@ install_headers: banner
+ 	cp -r ./$(srcdir)/JSONDefs $(include_path)/$(libname_hdr)/$(srcdir)
+ 	chmod -R a+r $(include_path)/$(libname_hdr)
+ 	find  $(include_path)/$(libname_hdr) -type d -exec chmod a+x {} \;
+-	cp -rv $(srcdir)/Dependencies/ $(include_path)/$(libname_hdr)/$(srcdir)
++	cp -rv $(srcdir)/../Dependencies/ $(include_path)/$(libname_hdr)/$(srcdir)
+ 	@echo "Install header files: Done."
+ 
+ clean: banner

@@ -1,0 +1,40 @@
+--- connman-1.21.orig/src/service.c
++++ connman-1.21/src/service.c
+@@ -7173,6 +7173,8 @@ enum connman_service_state __connman_service_get_state(struct connman_service *s
+ unsigned int __connman_service_get_order(struct connman_service *service)
+ {
+ 	unsigned int order = 0;
++	const char *gw;
++	int index;
+ 
+ 	if (!service)
+ 		return 0;
+@@ -7182,8 +7184,9 @@ unsigned int __connman_service_get_order(struct connman_service *service)
+ 	if (!service->favorite)
+ 		return 0;
+ 
+-	if (service == service_list->data)
+-		order = 1;
++	index = __connman_service_get_index(service);
++
++	order = 100 - index;
+ 
+ 	if (service->type == CONNMAN_SERVICE_TYPE_VPN &&
+ 			!service->do_split_routing) {
+@@ -7191,8 +7194,14 @@ unsigned int __connman_service_get_order(struct connman_service *service)
+ 		order = 10;
+ 	}
+ 
+-	DBG("service %p name %s order %d split %d", service, service->name,
+-		order, service->do_split_routing);
++	gw = __connman_ipconfig_get_gateway_from_index(
++			index, CONNMAN_IPCONFIG_TYPE_IPV4);
++	if (gw && g_strcmp0(gw, "0.0.0.0") != 0 &&
++	    g_strcmp0(gw, "255.255.255.255") != 0)
++		order += 100;
++
++	DBG("service %p name %s order %d split %d gw %s", service, service->name,
++		order, service->do_split_routing, gw);
+ 
+ 	return order;
+ }

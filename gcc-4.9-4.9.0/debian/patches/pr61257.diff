@@ -1,0 +1,21 @@
+# DP: Fix PR other/61257, check for working sys/sdt.h
+
+--- a/src/gcc/configure.ac
++++ b/src/gcc/configure.ac
+@@ -4971,9 +4971,13 @@
+ AC_MSG_CHECKING(sys/sdt.h in the target C library)
+ have_sys_sdt_h=no
+ if test -f $target_header_dir/sys/sdt.h; then
+-  have_sys_sdt_h=yes
+-  AC_DEFINE(HAVE_SYS_SDT_H, 1,
+-            [Define if your target C library provides sys/sdt.h])
++  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <sys/sdt.h>]],
++                                     [[DTRACE_PROBE(foo,bar); return 0;]])
++                    ],[
++                     have_sys_sdt_h=yes
++                     AC_DEFINE(HAVE_SYS_SDT_H, 1,
++                       [Define if your target C library provides sys/sdt.h])
++                    ])
+ fi
+ AC_MSG_RESULT($have_sys_sdt_h)
+ 

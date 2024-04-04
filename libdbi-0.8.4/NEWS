@@ -1,0 +1,199 @@
+libdbi NEWS file
+================
+
+$Id: NEWS,v 1.7 2008/02/06 19:36:14 mhoenicka Exp $
+
+______________________________________
+libdbi 0.8.3 (the "Steeltown" release)
+
+Bugfixes
+
+- database engine client libraries which install exit handlers are not
+  safe to unload on some systems. libdbi now checks the driver
+  capability "safe_dlclose" and unloads the driver only if the driver
+  claims it is safe to do so.
+
+Improvements
+
+- three functions were added: dbi_conn_escape_string(),
+  dbi_conn_escape_string_copy(), and dbi_conn_escape_binary_copy()
+  perform the same escaping of special characters as the corresponding
+  *_quote_* functions do, but they do not surround the resulting
+  string with quotes. This may at times be more convenient if the
+  escaped strings are not directly inserted into a SQL query.
+
+- error handling and reporting was changed once again. The
+  dbi_conn_error_flag() function is now deprecated. Instead, a call of
+  dbi_conn_error() is all it takes to check the error status. This
+  function returns zero if the last operation was successful, < 0 (one
+  of several predefined libdbi error codes) for internal errors, and > 0
+  for client library errors. To maintain backwards compatibility,
+  dbi_conn_error_flags() reports the same error codes as
+  dbi_conn_error() so older code should not break as long as you checked
+  against the predefined error codes.
+
+- deprecated functions will now cause compiler warnings to make you
+  aware of this fact. This does not negatively affect your programs
+  but it kindly reminds you of the fact that right now is a good time to
+  modify your sources.
+
+
+__________________________________________________________
+libdbi 0.8.2 (the "Sunday Night Buttermilk Waltz" release)
+
+Minor enhancements:
+
+- the TIME and DATETIME types now support a numeric timezone suffix,
+  like in "23:12:30+01:00"
+- improved error handling and error reporting code
+- some memory leaks were plugged
+- the "--disable-docs" configure switch now allows to build libdbi
+  without having the sgml toolchain installed
+
+
+___________________________________________
+libdbi 0.8.1 (the "Get used to it" release)
+
+This is a bugfix release. It fixes the following bug:
+
+- dbi_result_get_string_idx() and dbi_result_get_string() returned
+  NULL if the database returned an empty string. However, ''!= NULL in
+  SQL. Now the functions correctly return a pointer to an
+  empty string if the database returns an empty string, and NULL if the
+  database returns NULL. The functions
+  dbi_result_get_string_copy_idx() and dbi_result_get_string_copy() were
+  not affected by this bug.
+
+
+_______________________________________________
+libdbi 0.8.0 (the "When I come around" release)
+
+Major internal fixes. Remember that the integer type changes are
+mostly silent on 32bit platforms, but you should check in detail. The
+changes in the return codes of some functions require particular
+attention.
+
+
+- Functions that return string sizes or accept string sizes as an
+argument now use size_t throughout. Affected functions are:
+
+dbi_driver_quote_string()
+dbi_driver_quote_string_copy()
+dbi_conn_query_null()
+dbi_result_get_field_length()
+dbi_result_get_field_length_idx()
+dbi_result_get_field_size()
+dbi_result_get_field_size_idx()
+
+as well as the new dbi_conn_quote_* functions
+
+
+- Functions that deal with field indexes or field counts now use
+unsigned int throughout. Affected functions are:
+
+dbi_result_get_field_idx()
+dbi_result_get_field_name()
+dbi_result_get_numfields()
+dbi_result_get_field_type_idx()
+dbi_result_get_field_attrib_idx()
+dbi_result_get_field_attribs_idx()
+dbi_result_field_is_null_idx()
+dbi_result_get_fields()
+dbi_result_bind_fields()
+dbi_result_get_char_idx()
+dbi_result_get_uchar_idx()
+dbi_result_get_short_idx()
+dbi_result_get_ushort_idx()
+dbi_result_get_long_idx()
+dbi_result_get_int_idx()
+dbi_result_get_uint_idx()
+dbi_result_get_ulong_idx()
+dbi_result_get_longlong_idx()
+dbi_result_get_ulonglong_idx()
+dbi_result_get_float_idx()
+dbi_result_get_double_idx()
+dbi_result_get_string_idx()
+dbi_result_get_binary_idx()
+dbi_result_get_string_copy_idx()
+dbi_result_get_binary_copy_idx()
+dbi_result_get_datetime_idx()
+
+
+- Functions that get or bind 4-byte integers were renamed and their
+return type was changed from long to int, because long is an 8byte
+value on 64bit platforms. The old versions are still around, but they
+also use int as the return type.
+
+long dbi_result_get_long() -> int dbi_result_get_int()
+long dbi_result_get_ulong() -> int dbi_result_get_uint()
+long dbi_result_get_long_idx() -> int dbi_result_get_int_idx()
+long dbi_result_get_ulong_idx() -> int dbi_result_get_uint_idx()
+dbi_result_bind_long() -> dbi_result_bind_int()
+dbi_result_bind_ulong() -> dbi_result_bind_uint()
+
+
+- Field attributes are now implemented using unsigned int instead of
+unsigned long. Functions that deal with attributes were adapted
+accordingly:
+
+dbi_result_get_field_attrib()
+dbi_result_get_field_attrib_idx()
+dbi_result_get_field_attribs()
+dbi_result_get_field_attribs_idx()
+
+
+- The return values in case of an error were changed in the following
+functions:
+
+dbi_result_get_field_length(): DBI_LENGTH_ERROR instead of 0
+dbi_driver_quote_string(), dbi_driver_quote_string_copy(): 0 instead
+  of -1 
+dbi_result_seek_row(): 0 instead of (0 or -1)
+dbi_result_get_numrows(): DBI_ROW_ERROR instead of 0
+dbi_result_get_field_length(), dbi_result_get_field_length_idx(),
+  dbi_result_get_field_size(), dbi_result_get_field_size_idx():
+  DBI_LENGTH_ERROR instead of 0
+dbi_result_get_field_type(),dbi_result_get_field_type_idx():
+  DBI_TYPE_ERROR instead of 0 (the same numerical value!)
+dbi_result_get_field_attrib(), dbi_result_get_field_attrib_idx(),
+  dbi_result_get_field_attribs(), dbi_result_get_field_attribs_idx():
+  DBI_ATTRIBUTE_ERROR instead of 0
+dbi_result_field_is_null(), dbi_result_field_is_null_idx():
+  DBI_FIELD_FLAG_ERROR instead of 0
+dbi_result_bind_fields(): DBI_FIELD_ERROR instead of -1
+dbi_result_bind_*(): DBI_BIND_ERROR instead of -1 (same numerical
+  value!)
+
+
+- New functions were added to improve the support for character
+encodings:
+
+dbi_conn_quote_string()
+dbi_conn_quote_string_copy()
+dbi_driver_encoding_to_iana()
+dbi_driver_encoding_from_iana()
+
+
+- A new function was added to improve support for binary strings:
+
+dbi_conn_quote_binary_copy()
+
+- Two functions were added to retrieve the version number of the
+database engine:
+dbi_conn_get_engine_version()
+dbi_conn_get_engine_version_string()
+
+- The following functions were labelled "deprecated". They are still
+implemented in the current version, but you should use their
+replacements as these functions are likely to be dropped in a future
+release:
+
+dbi_result_get_field_size() -> dbi_result_get_field_length()
+dbi_result_get_field_size_idx() -> dbi_result_get_field_length_idx()
+dbi_result_get_long() -> dbi_result_get_int()
+dbi_result_get_ulong() -> dbi_result_get_uint()
+dbi_result_get_long_idx() -> dbi_result_get_int_idx()
+dbi_result_get_ulong_idx() -> dbi_result_get_uint_idx()
+dbi_result_bind_long() -> dbi_result_bind_int()
+dbi_result_bind_ulong() -> dbi_result_bind_uint()
+

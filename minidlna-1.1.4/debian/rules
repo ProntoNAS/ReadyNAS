@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+
+DESTDIR = $(CURDIR)/debian/minidlna
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- --enable-tivo --enable-netgear --enable-readynas \
+		--with-db-path=/apps/.readydlna
+
+override_dh_install:
+	# Install systemd service files.
+	mkdir -p $(DESTDIR)/lib/systemd/system
+	install -m 0644 debian/minidlna.service $(DESTDIR)/lib/systemd/system
+	mkdir -p $(DESTDIR)/usr/lib/tmpfiles.d
+	echo "d /run/minidlna 0755 root root -" > $(DESTDIR)/usr/lib/tmpfiles.d/minidlna.conf
+	dh_install
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -f po/*.gmo po/stamp-po

@@ -1,0 +1,150 @@
+Apache Privilege Separation for WebDAV
+
+SYNOPSIS
+
+ The Privilege Separation module addresses the problem of a WebDAV
+ virtual server only being able to write files as a single user id
+ (usually something like 'nobody' or 'www').
+
+ The Privilege Separation module addresses this problem in a secure
+ way by adding privilege separation to the Apache web server
+ (conceptually similar to ssh privilege separation).
+
+ A privilege separated Apache can be used to allow WebDAV write access
+ to users home directories while both preserving and honouring unix
+ permissions and allowing the use of unix quotas and PAM authentication.
+
+ARCHITECTURE
+
+ In Privilege Separation mode Apache continues to run as an unprivileged
+ user although an additional secure process runs as 'root'.
+
+ The apache worker processes communicate with the 'root' privileged
+ separated process via unix sockets to carry out system authentication
+ and privileged file system operations. Namely:
+
+ * Responding to PAM authentication requests
+   pam_unix authentication is not normally possible in apache due to
+   the unprivileged process not being able to access the shadow file.
+   Due to the privilege separated design this is now possible.
+   Authentication responses include a cryptographic token which encodes
+   the users credentials and is verified in successive privileged
+   filesystem requests made to the privsep process.
+
+ * Performing privileged filesystem operations on behalf of the
+   unprivileged apache worker processes with the privileges of the
+   authenticated user. The cryptographic token is verified and then the
+   effective userid is set and the filesystem operation is performed.
+
+ Certain auditable points in the apache core code (core.c, request.c),
+ mod_autoindex and mod_dav code have been changed to use the privilege
+ separated file io calls which communicate via unix sockets to the
+ privileged daemon. File descriptors are passed back over unix sockets
+ for open calls.
+
+INTERFACES
+
+ APR file IO calls are modified to use the privsep versions which take
+ an additional context argument (privsep_token_t*):
+
+  ap_privsep_stat
+  ap_privsep_file_perms_set
+  ap_privsep_file_open
+  ap_privsep_dir_open
+  ap_privsep_dir_read
+  ap_privsep_dir_close
+  ap_privsep_dir_make
+  ap_privsep_dir_remove
+  ap_privsep_file_remove
+  ap_privsep_file_rename
+
+ The privsep versions use a token fetched from from r->notes.
+ If the privsep token exists then the request is dispatched to the
+ privilege separated daemon, otherwise the file io method is
+ executed directly in the regular way.
+
+ One special case exists for the stat and lstat calls made from
+ ap_directory_walk. This is called before map_to_storage has been
+ done and any authentication hooks run. This special case needs the stat
+ and lstat calls to be executed as root to know if the path actually
+ exists. The security leak potential is minimised by making stat
+ the only call that is able to be made as uid 0 and ap_directory_walk
+ is the only routine that calls ap_privsep_stat with the special
+ ap_preauth_stat_token.
+
+PORTABILITY
+
+ mod_privsep has been tested on Linux and FreeBSD.
+
+ apr interfaces have been used where possible but mod_privsep relies on
+ unix sockets (socketpair,sendmsg,recvmsg) and the ability to send file
+ descriptors over unix sockets. It also currently depends on PAM.
+
+ It should be relatively easily ported to other unix-like OS.
+
+ NOTE: the opendir implementation relies on platform specific details.
+ Specifically, that directories can be opened as file descriptors and
+ also that the file descriptor is the first structure member of the
+ private DIR* structure.
+
+ It is potentially possible to implement this feature for Windows as
+ a preliminary investigation shows that it is possible to pass file
+ handles between processes. More investigation is needed.
+
+BUILDING
+
+  # apply patch
+
+  # run buildconf to pick up configure.in change
+  ./buildconf
+
+  ./configure \
+    --enable-dav \
+    --enable-privsep \
+    --enable-authn-privsep
+
+CONFIGURATION
+
+ Example configuration:
+
+  # Output error log messages for privileged accesses
+  LogLevel info
+  PrivilegeSeparationDebug On
+
+  <Directory "/opt/apache2.2/uploads/">
+
+    # Enable WebDAV and privilege separation for this directory
+    Dav On
+    PrivilegeSeparation On
+
+    # System authentication through privilege separated PAM
+    AuthType Basic
+    AuthName DAV-upload
+    AuthBasicProvider privsep
+
+    Options Indexes
+    AllowOverride None
+    Require valid-user
+
+    # Workaround for WebDAV PROPFIND bug on dirs with index files
+    DirectoryIndex /no_directory_index
+
+  </Directory>
+
+DESIGN ISSUES
+
+ * Single privileged separated process seriliazes stat/lstat/open
+   * Potential solution: change to a pool of privsep processes
+
+ * Overhead of PAM authentication for each request
+   * Potential solution: cache authentication
+
+ * Overhead of setgroups in each privileged operation
+   * Route requests to a pooled process that is already switched
+     to the required user
+
+CREDITS
+
+  Michael Clark <michael at metaparadigm dot com>
+  Jamie Clark <jamie at zeroth dot org>
+  Iain Wade <iain dot wade at gmail dot com>

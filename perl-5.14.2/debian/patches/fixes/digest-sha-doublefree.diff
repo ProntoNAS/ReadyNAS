@@ -1,0 +1,69 @@
+From 0c6c3e57ab9ee86fbce162071dce1c2748a494b5 Mon Sep 17 00:00:00 2001
+From: Niko Tyni <ntyni@debian.org>
+Date: Fri, 25 Jan 2013 15:00:00 +0200
+Subject: Fix a double-free bug in Digest::SHA
+
+Fix double-free when loading Digest::SHA object representing the
+intermediate SHA state from a file.
+
+Origin: upstream, http://perl5.git.perl.org/perl.git/commit/a8c6ff7b8e8c6037333c21f9b3f6b38b9278df4f
+Origin: upstream, https://metacpan.org/diff/release/MSHELOR/Digest-SHA-5.80/MSHELOR/Digest-SHA-5.81
+Bug-Debian: http://bugs.debian.org/698172
+Bug: https://rt.cpan.org/Ticket/Display.html?id=82655
+Patch-Name: fixes/digest-sha-doublefree.diff
+---
+ cpan/Digest-SHA/lib/Digest/SHA.pm |   11 +++++++----
+ cpan/Digest-SHA/src/sha.c         |    2 +-
+ 2 files changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/cpan/Digest-SHA/lib/Digest/SHA.pm b/cpan/Digest-SHA/lib/Digest/SHA.pm
+index f809ce3..8cea302 100644
+--- a/cpan/Digest-SHA/lib/Digest/SHA.pm
++++ b/cpan/Digest-SHA/lib/Digest/SHA.pm
+@@ -53,7 +53,7 @@ sub new {
+ 			return($class);
+ 		}
+ 		shaclose($$class) if $$class;
+-		$$class = shaopen($alg) || return;
++		return unless $$class = shaopen($alg);
+ 		return($class);
+ 	}
+ 	$alg = 1 unless defined $alg;
+@@ -153,18 +153,21 @@ sub Addfile {
+ 
+ sub dump {
+ 	my $self = shift;
+-	my $file = shift || "";
++	my $file = shift;
+ 
++	$file = "" unless defined $file;
+ 	shadump($file, $$self) || return;
+ 	return($self);
+ }
+ 
+ sub load {
+ 	my $class = shift;
+-	my $file = shift || "";
++	my $file = shift;
++
++	$file = "" unless defined $file;
+ 	if (ref($class)) {	# instance method
+ 		shaclose($$class) if $$class;
+-		$$class = shaload($file) || return;
++		return unless $$class = shaload($file);
+ 		return($class);
+ 	}
+ 	my $state = shaload($file) || return;
+diff --git a/cpan/Digest-SHA/src/sha.c b/cpan/Digest-SHA/src/sha.c
+index 20f2d71..f512437 100644
+--- a/cpan/Digest-SHA/src/sha.c
++++ b/cpan/Digest-SHA/src/sha.c
+@@ -272,7 +272,7 @@ void sharewind(SHA *s)
+ /* shaopen: creates a new digest object */
+ SHA *shaopen(int alg)
+ {
+-	SHA *s;
++	SHA *s = NULL;
+ 
+ 	if (alg != SHA1 && alg != SHA224 && alg != SHA256 &&
+ 		alg != SHA384    && alg != SHA512 &&

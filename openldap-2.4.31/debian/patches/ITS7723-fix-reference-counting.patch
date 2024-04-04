@@ -1,0 +1,46 @@
+Description: fix remote DoS (CVE-2013-4449)
+ taken from RHEL (and Fedora)
+ for detail, see https://bugzilla.redhat.com/show_bug.cgi?id=1019490#c0
+
+ and upstream: http://www.openldap.org/its/index.cgi/Incoming?id=7723
+
+Author: Jan Synacek <jsynacek@redhat.com>
+Origin: vendor
+Bug-Debian: http://bugs.debian.org/729367
+Forwarded: not-need
+Last-Update: 2013-11-13
+
+
+
+From 742d3e4a6a1f62c3c3ae1e9341f3615b4705a701 Mon Sep 17 00:00:00 2001
+From: Jan Synacek <jsynacek@redhat.com>
+Date: Wed, 13 Nov 2013 09:06:54 +0100
+Subject: [PATCH] ITS#7723 fix reference counting
+
+---
+ libraries/librewrite/session.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/libraries/librewrite/session.c b/libraries/librewrite/session.c
+index 28f2551..7c59d14 100644
+--- a/libraries/librewrite/session.c
++++ b/libraries/librewrite/session.c
+@@ -161,6 +161,7 @@ rewrite_session_find(
+ #ifdef USE_REWRITE_LDAP_PVT_THREADS
+ 	if ( session ) {
+ 		ldap_pvt_thread_mutex_lock( &session->ls_mutex );
++		session->ls_count++;
+ 	}
+ 	ldap_pvt_thread_rdwr_runlock( &info->li_cookies_mutex );
+ #endif /* USE_REWRITE_LDAP_PVT_THREADS */
+@@ -178,6 +179,7 @@ rewrite_session_return(
+ )
+ {
+ 	assert( session != NULL );
++	session->ls_count--;
+ 	ldap_pvt_thread_mutex_unlock( &session->ls_mutex );
+ }
+ 
+-- 
+1.8.3.1
+

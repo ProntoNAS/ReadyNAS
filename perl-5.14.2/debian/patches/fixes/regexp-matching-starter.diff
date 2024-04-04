@@ -1,0 +1,58 @@
+From 9dc7c3307242fe74116b62a2cc55a63544131a2d Mon Sep 17 00:00:00 2001
+From: Karl Williamson <public@khwilliamson.com>
+Date: Tue, 1 Nov 2011 17:57:15 -0600
+Subject: Regression with /i, latin1 chars.
+
+The root cause of this bug is that it was assuming that a string was in
+utf8 when it wasn't, and so was thinking that a byte was a starter byte
+that wasn't, so was skipping ahead based on that starter byte.
+
+Bug: http://rt.perl.org/rt3/Public/Bug/Display.html?id=101710
+Bug-Debian: http://bugs.debian.org/690975
+Origin: upstream, http://perl5.git.perl.org/perl.git/commit/6e634c54a0f90c8878c8086142fe3451f8970a9e
+Patch-Name: fixes/regexp-matching-starter.diff
+---
+ regexec.c  |    2 +-
+ t/re/pat.t |    9 ++++++++-
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/regexec.c b/regexec.c
+index 0dc093f..2354be1 100644
+--- a/regexec.c
++++ b/regexec.c
+@@ -1521,7 +1521,7 @@ S_find_byclass(pTHX_ regexp * prog, const regnode *c, char *s,
+ 		{
+ 		    goto got_it;
+ 		}
+-		s += UTF8SKIP(s);
++		s += (utf8_target) ? UTF8SKIP(s) : 1;
+ 	    }
+ 	    break;
+ 	case BOUNDL:
+diff --git a/t/re/pat.t b/t/re/pat.t
+index 4ef9663..4eb05c6 100644
+--- a/t/re/pat.t
++++ b/t/re/pat.t
+@@ -21,7 +21,7 @@ BEGIN {
+     require './test.pl';
+ }
+ 
+-plan tests => 451;  # Update this when adding/deleting tests.
++plan tests => 452;  # Update this when adding/deleting tests.
+ 
+ run_tests() unless caller;
+ 
+@@ -1167,6 +1167,13 @@ sub run_tests {
+         is($got,$want,'RT #84294: check that "ab" =~ /((\w+)(?{ push @got, $2 })){2}/ leaves @got in the correct state');
+     }
+ 
++
++    { # [perl #101710]
++        my $pat = "b";
++        utf8::upgrade($pat);
++        like("\xffb", qr/$pat/i, "/i: utf8 pattern, non-utf8 string, latin1-char preceding matching char in string");
++    }
++
+ } # End of sub run_tests
+ 
+ 1;

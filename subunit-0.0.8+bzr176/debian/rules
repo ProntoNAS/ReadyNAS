@@ -1,0 +1,32 @@
+#!/usr/bin/make -f
+
+# Get the supported Python versions
+PYVERS = $(shell pyversions -vr)
+PY3VERS = $(shell py3versions -vr)
+
+export INSTALLDIRS=vendor
+
+override_dh_auto_configure:
+	[ -f configure ] || autoreconf -fi
+	dh_auto_configure
+
+override_dh_auto_clean:
+	$(MAKE) distclean || true
+	rm -rf build
+	rm -f configure
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp
+	find debian/tmp/ -name "*.pyc" | xargs rm -f
+	find debian/tmp/ -name "*.pyo" | xargs rm -f
+	mkdir debian/tmp/usr/share
+	mv debian/tmp/usr/lib/perl5 debian/tmp/usr/share/perl5
+	for vers in $(PY3VERS); do \
+		python$$vers setup.py install --install-layout=deb --root=$(CURDIR)/debian/tmp; \
+	done
+	for vers in $(PYVERS); do \
+		python$$vers setup.py install --install-layout=deb --single-version-externally-managed --root=$(CURDIR)/debian/tmp; \
+	done
+
+%:
+	dh $* --with python2,python3

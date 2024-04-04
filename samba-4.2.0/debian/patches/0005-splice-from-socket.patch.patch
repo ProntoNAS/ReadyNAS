@@ -1,0 +1,125 @@
+From 4df12f702484f9b30fbdf00f5d1e64a73a7f3de7 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Fri, 30 Jan 2015 12:08:52 -0800
+Subject: [PATCH 05/19] splice-from-socket.patch
+
+---
+ source3/include/local.h |  5 +++
+ source3/lib/recvfile.c  | 82 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 86 insertions(+), 1 deletion(-)
+
+diff --git a/source3/include/local.h b/source3/include/local.h
+index 5f52d9c..05e4e1e 100644
+--- a/source3/include/local.h
++++ b/source3/include/local.h
+@@ -209,4 +209,9 @@
+ 
+ #define WINDOWS_CLIENT_PURE_SMB2_NEGPROT_INITIAL_CREDIT_ASK	31
+ 
++/* For platforms that support direct splice-from-socket-to-file */
++#if !defined(__sun__)
++#define HAVE_LINUX_SPLICE_FROM_SOCKET 1
++#endif
++
+ #endif
+diff --git a/source3/lib/recvfile.c b/source3/lib/recvfile.c
+index 273c51f..9c15e64 100644
+--- a/source3/lib/recvfile.c
++++ b/source3/lib/recvfile.c
+@@ -141,7 +141,92 @@ static ssize_t default_sys_recvfile(int fromfd,
+ 	return (ssize_t)total_written;
+ }
+ 
+-#if defined(HAVE_LINUX_SPLICE)
++#if defined(HAVE_LINUX_SPLICE_FROM_SOCKET)
++
++/*
++ * For platforms that support direct splice-from-socket-to-file
++ */
++ssize_t sys_recvfile(int fromfd,
++			int tofd,
++			off_t offset,
++			size_t count)
++{
++	size_t total_written = 0;
++	loff_t splice_offset = offset;
++	static bool has_splice_from_socket = true;
++
++	if (!has_splice_from_socket)
++		return default_sys_recvfile(fromfd, tofd, offset, count);
++
++	DEBUG(10,("%s: from = %d, to = %d, "
++		"offset=%.0f, count = %lu\n",
++		__func__,
++		fromfd, tofd, (double)offset,
++		(unsigned long)count));
++
++	if (!count)
++		return 0;
++
++	while (count > 0) {
++		int nwritten;
++
++		nwritten = splice(fromfd, NULL, tofd, &splice_offset,
++				  count, SPLICE_F_MOVE);
++		if (nwritten < 0) {
++			/* If platform does not support direct splice-from-
++			 * socket, fall back.
++			 */
++			if (errno == EBADF) {
++				DEBUG(5,("%s: splice from socket unavailable. "
++					"Falls back to default_sys_recvfile.\n",
++					__func__));
++				has_splice_from_socket = false;
++				return default_sys_recvfile(fromfd, tofd,
++							    offset, count);
++			}
++#if defined(EWOULDBLOCK)
++			if (errno == EAGAIN || errno == EWOULDBLOCK) {
++#else
++			if (errno == EAGAIN) {
++#endif
++				/*
++				 * fromfd socket is in non-blocking mode.
++				 * If we already read some and wrote
++				 * it successfully, return that.
++				 * Only return -1 if this is the first read
++				 * attempt. Caller will handle both cases.
++				 */
++				if (total_written != 0) {
++					return total_written;
++				}
++				return -1;
++			}
++			break;
++		}
++
++		if (nwritten == 0) {
++			/* EOF */
++			return -1;
++		}
++
++		count -= nwritten;
++		offset += nwritten;
++		total_written += nwritten;
++	}
++
++	if (count) {
++		int saved_errno = errno;
++		if (drain_socket(fromfd, count) != count) {
++			/* socket is dead. */
++			return -1;
++		}
++		errno = saved_errno;
++	}
++
++	return total_written;
++}
++
++#elif defined(HAVE_LINUX_SPLICE)
+ 
+ /*
+  * Try and use the Linux system call to do this.
+-- 
+1.9.1
+

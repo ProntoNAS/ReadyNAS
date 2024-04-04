@@ -1,0 +1,43 @@
+From 504aefc29e21b6cc8e7d81ca83548ccda7ca606d Mon Sep 17 00:00:00 2001
+From: Chris 'BinGOs' Williams <chris@bingosnet.co.uk>
+Date: Fri, 28 Jun 2013 13:07:34 +0100
+Subject: maint-5.18: Digest-SHA crash fix in 5.85
+
+Backported minimal changes from blead
+
+Bug-Debian: http://bugs.debian.org/711206
+Bug: https://rt.cpan.org/Public/Bug/Display.html?id=86295
+Origin: http://perl5.git.perl.org/perl.git/commit/ee8c6f40e6bd7b4e08eac8386f9a092fdd609ffa
+Patch-Name: fixes/digest_sha_double_free.diff
+---
+ cpan/Digest-SHA/SHA.xs            |    3 +++
+ cpan/Digest-SHA/lib/Digest/SHA.pm |    2 +-
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/cpan/Digest-SHA/SHA.xs b/cpan/Digest-SHA/SHA.xs
+index 7088a33..893bed2 100644
+--- a/cpan/Digest-SHA/SHA.xs
++++ b/cpan/Digest-SHA/SHA.xs
+@@ -23,6 +23,9 @@ PROTOTYPES: ENABLE
+ int
+ shaclose(s)
+ 	SHA *	s
++CODE:
++       RETVAL = shaclose(s);
++       sv_setiv(SvRV(ST(0)), 0);
+ 
+ int
+ shadump(file, s)
+diff --git a/cpan/Digest-SHA/lib/Digest/SHA.pm b/cpan/Digest-SHA/lib/Digest/SHA.pm
+index 8cea302..2e70f60 100644
+--- a/cpan/Digest-SHA/lib/Digest/SHA.pm
++++ b/cpan/Digest-SHA/lib/Digest/SHA.pm
+@@ -65,7 +65,7 @@ sub new {
+ 
+ sub DESTROY {
+ 	my $self = shift;
+-	shaclose($$self) if $$self;
++	if ($$self) { shaclose($$self); $$self = undef }
+ }
+ 
+ sub clone {

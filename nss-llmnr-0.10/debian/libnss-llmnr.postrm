@@ -1,0 +1,45 @@
+#!/bin/sh
+set -e
+#DEBHELPER#
+
+log() {
+    echo "libnss-llmnr.postrm: $*"
+}
+
+remove_llmnr() {
+    log "Checking NSS setup..."
+    # abort if /etc/nsswitch.conf does not exist
+    if ! [ -e /etc/nsswitch.conf ]; then
+        log "Could not find /etc/nsswitch.conf."
+        return
+    fi
+    log "Removing llmnr from NSS setup"
+    perl -i -pe '
+        my @remove=(
+            "llmnr4",
+            "llmnr6",
+            "llmnr",
+        );
+        sub remove {
+            my $s=shift;
+            foreach my $bit (@remove) {
+                $s=~s/\s+\Q$bit\E//g;
+            }
+            return $s;
+        }
+        s/^(hosts:)(.*)/$1.remove($2)/e;
+    ' /etc/nsswitch.conf
+}
+
+action="$1"
+
+if [ "$action" = remove ]; then
+    # as recommended by
+    # <https://lists.debian.org/debian-devel/2013/04/msg00656.html>
+    instances="$(dpkg-query -f '${db:Status-Abbrev} ${binary:Package}\n' -W libnss-llmnr | grep -v '^.n' | wc -l)"
+    if [ "$instances" = 1 ]; then
+      remove_llmnr
+    else
+      log "Not removing llmnr from nsswitch.conf, $(( $instances - 1 )) architecture(s) still installed"
+    fi
+fi

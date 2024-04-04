@@ -1,0 +1,612 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<HTML
+><HEAD
+><TITLE
+>Quick Overview</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.79"><LINK
+REL="HOME"
+TITLE="Database Independent Abstraction Layer for C"
+HREF="index.html"><LINK
+REL="UP"
+TITLE="libdbi in a Nutshell (Quickstart Guide)"
+HREF="quickstart.html"><LINK
+REL="PREVIOUS"
+TITLE="libdbi in a Nutshell (Quickstart Guide)"
+HREF="quickstart.html"><LINK
+REL="NEXT"
+TITLE="Generic Example Program"
+HREF="quickstart-code.html"></HEAD
+><BODY
+CLASS="SECTION"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+SUMMARY="Header navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>Database Independent Abstraction Layer for C: libdbi Programmer's Guide</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="quickstart.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>Chapter 2. libdbi in a Nutshell (Quickstart Guide)</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="quickstart-code.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECTION"
+><H1
+CLASS="SECTION"
+><A
+NAME="QUICKSTART-DEBRIEFING"
+>2.1. Quick Overview</A
+></H1
+><P
+>      libdbi uses a plugin system that allows various databases to be supported simultaneously, and can dynamically load or unload drivers that are supplied by libdbi or a third party. The library is initiallized by calling <A
+HREF="reference-core.html#DBI-INITIALIZE"
+>dbi_initialize</A
+> and a connection instance is started by calling either <A
+HREF="reference-conn.html#DBI-CONN-NEW"
+>dbi_conn_new</A
+> or both <A
+HREF="reference-driver.html#DBI-DRIVER-OPEN"
+>dbi_driver_open</A
+> and <A
+HREF="reference-conn.html#DBI-CONN-OPEN"
+>dbi_conn_open</A
+>.
+    </P
+><P
+>      The connection's options (username, password, hostname, etc.) are set with <A
+HREF="reference-conn.html#DBI-CONN-SET-OPTION"
+>dbi_conn_set_option</A
+> and <A
+HREF="reference-conn.html#DBI-CONN-SET-OPTION-NUMERIC"
+>dbi_conn_set_option_numeric</A
+>. Once all options are set, <A
+HREF="reference-database.html#DBI-CONN-CONNECT"
+>dbi_conn_connect</A
+> will connect to the database, waiting to handle a <A
+HREF="reference-query.html#DBI-CONN-QUERY"
+>dbi_conn_query</A
+>. A query is a string containing a valid SQL statement. libdbi provides several functions to automatically quote any characters that might screw up the query string. The preferred functions are <A
+HREF="reference-query.html#DBI-CONN-QUOTE-STRING"
+>dbi_conn_quote_string</A
+> and <A
+HREF="reference-query.html#DBI-CONN-QUOTE-STRING-COPY"
+>dbi_conn_quote_string_copy</A
+> as they take into consideration the character encoding used by the current connection. The legacy functions <A
+HREF="reference-driver.html#DBI-DRIVER-QUOTE-STRING"
+>dbi_driver_quote_string</A
+> and <A
+HREF="reference-driver.html#DBI-DRIVER-QUOTE-STRING-COPY"
+>dbi_driver_quote_string_copy</A
+> are still supported but should be avoided in new code. After a successful query, you can retrieve rows with <A
+HREF="reference-results.html#DBI-RESULT-FIRST-ROW"
+>dbi_result_first_row</A
+>, <A
+HREF="reference-results.html#DBI-RESULT-LAST-ROW"
+>dbi_result_last_row</A
+>, <A
+HREF="reference-results.html#DBI-RESULT-PREV-ROW"
+>dbi_result_prev_row</A
+>, <A
+HREF="reference-results.html#DBI-RESULT-NEXT-ROW"
+>dbi_result_next_row</A
+>, and <A
+HREF="reference-results.html#DBI-RESULT-SEEK-ROW"
+>dbi_result_seek_row</A
+>.
+    </P
+><P
+>String data may be sent to and retrieved from a database using character encodings if they contain characters not covered by the ASCII character set. Most database engines support character encodings like ISO-8859-1, suitable for many European languages, or even the multibyte Unicode character sets like UTF-8. The character set used to store your data in your database is usually set by the <B
+CLASS="COMMAND"
+>CREATE DATABASE</B
+> command, which you have to take care of yourself. libdbi uses the connection option "encoding" to select a particular character encoding for the current connection. If you set the value to "auto", libdbi will automatically use the database character encoding as the connection encoding. If you request a different character encoding, as defined by its <A
+HREF="http://www.iana.org"
+TARGET="_top"
+>IANA</A
+> name, libdbi will convert the data on the fly.</P
+><P
+>      There are two methods for fetching field data, and two ways to perform each method. You can either "pull" the data from DBI using the <TT
+CLASS="LITERAL"
+>dbi_result_get_*</TT
+> family of functions, or have DBI automatically "push" the data into predefined variables with the <TT
+CLASS="LITERAL"
+>dbi_result_bind_*</TT
+> family of functions. Both families of functions are as strongly typed as most SQL database engines are. That is, you must use the <TT
+CLASS="LITERAL"
+>dbi_result_get_*</TT
+> or <TT
+CLASS="LITERAL"
+>dbi_result_bind_*</TT
+> function that matches the type of the requested field. <A
+HREF="quickstart-debriefing.html#TABLE-GET-BIND-FUNCTIONS"
+>Table 2-1</A
+> shows an overview of these functions sorted by the field type they retrieve.
+    </P
+><P
+>      Pulling the data from the database can be done with one of the "get" functions such as <A
+HREF="reference-field.html#DBI-RESULT-GET-LONG"
+>dbi_result_get_long</A
+> or <A
+HREF="reference-field.html#DBI-RESULT-GET-STRING"
+>dbi_result_get_string</A
+>, which simply return the data in the field you asked for. You should run the function <A
+HREF="reference-conn.html#DBI-CONN-ERROR-FLAG"
+>dbi_conn_error_flag</A
+> immediately after each call to a "get" function to check for errors. You can also get more than one field at a time with <A
+HREF="reference-field.html#DBI-RESULT-GET-FIELDS"
+>dbi_result_get_fields</A
+>, which uses a printf-like syntax.
+    </P
+><P
+>      If you want DBI to automatically fill your program's variables with field values whenever a new row is fetched, you can "bind" fields to your variables. Bindings are set up with <A
+HREF="reference-field.html#DBI-RESULT-BIND-LONG"
+>dbi_result_bind_long</A
+>, <A
+HREF="reference-field.html#DBI-RESULT-BIND-STRING"
+>dbi_result_bind_string</A
+>, and the rest of the bind family of functions. Like the associated "get" function, you can set up multiple bindings at once with the <A
+HREF="reference-field.html#DBI-RESULT-BIND-FIELDS"
+>dbi_result_bind_fields</A
+> function.
+    </P
+><P
+>String data can be safely included into query strings by using the <A
+HREF="reference-query.html#DBI-CONN-QUOTE-STRING"
+>dbi_conn_quote_string</A
+> and <A
+HREF="reference-query.html#DBI-CONN-QUOTE-STRING-COPY"
+>dbi_conn_quote_string_copy</A
+> functions. Binary data can be included into query strings by using the <A
+HREF="reference-query.html#DBI-CONN-QUOTE-BINARY-COPY"
+>dbi_conn_quote_binary_copy</A
+> function. All of these functions return zero-terminated strings enclosed in the appropriate quoting characters. Binary strings are returned in their binary representation. That is, they may contain null bytes and other non-printable characters. It is mandatory to use the <A
+HREF="reference-field-meta.html#DBI-RESULT-GET-FIELD-LENGTH"
+>dbi_result_get_field_length</A
+> or <A
+HREF="reference-field-meta.html#DBI-RESULT-GET-FIELD-LENGTH-IDX"
+>dbi_result_get_field_length_idx</A
+> functions to determine the number of bytes contained in the binary string.</P
+><P
+><EM
+>Caveats:</EM
+></P
+><P
+></P
+><UL
+><LI
+><P
+>For fields holding integers (not fractional numbers), DBI differentiates between signed and unsigned variables. By default, DBI returns signed values. If you want an unsigned value, prepend a "u" to the name of the target type. For example, dbi_result_bind_short becomes dbi_result_bind_ushort.</P
+></LI
+><LI
+><P
+>You must set up any bindings <EM
+>after</EM
+> a successful query but <EM
+>before</EM
+> you fetch any rows. Even if you are using field bindings, you can still use the dbi_result_get_* functions as usual. (actually, I lied... setting up a binding should theoretically work at any time, but don't plan on this behavior in future versions)</P
+></LI
+><LI
+><P
+>All string and binary data returned or bound from DBI is <EM
+>read-only</EM
+>. If you want your own local copy that can be modified at will, use <A
+HREF="reference-field.html#DBI-RESULT-GET-STRING-COPY"
+>dbi_result_get_string_copy</A
+>, <A
+HREF="reference-field.html#DBI-RESULT-GET-BINARY-COPY"
+>dbi_result_get_binary_copy</A
+>, <A
+HREF="reference-field.html#DBI-RESULT-BIND-STRING-COPY"
+>dbi_result_bind_string_copy</A
+>, or <A
+HREF="reference-field.html#DBI-RESULT-BIND-BINARY-COPY"
+>dbi_result_bind_binary_copy</A
+>. You will be responsible for freeing the memory allocated by these functions.</P
+></LI
+></UL
+><P
+>      <A
+HREF="reference-results.html#DBI-RESULT-NEXT-ROW"
+>dbi_result_next_row</A
+> and the other row-seeking functions will return zero when there are no more rows available. Before the next database operation is performed, you must call <A
+HREF="reference-results.html#DBI-RESULT-FREE"
+>dbi_result_free</A
+>.  Before the program terminates, the connection must be disconnected and unloaded with <A
+HREF="reference-conn.html#DBI-CONN-CLOSE"
+>dbi_conn_close</A
+> and libdbi must be unloaded with <A
+HREF="reference-core.html#DBI-SHUTDOWN"
+>dbi_shutdown</A
+>.
+    </P
+><DIV
+CLASS="TABLE"
+><A
+NAME="TABLE-GET-BIND-FUNCTIONS"
+></A
+><P
+><B
+>Table 2-1. get* and bind* functions sorted by field type</B
+></P
+><TABLE
+BORDER="1"
+CLASS="CALSTABLE"
+><COL><COL><COL><COL><THEAD
+><TR
+><TH
+>field type</TH
+><TH
+>get by name</TH
+><TH
+>get by field index</TH
+><TH
+>bind</TH
+></TR
+></THEAD
+><TBODY
+><TR
+><TD
+>signed char</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-CHAR"
+>dbi_result_get_char</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-CHAR-IDX"
+>dbi_result_get_char_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-CHAR"
+>dbi_result_bind_char</A
+></TD
+></TR
+><TR
+><TD
+>unsigned char</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-UCHAR"
+>dbi_result_get_uchar</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-UCHAR-IDX"
+>dbi_result_get_uchar_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-UCHAR"
+>dbi_result_bind_uchar</A
+></TD
+></TR
+><TR
+><TD
+>short</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-SHORT"
+>dbi_result_get_short</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-SHORT-IDX"
+>dbi_result_get_short_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-SHORT"
+>dbi_result_bind_short</A
+></TD
+></TR
+><TR
+><TD
+>unsigned short</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-USHORT"
+>dbi_result_get_ushort</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-USHORT-IDX"
+>dbi_result_get_ushort_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-USHORT"
+>dbi_result_bind_ushort</A
+></TD
+></TR
+><TR
+><TD
+>int</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-INT"
+>dbi_result_get_int</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-INT-IDX"
+>dbi_result_get_int_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-INT"
+>dbi_result_bind_int</A
+></TD
+></TR
+><TR
+><TD
+>unsigned int</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-UINT"
+>dbi_result_get_uint</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-UINT-IDX"
+>dbi_result_get_uint_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-UINT"
+>dbi_result_bind_uint</A
+></TD
+></TR
+><TR
+><TD
+>long long</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-LONGLONG"
+>dbi_result_get_longlong</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-LONGLONG-IDX"
+>dbi_result_get_longlong_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-LONGLONG"
+>dbi_result_bind_longlong</A
+></TD
+></TR
+><TR
+><TD
+>unsigned long long</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-ULONGLONG"
+>dbi_result_get_ulonglong</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-ULONGLONG-IDX"
+>dbi_result_get_ulonglong_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-ULONGLONG"
+>dbi_result_bind_ulonglong</A
+></TD
+></TR
+><TR
+><TD
+>float</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-FLOAT"
+>dbi_result_get_float</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-FLOAT-IDX"
+>dbi_result_get_float_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-FLOAT"
+>dbi_result_bind_float</A
+></TD
+></TR
+><TR
+><TD
+>double</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-DOUBLE"
+>dbi_result_get_double</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-DOUBLE-IDX"
+>dbi_result_get_double_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-DOUBLE"
+>dbi_result_bind_double</A
+></TD
+></TR
+><TR
+><TD
+>character string</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-STRING"
+>dbi_result_get_string</A
+>, <A
+HREF="reference-field.html#DBI-RESULT-GET-STRING-COPY"
+>dbi_result_get_string_copy</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-STRING-IDX"
+>dbi_result_get_string_idx</A
+>, <A
+HREF="reference-field-idx.html#DBI-RESULT-GET-STRING-COPY-IDX"
+>dbi_result_get_string_copy_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-STRING"
+>dbi_result_bind_string</A
+></TD
+></TR
+><TR
+><TD
+>binary string</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-BINARY"
+>dbi_result_get_binary</A
+>, <A
+HREF="reference-field.html#DBI-RESULT-GET-BINARY-COPY"
+>dbi_result_get_binary_copy</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-BINARY-IDX"
+>dbi_result_get_binary_idx</A
+>, <A
+HREF="reference-field-idx.html#DBI-RESULT-GET-BINARY-COPY-IDX"
+>dbi_result_get_binary_copy_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-BINARY"
+>dbi_result_bind_binary</A
+></TD
+></TR
+><TR
+><TD
+>date/time</TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-GET-DATETIME"
+>dbi_result_get_datetime</A
+></TD
+><TD
+><A
+HREF="reference-field-idx.html#DBI-RESULT-GET-DATETIME-IDX"
+>dbi_result_get_datetime_idx</A
+></TD
+><TD
+><A
+HREF="reference-field.html#DBI-RESULT-BIND-DATETIME"
+>dbi_result_bind_datetime</A
+></TD
+></TR
+></TBODY
+></TABLE
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+SUMMARY="Footer navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="quickstart.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="index.html"
+ACCESSKEY="H"
+>Home</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="quickstart-code.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>libdbi in a Nutshell (Quickstart Guide)</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="quickstart.html"
+ACCESSKEY="U"
+>Up</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Generic Example Program</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

@@ -1,0 +1,160 @@
+/*
+ * SX863X Cap Touch 
+ * Currently Supports:
+ *  SX8636
+ * Future Supports:
+ *  SX8634, SX8635, SX8644, etc
+ *
+ * Copyright 2011 Semtech Corp.
+ *
+ * Licensed under the GPL-2 or later.
+ */
+
+#ifndef _SX863X_I2C_REG_H_
+#define _SX863X_I2C_REG_H_
+
+/*
+ *  I2C Registers
+ */
+#define SX863X_IRQSRC_REG         0x00
+#define SX863X_RESERVED_0x01_REG  0x01
+#define SX863X_CAPSTATLSB_REG     0x02
+#define SX863X_RESERVED_0x03_REG  0x03
+#define SX863X_RESERVED_0x04_REG  0x04
+#define SX863X_RESERVED_0x05_REG  0x05
+#define SX863X_RESERVED_0x06_REG  0x06
+#define SX863X_GPISTAT_REG        0x07
+#define SX863X_SPMSTAT_REG        0x08
+#define SX863X_COMPOPMODE_REG     0x09
+#define SX863X_GPOCTRL_REG        0x0A
+#define SX863X_GPPID_REG          0x0B
+#define SX863X_GPPINTENSITY_REG   0x0C
+#define SX863X_SPMCFG_REG         0x0D
+#define SX863X_SPMBASEADDR_REG    0x0E
+#define SX863X_RESERVED_0x0F_REG  0x0F
+#define SX863X_SPMKEYMSB_REG      0xAC
+#define SX863X_SPMKEYLSB_REG      0xAD
+#define SX863X_SOFTRESET_REG      0xB1
+
+
+/*
+ *  I2C Register Values
+ */
+/*      IrqSrc 0:Inactive 1:Active     */
+#define SX863X_IRQSRC_RESERVED_0x80       0x80
+#define SX863X_IRQSRC_NVM_BURN_FLAG       0x40
+#define SX863X_IRQSRC_SPM_WRITE_FLAG      0x20
+#define SX863X_IRQSRC_GPI_FLAG            0x10
+#define SX863X_IRQSRC_RESERVED_0x08       0x08
+#define SX863X_IRQSRC_BUTTON_FLAG         0x04
+#define SX863X_IRQSRC_COMPENSATION_FLAG   0x02
+#define SX863X_IRQSRC_OPERATING_MODE_FLAG 0x01
+
+
+#define SX863X_CAPSTAT_BUTTON7         0x080
+#define SX863X_CAPSTAT_BUTTON6         0x040
+#define SX863X_CAPSTAT_BUTTON5         0x020
+#define SX863X_CAPSTAT_BUTTON4         0x010
+#define SX863X_CAPSTAT_BUTTON3         0x008
+#define SX863X_CAPSTAT_BUTTON2         0x004
+#define SX863X_CAPSTAT_BUTTON1         0x002
+#define SX863X_CAPSTAT_BUTTON0         0x001
+
+
+
+/*      CapStatLsb 0:Released 1:Touched     */
+#define SX863X_CAPSTATLSB_BUTTON7         0x80
+#define SX863X_CAPSTATLSB_BUTTON6         0x40
+#define SX863X_CAPSTATLSB_BUTTON5         0x20
+#define SX863X_CAPSTATLSB_BUTTON4         0x10
+#define SX863X_CAPSTATLSB_BUTTON3         0x08
+#define SX863X_CAPSTATLSB_BUTTON2         0x04
+#define SX863X_CAPSTATLSB_BUTTON1         0x02
+#define SX863X_CAPSTATLSB_BUTTON0         0x01
+
+/*      GpiStat 0:Low 1:High     */
+#define SX863X_GPISTAT_7         0x80
+#define SX863X_GPISTAT_6         0x40
+#define SX863X_GPISTAT_5         0x20
+#define SX863X_GPISTAT_4         0x10
+#define SX863X_GPISTAT_3         0x08
+#define SX863X_GPISTAT_2         0x04
+#define SX863X_GPISTAT_1         0x02
+#define SX863X_GPISTAT_0         0x01
+
+/*      SpmStat                  */
+#define SX863X_SPMSTAT_RESERVED_0xF0  0xF0
+#define SX863X_SPMSTAT_NVMVALID       0x08
+#define SX863X_SPMSTAT_NVMCOUNT_MSK       0x07
+#define SX863X_SPMSTAT_NVMCOUNT_NONE      0x00
+#define SX863X_SPMSTAT_NVMCOUNT_ONCE      0x01
+#define SX863X_SPMSTAT_NVMCOUNT_TWICE     0x02
+#define SX863X_SPMSTAT_NVMCOUNT_THREE     0x03
+#define SX863X_SPMSTAT_NVMCOUNT_MORETHERE 0x04
+
+/*      CompOpMode                  */
+#define SX863X_COMPOPMODE_RESERVED_0xF8           0x00
+#define SX863X_COMPOPMODE_COMPENSATION            0x04
+#define SX863X_COMPOPMODE_OPERATINGMODE_MSK       0x03
+#define SX863X_COMPOPMODE_OPERATINGMODE_ACTIVE    0x00
+#define SX863X_COMPOPMODE_OPERATINGMODE_DOZE      0x01
+#define SX863X_COMPOPMODE_OPERATINGMODE_SLEEP     0x02
+#define SX863X_COMPOPMODE_OPERATINGMODE_RESERVED  0x03
+
+/*      GpoCtrl 0:OFF 1:ON     */
+#define SX863X_GPOCTRL_ON7         0x80
+#define SX863X_GPOCTRL_ON6         0x40
+#define SX863X_GPOCTRL_ON5         0x20
+#define SX863X_GPOCTRL_ON4         0x10
+#define SX863X_GPOCTRL_ON3         0x08
+#define SX863X_GPOCTRL_ON2         0x04
+#define SX863X_GPOCTRL_ON1         0x02
+#define SX863X_GPOCTRL_ON0         0x01
+
+/*      GppPinId  */
+#define SX863X_GPPPINID_RESERVED_0xF8  0xF8
+#define SX863X_GPPPINID_GPPID_MSK      0x07
+#define SX863X_GPPPINID_GPPID_GPP0     0x00
+#define SX863X_GPPPINID_GPPID_GPP1     0x01
+#define SX863X_GPPPINID_GPPID_GPP2     0x02
+#define SX863X_GPPPINID_GPPID_GPP3     0x03
+#define SX863X_GPPPINID_GPPID_GPP4     0x04
+#define SX863X_GPPPINID_GPPID_GPP5     0x05
+#define SX863X_GPPPINID_GPPID_GPP6     0x06
+#define SX863X_GPPPINID_GPPID_GPP7     0x07
+
+/*      GppIntensity Specify 0 - 255 */
+#define SX863X_GPPPINTENSITY_MSK  0xFF
+
+/*      SoftReset */
+#define SX863X_SOFTRESET_COMMAND1  0xDE
+#define SX863X_SOFTRESET_COMMAND2  0x00
+
+/*      SpmCfg */
+#define SX863X_SPMCFG_RESERVED_0xC0    0xC0
+#define SX863X_SPMCFG_I2CSPM_MSK       0x30
+#define SX863X_SPMCFG_I2CSPM_OFF       0x00
+#define SX863X_SPMCFG_I2CSPM_ON        0x10
+#define SX863X_SPMCFG_I2CSPM_RESERVED1 0x20
+#define SX863X_SPMCFG_I2CSPM_RESERVED2 0x30
+#define SX863X_SPMCFG_RWSPM_MSK        0x08
+#define SX863X_SPMCFG_RWSPM_WRITE      0x00
+#define SX863X_SPMCFG_RWSPM_READ       0x08
+#define SX863X_SPMCFG_RESERVED_0x07    0x07
+#define SX863X_SPMCFG_MONITORMODE_MSK  0x04
+#define SX863X_SPMCFG_MONITORMODE_OFF  0x00
+#define SX863X_SPMCFG_MONITORMODE_ON   0x04
+
+/*  SpmBaseAddr Specify 0x00 - 0x78 (mod 8) */
+#define SX863X_SPMBASEADDR_MSK  0xFF
+
+/*  SpmKeyMsb  */
+#define SX863X_SPMKEYMSB_UNLOCK 0x62
+
+/*  SpmKeyLsb  */
+#define SX863X_SPMKEYLSB_UNLOCK 0x9D
+
+#endif /* _SX863X_I2C_REG_H_*/
+
+
+

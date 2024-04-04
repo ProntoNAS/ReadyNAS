@@ -1,0 +1,32 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# Sample debian/rules that uses debhelper.
+# This file was originally written by Joey Hess and Craig Small.
+# As a special exception, when this file is copied by dh-make into a
+# dh-make output file, you may use that output file without restriction.
+# This special exception was added by Craig Small in version 0.37 of dh-make.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+%:
+	dh --with autoreconf $@
+
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+override_dh_auto_configure:
+	./configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info --htmldir=\$${prefix}/share/doc/libcgicc-doc/html --disable-demos
+
+override_dh_auto_install:
+	dh_auto_install
+	# work around doxygen bug - embeds copy of jquery unnecessarily
+	rm -f $(CURDIR)/debian/tmp/usr/share/doc/libcgicc-doc/html/jquery.js
+
+override_dh_installexamples:
+	dh_installexamples -XMakefile
+
+override_dh_fixperms:
+	dh_fixperms
+	find $(CURDIR)/debian/libcgicc-doc -name '*.png' -o -name '*.svg' | xargs --no-run-if-empty chmod 644
+	find $(CURDIR)/debian/libcgicc-doc -name .deps | xargs --no-run-if-empty rm -r

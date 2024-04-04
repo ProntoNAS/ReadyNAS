@@ -1,0 +1,20 @@
+2014-05-05  Aurelien Jarno  <aurelien@aurel32.net>
+
+	* sysdeps/unix/sysv/linux/ptsname.c (__ptsname_internal): return
+	errno if the TIOCGPTN ioctl fails with an error different than
+	EINVAL.
+
+diff --git a/sysdeps/unix/sysv/linux/ptsname.c b/sysdeps/unix/sysv/linux/ptsname.c
+--- a/sysdeps/unix/sysv/linux/ptsname.c
++++ b/sysdeps/unix/sysv/linux/ptsname.c
+@@ -105,7 +105,9 @@ __ptsname_internal (int fd, char *buf, size_t buflen, struct stat64 *stp)
+ 
+       memcpy (__stpcpy (buf, devpts), p, &numbuf[sizeof (numbuf)] - p);
+     }
+-  else if (errno == EINVAL)
++  else if (errno != EINVAL)
++    return errno;
++  else
+ #endif
+     {
+       char *p;

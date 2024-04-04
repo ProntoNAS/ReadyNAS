@@ -1,0 +1,110 @@
+General:
+* The ConfModule should not return the backup return code, ever, if 
+  the confmodule it talks to has not indicated it has that capability.
+* Get rid of the horrendous fd #3 hack in /usr/share/debconf/confmodule.
+  Unfortuantly, many packages probably depend on the hack. Options are to
+  find all such packages (by examining/auditing all packages that use
+  debconf), to come up with a new shell interface that is so much cooler
+  people will want to migrate to it, and make it not use the hack,
+  or to decide with Wichert that debconf should not ursurp stdin/out.
+* Should be able to jump to debconf config when debconf is interacting with
+  the user.
+* Regression tests.
+* I need to implement the container template type. That's gonna be fun..
+* Something I see frequently is a select list that needs lots of explination
+  for each option. It'd be neat if the explination could be added as a
+  parallell list with the select list, to keep the actual tokens that the
+  confmodule script gets back short. See modconf for how such a list could
+  display in whiptail.
+* Darxus <darxus@Op.Net>
+  > I will probably leave debconf set to ask me every question for quite some
+  > time.  But it would be nice, in addition the "yes" & "no" buttons, to have
+  > a "don't ask me again" checkbox, so next time it'll just used the stored
+  > answer.
+  Dialog frontend couldn't support this, but the rest could.
+* Add a dbdriver format module that understands debconf-show output;
+  then you can pipe that into a ssh to a remote host and use
+  DEBCONF_DB_OVERIDE and fun stuff like that.
+
+Protocol and spec revisions:
+
+* Expose a way to iterate over questions; this would allow a UI independant
+  database browser to be easily written.
+* Document the behavior of the seen flag when backing up in the same config
+  script run. (Tausq?)
+* Get rid of notes, that data type is too prone to abuse; error is better.
+
+Database:
+* The division between Debconf::Config and Debconf::Db still needs thought.
+  They both call each other, but worse, Debconf::Db->load needs to be
+  called in dpkg-preconfigure and others before Debconf::Config->blah can
+  be used, which is unintuitive.
+* There's also the Force-Flag-Seen thing, which is really a more generic
+  forcing of any given flag to any vale, and should expand to forcing any
+  field to a value too, I'd think. Perhaps it should be an overlaid
+  database really? Yes, I think so..
+* Regression tests!
+* The Backup driver cannot deal with situations where the db already has
+  stuff and the copy does not. Perhaps it should copy items whole from db
+  to copy if they do not already exist in the copy and an operation is done
+  to them?
+* Debconf does not try to deal with things that were not passwords becoming
+  passwords. They stay in config.dat, world-readable. I'm not sure it _can_
+  detect this and move them to passwords.dat.
+* PackageDir dbdriver needs testing, and needs to become used by default..
+* Hmm, as a slight mod to PackageDir, it just might be possible to use
+  /var/lib/dpkg/info/*.templates as a packagedir database. The 822 module
+  does not currently handle the word-wrapped descriptions in there, and
+  it'd sorta have to be read-only and stacked under another db or something
+  to record owner info though. The overlying db would need to get copies of
+  templates if they got 2 owners, so the package they're in doesn't leave
+  the other owner stranded. Still, this would easily save 1 mb on most
+  debian installs, so I really should pursue it.
+
+Noninteractive frontend:
+* Just because it's noninteractive doesn't mean it can't output to the
+  console. I think it should do so, at least for errors (in addition to
+  mailing them). That way if an error is displayed and the package install
+  fails you don't just see it dying, you immediately see why.
+
+Readline frontend:
+* It might be better in terse mode to not print out the list of choices for
+  a select list, and instead rely on them using tab completion. However,
+  for this to be usable, it would need to ditch the numbered shortcuts in
+  this case, neither listing them in tab completion nor making them show up
+  as defaults in the prompt.
+
+Dialog frontend:
+* It'd be nice if the Dialog stuff could catch text that was to be
+  displayed that is in the same block, buffer it, and display it up at the top
+  when it prompts for an input that is in the same block.
+
+Gnome frontend:
+* Make it use a multiselect box instead of all the check boxes
+* Add support for blocks and containers, both of which should let multiple
+  questions be grouped together in nice ways on the screen.
+* It seems that text elements hang around on each page displayed after the
+  one they should be on. Actually, the Elements are not hanging around, but
+  the gtk label widgets are, and I don't know why.
+
+KDE frontend:
+* Document the code! (Better)
+* Use libkde-perl when it arrives
+* Fix the mysterious and annoying DESTROY warnings from perlqt (they seem to
+  be harmless... but i'd rather see them go away)
+* Needs testing...
+* Embedding into package manager (kapture) -- maybe there's no need for
+  changing the frontend itself for this to work
+* Blocks and stuff (need to read some docs and/or code first)
+* More?
+
+Web based frontend:
+* Well, a little security would be nice! It only allows connections
+  from localhost, but even that isn't good enough at all.
+* Passwords are completly insecure.
+* It can support blocks, so add them. I guess they could be used for
+  arranging questions into tables or something.
+* It should have a config screen. In it, you configure the frontend itself.
+  One option would be to make it be in "quiet" mode -- this would make it
+  not display extended descriptions, just provide links them. Another thing
+  to configure would be what priority of questions it is displaying.

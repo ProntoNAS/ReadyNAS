@@ -1,0 +1,120 @@
+#!/usr/bin/make -f
+
+# hacks to avoid running these things during the build
+export ACLOCAL    = : aclocal
+export AUTOCONF   = : autoconf
+export AUTOMAKE   = : automake
+export AUTOHEADER = : autoheader
+
+DEB_HOST_ARCH_OS ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+
+CPPFLAGS = $(shell dpkg-buildflags --get CPPFLAGS) -D_GNU_SOURCE
+CFLAGS   = $(shell dpkg-buildflags --get CFLAGS) -fno-strict-aliasing
+LDFLAGS  = $(shell dpkg-buildflags --get LDFLAGS) -Wl,--as-needed
+
+config.status:
+	dh_testdir
+ifeq (hurd, $(DEB_HOST_ARCH_OS))
+	# hurd does not provided the system calls needed for ntpd to work.
+	exit 1
+endif
+	cp /usr/share/misc/config.guess /usr/share/misc/config.sub .
+	./configure CFLAGS='$(CFLAGS)' CPPFLAGS='$(CPPFLAGS)' LDFLAGS='$(LDFLAGS)' \
+		--prefix=/usr \
+		--enable-all-clocks --enable-parse-clocks --enable-SHM \
+		--disable-debugging --sysconfdir=/var/lib/ntp \
+		--with-sntp=no \
+		--with-lineeditlibs=edit \
+		--without-ntpsnmpd \
+		--disable-local-libopts \
+		--enable-ntp-signd \
+		--disable-dependency-tracking \
+		--with-openssl-libdir=/usr/lib/$(DEB_HOST_MULTIARCH)
+
+build: build-arch build-indep
+build-arch: build-stamp
+build-indep: build-stamp
+build-stamp: config.status
+	dh_testdir
+	$(MAKE)
+	touch $@
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp 
+	[ ! -f Makefile ] || $(MAKE) -k distclean
+	rm -f config.guess config.sub
+	dh_clean
+
+install: build-stamp
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/ntp
+
+	# move the administrator programs from /usr/bin to /usr/sbin
+	for file in ntpdate ntp-wait ntpd ntptime ntp-keygen; do \
+		mv debian/ntp/usr/bin/$$file debian/ntp/usr/sbin/$$file || exit; \
+	done
+
+	# don't install tickadj
+	rm debian/ntp/usr/bin/tickadj
+
+	install -D -m 0755 scripts/ntpsweep debian/ntp/usr/bin/ntpsweep
+	install -D -m 0644 debian/ntp.dhcp debian/ntp/etc/dhcp/dhclient-exit-hooks.d/ntp
+	install -D -m 0644 debian/ntpdate.dhcp debian/ntpdate/etc/dhcp/dhclient-exit-hooks.d/ntpdate
+	install -D -m 0755 debian/ntpdate-debian debian/ntpdate/usr/sbin/ntpdate-debian
+
+	install -D -m 0644 debian/ntp.conf debian/ntp/etc/ntp.conf
+
+	# remove upstream man pages, which are currently not as nice as ours / ntpsnmpd we don't want
+	rm $(addprefix debian/ntp/usr/share/man/man1/,ntpd.1 ntpdc.1 ntp-keygen.1 ntpq.1 ntpsnmpd.1)
+
+	dh_movefiles --sourcedir=debian/ntp
+
+binary-indep: build install
+	dh_testdir -i
+	dh_testroot -i
+	dh_installdocs -i html
+	rm -f debian/ntp-doc/usr/share/doc/ntp-doc/html/hints/solaris*
+	dh_installexamples -i
+	dh_installman -i
+	dh_installcron -i
+	dh_installlogcheck -i
+	dh_installchangelogs -i
+	dh_installifupdown -i
+	dh_perl -i
+	dh_compress -i
+	dh_fixperms -i
+	dh_installdeb -i
+	dh_gencontrol -i
+	dh_md5sums -i
+	dh_builddeb -i
+
+binary-arch: build install
+	dh_testdir -a
+	dh_testroot -a
+	dh_installdocs -a
+	dh_installexamples -a
+	dh_installman -a
+	dh_installinit -pntp --update-rcd-params="start 23 2 3 4 5 ." --error-handler=installinit_error
+	dh_installinit -pntpdate
+	dh_installcron -a
+	dh_installlogcheck -a
+	dh_installchangelogs -a
+	dh_installifupdown -a
+	dh_perl -a
+	dh_strip -a
+	dh_compress -a
+	dh_fixperms -a
+	dh_installdeb -a
+	dh_shlibdeps -a
+	dh_gencontrol -a
+	dh_md5sums -a
+	dh_builddeb -a
+
+binary: binary-indep binary-arch
+.PHONY: build build-arch build-indep clean binary-indep binary-arch binary install

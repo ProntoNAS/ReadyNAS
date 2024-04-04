@@ -1,0 +1,54 @@
+2014-04-30  Siddhesh Poyarekar  <siddhesh@redhat.com>
+	    Atsushi Onoe  <atsushi@onoe.org>
+
+	[BZ #14308]
+	[BZ #12994]
+	[BZ #13651]
+	* resolv/res_query.c (__libc_res_nsearch): Return if at least
+	one response is valid.
+	* resolv/res_send.c (send_dg): Check for validity of other
+	response if the current response is a referral.
+
+diff --git a/resolv/res_query.c b/resolv/res_query.c
+--- a/resolv/res_query.c
++++ b/resolv/res_query.c
+@@ -382,7 +382,9 @@ __libc_res_nsearch(res_state statp,
+ 		ret = __libc_res_nquerydomain(statp, name, NULL, class, type,
+ 					      answer, anslen, answerp,
+ 					      answerp2, nanswerp2, resplen2);
+-		if (ret > 0 || trailing_dot)
++		if (ret > 0 || trailing_dot
++		    /* If the second response is valid then we use that.  */
++		    || (ret == 0 && answerp2 != NULL && resplen2 > 0))
+ 			return (ret);
+ 		saved_herrno = h_errno;
+ 		tried_as_is++;
+@@ -422,7 +424,8 @@ __libc_res_nsearch(res_state statp,
+ 						      answer, anslen, answerp,
+ 						      answerp2, nanswerp2,
+ 						      resplen2);
+-			if (ret > 0)
++			if (ret > 0 || (ret == 0 && answerp2 != NULL
++					&& resplen2 > 0))
+ 				return (ret);
+ 
+ 			if (answerp && *answerp != answer) {
+diff --git a/resolv/res_send.c b/resolv/res_send.c
+--- a/resolv/res_send.c
++++ b/resolv/res_send.c
+@@ -1351,6 +1351,7 @@ send_dg(res_state statp,
+ 				(*thisresplenp > *thisanssizp)
+ 				? *thisanssizp : *thisresplenp);
+ 
++		next_ns:
+ 			if (recvresp1 || (buf2 != NULL && recvresp2)) {
+ 			  *resplen2 = 0;
+ 			  return resplen;
+@@ -1368,7 +1369,6 @@ send_dg(res_state statp,
+ 			    goto wait;
+ 			  }
+ 
+-		next_ns:
+ 			__res_iclose(statp, false);
+ 			/* don't retry if called from dig */
+ 			if (!statp->pfcode)

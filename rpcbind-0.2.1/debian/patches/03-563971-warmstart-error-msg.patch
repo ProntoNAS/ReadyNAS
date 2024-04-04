@@ -1,0 +1,36 @@
+http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=563971
+
+rpcbind only enables the -w option if the --enable-warmstarts
+option is passed to configure.
+
+The fact that it does not print a useful error message in this
+case is an error.
+
+Signed-off-by: sacrificial-spam-address@horizon.com
+Tested-by: Anibal Monsalve Salazar <anibal@debian.org>
+
+Index: rpcbind-0.2.1/src/rpcbind.c
+===================================================================
+--- rpcbind-0.2.1.orig/src/rpcbind.c
++++ rpcbind-0.2.1/src/rpcbind.c
+@@ -778,13 +778,18 @@ parseargs(int argc, char *argv[])
+ 		case 'f':
+ 			dofork = 0;
+ 			break;
+-#ifdef WARMSTART
+ 		case 'w':
++#ifdef WARMSTART
+ 			warmstart = 1;
+ 			break;
+-#endif
+ 		default:	/* error */
+ 			fprintf(stderr,	"usage: rpcbind [-adhilswf]\n");
++#else
++			fprintf(stderr,	"-w: rpcbind compiled without WARMSTART support.\n");
++			/* FALLTHROUGH */
++		default:	/* error */
++			fprintf(stderr,	"usage: rpcbind [-adhils]\n");
++#endif
+ 			exit (1);
+ 		}
+ 	}

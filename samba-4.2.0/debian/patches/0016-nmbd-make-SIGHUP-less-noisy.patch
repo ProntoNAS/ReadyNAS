@@ -1,0 +1,81 @@
+From 7681ea66199e75b1f35ff6c31d4adb5fe8347b7a Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Fri, 30 Jan 2015 12:20:25 -0800
+Subject: [PATCH 16/19] nmbd: make SIGHUP less noisy
+
+---
+ source3/nmbd/nmbd.c            |  4 ++--
+ source3/nmbd/nmbd_become_lmb.c | 12 ++++++------
+ 2 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/source3/nmbd/nmbd.c b/source3/nmbd/nmbd.c
+index d883c0a..9276bff 100644
+--- a/source3/nmbd/nmbd.c
++++ b/source3/nmbd/nmbd.c
+@@ -166,7 +166,7 @@ static void nmbd_sig_hup_handler(struct tevent_context *ev,
+ 	struct messaging_context *msg = talloc_get_type_abort(
+ 		private_data, struct messaging_context);
+ 
+-	DEBUG(0,("Got SIGHUP dumping debug info.\n"));
++	DEBUG(1,("Got SIGHUP dumping debug info.\n"));
+ 	msg_reload_nmbd_services(msg, NULL, MSG_SMB_CONF_UPDATED,
+ 				 messaging_server_id(msg), NULL);
+ }
+@@ -430,7 +430,7 @@ static void msg_reload_nmbd_services(struct messaging_context *msg,
+ 				     struct server_id server_id,
+ 				     DATA_BLOB *data)
+ {
+-	write_browse_list( 0, True );
++	write_browse_list( time(NULL), False );
+ 	dump_all_namelists();
+ 	reload_nmbd_services( True );
+ 	reopen_logs();
+diff --git a/source3/nmbd/nmbd_become_lmb.c b/source3/nmbd/nmbd_become_lmb.c
+index f94efd0..f628f53 100644
+--- a/source3/nmbd/nmbd_become_lmb.c
++++ b/source3/nmbd/nmbd_become_lmb.c
+@@ -148,11 +148,11 @@ static void unbecome_local_master_success(struct subnet_record *subrec,
+ 	reset_workgroup_state( subrec, relname, force_new_election );
+ 
+ 	if( DEBUGLVL( 0 ) ) {
+-		dbgtext( "*****\n\n" );
++		dbgtext( "***** " );
+ 		dbgtext( "Samba name server %s ", lp_netbios_name() );
+ 		dbgtext( "has stopped being a local master browser " );
+ 		dbgtext( "for workgroup %s ", relname );
+-		dbgtext( "on subnet %s\n\n*****\n", subrec->subnet_name );
++		dbgtext( "on subnet %s *****\n", subrec->subnet_name );
+ 	}
+ 
+ }
+@@ -184,11 +184,11 @@ Removing from namelist anyway.\n", nmb_namestr(fail_name)));
+ 	reset_workgroup_state( subrec, failname, force_new_election );
+ 
+ 	if( DEBUGLVL( 0 ) ) {
+-		dbgtext( "*****\n\n" );
++		dbgtext( "***** " );
+ 		dbgtext( "Samba name server %s ", lp_netbios_name() );
+ 		dbgtext( "has stopped being a local master browser " );
+ 		dbgtext( "for workgroup %s ", failname );
+-		dbgtext( "on subnet %s\n\n*****\n", subrec->subnet_name );
++		dbgtext( "on subnet %s *****\n", subrec->subnet_name );
+ 	}
+ }
+ 
+@@ -395,11 +395,11 @@ on subnet %s\n", work->work_group, subrec->subnet_name));
+ 	reset_announce_timer();
+ 
+ 	if( DEBUGLVL( 0 ) ) {
+-		dbgtext( "*****\n\n" );
++		dbgtext( "***** " );
+ 		dbgtext( "Samba name server %s ", lp_netbios_name() );
+ 		dbgtext( "is now a local master browser " );
+ 		dbgtext( "for workgroup %s ", work->work_group );
+-		dbgtext( "on subnet %s\n\n*****\n", subrec->subnet_name );
++		dbgtext( "on subnet %s *****\n", subrec->subnet_name );
+ 	}
+ }
+ 
+-- 
+1.9.1
+

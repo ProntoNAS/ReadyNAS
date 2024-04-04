@@ -1,0 +1,47 @@
+From 356ca08fba8dbd2ef6fbf5e09ac7d438887fbc61 Mon Sep 17 00:00:00 2001
+From: David Mitchell <davem@iabyn.com>
+Date: Tue, 5 Jul 2011 11:35:08 +0100
+Subject: fix segv in regcomp.c:S_join_exact()
+
+[ cherry-picked from bb789b09de07edfb74477eb1603949c96d60927d
+to stop clang's address-sanitizer from complaining. See [perl #115994] ]
+
+This function joins multiple EXACT* nodes into a single node.
+At the end, under DEBUGGING, it marks the optimised-out nodes as being
+type OPTIMIZED. However, some of the 'nodes' aren't actually nodes;
+they're random bits of string at the tail of those nodes. So you
+can't peek that the 'node's OP field to decide what type it was.
+
+Instead, just unconditionally overwrite all the slots with fake
+OPTIMIZED nodes.
+
+Bug: https://rt.perl.org/rt3//Ticket/Display.html?id=115994
+Origin: http://perl5.git.perl.org/perl.git/commit/ebb390a3767eb21f1f35d77eb92061bd48850a9e
+Patch-Name: fixes/regcomp_fix_segv.diff
+---
+ regcomp.c |   10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/regcomp.c b/regcomp.c
+index b186c8d..b30e3bc 100644
+--- a/regcomp.c
++++ b/regcomp.c
+@@ -2647,13 +2647,13 @@ S_join_exact(pTHX_ RExC_state_t *pRExC_state, regnode *scan, I32 *min, U32 flags
+     }
+     
+ #ifdef DEBUGGING
+-    /* Allow dumping */
++    /* Allow dumping but overwriting the collection of skipped
++     * ops and/or strings with fake optimized ops */
+     n = scan + NODE_SZ_STR(scan);
+     while (n <= stop) {
+-        if (PL_regkind[OP(n)] != NOTHING || OP(n) == NOTHING) {
+-            OP(n) = OPTIMIZED;
+-            NEXT_OFF(n) = 0;
+-        }
++	OP(n) = OPTIMIZED;
++	FLAGS(n) = 0;
++	NEXT_OFF(n) = 0;
+         n++;
+     }
+ #endif

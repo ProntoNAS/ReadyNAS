@@ -1,0 +1,106 @@
+Description: Fix build failures with -Werror=format-security
+ The change to ntp_config.c is merely pacifying GCC, since signd_warning is
+ a constant string containing no '%' characters.  In the other cases, it is
+ much more difficult to prove that the format string cannot contain any '%'
+ characters.
+Author: Colin Watson <cjwatson@ubuntu.com>
+Author: Steven Chamberlain <steven@pyro.eu.org>
+Author: Peter Eisentraut <petere@debian.org>
+Bug: http://bugs.ntp.org/2106
+Bug-Debian: http://bugs.debian.org/627403
+Bug-Debian: http://bugs.debian.org/653771
+Last-Update: 2012-01-05
+
+--- a/lib/isc/unix/ifiter_ioctl.c
++++ b/lib/isc/unix/ifiter_ioctl.c
+@@ -159,7 +159,7 @@ getbuf4(isc_interfaceiter_t *iter) {
+ 				break;
+ 		}
+ 		if (iter->bufsize >= IFCONF_BUFSIZE_MAX) {
+-			UNEXPECTED_ERROR(__FILE__, __LINE__,
++			UNEXPECTED_ERROR(__FILE__, __LINE__, "%s",
+ 					 isc_msgcat_get(isc_msgcat,
+ 							ISC_MSGSET_IFITERIOCTL,
+ 							ISC_MSG_BUFFERMAX,
+@@ -260,7 +260,7 @@ getbuf6(isc_interfaceiter_t *iter) {
+ 				break;
+ 		}
+ 		if (iter->bufsize6 >= IFCONF_BUFSIZE_MAX) {
+-			UNEXPECTED_ERROR(__FILE__, __LINE__,
++			UNEXPECTED_ERROR(__FILE__, __LINE__, "%s",
+ 					 isc_msgcat_get(isc_msgcat,
+ 							ISC_MSGSET_IFITERIOCTL,
+ 							ISC_MSG_BUFFERMAX,
+--- a/ntpd/ntp_config.c
++++ b/ntpd/ntp_config.c
+@@ -2326,7 +2326,7 @@ config_access(
+ 		if ((RES_MSSNTP & flags) && !warned_signd) {
+ 			warned_signd = 1;
+ 			fprintf(stderr, "%s\n", signd_warning);
+-			msyslog(LOG_WARNING, signd_warning);
++			msyslog(LOG_WARNING, "%s", signd_warning);
+ 		}
+ 	}
+ }
+--- a/ntpd/ntp_control.c
++++ b/ntpd/ntp_control.c
+@@ -2948,7 +2948,7 @@ report_event(
+ 			    " %s", str);
+ 		}
+ 		NLOG(NLOG_SYSEVENT)
+-		    msyslog(LOG_INFO, statstr);
++		    msyslog(LOG_INFO, "%s", statstr);
+ 	} else {
+ 
+ 		/*
+@@ -2980,7 +2980,7 @@ report_event(
+ 			    " %s", str);
+ 		}
+ 		NLOG(NLOG_PEEREVENT)
+-		    msyslog(LOG_INFO, statstr);
++		    msyslog(LOG_INFO, "%s", statstr);
+ 	}
+ 	record_proto_stats(statstr);
+ #if DEBUG
+--- a/ntpd/ntpd.c
++++ b/ntpd/ntpd.c
+@@ -1284,7 +1284,7 @@ library_fatal_error(const char *file, in
+ 
+ 	msyslog(LOG_ERR, "%s:%d: fatal error:", file, line);
+ 	vsnprintf(errbuf, sizeof(errbuf), format, args);
+-	msyslog(LOG_ERR, errbuf);
++	msyslog(LOG_ERR, "%s", errbuf);
+ 	msyslog(LOG_ERR, "exiting (due to fatal error in library)");
+ 
+ 	abort();
+@@ -1306,7 +1306,7 @@ library_unexpected_error(const char *fil
+ 
+ 	msyslog(LOG_ERR, "%s:%d: unexpected error:", file, line);
+ 	vsnprintf(errbuf, sizeof(errbuf), format, args);
+-	msyslog(LOG_ERR, errbuf);
++	msyslog(LOG_ERR, "%s", errbuf);
+ 
+ 	if (++unexpected_error_cnt == MAX_UNEXPECTED_ERRORS)
+ 	{
+--- a/ntpd/refclock_oncore.c
++++ b/ntpd/refclock_oncore.c
+@@ -4058,7 +4058,7 @@ oncore_log (
+ 
+ 	snprintf(Msg, sizeof(Msg), "ONCORE[%d]: %s", instance->unit,
+ 		 msg);
+-	syslog(log_level, Msg);
++	syslog(log_level, "%s", Msg);
+ 
+ 	i = strlen(msg);
+ 
+--- a/lib/isc/include/isc/msgcat.h
++++ b/lib/isc/include/isc/msgcat.h
+@@ -110,7 +110,7 @@ isc_msgcat_close(isc_msgcat_t **msgcatp)
+ 
+ const char *
+ isc_msgcat_get(isc_msgcat_t *msgcat, int set, int message,
+-	       const char *default_text);
++	       const char *default_text) __attribute__((format_arg(4)));
+ /*%<
+  * Get message 'message' from message set 'set' in 'msgcat'.  If it
+  * is not available, use 'default_text'.

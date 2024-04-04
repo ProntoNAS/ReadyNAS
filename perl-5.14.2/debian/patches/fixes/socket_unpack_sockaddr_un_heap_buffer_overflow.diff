@@ -1,0 +1,51 @@
+From 30c39051fabf7d1111a2c55f5665c8bea679d19f Mon Sep 17 00:00:00 2001
+From: David Mitchell <davem@iabyn.com>
+Date: Sun, 24 Feb 2013 16:46:19 +0000
+Subject: Socket::unpack_sockaddr_un heap-buffer-overflow
+
+[perl #111594]
+
+A (fairly harmless) read buffer overflow can occur when copying sockaddr
+buffers. Cherry-pick the fix from Socket 2.009 to keep ASAN happy.
+
+Bug: https://rt.perl.org/rt3//Ticket/Display.html?id=111594
+Origin: http://perl5.git.perl.org/perl.git/commit/e5086424505dcbfc5e26aeb984b769ecf5ffed01
+Patch-Name: fixes/socket_unpack_sockaddr_un_heap_buffer_overflow.diff
+---
+ ext/Socket/Socket.xs |   18 +++++++++++-------
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/ext/Socket/Socket.xs b/ext/Socket/Socket.xs
+index 9214fc1..e5abb71 100644
+--- a/ext/Socket/Socket.xs
++++ b/ext/Socket/Socket.xs
+@@ -557,18 +557,22 @@ unpack_sockaddr_un(sun_sv)
+ 	STRLEN sockaddrlen;
+ 	char * sun_ad = SvPVbyte(sun_sv,sockaddrlen);
+ 	int addr_len;
+-#   ifndef __linux__
++#   ifdef __linux__
+ 	/* On Linux sockaddrlen on sockets returned by accept, recvfrom,
+ 	   getpeername and getsockname is not equal to sizeof(addr). */
+-	if (sockaddrlen != sizeof(addr)) {
+-	    croak("Bad arg length for %s, length is %d, should be %d",
+-			"Socket::unpack_sockaddr_un",
+-			sockaddrlen, sizeof(addr));
++	if (sockaddrlen < sizeof(addr)) {
++	  Copy(sun_ad, &addr, sockaddrlen, char);
++	  Zero(((char*)&addr) + sockaddrlen, sizeof(addr) - sockaddrlen, char);
++	} else {
++	  Copy(sun_ad, &addr, sizeof(addr), char);
+ 	}
++#   else
++	if (sockaddrlen != sizeof(addr))
++		croak("Bad arg length for %s, length is %"UVuf", should be %"UVuf,
++		      "Socket::unpack_sockaddr_un", (UV)sockaddrlen, (UV)sizeof(addr));
++	Copy(sun_ad, &addr, sizeof(addr), char);
+ #   endif
+ 
+-	Copy( sun_ad, &addr, sizeof addr, char );
+-
+ 	if ( addr.sun_family != AF_UNIX ) {
+ 	    croak("Bad address family for %s, got %d, should be %d",
+ 			"Socket::unpack_sockaddr_un",

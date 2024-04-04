@@ -1,0 +1,43 @@
+From ff9926b8dcead91e7fc6d08d0ca1d2d8cc982308 Mon Sep 17 00:00:00 2001
+From: Stef Walter <stefw@gnome.org>
+Date: Sun, 1 Apr 2012 21:56:35 +0200
+Subject: [PATCH 3/6] Fix crasher when a duplicate module is present
+
+---
+ p11-kit/modules.c |   13 +++++++------
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/p11-kit/modules.c b/p11-kit/modules.c
+index f059097..569a735 100644
+--- a/p11-kit/modules.c
++++ b/p11-kit/modules.c
+@@ -440,6 +440,13 @@ take_config_and_load_module_unlocked (char **name, hashmap **config)
+ 		return rv;
+ 	}
+ 
++	/*
++	 * We support setting of CK_C_INITIALIZE_ARGS.pReserved from
++	 * 'x-init-reserved' setting in the config. This only works with specific
++	 * PKCS#11 modules, and is non-standard use of that field.
++	 */
++	mod->init_args.pReserved = _p11_hash_get (mod->config, "x-init-reserved");
++
+ 	prev = _p11_hash_get (gl.modules, mod->funcs);
+ 
+ 	/* If same module was loaded previously, just take over config */
+@@ -463,12 +470,6 @@ take_config_and_load_module_unlocked (char **name, hashmap **config)
+ 		}
+ 
+ 	}
+-	/*
+-	 * We support setting of CK_C_INITIALIZE_ARGS.pReserved from
+-	 * 'x-init-reserved' setting in the config. This only works with specific
+-	 * PKCS#11 modules, and is non-standard use of that field.
+-	 */
+-	mod->init_args.pReserved = _p11_hash_get (mod->config, "x-init-reserved");
+ 
+ 	return CKR_OK;
+ }
+-- 
+1.7.9.5
+

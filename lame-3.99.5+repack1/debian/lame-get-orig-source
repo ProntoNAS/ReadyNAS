@@ -1,0 +1,56 @@
+#!/bin/sh
+
+set -e
+
+# Script used to generate the orig source tarball for lame.
+
+LAME_UPSTREAM_VERSION="3.99.5"
+LAME_DOWNLOAD_URL="http://downloads.sourceforge.net/project/lame/lame/3.99/lame-${LAME_UPSTREAM_VERSION}.tar.gz"
+LAME_VERSION="${LAME_UPSTREAM_VERSION}+repack1"
+LAME_TARBALL_CHECKSUM="24346b4158e4af3bd9f2e194bb23eb473c75fb7377011523353196b19b9a23ff"
+
+# Download and verify lame upstream tarball
+test -f "lame-${LAME_UPSTREAM_VERSION}.tar.gz" || wget -c "${LAME_DOWNLOAD_URL}"
+COMPUTED_CHECKSUM=`sha256sum "lame-${LAME_UPSTREAM_VERSION}.tar.gz" | cut -d ' ' -f 1`
+if [ $LAME_TARBALL_CHECKSUM != $COMPUTED_CHECKSUM ] ; then
+  echo "Checksum verification failed. Checksum was $COMPUTED_CHECKSUM
+Expected checksum $LAME_TARBALL_CHECKSUM."
+  exit 1
+else
+  echo "Checksum verified. Checksum is $COMPUTED_CHECKSUM."
+fi
+tar -xzf "lame-${LAME_UPSTREAM_VERSION}.tar.gz"
+rm -rf "lame-${LAME_VERSION}"
+mv "lame-${LAME_UPSTREAM_VERSION}" "lame-${LAME_VERSION}"
+cd "lame-${LAME_VERSION}"
+
+# Modify build system to remove debian directory and include GTK-1 autoconf
+# directives.
+rm -rf "debian/"
+patch -p1 <"../$(dirname $0)/patches/debian-as-extra-dist.patch"
+patch -p1 <"../$(dirname $0)/patches/gtk1-ac-directives.patch"
+autoreconf -vif
+cd ..
+
+# Remove temp files and other cruft from source tarball
+# The find command snippet here was taken from debhelper's dh_clean command
+# with some modification to delete more unneeded files.
+echo "Removing temp files and other cruft from source tarball"
+find lame-${LAME_VERSION} \( \( -type f -a \
+  \( -name '#*#' -o -name '.*~' -o -name '*~' -o -name DEADJOE \
+  -o -name '*.orig' -o -name '*.rej' -o -name '*.bak' \
+  -o -name '.*.orig' -o -name .*.rej -o -name '.SUMS' \
+  -o -name TAGS -o \( -path '*/.deps/*' -a -name '*.P' \) \
+  -o -name config.status -o -name config.cache -o -name config.log \
+  \) -exec rm -f "{}" \; \) -o \
+  \( -type d -a -name autom4te.cache -prune -exec rm -rf "{}" \; \) \)
+rm -rf lame-${LAME_VERSION}/.git
+rm -f lame-${LAME_VERSION}/.gitignore
+
+# Remove empty directories
+echo "Removing empty directories"
+find lame-${LAME_VERSION} -type d -empty -delete
+
+rm -f "lame_${LAME_VERSION}.orig.tar.gz"
+tar --exclude-vcs -czf "lame_${LAME_VERSION}.orig.tar.gz" \
+  "lame-${LAME_VERSION}/"

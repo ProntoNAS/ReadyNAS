@@ -1,0 +1,151 @@
+.\" dpkg manual page - dpkg-maintscript-helper(1)
+.\"
+.\" Copyright 息 2010-2012 Rapha谷l Hertzog <hertzog@debian.org>
+.\"
+.\" This is free software; you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License as published by
+.\" the Free Software Foundation; either version 2 of the License, or
+.\" (at your option) any later version.
+.\"
+.\" This is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public License
+.\" along with this program.  If not, see <http://www.gnu.org/licenses/>.
+.
+.\"*******************************************************************
+.\"
+.\" This file was generated with po4a. Translate the source file.
+.\"
+.\"*******************************************************************
+.TH dpkg\-maintscript\-helper 1 2012\-05\-04 "Debian Project" "dpkg suite"
+.SH 名前
+dpkg\-maintscript\-helper \- メンテナスクリプトにおける既知の dpkg の制約に対する暫定対応
+.
+.SH 書式
+\fBdpkg\-maintscript\-helper\fP \fIcommand\fP [\fIparameter\fP...] \fB\-\-\fP
+\fImaint\-script\-parameter\fP...
+.
+.SH コマンドおよびパラメータ
+.P
+\fBrm_conffile\fP \fIconffile\fP [\fIprior\-version\fP [\fIpackage\fP]]
+.P
+\fBmv_conffile\fP \fIold\-conffile\fP \fInew\-conffile\fP [\fIprior\-version\fP
+[\fIpackage\fP]]
+.
+.SH 説明
+.P
+このプログラムは、メンテナスクリプトとして実行されることで、dpkg が設計上の判断や制約事項によって (未だに)
+自身で対応できていない幾つかの作業を実現するために開発された。
+.P
+こうした作業の多くは、メンテナスクリプト (\fBpreinst\fP, \fBpostinst\fP, \fBprerm\fP, \fBpostrm\fP)
+間の連携した動作が求められる。ミスを避けるために、すべてのスクリプトに対して単に同じ形式のスクリプト呼び出しを設定し、プログラム側で環境変数
+\fBDPKG_MAINTSCRIPT_NAME\fP
+と二重ダッシュの後に設定して渡されるメンテナスクリプト固有の引数とに基づいた挙動の調整を自動的に行うようにしている。
+.
+.SH "conffile 関連の作業"
+.P
+パッケージをアップグレードする時に、dpkg は、新しいバージョンに存在しない conffile (dpkg
+がユーザの行った修正を保持する必要がある設定ファイル) を自動的には削除しない。これには 2 つの大きな理由がある。1 つは (パッケージ作成時に)
+conffile
+の指定を誤って削除してしまった場合でも、ユーザとしては行った変更を破棄されたくないであろうことを勘案し、設定を削除されないようにしておき、次のバージョンでそれを復活させることができるようにするためである。もう
+1 つは、dpkg がメンテナンスする conffile を、パッケージのメンテナスクリプト、通常は debconf や ucf
+といったツールによって、メンテナンスするファイルに移行することを可能とするためである。
+.P
+これは、パッケージが conffile
+のリネームや削除を意図していた場合は、明示的に行う必要があり、\fBdpkg\-maintscript\-helper\fP
+が既定を遵守した削除の実装と、conffile をメンテナスクリプトにより移動するために用いられることを意味する。
+.
+.SS "conffile の削除"
+.P
+conffile
+が完全に削除される場合は、ユーザが変更していない限り、ディスクから削除されるべきである。ローカルに変更が行われていた場合は、その変更は保持されるべきである。パッケージのアップグレードが中止された場合は、不要となるはずだった
+conffile が消去されることがないようにすべきである。
+.P
+これらのすべてがメンテナスクリプト \fBpreinst\fP, \fBpostinst\fP, \fBpostrm\fP
+内で以下のようなシェルスクリプトによって行われる。
+.P
+    dpkg\-maintscript\-helper rm_conffile \e
+        \fIconffile\fP \fIprior\-version\fP \fIpackage\fP \-\- "$@"
+.P
+\fIconffile\fP は削除する conffile のファイル名である。
+.P
+\fIprior\-version\fP
+は、アップグレードが削除の契機となる最新のパッケージのバージョンを定義する。ユーザがローカルなバージョンを用いてパッケージをリビルドした際でも
+conffile を適切に削除するためには、適切な \fIprior\-version\fP を定義することが肝要である。例えば、あるパッケージのバージョン
+\fB2.0\-1\fP で削除される conffile は、\fIprior\-version\fP を \fB2.0\-1~\fP
+に設定する必要がある。これにより、ユーザが以前のバージョンである \fB1.0\-1\fP を \fB1.0\-1local1\fP
+としてリビルドした場合であっても、conffile が削除されることになる。
+.P
+ある conffile
+が提供されていないまま、既に複数回のバージョンアップが行われてしまっている場合に、メンテナスクリプトを修正して不要となったファイルを削除したいという場合、\fIprior\-version\fP
+は conffile が不要となった最初のパッケージのバージョンではなく、現在のバージョンを指定する必要がある。
+.P
+\fIpackage\fP はパッケージ名を示す。空白もしくは省略された場合、環境変数 DPKG_MAINTSCRIPT_PACKAGE の値 (dpkg
+により設定される) が用いられる。
+.P
+メンテナスクリプトのパラメータはすべて、"\-\-" 以降の部分をプログラムに引き渡す必要がある。
+.P
+現在の実装では、\fBpreinst\fP は conffile が変更されたかをチェックし、\fIconffile\fP\fB.dpkg\-remove\fP
+(変更されていない場合) もしくは \fIconffile\fP.\fBdpkg\-backup\fP (変更されている場合) にリネームする。\fBpostinst\fP
+は後者のファイルを \fIconffile\fP\fB.dpkg\-bak\fP
+にリネームし、ユーザが変更内容を参照できるように保持するが、前者は削除する。パッケージのアップグレードが中止となった場合、\fBpostrm\fP は以前の
+conffile を再インストールする。完全削除の際に、\fBpostrm\fP はここまで保持されていた \fB.dpkg\-bak\fP ファイルも削除する。
+.
+.SS "conffile のリネーム"
+.P
+conffile のパスが変更された場合は、ユーザによる変更点もすべて移行する必要がある。これは、\fBpreinst\fP
+スクリプトに簡単な変更を行うことで実現できそうに見えるが、その場合、ユーザが主体的に変更を行っていないにも関わらず、dpkg
+からユーザに対して、conffile の変更を受け入れるかどうかの確認が発生してしまう。
+.P
+以下に示すシェルスクリプトを \fBpreinst\fP, \fBpostinst\fP, \fBpostrm\fP
+のメンテナスクリプトに入れることで、適切なリネーム処理が実行される:
+.P
+    dpkg\-maintscript\-helper mv_conffile \e
+        \fIold\-conffile\fP \fInew\-conffile\fP \fIprior\-version\fP \fIpackage\fP \-\- "$@"
+.P
+\fIold\-conffile\fP と \fInew\-conffile\fP は、リネームする conffile の変更前、変更後の名前である。
+.P
+\fIprior\-version\fP は、バージョンアップにより conffile のリネームを行うパッケージの最新のバージョンを指定する
+(指定すべき適切な値については、\fBrm_conffile\fP での注記を参照のこと) 。\fIprior\-version\fP
+が空白もしくは省略された場合、バージョンアップの度にリネームが試行される
+(バージョンを指定することで、リネームの試行を一度に留めておく方が安全である)。
+.P
+\fIpackage\fP はパッケージ名を示す。空白もしくは省略された場合、環境変数 DPKG_MAINTSCRIPT_PACKAGE の値 (dpkg
+により設定される) が用いられる。
+.P
+メンテナスクリプトのパラメータはすべて、"\-\-" 以降の部分をプログラムに引き渡す必要がある。
+.P
+現在の実装では、\fBpreinst\fP は conffile が変更されたかをチェックし、変更されている場合はそのままに、変更されていない場合は
+\fIold\-conffile\fP\fB.dpkg\-remove\fP にリネームする。設定の際に、\fBpostinst\fP は
+\fIold\-conffile\fP\fB.dpkg\-remove\fP を削除し、\fIold\-conffile\fP が存在している場合は、それを
+\fInew\-conffile\fP にリネームする。abort\-upgrade や abort\-install が行われた場合、\fBpostrm\fP
+は、必要に応じて \fIold\-conffile\fP\fB.dpkg\-remove\fP をリネームして \fIold\-conffile\fP に戻す。
+.
+.SH パッケージとの連携
+.P
+\fBdpkg\-maintscript\-helper\fP の使用が \fBpreinst\fP にて指定された場合は、必要なバージョンの dpkg
+が事前に展開されていることを担保する事前依存関係が必須となる。必要なバージョンは、使用するコマンドによって異なる。例えば、\fBrm_conffile\fP
+や \fBmv_conffile\fP の場合は 1.15.7.2 以上となる:
+.P
+    \fBPre\-Depends:\fP dpkg (>= 1.15.7.2)
+.P
+しかし多くの場合、プログラムによって行われる操作はパッケージにとって不可欠なものではない。そのため、事前依存関係を使用する代わりに、必要なコマンドが現在インストールされている
+dpkg によってサポートされていることが確認できている場合に限ってプログラムを呼び出してもよい:
+.P
+    if dpkg\-maintscript\-helper supports \fIcommand\fP; then
+        dpkg\-maintscript\-helper \fIcommand\fP ...
+    fi
+.SH 翻訳者
+高橋 基信 <monyo@monyo.com>.
+喜瀬 浩 <kise@fuyuneko.jp>.
+関戸 幸一 <sekido@mbox.kyoto-inet.or.jp>.
+鍋谷 栄展 <nabe@debian.or.jp>.
+倉澤 望 <nabetaro@debian.or.jp>.
+石川 睦 <ishikawa@linux.or.jp>.
+鵜飼 文敏 <ukai@debian.or.jp>.
+中野 武雄 <nakano@apm.seikei.ac.jp>.
+.SH 翻訳校正
+Debian JP Documentation ML <debian-doc@debian.or.jp>.

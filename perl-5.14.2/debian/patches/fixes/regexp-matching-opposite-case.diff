@@ -1,0 +1,132 @@
+From 39d47b454e4e0498e35ba00a9d928d87348c8304 Mon Sep 17 00:00:00 2001
+From: Karl Williamson <public@khwilliamson.com>
+Date: Thu, 27 Oct 2011 09:39:11 -0600
+Subject: /[[:lower:]]/i matches upper case
+
+This bug is a regression in 5.14, in which /[[:lower:]]/i and
+/[[:upper:]]/i no longer matched the opposite case.
+
+The fix is to have these use a different table under /i matching, that
+includes the correct /i code points.  These tables were already
+available, just unused.
+
+Bug: http://rt.perl.org/rt3/Public/Bug/Display.html?id=101970
+Bug-Debian: http://bugs.debian.org/690979
+Origin: upstream, http://perl5.git.perl.org/perl.git/commit/dc91d5ae29f578629526894098163d30c2d3a951
+Patch-Name: fixes/regexp-matching-opposite-case.diff
+---
+ regcomp.c     |   51 ++++++++++++++++++++++++++++++++-------------------
+ t/re/re_tests |    4 ++++
+ 2 files changed, 36 insertions(+), 19 deletions(-)
+
+diff --git a/regcomp.c b/regcomp.c
+index c1c2c3b..b186c8d 100644
+--- a/regcomp.c
++++ b/regcomp.c
+@@ -9199,7 +9199,7 @@ S_checkposixcc(pTHX_ RExC_state_t *pRExC_state)
+     }
+ }
+ 
+-/* No locale test, and always Unicode semantics */
++/* No locale test, and always Unicode semantics, no ignore-case differences */
+ #define _C_C_T_NOLOC_(NAME,TEST,WORD)                                          \
+ ANYOF_##NAME:                                                                  \
+ 	for (value = 0; value < 256; value++)                                  \
+@@ -9219,8 +9219,11 @@ case ANYOF_N##NAME:                                                            \
+ /* Like the above, but there are differences if we are in uni-8-bit or not, so
+  * there are two tests passed in, to use depending on that. There aren't any
+  * cases where the label is different from the name, so no need for that
+- * parameter */
+-#define _C_C_T_(NAME, TEST_8, TEST_7, WORD)                                    \
++ * parameter.
++ * Sets 'what' to WORD which is the property name for non-bitmap code points;
++ * But, uses FOLD_WORD instead if /i has been selected, to allow a different
++ * property name */
++#define _C_C_T_(NAME, TEST_8, TEST_7, WORD, FOLD_WORD)                         \
+ ANYOF_##NAME:                                                                  \
+     if (LOC) ANYOF_CLASS_SET(ret, ANYOF_##NAME);                               \
+     else if (UNI_SEMANTICS) {                                                  \
+@@ -9237,7 +9240,12 @@ ANYOF_##NAME:                                                                  \
+         }                                                                      \
+     }                                                                          \
+     yesno = '+';                                                               \
+-    what = WORD;                                                               \
++    if (FOLD) {                                                                \
++        what = FOLD_WORD;                                                      \
++    }                                                                          \
++    else {                                                                     \
++        what = WORD;                                                           \
++    }                                                                          \
+     break;                                                                     \
+ case ANYOF_N##NAME:                                                            \
+     if (LOC) ANYOF_CLASS_SET(ret, ANYOF_N##NAME);                              \
+@@ -9269,7 +9277,12 @@ case ANYOF_N##NAME:                                                            \
+ 	}                                                                      \
+     }                                                                          \
+     yesno = '!';                                                               \
+-    what = WORD;                                                               \
++    if (FOLD) {                                                                \
++        what = FOLD_WORD;                                                      \
++    }                                                                          \
++    else {                                                                     \
++        what = WORD;                                                           \
++    }                                                                          \
+     break
+ 
+ STATIC U8
+@@ -9827,20 +9840,20 @@ parseit:
+ 		 * --jhi */
+ 		switch ((I32)namedclass) {
+ 		
+-		case _C_C_T_(ALNUMC, isALNUMC_L1, isALNUMC, "XPosixAlnum");
+-		case _C_C_T_(ALPHA, isALPHA_L1, isALPHA, "XPosixAlpha");
+-		case _C_C_T_(BLANK, isBLANK_L1, isBLANK, "XPosixBlank");
+-		case _C_C_T_(CNTRL, isCNTRL_L1, isCNTRL, "XPosixCntrl");
+-		case _C_C_T_(GRAPH, isGRAPH_L1, isGRAPH, "XPosixGraph");
+-		case _C_C_T_(LOWER, isLOWER_L1, isLOWER, "XPosixLower");
+-		case _C_C_T_(PRINT, isPRINT_L1, isPRINT, "XPosixPrint");
+-		case _C_C_T_(PSXSPC, isPSXSPC_L1, isPSXSPC, "XPosixSpace");
+-		case _C_C_T_(PUNCT, isPUNCT_L1, isPUNCT, "XPosixPunct");
+-		case _C_C_T_(UPPER, isUPPER_L1, isUPPER, "XPosixUpper");
++		case _C_C_T_(ALNUMC, isALNUMC_L1, isALNUMC, "XPosixAlnum", "XPosixAlnum");
++		case _C_C_T_(ALPHA, isALPHA_L1, isALPHA, "XPosixAlpha", "XPosixAlpha");
++		case _C_C_T_(BLANK, isBLANK_L1, isBLANK, "XPosixBlank", "XPosixBlank");
++		case _C_C_T_(CNTRL, isCNTRL_L1, isCNTRL, "XPosixCntrl", "XPosixCntrl");
++		case _C_C_T_(GRAPH, isGRAPH_L1, isGRAPH, "XPosixGraph", "XPosixGraph");
++		case _C_C_T_(LOWER, isLOWER_L1, isLOWER, "XPosixLower", "__XPosixLower_i");
++		case _C_C_T_(PRINT, isPRINT_L1, isPRINT, "XPosixPrint", "XPosixPrint");
++		case _C_C_T_(PSXSPC, isPSXSPC_L1, isPSXSPC, "XPosixSpace", "XPosixSpace");
++		case _C_C_T_(PUNCT, isPUNCT_L1, isPUNCT, "XPosixPunct", "XPosixPunct");
++		case _C_C_T_(UPPER, isUPPER_L1, isUPPER, "XPosixUpper", "__XPosixUpper_i");
+                 /* \s, \w match all unicode if utf8. */
+-                case _C_C_T_(SPACE, isSPACE_L1, isSPACE, "SpacePerl");
+-                case _C_C_T_(ALNUM, isWORDCHAR_L1, isALNUM, "Word");
+-		case _C_C_T_(XDIGIT, isXDIGIT_L1, isXDIGIT, "XPosixXDigit");
++                case _C_C_T_(SPACE, isSPACE_L1, isSPACE, "SpacePerl", "SpacePerl");
++                case _C_C_T_(ALNUM, isWORDCHAR_L1, isALNUM, "Word", "Word");
++		case _C_C_T_(XDIGIT, isXDIGIT_L1, isXDIGIT, "XPosixXDigit", "XPosixXDigit");
+ 		case _C_C_T_NOLOC_(VERTWS, is_VERTWS_latin1(&value), "VertSpace");
+ 		case _C_C_T_NOLOC_(HORIZWS, is_HORIZWS_latin1(&value), "HorizSpace");
+ 		case ANYOF_ASCII:
+@@ -9906,7 +9919,7 @@ parseit:
+ 		}
+ 		if (what && ! (AT_LEAST_ASCII_RESTRICTED)) {
+ 		    /* Strings such as "+utf8::isWord\n" */
+-		    Perl_sv_catpvf(aTHX_ listsv, "%cutf8::Is%s\n", yesno, what);
++		    Perl_sv_catpvf(aTHX_ listsv, "%cutf8::%s\n", yesno, what);
+ 		}
+ 
+ 		continue;
+diff --git a/t/re/re_tests b/t/re/re_tests
+index ae12452..144cf1e 100644
+--- a/t/re/re_tests
++++ b/t/re/re_tests
+@@ -1528,4 +1528,8 @@ abc\N{def	-	c	-	\\N{NAME} must be resolved by the lexer
+ /fi/i	\x{FB01}\x{FB00}	y	$&	\x{FB01}
+ /fi/i	\x{FB00}\x{FB01}	y	$&	\x{FB01}
+ 
++# [perl #101970]
++/[[:lower:]]/i	\x{100}	y	$&	\x{100}
++/[[:upper:]]/i	\x{101}	y	$&	\x{101}
++
+ # vim: softtabstop=0 noexpandtab

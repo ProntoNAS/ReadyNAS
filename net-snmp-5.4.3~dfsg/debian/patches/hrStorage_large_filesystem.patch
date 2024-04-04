@@ -1,0 +1,55 @@
+Description: Fix hrStorage for large filesystems
+
+--- net-snmp-5.4.3~dfsg.orig/agent/mibgroup/host/hr_storage.c
++++ net-snmp-5.4.3~dfsg/agent/mibgroup/host/hr_storage.c
+@@ -505,6 +505,7 @@ var_hrstore(struct variable *vp,
+             int exact, size_t * var_len, WriteMethod ** write_method)
+ {
+     int             store_idx = 0;
++    int             factor = 0;
+     static char     string[1024];
+     struct HRFS_statfs stat_buf;
+     void                *ptr;
+@@ -540,6 +541,12 @@ really_try_next:
+     }
+ 
+ 
++    /* Scaling factor for large filesystems */
++    if (store_idx > NETSNMP_MEM_TYPE_MAX) {
++        unsigned long long tmp = stat_buf.f_blocks;
++        while (tmp > 0x7fffffff)
++            tmp >>= 1, factor++;
++    }
+ 
+     switch (vp->magic) {
+     case HRSTORE_MEMSIZE:
+@@ -598,9 +605,9 @@ really_try_next:
+     case HRSTORE_UNITS:
+         if (store_idx > NETSNMP_MEM_TYPE_MAX)
+ #if HRFS_HAS_FRSIZE
+-            long_return = stat_buf.f_frsize;
++            long_return = stat_buf.f_frsize << factor;
+ #else
+-            long_return = stat_buf.f_bsize;
++            long_return = stat_buf.f_bsize << factor;
+ #endif
+         else {
+             if ( !mem || mem->units == -1 )
+@@ -610,7 +617,7 @@ really_try_next:
+         return (u_char *) & long_return;
+     case HRSTORE_SIZE:
+         if (store_idx > NETSNMP_MEM_TYPE_MAX)
+-            long_return = stat_buf.f_blocks;
++            long_return = stat_buf.f_blocks >> factor;
+         else {
+             if ( !mem || mem->size == -1 )
+                 goto try_next;
+@@ -619,7 +626,7 @@ really_try_next:
+         return (u_char *) & long_return;
+     case HRSTORE_USED:
+         if (store_idx > NETSNMP_MEM_TYPE_MAX)
+-            long_return = (stat_buf.f_blocks - stat_buf.f_bfree);
++            long_return = (stat_buf.f_blocks - stat_buf.f_bfree) >> factor;
+         else {
+             if ( !mem || mem->size == -1 || mem->free == -1 )
+                 goto try_next;

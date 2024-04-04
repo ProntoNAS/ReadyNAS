@@ -1,0 +1,184 @@
+From: Alasdair G Kergon <agk@redhat.com>
+Subject: allocation: allow release_lv_segment_area to fail
+
+Allow release_lv_segment_area to fail as functions it calls can fail.
+
+Origin: upstream, https://lists.fedorahosted.org/pipermail/lvm2-commits/2012-June/000037.html
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=832392
+Bug-Debian: http://bugs.debian.org/691271
+---
+diff --git a/lib/metadata/lv_alloc.h b/lib/metadata/lv_alloc.h
+index 2ec0030..71ca1ab 100644
+--- a/lib/metadata/lv_alloc.h
++++ b/lib/metadata/lv_alloc.h
+@@ -40,8 +40,8 @@ int set_lv_segment_area_lv(struct lv_segment *seg, uint32_t area_num,
+ 			   uint64_t status);
+ int move_lv_segment_area(struct lv_segment *seg_to, uint32_t area_to,
+ 			 struct lv_segment *seg_from, uint32_t area_from);
+-void release_lv_segment_area(struct lv_segment *seg, uint32_t s,
+-			     uint32_t area_reduction);
++int release_lv_segment_area(struct lv_segment *seg, uint32_t s,
++			    uint32_t area_reduction);
+ 
+ struct alloc_handle;
+ struct alloc_handle *allocate_extents(struct volume_group *vg,
+diff --git a/lib/metadata/lv_manip.c b/lib/metadata/lv_manip.c
+index 5c715a8..bdcc925 100644
+--- a/lib/metadata/lv_manip.c
++++ b/lib/metadata/lv_manip.c
+@@ -299,24 +299,25 @@ struct lv_segment *alloc_snapshot_seg(struct logical_volume *lv,
+ 	return seg;
+ }
+ 
+-void release_lv_segment_area(struct lv_segment *seg, uint32_t s,
+-			     uint32_t area_reduction)
++int release_lv_segment_area(struct lv_segment *seg, uint32_t s,
++			    uint32_t area_reduction)
+ {
+ 	if (seg_type(seg, s) == AREA_UNASSIGNED)
+-		return;
++		return 1;
+ 
+ 	if (seg_type(seg, s) == AREA_PV) {
+-		if (release_pv_segment(seg_pvseg(seg, s), area_reduction) &&
+-		    seg->area_len == area_reduction)
++		if (!release_pv_segment(seg_pvseg(seg, s), area_reduction))
++			return_0;
++		if (seg->area_len == area_reduction)
+ 			seg_type(seg, s) = AREA_UNASSIGNED;
+-		return;
++		return 1;
+ 	}
+ 
+ 	if ((seg_lv(seg, s)->status & MIRROR_IMAGE) ||
+ 	    (seg_lv(seg, s)->status & THIN_POOL_DATA)) {
+ 		if (!lv_reduce(seg_lv(seg, s), area_reduction))
+-			stack; /* FIXME: any upper level reporting */
+-		return;
++			return_0; /* FIXME: any upper level reporting */
++		return 1;
+ 	}
+ 
+ 	if (seg_lv(seg, s)->status & RAID_IMAGE) {
+@@ -328,12 +329,12 @@ void release_lv_segment_area(struct lv_segment *seg, uint32_t s,
+ 		*/
+ 		if (area_reduction != seg->area_len) {
+ 			log_error("Unable to reduce RAID LV - operation not implemented.");
+-			return;
++			return_0;
+ 		} else {
+ 			if (!lv_remove(seg_lv(seg, s))) {
+ 				log_error("Failed to remove RAID image %s",
+ 					  seg_lv(seg, s)->name);
+-				return;
++				return 0;
+ 			}
+ 		}
+ 
+@@ -343,10 +344,10 @@ void release_lv_segment_area(struct lv_segment *seg, uint32_t s,
+ 				       seg_metalv(seg, s)->le_count)) {
+ 				log_error("Failed to remove RAID meta-device %s",
+ 					  seg_metalv(seg, s)->name);
+-				return;
++				return 0;
+ 			}
+ 		}
+-		return;
++		return 1;
+ 	}
+ 
+ 	if (area_reduction == seg->area_len) {
+@@ -360,6 +361,8 @@ void release_lv_segment_area(struct lv_segment *seg, uint32_t s,
+ 		seg_le(seg, s) = 0;
+ 		seg_type(seg, s) = AREA_UNASSIGNED;
+ 	}
++
++	return 1;
+ }
+ 
+ /*
+@@ -377,9 +380,11 @@ int move_lv_segment_area(struct lv_segment *seg_to, uint32_t area_to,
+ 		pv = seg_pv(seg_from, area_from);
+ 		pe = seg_pe(seg_from, area_from);
+ 
+-		release_lv_segment_area(seg_from, area_from,
+-					seg_from->area_len);
+-		release_lv_segment_area(seg_to, area_to, seg_to->area_len);
++		if (!release_lv_segment_area(seg_from, area_from, seg_from->area_len))
++			return_0;
++
++		if (!release_lv_segment_area(seg_to, area_to, seg_to->area_len))
++			return_0;
+ 
+ 		if (!set_lv_segment_area_pv(seg_to, area_to, pv, pe))
+ 			return_0;
+@@ -390,9 +395,11 @@ int move_lv_segment_area(struct lv_segment *seg_to, uint32_t area_to,
+ 		lv = seg_lv(seg_from, area_from);
+ 		le = seg_le(seg_from, area_from);
+ 
+-		release_lv_segment_area(seg_from, area_from,
+-					seg_from->area_len);
+-		release_lv_segment_area(seg_to, area_to, seg_to->area_len);
++		if (!release_lv_segment_area(seg_from, area_from, seg_from->area_len))
++			return_0;
++
++		if (!release_lv_segment_area(seg_to, area_to, seg_to->area_len))
++			return_0;
+ 
+ 		if (!set_lv_segment_area_lv(seg_to, area_to, lv, le, 0))
+ 			return_0;
+@@ -400,7 +407,8 @@ int move_lv_segment_area(struct lv_segment *seg_to, uint32_t area_to,
+ 		break;
+ 
+ 	case AREA_UNASSIGNED:
+-		release_lv_segment_area(seg_to, area_to, seg_to->area_len);
++		if (!release_lv_segment_area(seg_to, area_to, seg_to->area_len))
++			return_0;
+ 	}
+ 
+ 	return 1;
+@@ -493,7 +501,8 @@ static int _lv_segment_reduce(struct lv_segment *seg, uint32_t reduction)
+ 		area_reduction = reduction;
+ 
+ 	for (s = 0; s < seg->area_count; s++)
+-		release_lv_segment_area(seg, s, area_reduction);
++		if (!release_lv_segment_area(seg, s, area_reduction))
++			return_0;
+ 
+ 	seg->len -= reduction;
+ 	seg->area_len -= area_reduction;
+diff --git a/lib/metadata/mirror.c b/lib/metadata/mirror.c
+index 236edea..d943175 100644
+--- a/lib/metadata/mirror.c
++++ b/lib/metadata/mirror.c
+@@ -645,8 +645,8 @@ static int _split_mirror_images(struct logical_volume *lv,
+ 		sub_lv = seg_lv(mirrored_seg, mirrored_seg->area_count);
+ 
+ 		sub_lv->status &= ~MIRROR_IMAGE;
+-		release_lv_segment_area(mirrored_seg, mirrored_seg->area_count,
+-					mirrored_seg->area_len);
++		if (!release_lv_segment_area(mirrored_seg, mirrored_seg->area_count, mirrored_seg->area_len))
++			return_0;
+ 
+ 		log_very_verbose("%s assigned to be split", sub_lv->name);
+ 
+@@ -906,7 +906,8 @@ static int _remove_mirror_images(struct logical_volume *lv,
+ 		}
+ 		lvl->lv = seg_lv(mirrored_seg, m);
+ 		dm_list_add(&tmp_orphan_lvs, &lvl->list);
+-		release_lv_segment_area(mirrored_seg, m, mirrored_seg->area_len);
++		if (!release_lv_segment_area(mirrored_seg, m, mirrored_seg->area_len))
++			return_0;
+ 	}
+ 	mirrored_seg->area_count = new_area_count;
+ 
+@@ -1468,7 +1469,8 @@ int remove_mirrors_from_segments(struct logical_volume *lv,
+ 		}
+ 
+ 		for (s = new_mirrors + 1; s < seg->area_count; s++)
+-			release_lv_segment_area(seg, s, seg->area_len);
++			if (!release_lv_segment_area(seg, s, seg->area_len))
++				return_0;
+ 
+ 		seg->area_count = new_mirrors + 1;
+ 

@@ -1,0 +1,27 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_HARDENING=1
+
+include /usr/share/cdbs/1/rules/autoreconf.mk
+include /usr/share/cdbs/1/class/autotools.mk
+include /usr/share/cdbs/1/rules/debhelper.mk
+
+# Add here any variable or target overrides you need.
+DEB_CONFIGURE_SYSCONFDIR := /etc
+DEB_SHLIBS_INCLUDE := debian/libgeoip1/usr/lib
+DEB_NOREVISION_VERSION := $(shell dpkg-parsechangelog|egrep '^Version:'|cut -f 2 -d ' '|cut -f 1 -d '-')
+DEB_UPSTREAM_VERSION := $(shell dpkg-parsechangelog|grep "^Version:"|cut -d" " -f2|rev|cut -d- -f2-|rev|cut -d':' -f2)
+DEB_DH_MAKESHLIBS_ARGS_libgeoip1 := -V"libgeoip1 (>= $(DEB_NOREVISION_VERSION))"
+DEB_MAKE_INSTALL_TARGET := install DESTDIR=$(CURDIR)/debian/tmp
+
+install/geoip-bin::
+	chrpath -d -k debian/tmp/usr/bin/geoip*
+	# Build the build script.
+	g++ debian/src/geoip-csv-to-dat.cpp -o debian/tmp/geoip-generator -lGeoIP \
+		-I $(CURDIR)/debian/tmp/usr/include/ -L $(CURDIR)/debian/tmp/usr/lib/
+
+install/libgeoip1::
+	chrpath -d -k debian/tmp/usr/lib/libGeoIPUpdate.so.0.0.0
+
+binary-post-install/libgeoip-dev::
+	sed "s/VERSION/$(DEB_UPSTREAM_VERSION)/g" -i debian/libgeoip-dev/usr/lib/pkgconfig/geoip.pc

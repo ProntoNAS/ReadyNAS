@@ -1,0 +1,177 @@
+#!/bin/bash
+#
+# Start the noflush daemon to spin down idle disks.
+#
+# Written by Daniel Kobras <kobras@linux.de>
+# $Id: noflushd.templ,v 1.6 2004/07/19 10:00:32 nold Exp $
+#
+# The next lines define runlevels and priorities to start this
+# skript. Syntax is <runlevels_to_start> <start_priority> <stop_priotity>.
+#
+# chkconfig: 2345 80 10
+# description: 	Start and stop the noflush daemon to handle spindown \
+#		of idle disks.
+#
+### BEGIN INIT INFO
+# Provides: noflushd
+# Required-Start: $remote_fs
+# Required-Stop:
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+### END INIT INFO
+
+# Note: Edit TIMEOUT below to change the default timeout. If present, 
+# variable NOFLUSHD_TIMEOUT in /etc/rc.config will override this value.
+# However, highest priority is given to an environment variable TIMEOUT.
+# Example (assuming bash, skript in /etc/init.d/): 
+#
+# # TIMEOUT=60 /etc/init.d/noflushd restart
+#
+# to restart the daemon with 1 hour of idle timeout, overriding defaults.
+
+# XXX: In earlier versions, the timeout values were given in seconds.
+#      Now we use minutes instead. Don't get confused!
+
+# One IDE hard disk present:
+DISKS="/dev/hda"
+
+DEFAULT_TIMEOUT=60	# default timeout in minutes (EDIT THIS!)
+
+if [ -f /etc/rc.config ]; then
+	. /etc/rc.config
+	if [ "$START_NOFLUSHD" ]; then
+		[ "$START_NOFLUSHD" = "yes" ] || exit 0
+	fi	
+	if [ ! "$TIMEOUT" ]; then
+		[ "$NOFLUSHD_TIMEOUT" ] && TIMEOUT="$NOFLUSHD_TIMEOUT"
+	fi
+	[ "$NOFLUSHD_DISKS" ] && DISKS="$NOFLUSHD_DISKS"
+elif [ -f /etc/sysconfig/noflushd ]; then
+	# No namespace problems here. TIMEOUT and DISKS can be set
+	# verbatim.
+	. /etc/sysconfig/noflushd
+fi
+
+[ ! "$TIMEOUT" ] && TIMEOUT=$DEFAULT_TIMEOUT
+DAEMON=/usr/sbin/noflushd	# +sbindir+ gets rewritten at make time.
+PIDFILE=/var/run/noflushd.pid
+OPTIONS="-v -n $TIMEOUT $DISKS"
+
+check_pidfile() {
+
+	test -r "$PIDFILE" || return 0
+	return $(cat $PIDFILE)
+}
+
+find_pid_by_name() {
+
+	NAME="$1"
+	for i in /proc/[1-9]*; do
+		# Use cat instead of shell redir because /proc/<pid> might
+		# have vanished before we had a chance to open an fd on
+		# status. The cat variant fails gracefully in this case.
+		cat "$i/status" 2> /dev/null | while read TAG VALUE; do
+                	test "$TAG" = "Name:" || continue
+                     	test "$VALUE" != "$NAME" || return "$(basename $i)"
+			break
+		done || return $?
+	done
+	return 0
+}
+
+start_debian() {
+
+	/sbin/start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON -- $OPTIONS
+}
+
+stop_debian() {
+
+	/sbin/start-stop-daemon --stop --quiet --pidfile $PIDFILE --exec $DAEMON
+}
+
+start_lsb() {
+
+	startproc $DAEMON $OPTIONS
+}
+
+stop_lsb() {
+
+	killproc -TERM $DAEMON
+	rm -f $PIDFILE
+}
+
+start_redhat() {
+
+	daemon $DAEMON $OPTIONS
+}
+
+stop_redhat() {
+
+	killproc $DAEMON
+}
+
+start_generic() {
+	if ! check_pidfile || ! find_pid_by_name $(basename $DAEMON); then
+		echo "Warning! Another noflushd appears to be already running. Starting anyway."
+	fi
+	$DAEMON $OPTIONS 2>&1 >/dev/null
+}
+
+stop_generic() {
+
+	check_pidfile || { kill $?; return; }
+	find_pid_by_name $(basename $DAEMON) || kill $?
+}
+
+activate_kupdate() {
+
+	find_pid_by_name kupdate || kill -CONT $?
+	find_pid_by_name kupdated || kill -CONT $?
+}
+
+test -x $DAEMON || exit 0
+
+found=0
+for name in pdflush kupdate kupdated; do
+	find_pid_by_name "$name" || { found=1; break; }
+done
+
+if [ "$found" -eq 0 ]; then
+		echo "No kupdate[d]/pdflush found. Run bdflush-1.6 for sleep support."
+		exit 0
+fi
+
+set -e 
+
+METHOD=generic
+[ -x /sbin/start-stop-daemon ] && METHOD=debian
+[ -x /sbin/startproc ] && METHOD=lsb
+if [ -f /etc/rc.d/init.d/functions ]; then
+	. /etc/rc.d/init.d/functions && METHOD=redhat
+fi
+
+case "$1" in
+
+	start)
+		echo "Starting idle disk daemon with default timeout $TIMEOUT..."
+		start_$METHOD && echo "Done."
+		;;
+	stop)
+		echo -n "Stopping idle disk daemon"
+		stop_$METHOD && echo "."
+		activate_kupdate	# Paranoia.
+		;;
+	restart)
+		echo -n "Stopping idle disk daemon"
+		stop_$METHOD && echo "."
+		activate_kupdate	# Paranoia.
+		sleep 1
+		echo "Starting idle disk daemon with default timeout $TIMEOUT..."
+		start_$METHOD && echo "Done."
+		;;	
+	*)
+		echo "Usage: $(basename $0) {start|stop|restart}"
+		exit 1
+esac
+
+exit 0

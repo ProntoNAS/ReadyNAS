@@ -1,0 +1,90 @@
+2014-05-06  Aurelien Jarno  <aurelien@aurel32.net>
+ 
+	* locale/nl_langinfo_l.c: Make direct reference to every
+	_nl_current_CATEGORY symbol.
+	* localedata/Makefile (test-srcs): Add tst-langinfo-static.
+	(tests-static): Add tst-langinfo-static.
+	(tests-special): Add tst-langinfo-static.out.
+	($(objpfx)tst-langinfo.out): Redirect output.
+	($(objpfx)tst-langinfo-static.out): New.
+	* localedata/tst-langinfo.sh: Send output to stdout.
+	* localedata/tst-langinfo-static.c: New file.
+
+diff --git a/locale/nl_langinfo_l.c b/locale/nl_langinfo_l.c
+--- a/locale/nl_langinfo_l.c
++++ b/locale/nl_langinfo_l.c
+@@ -43,7 +43,21 @@ __nl_langinfo_l (item, l)
+   if (index == _NL_ITEM_INDEX (_NL_LOCALE_NAME (category)))
+     return (char *) l->__names[category];
+ 
++#if defined NL_CURRENT_INDIRECT
++  /* Make direct reference to every _nl_current_CATEGORY symbol,
++     since we know only at runtime which categories are used.  */
++  switch (category)
++    {
++# define DEFINE_CATEGORY(category, category_name, items, a) \
++      case category: data = *_nl_current_##category; break;
++# include "categories.def"
++# undef DEFINE_CATEGORY
++    default:                   /* Should be impossible.  */
++      return (char *) "";
++    }
++#else
+   data = l->__locales[category];
++#endif
+ 
+   if (index >= data->nstrings)
+     /* Bogus index for this category: bogus item.  */
+diff --git a/localedata/Makefile b/localedata/Makefile
+--- a/localedata/Makefile
++++ b/localedata/Makefile
+@@ -35,7 +35,7 @@
+ 
+ test-srcs := collate-test xfrm-test tst-fmon tst-rpmatch tst-trans \
+ 	     tst-mbswcs1 tst-mbswcs2 tst-mbswcs3 tst-mbswcs4 tst-mbswcs5 \
+-	     tst-ctype tst-wctype tst-langinfo tst-numeric
++	     tst-ctype tst-wctype tst-langinfo tst-langinfo-static tst-numeric
+ test-input := de_DE.ISO-8859-1 en_US.ISO-8859-1 da_DK.ISO-8859-1 \
+ 	      hr_HR.ISO-8859-2 sv_SE.ISO-8859-1 tr_TR.UTF-8 fr_FR.UTF-8 \
+ 	      si_LK.UTF-8
+@@ -143,7 +143,9 @@
+ tests: $(objpfx)sort-test.out $(objpfx)tst-fmon.out $(objpfx)tst-locale.out \
+        $(objpfx)tst-rpmatch.out $(objpfx)tst-trans.out \
+        $(objpfx)tst-mbswcs.out $(objpfx)tst-ctype.out $(objpfx)tst-wctype.out \
+-       $(objpfx)tst-langinfo.out $(objpfx)tst-numeric.out
++       $(objpfx)tst-langinfo.out $(objpfx)tst-langinfo-static.out \
++       $(objpfx)tst-numeric.out
++tests-static += tst-langinfo-static
+ 
+ $(objpfx)sort-test.out: sort-test.sh $(objpfx)collate-test $(objpfx)xfrm-test \
+ 		       $(test-input-data) $(addprefix $(objpfx),$(CTYPE_FILES))
+@@ -186,7 +188,11 @@
+ $(objpfx)tst-langinfo.out: tst-langinfo.sh $(objpfx)tst-langinfo \
+ 			$(objpfx)sort-test.out \
+ 			$(addprefix $(objpfx),$(CTYPE_FILES))
+-	$(SHELL) $< $(common-objpfx) '$(test-program-cmd)'
++	$(SHELL) $< $(common-objpfx) '$(test-program-cmd)' > $@
++$(objpfx)tst-langinfo-static.out: tst-langinfo.sh $(objpfx)tst-langinfo \
++			$(objpfx)sort-test.out \
++			$(addprefix $(objpfx),$(CTYPE_FILES))
++	$(SHELL) $< $(common-objpfx) '$(test-program-cmd)' > $@
+ $(objpfx)tst-digits.out: $(objpfx)tst-locale.out
+ $(objpfx)tst-mbswcs6.out: $(addprefix $(objpfx),$(CTYPE_FILES))
+ endif
+diff --git a/localedata/tst-langinfo-static.c b/localedata/tst-langinfo-static.c
+--- /dev/null
++++ b/localedata/tst-langinfo-static.c
+@@ -0,0 +1 @@
++#include "tst-langinfo.c"
+diff --git a/localedata/tst-langinfo.sh b/localedata/tst-langinfo.sh
+--- a/localedata/tst-langinfo.sh
++++ b/localedata/tst-langinfo.sh
+@@ -340,7 +340,6 @@ ja_JP.EUC-JP         NOEXPR      ^([nN
+ ja_JP.EUC-JP         CODESET     EUC-JP
+ EOF
+ LOCPATH=${common_objpfx}localedata GCONV_PATH=${common_objpfx}iconvdata \
+-LC_ALL=tt_TT ${tst_langinfo} \
+-    > ${common_objpfx}localedata/tst-langinfo.out
++LC_ALL=tt_TT ${tst_langinfo}
+ 
+ exit $?

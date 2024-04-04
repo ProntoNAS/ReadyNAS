@@ -1,0 +1,93 @@
+diff --git a/src/shared/macro.h.orig b/src/shared/macro.h
+index f82df89..16b516f 100644
+--- a/src/shared/macro.h.orig
++++ b/src/shared/macro.h
+@@ -191,6 +191,51 @@ static inline size_t IOVEC_INCREMENT(struct iovec *i, unsigned n, size_t k) {
+ #define _cleanup_free_ __attribute__((cleanup(freep)))
+ #define _cleanup_fclose_ __attribute__((cleanup(fclosep)))
+ 
++#define VA_FORMAT_ADVANCE(format, ap)                                   \
++do {                                                                    \
++        int _argtypes[128];                                             \
++        size_t _i, _k;                                                  \
++        _k = parse_printf_format((format), ELEMENTSOF(_argtypes), _argtypes); \
++        assert(_k < ELEMENTSOF(_argtypes));                             \
++        for (_i = 0; _i < _k; _i++) {                                   \
++                if (_argtypes[_i] & PA_FLAG_PTR)  {                     \
++                        (void) va_arg(ap, void*);                       \
++                        continue;                                       \
++                }                                                       \
++                                                                        \
++                switch (_argtypes[_i]) {                                \
++                case PA_INT:                                            \
++                case PA_INT|PA_FLAG_SHORT:                              \
++                case PA_CHAR:                                           \
++                        (void) va_arg(ap, int);                         \
++                        break;                                          \
++                case PA_INT|PA_FLAG_LONG:                               \
++                        (void) va_arg(ap, long int);                    \
++                        break;                                          \
++                case PA_INT|PA_FLAG_LONG_LONG:                          \
++                        (void) va_arg(ap, long long int);               \
++                        break;                                          \
++                case PA_WCHAR:                                          \
++                        (void) va_arg(ap, wchar_t);                     \
++                        break;                                          \
++                case PA_WSTRING:                                        \
++                case PA_STRING:                                         \
++                case PA_POINTER:                                        \
++                        (void) va_arg(ap, void*);                       \
++                        break;                                          \
++                case PA_FLOAT:                                          \
++                case PA_DOUBLE:                                         \
++                        (void) va_arg(ap, double);                      \
++                        break;                                          \
++                case PA_DOUBLE|PA_FLAG_LONG_DOUBLE:                     \
++                        (void) va_arg(ap, long double);                 \
++                        break;                                          \
++                default:                                                \
++                        assert_not_reached("Unknown format string argument."); \
++                }                                                       \
++        }                                                               \
++} while(false)
++
+ #include "log.h"
+ 
+ #endif
+diff --git a/src/journal/journal-send.c.orig b/src/journal/journal-send.c
+index 242ce7e..a733d30 100644
+--- a/src/journal/journal-send.c.orig
++++ b/src/journal/journal-send.c
+@@ -25,6 +25,7 @@
+ #include <stddef.h>
+ #include <unistd.h>
+ #include <fcntl.h>
++#include <printf.h>
+ 
+ #define SD_JOURNAL_SUPPRESS_LOCATION
+ 
+@@ -118,6 +119,7 @@ static int fill_iovec_sprintf(const char *format, va_list ap, int extra, struct
+         while (format) {
+                 struct iovec *c;
+                 char *buffer;
++                va_list aq;
+ 
+                 if (i >= n) {
+                         n = MAX(i*2, 4);
+@@ -130,10 +132,15 @@ static int fill_iovec_sprintf(const char *format, va_list ap, int extra, struct
+                         iov = c;
+                 }
+ 
+-                if (vasprintf(&buffer, format, ap) < 0) {
++                va_copy(aq, ap);
++                if (vasprintf(&buffer, format, aq) < 0) {
++                        va_end(aq);
+                         r = -ENOMEM;
+                         goto fail;
+                 }
++                va_end(aq);
++
++                VA_FORMAT_ADVANCE(format, ap);
+ 
+                 IOVEC_SET_STRING(iov[i++], buffer);
+ 

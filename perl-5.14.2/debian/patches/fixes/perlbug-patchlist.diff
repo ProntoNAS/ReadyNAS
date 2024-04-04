@@ -1,0 +1,83 @@
+From dc41c3a1d8f2f3f3f507971fe86eb45079e5ec21 Mon Sep 17 00:00:00 2001
+From: Niko Tyni <ntyni@debian.org>
+Date: Thu, 27 Jun 2013 14:37:01 +0300
+Subject: Make perlbug look up the list of local patches at run time
+
+Re-parsing patchlevel.h in Perl by perlbug.PL is error prone
+and apparently unnecessary. The same information is available
+to perlbug via Config::local_patches().
+
+This fixes [perl #118433].
+
+Bug: https://rt.perl.org/rt3/Public/Bug/Display.html?id=118433
+Bug-Debian: http://bugs.debian.org/710842
+Origin: http://perl5.git.perl.org/perl.git/commit/3541c11ab9be01478a51881e3972abb78481726e
+Patch-Name: fixes/perlbug-patchlist.diff
+---
+ utils/perlbug.PL |   39 ++++++---------------------------------
+ 1 file changed, 6 insertions(+), 33 deletions(-)
+
+diff --git a/utils/perlbug.PL b/utils/perlbug.PL
+index 368ce91..8318531 100644
+--- a/utils/perlbug.PL
++++ b/utils/perlbug.PL
+@@ -22,37 +22,12 @@ $file .= '.com' if $^O eq 'VMS';
+ 
+ open OUT, ">$file" or die "Can't create $file: $!";
+ 
+-# extract patchlevel.h information
++# get patchlevel.h timestamp
+ 
+-open PATCH_LEVEL, "<" . catfile(updir, "patchlevel.h")
+-    or die "Can't open patchlevel.h: $!";
++-e catfile(updir, "patchlevel.h")
++    or die "Can't find patchlevel.h: $!";
+ 
+-my $patchlevel_date = (stat PATCH_LEVEL)[9];
+-
+-while (<PATCH_LEVEL>) {
+-    last if $_ =~ /^\s*static\s+(?:const\s+)?char.*?local_patches\[\]\s*=\s*{\s*$/;
+-}
+-
+-if (! defined($_)) {
+-    warn "Warning: local_patches section not found in patchlevel.h\n";
+-}
+-
+-my @patches;
+-while (<PATCH_LEVEL>) {
+-    last if /^\s*}/;
+-    next if /^\s*#/;  # preprocessor stuff
+-    next if /PERL_GIT_UNPUSHED_COMMITS/;    # XXX expand instead
+-    next if /"uncommitted-changes"/;        # XXX determine if active instead
+-    chomp;
+-    s/^\s+,?\s*"?//;
+-    s/"?\s*,?$//;
+-    s/(['\\])/\\$1/g;
+-    push @patches, $_ unless $_ eq 'NULL';
+-}
+-my $patch_desc = "'" . join("',\n    '", @patches) . "'";
+-my $patch_tags = join "", map /(\S+)/ ? "+$1 " : (), @patches;
+-
+-close(PATCH_LEVEL) or die "Error closing patchlevel.h: $!";
++my $patchlevel_date = (stat _)[9];
+ 
+ # TO DO (prehaps): store/embed $Config::config_sh into perlbug. When perlbug is
+ # used, compare $Config::config_sh with the stored version. If they differ then
+@@ -74,15 +49,13 @@ $Config{startperl}
+ my \$config_tag1 = '$extract_version - $Config{cf_time}';
+ 
+ my \$patchlevel_date = $patchlevel_date;
+-my \$patch_tags = '$patch_tags';
+-my \@patches = (
+-    $patch_desc
+-);
+ !GROK!THIS!
+ 
+ # In the following, perl variables are not expanded during extraction.
+ 
+ print OUT <<'!NO!SUBS!';
++my @patches = Config::local_patches();
++my $patch_tags = join "", map /(\S+)/ ? "+$1 " : (), @patches;
+ 
+ use warnings;
+ no warnings 'once'; # Eventually, the $::opt_ stuff should get cleaned up

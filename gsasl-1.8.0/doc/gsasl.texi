@@ -1,0 +1,2643 @@
+\input texinfo   @c -*- mode: texinfo; coding: us-ascii; -*-
+@setfilename gsasl.info
+@include version.texi
+@settitle GNU Simple Authentication and Security Layer @value{VERSION}
+@finalout
+
+@c Unify some of the indices.
+@syncodeindex tp fn
+@syncodeindex pg fn
+
+@copying
+This manual was last updated @value{UPDATED} for version
+@value{VERSION} of GNU SASL.
+
+Copyright @copyright{} 2002-2012 Simon Josefsson.
+
+@quotation
+Permission is granted to copy, distribute and/or modify this document
+under the terms of the GNU Free Documentation License, Version 1.3 or
+any later version published by the Free Software Foundation; with no
+Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.  A
+copy of the license is included in the section entitled ``GNU Free
+Documentation License''.
+@end quotation
+@end copying
+
+@dircategory Software libraries
+@direntry
+* GNU SASL: (gsasl).	GNU Simple Authentication and Security Layer Library.
+@end direntry
+
+@dircategory Security
+@direntry
+* gsasl: (gsasl)Invoking gsasl.		Command line interface to GNU SASL.
+@end direntry
+
+@titlepage
+@title GNU SASL
+@subtitle Simple Authentication and Security Layer for the GNU system
+@subtitle for version @value{VERSION}, @value{UPDATED}
+@author Simon Josefsson
+@page
+@vskip 0pt plus 1filll
+@insertcopying
+@end titlepage
+
+@contents
+
+@ifnottex
+@node Top
+@top GNU Simple Authentication and Security Layer
+@insertcopying
+@end ifnottex
+
+@menu
+* Introduction::                Information about protocol and implementation.
+* Preparation::                 What you should do before using the library.
+* Using the Library::           High level overview of how to use the library.
+* Properties::                  How to specify username, password, etc.
+* Mechanisms::                  Mechanism specific information.
+* Global Functions::            Functions that can be used at all times.
+* Callback Functions::          Set and use callbacks.
+* Property Functions::          Specify username, password etc.
+* Session Functions::           Perform an authentication.
+* Utilities::                   Functions for various odd things.
+* Memory Handling::             Memory de-allocation.
+* Error Handling::              Error codes and such.
+* Examples::                    Demonstrate how to use the library.
+* Acknowledgements::            Whom to blame.
+
+* Invoking gsasl::              Command line interface to the library.
+
+Appendices
+
+* Protocol Clarifications::     Our notes on the SASL protocol.
+* Old Functions::               Descriptions of old API functions.
+* Copying Information::		How you can copy and share GNU SASL.
+
+Indices
+
+* Concept Index::               Index of concepts and programs.
+* Function and Data Index::     Index of functions, variables and data types.
+@end menu
+
+@c **********************************************************
+@c *******************  Introduction  ***********************
+@c **********************************************************
+@node Introduction
+@chapter Introduction
+
+This manual can be used in several ways.  If read from the beginning
+to the end, it gives the reader an understanding of the SASL framework
+and the GNU SASL implementation, and how the GNU SASL library is used
+in an application.  Forward references are included where necessary.
+Later on, the manual can be used as a reference manual to get just the
+information needed about any particular interface of the library.
+Experienced programmers might want to start looking at the examples at
+the end of the manual, and then only read up those parts of the
+interface which are unclear.
+
+@menu
+* SASL Overview::
+* Implementation::
+* Features::
+* Requirements::
+* Supported Platforms::
+* Getting help::
+* Commercial Support::
+* Downloading and Installing::
+* Bug Reports::
+* Contributing::
+@end menu
+
+@node SASL Overview
+@section SASL Overview
+
+SASL is a framework for application protocols, such as SMTP or IMAP,
+to add authentication support.  For example, SASL is used to prove to
+the server who you are when you access an IMAP server to read your
+e-mail.
+
+The SASL framework does not specify the technology used to perform the
+authentication, that is the responsibility for each SASL mechanism.
+Popular SASL mechanisms include CRAM-MD5 and GSSAPI (for Kerberos V5).
+
+Typically a SASL negotiation works as follows.  First the client
+requests authentication (possibly implicitly by connecting to the
+server).  The server responds with a list of supported mechanisms.
+The client chose one of the mechanisms.  The client and server then
+exchange data, one round-trip at a time, until authentication either
+succeeds or fails.  After that, the client and server knows more about
+who is on the other end of the channel.
+
+For example, in SMTP communication happens like this:
+
+@smallexample
+250-mail.example.com Hello pc.example.org [192.168.1.42], pleased to meet you
+250-AUTH DIGEST-MD5 CRAM-MD5 LOGIN PLAIN
+250 HELP
+AUTH CRAM-MD5
+334 PDk5MDgwNDEzMDUwNTUyMTE1NDQ5LjBAbG9jYWxob3N0Pg==
+amFzIDBkZDRkODZkMDVjNjI4ODRkYzc3OTcwODE4ZGI5MGY3
+235 2.0.0 OK Authenticated
+@end smallexample
+
+Here the first three lines are sent by the server and contains the
+list of supported mechanisms (DIGEST-MD5, CRAM-MD5, etc).  The next
+line is sent by the client to select the CRAM-MD5 mechanism.  The
+server replies with a challenge, which is a message that can be
+generated by calling GNU SASL functions.  The client replies with a
+response, which also is a message that can be generated by GNU SASL
+functions.  Depending on the mechanism, there can be more than one
+round trip, so do not assume all authentication exchanges consists of
+one message from the server and one from the client.  The server
+accepts the authentication.  At that point it knows it is talking to a
+authenticated client, and the application protocol can continue.
+
+Essentially, your application is responsible for implementing the
+framing protocol (e.g., SMTP or XMPP) according to the particular
+specifications.  Your application uses GNU SASL to generate the
+authentication messages.
+
+@node Implementation
+@section Implementation
+
+GNU SASL is an implementation of the Simple Authentication and
+Security Layer framework and a few common SASL mechanisms.
+
+GNU SASL consists of a library (@code{libgsasl}), a command line
+utility (@code{gsasl}) to access the library from the shell, and a
+manual.  The library includes support for the framework (with
+authentication functions and application data privacy and integrity
+functions) and at least partial support for the ANONYMOUS, CRAM-MD5,
+DIGEST-MD5, EXTERNAL, GS2-KRB5, GSSAPI, LOGIN, NTLM, PLAIN,
+SCRAM-SHA-1, SCRAM-SHA-1-PLUS, SAML20, OPENID20, and SECURID
+mechanisms.
+
+The library is easily ported because it does not do network
+communication by itself, but rather leaves it up to the calling
+application.  The library is flexible with regards to the
+authorization infrastructure used, as it utilizes a callback into the
+application to decide whether a user is authorized or not.
+
+GNU SASL is developed for the GNU/Linux system, but runs on over 20
+platforms including most major Unix platforms and Windows, and many
+kind of devices including iPAQ handhelds and S/390 mainframes.
+
+GNU SASL is written in pure ANSI C89 to be portable to embedded and
+otherwise limited platforms.  The entire library, with full support
+for ANONYMOUS, EXTERNAL, PLAIN, LOGIN and CRAM-MD5, and the front-end
+that supports client and server mode, and the IMAP and SMTP protocols,
+fits in under 80kb on an Intel x86 platform, without any modifications
+to the code.  (This figure was accurate as of version 1.1.)
+
+The design of the library and the intended interaction between
+applications and the library through the official API is illustrated
+below.
+
+@float Illustration,fig:abstraction
+@image{abstraction,10cm,5cm}
+
+@caption{Logical overview showing how applications use authentication
+mechanisms through an abstract interface.}
+
+@end float
+
+@node Features
+@section Features
+
+GNU SASL might have a couple of advantages over other libraries doing
+a similar job.
+
+@table @asis
+@item It's Free Software
+Anybody can use, modify, and redistribute it under the terms of the
+GNU General Public License version 3.0 or later.  The library uses the
+GNU Lesser General Public License version 2.1 or later.
+
+@item It's thread-safe
+No global variables are used and multiple library handles and session
+handles may be used in parallel.
+
+@item It's internationalized
+It handles non-ASCII usernames and passwords and user visible strings
+used in the library (error messages) can be translated into the users'
+language.
+
+@item It's portable
+It should work on all Unix like operating systems, including Windows.
+The library itself should be portable to any C89 system, not even
+POSIX is required.
+
+@item It's small
+The library has been rewritten with embedded platforms in mind.  For
+example, no API consumes more than around 250 bytes of stack space.
+
+@end table
+
+Note that the library does not implement any policy to decide whether
+a certain user is ``authenticated'' or ``authorized'' or not.  Rather,
+it uses a callback into the application to answer these questions.
+
+@node Requirements
+@section Requirements
+
+The GNU SASL library does not have any required external dependencies,
+but some optional features are enabled if you have a specific external
+library.
+
+@table @asis
+@item LibNTLM
+The NTLM mechanism requires the library LibNTLM,
+@url{http://www.nongnu.org/libntlm/}.
+
+@item GSS-API
+The GSSAPI and GS2-KRB5 mechanisms requires a GSS-API library, see GNU
+GSS (@url{http://www.gnu.org/software/gss/}).  MIT Kerberos or Heimdal
+are also supported.
+
+@item LibIDN
+Processing of non-ASCII usernames and passwords requires the SASLprep
+implementation in LibIDN (@url{http://www.gnu.org/software/libidn/}).
+This is needed for full conformance with the latest SASL protocol
+drafts, but is optional in the library for improved portability.
+
+@item Libgcrypt
+The GNU SASL library ships with its own cryptographic implementation,
+but it can use the one in libgcrypt (@url{http://www.gnupg.org/})
+instead, if it is available.  This is typically useful for desktop
+machines which have libgcrypt installed.
+@end table
+
+The command-line interface to GNU SASL requires a POSIX or Windows
+platform for network connectivity.  The command-line tool can make use
+of GnuTLS (@url{http://www.gnutls.org/}) to support the STARTTLS modes
+of IMAP and SMTP, but GnuTLS is not required.
+
+Note that the library does not need a POSIX platform or network
+connectivity.
+
+@node Supported Platforms
+@section Supported Platforms
+
+GNU SASL has at some point in time been tested on the following
+platforms.  Daily online build reports are available at
+@url{http://autobuild.josefsson.org/gsasl/}.
+
+@enumerate
+
+@item Debian GNU/Linux 3.0 (Woody)
+@cindex Debian
+
+GCC 2.95.4 and GNU Make. This is the main development platform.
+@code{alphaev67-unknown-linux-gnu}, @code{alphaev6-unknown-linux-gnu},
+@code{arm-unknown-linux-gnu}, @code{hppa-unknown-linux-gnu},
+@code{hppa64-unknown-linux-gnu}, @code{i686-pc-linux-gnu},
+@code{ia64-unknown-linux-gnu}, @code{m68k-unknown-linux-gnu},
+@code{mips-unknown-linux-gnu}, @code{mipsel-unknown-linux-gnu},
+@code{powerpc-unknown-linux-gnu}, @code{s390-ibm-linux-gnu},
+@code{sparc-unknown-linux-gnu}.
+
+@item Debian GNU/Linux 2.1
+@cindex Debian
+
+GCC 2.95.1 and GNU Make. @code{armv4l-unknown-linux-gnu}.
+
+@item Tru64 UNIX
+@cindex Tru64
+
+Tru64 UNIX C compiler and Tru64 Make. @code{alphaev67-dec-osf5.1},
+@code{alphaev68-dec-osf5.1}.
+
+@item SuSE Linux 7.1
+@cindex SuSE
+
+GCC 2.96 and GNU Make. @code{alphaev6-unknown-linux-gnu},
+@code{alphaev67-unknown-linux-gnu}.
+
+@item SuSE Linux 7.2a
+@cindex SuSE Linux
+
+GCC 3.0 and GNU Make. @code{ia64-unknown-linux-gnu}.
+
+@item RedHat Linux 7.2
+@cindex RedHat
+
+GCC 2.96 and GNU Make. @code{alphaev6-unknown-linux-gnu},
+@code{alphaev67-unknown-linux-gnu}, @code{ia64-unknown-linux-gnu}.
+
+@item RedHat Linux 8.0
+@cindex RedHat
+
+GCC 3.2 and GNU Make. @code{i686-pc-linux-gnu}.
+
+@item RedHat Advanced Server 2.1
+@cindex RedHat Advanced Server
+
+GCC 2.96 and GNU Make. @code{i686-pc-linux-gnu}.
+
+@item Slackware Linux 8.0.01
+@cindex RedHat
+
+GCC 2.95.3 and GNU Make. @code{i686-pc-linux-gnu}.
+
+@item Mandrake Linux 9.0
+@cindex Mandrake
+
+GCC 3.2 and GNU Make. @code{i686-pc-linux-gnu}.
+
+@item IRIX 6.5
+@cindex IRIX
+
+MIPS C compiler, IRIX Make. @code{mips-sgi-irix6.5}.
+
+@item AIX 4.3.2
+@cindex AIX
+
+IBM C for AIX compiler, AIX Make.  @code{rs6000-ibm-aix4.3.2.0}.
+
+@item Microsoft Windows 2000 (Cygwin)
+@cindex Windows
+
+GCC 3.2, GNU make. @code{i686-pc-cygwin}.
+
+@item HP-UX 11
+@cindex HP-UX
+
+HP-UX C compiler and HP Make. @code{ia64-hp-hpux11.22},
+@code{hppa2.0w-hp-hpux11.11}.
+
+@item SUN Solaris 2.8
+@cindex Solaris
+
+Sun WorkShop Compiler C 6.0 and SUN Make. @code{sparc-sun-solaris2.8}.
+
+@item SUN Solaris 2.9
+@cindex Solaris
+
+Sun Forte Developer 7 C compiler and GNU
+Make. @code{sparc-sun-solaris2.9}.
+
+@item NetBSD 1.6
+@cindex NetBSD
+
+GCC 2.95.3 and GNU Make. @code{alpha-unknown-netbsd1.6},
+@code{i386-unknown-netbsdelf1.6}.
+
+@item OpenBSD 3.1 and 3.2
+@cindex OpenBSD
+
+GCC 2.95.3 and GNU Make. @code{alpha-unknown-openbsd3.1},
+@code{i386-unknown-openbsd3.1}.
+
+@item FreeBSD 4.7
+@cindex FreeBSD
+
+GCC 2.95.4 and GNU Make. @code{alpha-unknown-freebsd4.7},
+@code{i386-unknown-freebsd4.7}.
+
+@item Cross compiled to uClinux/uClibc on Motorola Coldfire.
+@cindex Motorola Coldfire
+@cindex uClinux
+@cindex uClibc
+
+GCC 3.4 and GNU Make @code{m68k-uclinux-elf}.
+
+@end enumerate
+
+If you port GNU SASL to a new platform, please report it to the author
+so this list can be updated.
+
+@node Getting help
+@section Getting help
+
+A mailing list where users may help each other exists, and you can
+reach it by sending e-mail to @email{help-gsasl@@gnu.org}.  Archives
+of the mailing list discussions, and an interface to manage
+subscriptions, is available through the World Wide Web at
+@url{http://lists.gnu.org/mailman/listinfo/help-gsasl/}.
+
+@node Commercial Support
+@section Commercial Support
+
+Commercial support is available for users of GNU SASL.  The kind of
+support that can be purchased may include:
+
+@itemize
+
+@item Implement new features.
+Such as a new SASL mechanism.
+
+@item Port GNU SASL to new platforms.
+This could include porting to an embedded platforms that may need
+memory or size optimization.
+
+@item Integrating SASL as a security environment in your existing project.
+
+@item System design of components related to SASL.
+
+@end itemize
+
+If you are interested, please write to:
+
+@verbatim
+Simon Josefsson Datakonsult AB
+Hagagatan 24
+113 47 Stockholm
+Sweden
+
+E-mail: simon@josefsson.org
+@end verbatim
+
+If your company provides support related to GNU SASL and would like to
+be mentioned here, contact the author (@pxref{Bug Reports}).
+
+@node Downloading and Installing
+@section Downloading and Installing
+@cindex Installation
+@cindex Download
+
+The package can be downloaded from several places, including:
+
+@url{ftp://ftp.gnu.org/gnu/gsasl/}
+
+The latest version is stored in a file, e.g.,
+@samp{gsasl-@value{VERSION}.tar.gz} where the @samp{@value{VERSION}}
+value is the highest version number in the directory.
+
+The package is then extracted, configured and built like many other
+packages that use Autoconf.  For detailed information on configuring
+and building it, refer to the @file{INSTALL} file that is part of the
+distribution archive.
+
+Here is an example terminal session that downloads, configures, builds
+and install the package.  You will need a few basic tools, such as
+@samp{sh}, @samp{make} and @samp{cc}.
+
+@example
+$ wget -q ftp://ftp.gnu.org/gnu/gsasl/gsasl-@value{VERSION}.tar.gz
+$ tar xfz gsasl-@value{VERSION}.tar.gz
+$ cd gsasl-@value{VERSION}/
+$ ./configure
+...
+$ make
+...
+$ make install
+...
+@end example
+
+After that gsasl should be properly installed and ready for use.
+
+A few @code{configure} options may be relevant, summarized in the
+table.
+
+@table @code
+
+@item --disable-client
+@itemx --disable-server
+If your target system require a minimal implementation, you may wish
+to disable the client or the server part of the code.  This does not
+remove symbols from the library, so if you attempt to call an
+application that uses server functions in a library built with
+@code{--disable-server}, the function will return an error code.
+
+@item --disable-obsolete
+Remove backwards compatibility (@pxref{Old Functions}).  Use if you
+want to limit the size of the library.
+
+@item --disable-anonymous
+@itemx --disable-external
+@itemx --disable-plain
+@itemx --disable-login
+@itemx --disable-securid
+@itemx --disable-ntlm
+@itemx --disable-cram-md5
+@itemx --disable-digest-md5
+@itemx --disable-gssapi
+@itemx --disable-gs2
+@itemx --enable-kerberos_v5
+@itemx --disable-scram-sha1
+@itemx --disable-saml20
+@itemx --disable-openid20
+Disable or enable individual mechanisms (@pxref{Mechanisms}).
+
+@item --without-stringprep
+Disable internationalized string processing.  Note that this will
+result in a SASL library that is only compatible with RFC 2222.
+
+@end table
+
+For the complete list, refer to the output from @code{configure
+--help}.
+
+@menu
+* Installing under Windows::    Windows specific build instructions.
+* Kerberos on Windows::         Building with Kerberos via GSS-API on Windows.
+@end menu
+
+@node Installing under Windows
+@subsection Installing under Windows
+
+There are two ways to build GNU SASL on Windows: via MinGW or via
+Microsoft Visual Studio.  Note that a binary release for Windows is
+available from @url{http://josefsson.org/gnutls4win/}.
+
+With MinGW, you can build a GNU SASL DLL and use it from other
+applications.  After installing MinGW (@url{http://mingw.org/}) follow
+the generic installation instructions (@pxref{Downloading and
+Installing}).  The DLL is installed by default.
+
+For information on how to use the DLL in other applications, see:
+@url{http://www.mingw.org/mingwfaq.shtml#faq-msvcdll}.
+
+You can build GNU SASL as a native Visual Studio C++ project.  This
+allows you to build the code for other platforms that VS supports,
+such as Windows Mobile.  You need Visual Studio 2005 or later.
+
+First download and unpack the archive as described in the generic
+installation instructions (@pxref{Downloading and Installing}).  Don't
+run @code{./configure}.  Instead, start Visual Studio and open the
+project file @file{lib/win32/libgsasl.sln} inside the GNU SASL
+directory.  You should be able to build the project using Build
+Project.
+
+Output libraries will be written into the @code{lib/win32/lib} (or
+@code{lib/win32/lib/debug} for Debug versions) folder.
+
+Warning!  Unless you build GNU SASL linked with libgcrypt, GNU SASL
+uses the Windows function @code{CryptGenRandom} for generating
+cryptographic random data.  The function is known to have some
+security weaknesses.  See @url{http://eprint.iacr.org/2007/419} for
+more information.  The code will attempt to use the Intel RND crypto
+provider if it is installed, see @file{lib/gl/gc-gnulib.c}.
+
+@node Kerberos on Windows
+@subsection Kerberos on Windows
+
+Building GNU SASL with support for Kerberos via GSS-API on Windows is
+straight forward if you use GNU GSS and GNU Shishi as the Kerberos
+implementation.
+
+If you are using MIT Kerberos for Windows (KfW), getting GNU SASL to
+build with Kerberos support is not straightforward because KfW does
+not follow the GNU coding style and it has bugs that needs to be
+worked around.  We provide instructions for this environment as well,
+in the hope that it will be useful for GNU SASL users.
+
+Our instructions assumes you are building the software on a dpkg-based
+GNU/Linux systems (e.g., gNewSense) using the MinGW cross-compiler
+suite.  These instructions were compiled for KfW version 3.2.2 which
+were the latest as of 2010-09-25.
+
+We assume that you have installed a normal build environment including
+the MinGW cross-compiler.  Download and unpack the KfW SDK like this:
+
+@example
+$ mkdir ~/kfw
+$ cd ~/kfw
+$ wget -q http://web.mit.edu/kerberos/dist/kfw/3.2/kfw-3.2.2/kfw-3-2-2-sdk.zip
+$ unzip kfw-3-2-2-sdk.zip
+@end example
+
+Fix a bug in the "win-mac.h" header inside KfW by replacing
+@code{#include <sys\foo.h>} with @code{#include <sys/foo.h>}:
+
+@example
+perl -pi -e 's,sys\\,sys/,' ~/kfw/kfw-3-2-2-final/inc/krb5/win-mac.h
+@end example
+
+Unpack your copy of GNU SASL:
+
+@example
+$ wget -q ftp://alpha.gnu.org/gnu/gsasl/gsasl-@value{VERSION}.tar.gz
+$ tar xfz gsasl-@value{VERSION}.tar.gz
+$ cd gsasl-@value{VERSION}
+@end example
+
+Configure GNU SASL like this:
+
+@example
+$ lt_cv_deplibs_check_method=pass_all ./configure --host=i586-mingw32msvc --build=i686-pc-linux-gnu --with-gssapi-impl=kfw LDFLAGS="-L$HOME/kfw/kfw-3-2-2-final/lib/i386" CPPFLAGS="-I$HOME/kfw/kfw-3-2-2-final/inc/krb5 -DSSIZE_T_DEFINED"
+@end example
+
+The 'lt_cv_deplibs_check_method=pass_all' setting is required because
+the KfW SDK does not ship with Libtool @code{*.la} files and is using
+non-standard DLL names.  The @code{-DSSIZE_T_DEFINED} is necessary
+because the @code{win-mac.h} file would provide an incorrect duplicate
+definitions of @code{ssize_t} otherwise.  By passing
+@code{--with-gssapi-impl=kfw} you activate other bug workarounds, such
+as providing a @code{GSS_C_NT_HOSTBASED_SERVICE} symbol.
+
+Build the software using:
+
+@example
+$ make
+@end example
+
+If you have Wine installed and your kernel is able to invoke it
+automatically for Windows programs, you can run the self tests.  This
+is recommended to make sure the build is sane.
+
+@example
+$ make check
+@end example
+
+You may get error messages about missing DLLs, like this error:
+
+@example
+err:module:import_dll Library gssapi32.dll (which is needed by L"Z:\\home\\jas\\src\\gsasl-1.5.2\\lib\\src\\.libs\\libgsasl-7.dll") not found
+@end example
+
+If that happens, you need to make sure that Wine can find the
+appropriate DLL.  The simplest solution is to copy the necessary DLLs
+to @code{~/.wine/drive_c/windows/system32/}.
+
+You may now copy the following files onto the Windows machine (e.g.,
+through a USB memory device):
+
+@example
+lib/src/.libs/libgsasl-7.dll
+src/.libs/gsasl.exe
+@end example
+
+The remaining steps are done on the Windows XP machine.  Install KfW
+and configure it for your realm.  To make sure KfW is working
+properly, acquire a user ticket and then remove it.  For testing
+purposes, you may use the realm 'interop.josefsson.org' with KDC
+'interop.josefsson.org' and username 'user' and password 'pass'.
+
+Change to the directory where you placed the files above, and invoke a
+command like this:
+
+@example
+gsasl.exe -d interop.josefsson.org
+@end example
+
+KfW should query you for a password, and the tool should negotiate
+authentication against the server using GS2-KRB5.
+
+@node Bug Reports
+@section Bug Reports
+@cindex Reporting Bugs
+
+If you think you have found a bug in GNU SASL, please investigate it
+and report it.
+
+@itemize @bullet
+
+@item Please make sure that the bug is really in GNU SASL, and
+preferably also check that it hasn't already been fixed in the latest
+version.
+
+@item You have to send us a test case that makes it possible for us to
+reproduce the bug.
+
+@item You also have to explain what is wrong; if you get a crash, or
+if the results printed are not good and in that case, in what way.
+Make sure that the bug report includes all information you would need
+to fix this kind of bug for someone else.
+
+@end itemize
+
+Please make an effort to produce a self-contained report, with
+something definite that can be tested or debugged.  Vague queries or
+piecemeal messages are difficult to act on and don't help the
+development effort.
+
+If your bug report is good, we will do our best to help you to get a
+corrected version of the software; if the bug report is poor, we won't
+do anything about it (apart from asking you to send better bug
+reports).
+
+If you think something in this manual is unclear, or downright
+incorrect, or if the language needs to be improved, please also send a
+note.
+
+Send your bug report to:
+
+@center @samp{bug-gsasl@@gnu.org}
+
+@node Contributing
+@section Contributing
+@cindex Contributing
+@cindex Hacking
+
+If you want to submit a patch for inclusion -- from solve a typo you
+discovered, up to adding support for a new feature -- you should
+submit it as a bug report (@pxref{Bug Reports}).  There are some
+things that you can do to increase the chances for it to be included
+in the official package.
+
+Unless your patch is very small (say, under 10 lines) we require that
+you assign the copyright of your work to the Free Software Foundation.
+This is to protect the freedom of the project.  If you have not
+already signed papers, we will send you the necessary information when
+you submit your contribution.
+
+For contributions that doesn't consist of actual programming code, the
+only guidelines are common sense.  Use it.
+
+For code contributions, a number of style guides will help you:
+
+@itemize @bullet
+
+@item Coding Style.
+Follow the GNU Standards document (@pxref{top, GNU Coding Standards,,
+standards}).
+
+If you normally code using another coding standard, there is no
+problem, but you should use @samp{indent} to reformat the code
+(@pxref{top, GNU Indent,, indent}) before submitting your work.
+
+@item Use the unified diff format @samp{diff -u}.
+
+@item Return errors.
+No reason whatsoever should abort the execution of the library.  Even
+memory allocation errors, e.g. when @code{malloc} return @code{NULL},
+should work although result in an error code.
+
+@item Design with thread safety in mind.
+Don't use global variables.  Don't even write to per-handle global
+variables unless the documented behaviour of the function you write is
+to write to the per-handle global variable.
+
+@item Avoid using the C math library.
+It causes problems for embedded implementations, and in most
+situations it is very easy to avoid using it.
+
+@item Document your functions.
+Use comments before each function headers, that, if properly
+formatted, are extracted into Texinfo manuals and GTK-DOC web pages.
+
+@item Supply a ChangeLog and NEWS entries, where appropriate.
+
+@end itemize
+
+@c **********************************************************
+@c *******************  Preparation  ************************
+@c **********************************************************
+@node Preparation
+@chapter Preparation
+
+To use GNU SASL, you have to perform some changes to your sources and
+the build system.  The necessary changes are small and explained in
+the following sections.  At the end of this chapter, it is described
+how the library is initialized, and how the requirements of the
+library are verified.
+
+A faster way to find out how to adapt your application for use with
+GNU SASL may be to look at the examples at the end of this manual
+(@pxref{Examples}).
+
+@menu
+* Header::
+* Initialization::
+* Version Check::
+* Building the source::
+* Autoconf tests::
+@end menu
+
+@node Header
+@section Header
+
+All interfaces (data types and functions) of the library are defined
+in the header file @code{gsasl.h}.  You must include this in all
+programs using the library, either directly or through some other
+header file, like this:
+
+@example
+#include <gsasl.h>
+@end example
+
+The name space is @code{gsasl_*} for function names, @code{Gsasl*} for
+data types and @code{GSASL_*} for other symbols.  In addition the same
+name prefixes with one prepended underscore are reserved for internal
+use and should never be used by an application.
+
+@node Initialization
+@section Initialization
+
+The library must be initialized before it can be used.  The library is
+initialized by calling @code{gsasl_init} (@pxref{Global Functions}).
+The resources allocated by the initialization process can be released
+if the application no longer has a need to call `Libgsasl' functions,
+this is done by calling @code{gsasl_done}.  For example:
+
+@example
+int
+main (int argc, char *argv[])
+@{
+  Gsasl *ctx = NULL;
+  int rc;
+...
+  rc = gsasl_init (&ctx);
+  if (rc != GSASL_OK)
+    @{
+      printf ("SASL initialization failure (%d): %s\n",
+              rc, gsasl_strerror (rc));
+      return 1;
+    @}
+...
+@end example
+
+In order to make error messages from @code{gsasl_strerror} be
+translated (@pxref{Top,,,gettext,GNU Gettext}) the application must
+set the current locale using @code{setlocale} before calling
+@code{gsasl_init}.  For example:
+
+@example
+int
+main (int argc, char *argv[])
+@{
+  Gsasl *ctx = NULL;
+  int rc;
+...
+  setlocale (LC_ALL, "");
+...
+  rc = gsasl_init (&ctx);
+  if (rc != GSASL_OK)
+    @{
+      printf (gettext ("SASL initialization failure (%d): %s\n"),
+              rc, gsasl_strerror (rc));
+      return 1;
+    @}
+...
+@end example
+
+In order to take advantage of the secure memory features in
+Libgcrypt@footnote{Note that GNU SASL normally use its own internal
+implementation of the cryptographic functions.  Take care to verify
+that GNU SASL really use Libgcrypt, if this is what you want.}, you
+need to initialize secure memory in your application, and for some
+platforms even make your application setuid root.  See the Libgcrypt
+documentation for more information.  Here is example code to
+initialize secure memory in your code:
+
+@example
+#include <gcrypt.h>
+...
+int
+main (int argc, char *argv[])
+@{
+  Gsasl *ctx = NULL;
+  int rc;
+...
+  /* Check version of libgcrypt. */
+  if (!gcry_check_version (GCRYPT_VERSION))
+    die ("version mismatch\n");
+
+  /* Allocate a pool of 16k secure memory.  This also drops priviliges
+     on some systems. */
+  gcry_control (GCRYCTL_INIT_SECMEM, 16384, 0);
+
+  /* Tell Libgcrypt that initialization has completed. */
+  gcry_control (GCRYCTL_INITIALIZATION_FINISHED, 0);
+...
+  rc = gsasl_init (&ctx);
+  if (rc != GSASL_OK)
+    @{
+      printf ("SASL initialization failure (%d): %s\n",
+              rc, gsasl_strerror (rc));
+      return 1;
+    @}
+...
+@end example
+
+If you do not do this, keying material will not be allocated in secure
+memory (which, for most applications, is not the biggest secure
+problem anyway).  Note that the GNU SASL Library has not been audited
+to make sure it stores passwords or keys in secure memory.
+
+@node Version Check
+@section Version Check
+
+It is often desirable to check that the version of the library used is
+indeed one which fits all requirements.  Even with binary
+compatibility, new features may have been introduced but, due to
+problem with the dynamic linker, an old version may actually be used.
+So you may want to check that the version is okay right after program
+startup.
+
+@include texi/gsasl_check_version.texi
+
+The normal way to use the function is to put something similar to the
+following early in your @code{main}:
+
+@example
+  if (!gsasl_check_version (GSASL_VERSION))
+    @{
+      printf ("gsasl_check_version failed:\n"
+              "Header file incompatible with shared library.\n");
+      exit(1);
+    @}
+@end example
+
+@node Building the source
+@section Building the source
+@cindex Compiling your application
+
+If you want to compile a source file including the @file{gsasl.h}
+header file, you must make sure that the compiler can find it in the
+directory hierarchy.  This is accomplished by adding the path to the
+directory in which the header file is located to the compilers include
+file search path (via the @option{-I} option).
+
+However, the path to the include file is determined at the time the
+source is configured.  To solve this problem, the library uses the
+external package @command{pkg-config} that knows the path to the
+include file and other configuration options.  The options that need
+to be added to the compiler invocation at compile time are output by
+the @option{--cflags} option to @command{pkg-config libgsasl}.  The
+following example shows how it can be used at the command line:
+
+@example
+gcc -c foo.c `pkg-config libgsasl --cflags`
+@end example
+
+Adding the output of @samp{pkg-config libgsasl --cflags} to the
+compiler command line will ensure that the compiler can find the
+@file{gsasl.h} header file.
+
+A similar problem occurs when linking the program with the library.
+Again, the compiler has to find the library files.  For this to work,
+the path to the library files has to be added to the library search
+path (via the @option{-L} option).  For this, the option
+@option{--libs} to @command{pkg-config libgsasl} can be used.  For
+convenience, this option also outputs all other options that are
+required to link the program with the library (for instance, the
+@samp{-lidn} option).  The example shows how to link @file{foo.o} with
+the library to a program @command{foo}.
+
+@example
+gcc -o foo foo.o `pkg-config libgsasl --libs`
+@end example
+
+Of course you can also combine both examples to a single command by
+specifying both options to @command{pkg-config}:
+
+@example
+gcc -o foo foo.c `pkg-config libgsasl --cflags --libs`
+@end example
+
+@node Autoconf tests
+@section Autoconf tests
+@cindex Autoconf tests
+@cindex Configure tests
+
+If you work on a project that uses Autoconf (@pxref{top, GNU
+Autoconf,, autoconf}) to help find installed libraries, the
+suggestions in the previous section are not the entire story.  There
+are a few methods to detect and incorporate the GNU SASL Library into
+your Autoconf based package.  The preferred approach, is to use
+Libtool in your project, and use the normal Autoconf header file and
+library tests.
+
+@subsection Autoconf test via @samp{pkg-config}
+
+If your audience is a typical GNU/Linux desktop, you can often assume
+they have the @samp{pkg-config} tool installed, in which you can use
+its Autoconf M4 macro to find and set up your package for use with
+Libgsasl.  The following example illustrates this scenario.
+
+@example
+AC_ARG_ENABLE(gsasl,
+  AC_HELP_STRING([--disable-gsasl], [don't use GNU SASL]),
+  gsasl=$enableval)
+if test "$gsasl" != "no" ; then
+  PKG_CHECK_MODULES(GSASL, libgsasl >= @value{VERSION},
+    [gsasl=yes],
+    [gsasl=no])
+  if test "$gsasl" != "yes" ; then
+    gsasl=no
+    AC_MSG_WARN([Cannot find GNU SASL, disabling])
+  else
+    gsasl=yes
+    AC_DEFINE(USE_GSASL, 1, [Define to 1 if you want GNU SASL.])
+  fi
+fi
+AC_MSG_CHECKING([if GNU SASL should be used])
+AC_MSG_RESULT($gsasl)
+@end example
+
+@subsection Standalone Autoconf test using Libtool
+
+If your package uses Libtool (@pxref{top, GNU Libtool,, libtool}), you
+can use the normal Autoconf tests to find Libgsasl and rely on the
+Libtool dependency tracking to include the proper dependency libraries
+(e.g., Libidn).  The following example illustrates this scenario.
+
+@example
+AC_CHECK_HEADER(gsasl.h,
+  AC_CHECK_LIB(gsasl, gsasl_check_version,
+    [gsasl=yes AC_SUBST(GSASL_LIBS, -lgsasl)],
+    gsasl=no),
+  gsasl=no)
+AC_ARG_ENABLE(gsasl,
+  AC_HELP_STRING([--disable-gsasl], [don't use GNU SASL]),
+  gsasl=$enableval)
+if test "$gsasl" != "no" ; then
+  AC_DEFINE(USE_SASL, 1, [Define to 1 if you want GNU SASL.])
+else
+  AC_MSG_WARN([Cannot find GNU SASL, diabling])
+fi
+AC_MSG_CHECKING([if GNU SASL should be used])
+AC_MSG_RESULT($gsasl)
+@end example
+
+@c **********************************************************
+@c *****************  Using the Library  ********************
+@c **********************************************************
+@node Using the Library
+@chapter Using the Library
+@cindex Overview
+@cindex Library Overview
+
+Your application's use of the library can be roughly modeled into the
+following steps: initialize the library, optionally specify the
+callback, perform the authentication, and finally clean up.  The
+following image illustrates this.
+
+@image{controlflow,15cm,5cm}
+
+The third step may look complex, but for a simple client it will
+actually not involve any code.  If your application needs to handle
+several concurrent clients, or if it is a server that needs to serve
+many clients simultaneous, things do get a bit more complicated.
+
+For illustration, we will write a simple client.  Writing a server
+would be similar, the only difference is that, later on, instead of
+supplying a username and password, you need to decide whether someone
+should be allowed to log in or not.  The code for what we have
+discussed so far make up the @code{main} function in our client
+(@pxref{Example 1}):
+
+@example
+int main (int argc, char *argv[])
+@{
+  Gsasl *ctx = NULL;
+  int rc;
+
+  if ((rc = gsasl_init (&ctx)) != GSASL_OK)
+    @{
+      printf ("Cannot initialize libgsasl (%d): %s",
+              rc, gsasl_strerror (rc));
+      return 1;
+    @}
+
+  client (ctx);
+
+  gsasl_done (ctx);
+
+  return 0;
+@}
+@end example
+
+Here, the call to the function @code{client} correspond to the third
+step in the image above.
+
+For a more complicated application, having several clients running
+simultaneous, instead of a simple call to @code{client}, it may have
+created new threads for each session, and call @code{client} within
+each thread.  The library is thread safe.
+
+An actual authentication session is more complicated than what we have
+seen so far.  These are the steps: decide which mechanism to use,
+start the session, optionally specify the callback, optionally set any
+properties, perform the authentication loop, and clean up.  Naturally,
+your application will start to talk its own protocol (e.g., SMTP or
+IMAP) after these steps have concluded.
+
+The authentication loop is based on sending tokens (typically short
+messages encoded in base 64) back and forth between the client and
+server.  It continues until authentication succeeds or an error
+occurs.  The format of the data to be transferred, the number of
+iterations in the loop, and other details are specified by each
+mechanism.  The goal of the library is to isolate your application
+from the details of all different mechanisms.
+
+Note that the library does not send data to the server itself, but
+returns it in an buffer.  You must send it to the server, following an
+application protocol profile.  For example, the SASL application
+protocol profile for SMTP is described in RFC 2554.
+
+The following image illustrates the steps we have been talking about.
+
+@image{controlflow2,16cm,12cm}
+
+We will now show the implementation of the @code{client} function used
+before.
+
+@example
+void client (Gsasl *ctx)
+@{
+  Gsasl_session *session;
+  const char *mech = "PLAIN";
+  int rc;
+
+  /* Create new authentication session. */
+  if ((rc = gsasl_client_start (ctx, mech, &session)) != GSASL_OK)
+    @{
+      printf ("Cannot initialize client (%d): %s\n",
+              rc, gsasl_strerror (rc));
+      return;
+    @}
+
+  /* Set username and password in session handle.  This info will be
+     lost when this session is deallocated below.  */
+  gsasl_property_set (session, GSASL_AUTHID, "jas");
+  gsasl_property_set (session, GSASL_PASSWORD, "secret");
+
+  /* Do it. */
+  client_authenticate (session);
+
+  /* Cleanup. */
+  gsasl_finish (session);
+@}
+@end example
+
+This function is responsible for deciding which mechanism to use.  In
+this case, the @samp{PLAIN} mechanism is hard coded, but you will see
+later how this can be made more flexible.  The function creates a new
+session, then it stores the username and password in the session
+handle, then it calls another function @code{client_authenticate} to
+handle the authentication loop, and finally it cleans up up.  Let's
+continue with the implementation of @code{client_authenticate}.
+
+@example
+void client_authenticate (Gsasl_session * session)
+@{
+  char buf[BUFSIZ] = "";
+  char *p;
+  int rc;
+
+  /* This loop mimics a protocol where the server sends data
+     first. */
+
+  do
+    @{
+      printf ("Input base64 encoded data from server:\n");
+      fgets (buf, sizeof (buf) - 1, stdin);
+      if (buf[strlen (buf) - 1] == '\n')
+        buf[strlen (buf) - 1] = '\0';
+
+      rc = gsasl_step64 (session, buf, &p);
+
+      if (rc == GSASL_NEEDS_MORE || rc == GSASL_OK)
+        @{
+          printf ("Output:\n%s\n", p);
+          free (p);
+        @}
+    @}
+  while (rc == GSASL_NEEDS_MORE);
+
+  printf ("\n");
+
+  if (rc != GSASL_OK)
+    @{
+      printf ("Authentication error (%d): %s\n",
+              rc, gsasl_strerror (rc));
+      return;
+    @}
+
+  /* The client is done.  Here you would typically check if the
+     server let the client in.  If not, you could try again. */
+
+  printf ("If server accepted us, we're done.\n");
+@}
+@end example
+
+This last function needs to be discussed in some detail.  First, you
+should be aware that there are two versions of this function, that
+differ in a subtle way.  The version above (@pxref{Example 2}) is used
+for application profiles where the server sends data first.  For some
+mechanisms, this may waste a roundtrip, because the server needs input
+from the client to proceed.  Therefor, today the recommended approach
+is to permit client to send data first (@pxref{Example 1}).  Which
+version you should use depends on which application protocol you are
+implementing.
+
+Further, you should realize that it is bad programming style to use a
+fixed size buffer.  On GNU systems, you may use the @code{getline}
+functions instead of @code{fgets}.  However, in practice, there are
+few mechanisms that use very large tokens.  In typical configurations,
+the mechanism with the largest tokens (GSSAPI) can use at least 500
+bytes.  A fixed buffer size of 8192 bytes may thus be sufficient for
+now.  But don't say I didn't warn you, when a future mechanism doesn't
+work in your application, because of a fixed size buffer.
+
+The function @code{gsasl_step64} (and of course also @code{gasl_step})
+returns two non-error return codes.  @code{GSASL_OK} is used for
+success, indicating that the library considers the authentication
+finished.  That may include a successful server authentication,
+depending on the mechanism.  You must not let the client continue to
+the application protocol part unless you receive @code{GSASL_OK} from
+these functions.  In particular, don't be fooled into believing
+authentication were successful if the server replies ``OK'' but these
+functions have failed with an error.  The server may have been hacked,
+and could be tricking you into sending confidential data, without
+having successfully authenticated the server.
+
+The non-error return code @code{GSASL_NEEDS_MORE} is used to signal to
+your application that you should send the output token to the peer,
+and wait for a new token, and do another iteration.  If the server
+concludes the authentication process, with no data, you should call
+@code{gsasl_step64} (or @code{gsasl_step}) specifying a zero-length
+token.
+
+If the functions (@code{gsasl_step} and @code{gsasl_step64}) return
+any non-error code, the content of the output buffer is undefined.
+Otherwise, it is the callers responsibility to deallocate the buffer,
+by calling @code{free}.  Note that in some situations, where the
+buffer is empty, @code{NULL} is returned as the buffer value.  You
+should treat this as an empty buffer.
+
+@section Choosing a mechanism
+
+Our earlier code was hard coded to use a specific mechanism.  This is
+rarely a good idea.  Instead, it is recommended to select the best
+mechanism available from the list of mechanisms supported by the
+server.  Note that without TLS or similar, the list may have been
+maliciously altered, by an attacker.  This means that you should abort
+if you cannot find any mechanism that exceeds your minimum security
+level.  There is a function @code{gsasl_client_suggest_mechanism}
+(@pxref{Global Functions}) that will try to pick the ``best''
+available mechanism from a list of mechanisms.  Our simple interactive
+example client (@pxref{Example 3}) includes the following function to
+decide which mechanism to use.  Note that the code doesn't blindly use
+what is returned from @code{gsasl_client_suggest_mechanism}, rather it
+lets some logic (in this case the user, through an interactive query)
+decide which mechanism is acceptable.
+
+@example
+const char *client_mechanism (Gsasl *ctx)
+@{
+  static char mech[GSASL_MAX_MECHANISM_SIZE + 1] = "";
+  char mechlist[BUFSIZ] = "";
+  const char *suggestion;
+
+  printf ("Enter list of server supported mechanisms, separate by SPC:\n");
+  fgets (mechlist, sizeof (mechlist) - 1, stdin);
+
+  suggestion = gsasl_client_suggest_mechanism (ctx, mechlist);
+  if (suggestion)
+    printf ("Library suggests use of `%s'.\n", suggestion);
+
+  printf ("Enter mechanism to use:\n");
+  fgets (mech, sizeof (mech) - 1, stdin);
+  mech[strlen (mech) - 1] = '\0';
+
+  return mech;
+@}
+@end example
+
+When running this example code, it might look like in the following
+output.
+
+@example
+Enter list server supported mechanisms, separate by SPC:
+CRAM-MD5 DIGEST-MD5 GSSAPI FOO BAR
+Library suggests use of `GSSAPI'.
+Enter mechanism to use:
+CRAM-MD5
+Input base64 encoded data from server:
+Zm5vcmQ=
+Output:
+amFzIDkyY2U1NWE5MTM2ZTY4NzEyMTUyZTFjYmFmNjVkZjgx
+
+If server accepted us, we're done.
+@end example
+
+@section Using a callback
+
+Our earlier code specified the username and password before the
+authentication loop, as in:
+
+@example
+gsasl_property_set (ctx, GSASL_AUTHID, "jas");
+gsasl_property_set (ctx, GSASL_PASSWORD, "secret");
+@end example
+
+This may work for simple mechanisms, that need only a username and a
+password.  But some mechanism requires more information, such as an
+authorization identity, a special PIN or passcode, a realm, a
+hostname, a service name, or an anonymous identifier.  Querying the
+user for all that information, without knowing exactly which of it is
+really needed will result in a poor user interface.  The user should
+not have to input private information, if it isn't required.
+
+The approach is a bad idea for another reason.  What if the server
+aborts the authentication process?  Then your application has already
+queried the user for a username and password.  It would be better if
+you only asked the user for this information, annoying to input, when
+it is known to be needed.
+
+A better approach to this problem is to use a callback.  Then the
+mechanism may query your application whenever it needs some
+information, like the username and password.  It will only do this at
+the precise step in the authentication when the information is
+actually needed.  Further, if the user aborts, e.g., a password
+prompt, the mechanism is directly informed of this (because it invoked
+the callback), and could recover somehow.
+
+Our final example (@pxref{Example 4}) specifies a callback function,
+inside @code{main} as below.
+
+@example
+/* Set the callback handler for the library. */
+gsasl_callback_set (ctx, callback);
+@end example
+
+The function itself is implemented as follows.
+
+@example
+int callback (Gsasl * ctx, Gsasl_session * sctx, Gsasl_property prop)
+@{
+  char buf[BUFSIZ] = "";
+  int rc = GSASL_NO_CALLBACK;
+
+  /* Get user info from user. */
+
+  printf ("Callback invoked, for property %d.\n", prop);
+
+  switch (prop)
+    @{
+    case GSASL_PASSCODE:
+      printf ("Enter passcode:\n");
+      fgets (buf, sizeof (buf) - 1, stdin);
+      buf[strlen (buf) - 1] = '\0';
+
+      gsasl_property_set (sctx, GSASL_PASSCODE, buf);
+      rc = GSASL_OK;
+      break;
+
+    case GSASL_AUTHID:
+      printf ("Enter username:\n");
+      fgets (buf, sizeof (buf) - 1, stdin);
+      buf[strlen (buf) - 1] = '\0';
+
+      gsasl_property_set (sctx, GSASL_AUTHID, buf);
+      rc = GSASL_OK;
+      break;
+
+    default:
+      printf ("Unknown property!  Don't worry.\n");
+      break;
+    @}
+
+  return rc;
+@}
+@end example
+
+Again, it is bad style to use a fixed size buffer.  Mmm'kay.
+
+Which properties you should handle is up to you.  If you don't know how
+to respond to a certain property, simply return
+@code{GSASL_NO_CALLBACK}.  The basic properties to support are
+authentication identity (@code{GSASL_AUTHID}), authorization identity
+(@code{GSASL_AUTHZID}), and password (@code{GSASL_PASSWORD}).
+@xref{Properties}, for the list of all properties, and what your callback
+should (ideally) do for them, and which properties each mechanism
+require in order to work.
+
+@c **********************************************************
+@c *******************  Properties  *************************
+@c **********************************************************
+@node Properties
+@chapter Properties
+
+The library uses a concept called ``properties'' to request and pass
+data between the application and the individual authentication
+mechanisms.  The application can set property values using the
+@code{gsasl_property_set} function.  If a mechanism needs a property
+value the application has not yet provided, this is handled through a
+callback.  The application provides a callback, using
+@code{gsasl_callback_set}, which will be invoked with a property
+parameter.  The callback should set the property before returning, or
+fail.  @xref{Callback Functions}, for more information.
+
+There are two kind of properties.  The first, a ``data property'' is
+the simplest to understand because it normally refers to short
+strings.  For example, the property called @code{GSASL_AUTHID}
+correspond to the username string, e.g., @code{simon}.
+
+The latter properties, called ``logical properties'', are used by the
+server to make a authentication decision, and is used as a way to get
+the application callback invoked.  For example, the property
+@code{GSASL_VALIDATE_SIMPLE} is used by the server-side part of
+mechanisms like @code{PLAIN}.  The purpose is to ask the server
+application to decide whether the user should be authenticated
+successfully or not.  The callback typically look at other property
+fields, such as @code{GSASL_AUTHID} and @code{GSASL_PASSWORD}, and
+compare those values with external information (for example data
+stored in a database or on a LDAP server) and then return OK or not.
+
+@quotation Warning
+Don't expect that all mechanisms invoke one of the logical properties
+in the server mode.  For example, the CRAM-MD5 and SCRAM-SHA-1
+mechanisms will use the data properties (i.e., username and password)
+provided by the application to internally decide whether to
+successfully authenticate the user.  User authorization decisions
+needs to be made by the application outside of the SASL mechanism
+negotiation.
+@end quotation
+
+The logical properties are currently only used by servers, but data
+properties are used by both client and servers.  It makes sense to
+think about the latter category as @samp{server properties} but the
+reverse is not valid nor useful.
+
+The semantics associated with a data property is different when it is
+used in client context and in the server context.  For example, in the
+client context, the application is expected to set the property
+@code{GSASL_AUTHID} to signal to the mechanism the username to use,
+but in the server context, the @code{GSASL_AUTHID} property is set by
+the mechanism and can be used by the application (in the callback) to
+find out what username the client provided.
+
+Below is a list of all properties and an explanation for each.  First
+is the list of data properties:
+
+@itemize
+
+@item @code{GSASL_AUTHID}
+
+The authentication identity.
+
+@item @code{GSASL_AUTHZID}
+
+The authorization identity.
+
+@item @code{GSASL_PASSWORD}
+
+The password of the authentication identity.
+
+@item @code{GSASL_ANONYMOUS_TOKEN}
+
+The anonymous token.  This is typically the email address of the user.
+
+@item @code{GSASL_SERVICE}
+
+The registered GSSAPI service name of the application service,
+e.g. ``imap''.  While the names are registered for GSSAPI, other
+mechanisms such as DIGEST-MD5 may also use this.
+
+@item @code{GSASL_HOSTNAME}
+
+Should be the local host name of the machine.
+
+@item @code{GSASL_GSSAPI_DISPLAY_NAME}
+
+Contain the GSSAPI ``display name'', set by the server GSSAPI
+mechanism.  Typically you retrieve this property in your callback,
+when invoked for @code{GSASL_VALIDATE_GSSAPI}.
+
+@item @code{GSASL_REALM}
+
+The name of the authentication domain.  This is used by several
+mechanisms, including DIGEST-MD5, GSS-API, KERBEROS_V5 and NTLM.
+
+@item @code{GSASL_PASSCODE}
+
+The SecurID passcode.
+
+@item @code{GSASL_PIN}
+
+The SecurID personal identification number (PIN).
+
+@item @code{GSASL_SUGGESTED_PIN}
+
+A SecurID personal identification number (PIN) suggested by the server.
+
+@item @code{GSASL_DIGEST_MD5_HASHED_PASSWORD}
+
+For the DIGEST-MD5 mechanism, this is a hashed password.  It is used
+in servers to avoid storing clear-text credentials.
+
+@item @code{GSASL_QOPS}
+
+The DIGEST-MD5 server query for this property to get the set of
+quality of protection (QOP) values to advertise.  The property holds
+strings with comma separated keywords denoting the set of qops to use,
+for example @code{qop-auth, qop-int}.  Valid keywords are
+@code{qop-auth}, @code{qop-int}, and @code{qop-conf}.
+
+@item @code{GSASL_QOP}
+
+The DIGEST-MD5 client query for this property to get the quality of
+protection (QOP) values to request.  The property value is one of the
+keywords for @code{GSASL_QOPS}.  The client must chose one of the QOP
+values offered by the server (which may be inspected through the
+@code{GSASL_QOPS} property).
+
+@item @code{GSASL_SCRAM_SALTED_PASSWORD}
+
+The SCRAM-SHA-1 client requests this property from the application,
+and the value should be 40 character long hex-encoded string with the
+user's hashed password.  Note that the value is different for the same
+password for each value of the @code{GSASL_SCRAM_ITER} and
+@code{GSASL_SCRAM_ITER} properties.  The property can be used to avoid
+storing a clear-text credential in the client.  If the property is not
+available, the client will ask for the @code{GSASL_PASSWORD} property
+instead.
+
+@item @code{GSASL_SCRAM_ITER}
+@item @code{GSASL_SCRAM_ITER}
+
+@cindex iteration count
+@cindex salt
+In the server, the application can set these properties to influence
+the hash iteration count and hash salt to use when deriving the
+password.  The default hash iteration count is 4096 and normally you
+should not need to use a lower setting.  The salt should be a random
+string.  In the client, the SCRAM-SHA-1 mechanism set these properties
+before asking for asking the application to provide a
+@code{GSASL_SCRAM_SALTED_PASSWORD} value.
+
+@item @code{GSASL_CB_TLS_UNIQUE}
+
+@cindex channel binding
+@cindex tls-unique
+This property holds base64 encoded @code{tls-unique} channel binding
+data.  As a hint, if you use GnuTLS, the API
+@code{gnutls_session_channel_binding} can be used to extract channel
+bindings for a session.
+
+@item @code{GSASL_SAML20_IDP_IDENTIFIER}
+
+@cindex SAML IdP Identifier
+@cindex Identity Provider Identifier
+This property holds the SAML identifier of the user.  The SAML20
+mechanism in client mode will send it to the other end for
+identification purposes, and in server mode it will be accessible in
+the @code{GSASL_SAML20_REDIRECT_URL} callback.
+
+@item @code{GSASL_SAML20_REDIRECT_URL}
+This property holds the SAML redirect URL that the server wants the
+client to access.  It will be available in the
+@code{GSASL_SAML20_AUTHENTICATE_IN_BROWSER} callback for the client.
+
+@item @code{GSASL_OPENID20_REDIRECT_URL}
+This property holds the SAML redirect URL that the server wants the
+client to access.  It will be available in the
+@code{GSASL_OPENID20_AUTHENTICATE_IN_BROWSER} callback for the client.
+
+@item @code{GSASL_OPENID20_OUTCOME_DATA}
+OpenID 2.0 authentication outcome data.  This is either the OpenID
+SREG values or a value list starting with @code{"openid.error="} to
+signal error.
+
+@end itemize
+
+Next follows a list of data properties used to trigger the callback,
+typically used in servers to validate client credentials:
+
+@itemize
+
+@item @code{GSASL_VALIDATE_SIMPLE}
+
+Used by multiple mechanisms in server mode.  The callback may retrieve
+the @code{GSASL_AUTHID}, @code{GSASL_AUTHZID} and
+@code{GSASL_PASSWORD} property values and use them to make an
+authentication and authorization decision.
+
+@item @code{GSASL_VALIDATE_EXTERNAL}
+
+Used by EXTERNAL mechanism on the server side to validate the client.
+The GSASL_AUTHID will contain the authorization identity of the
+client.
+
+@item @code{GSASL_VALIDATE_ANONYMOUS}
+
+Used by ANONYMOUS mechanism on the server side to validate the client.
+The GSASL_ANONYMOUS_TOKEN will contain token that identity the client.
+
+@item @code{GSASL_VALIDATE_GSSAPI}
+
+Used by the GSSAPI and GS2-KRB5 mechanisms on the server side, to
+validate the client.  You may retrieve the authorization identity from
+GSASL_AUTHZID and the GSS-API display name from
+GSASL_GSSAPI_DISPLAY_NAME.
+
+@item @code{GSASL_VALIDATE_SECURID}
+
+Used by SECURID mechanism on the server side to validate client.  The
+GSASL_AUTHID, GSASL_AUTHZID, GSASL_PASSCODE, and GSASL_PIN will be
+set.  It can return GSASL_SECURID_SERVER_NEED_ADDITIONAL_PASSCODE to
+ask the client to supply another passcode, and
+GSASL_SECURID_SERVER_NEED_NEW_PIN to require the client to supply a
+new PIN code.
+
+@item @code{GSASL_VALIDATE_SAML20}
+
+Used by the SAML20 mechanism on the server side to request that the
+application perform authentication.  The callback should return
+@code{GSASL_OK} if the user should be permitted access, and
+@code{GSASL_AUTHENTICATION_ERROR} (or another error code) otherwise.
+
+@item @code{GSASL_VALIDATE_OPENID20}
+
+Used by the OPENID20 mechanism on the server side to request that the
+application perform authentication.  The callback should return
+@code{GSASL_OK} if the user should be permitted access, and
+@code{GSASL_AUTHENTICATION_ERROR} (or another error code) otherwise.
+
+@item @code{GSASL_SAML20_AUTHENTICATE_IN_BROWSER}
+Used by the SAML20 mechanism in the client side to request that the
+client should launch the SAML redirect URL (the
+@code{GSASL_SAML20_REDIRECT_URL} property) in a browser to continue
+with authentication.
+
+@item @code{GSASL_OPENID20_AUTHENTICATE_IN_BROWSER}
+Used by the OPENID20 mechanism in the client side to request that the
+client should launch the OpenID redirect URL (the
+@code{GSASL_OPENID20_REDIRECT_URL} property) in a browser to continue
+with authentication.
+
+@end itemize
+
+
+@c **********************************************************
+@c *******************  Mechanisms  *************************
+@c **********************************************************
+@node Mechanisms
+@chapter Mechanisms
+
+Different SASL mechanisms have different requirements on the
+application using it.  To handle these differences the library can use
+a callback function into your application in several different ways.
+Some mechanisms, such as @samp{PLAIN}, are simple to explain and use.
+The client callback queries the user for a username and password.  The
+server callback hands the username and password into any local policy
+deciding authentication system (such as @file{/etc/passwd} via PAM).
+
+Mechanism such as @samp{CRAM-MD5} and @samp{SCRAM-SHA-1} uses hashed
+passwords.  The client callback behaviour is the same as for PLAIN.
+However, the server does not receive the plain text password over the
+network but rather a hash of it.  Existing policy deciding systems
+like PAM cannot handle this, so the server callback for these
+mechanisms are more complicated.
+
+Further, mechanisms like GSSAPI/GS2-KRB5 (Kerberos 5) assume a
+specific authentication system.  In theory this means that the SASL
+library would not need to interact with the application, but rather
+call this specific authentication system directly.  However, some
+callbacks are supported anyway, to modify the behaviour of how the
+specific authentication system is used (i.e., to handle ``super-user''
+login as some other user).
+
+Some mechanisms, like @samp{EXTERNAL} and @samp{ANONYMOUS} are
+entirely dependent on callbacks.
+
+@menu
+* EXTERNAL::                Authentication via out of band information.
+* ANONYMOUS::               Mechanism for anonymous access to resources.
+* PLAIN::                   Clear text username and password.
+* LOGIN::                   Non-standard clear text username and password.
+* CRAM-MD5::                Challenge-Response Authentication Mechanism.
+* DIGEST-MD5::              Digest Authentication.
+* SCRAM-SHA-1::             SCRAM-SHA-1 authentication.
+* NTLM::                    Microsoft NTLM authentication.
+* SECURID::                 Authentication using tokens.
+* GSSAPI::                  GSSAPI (Kerberos 5) authentication.
+* GS2-KRB5::                Improved GSSAPI (Kerberos 5) authentication.
+* SAML20::                  Authenticate using SAML 2.0 via a browser.
+* OPENID20::                Authenticate using OpenID 2.0 via a browser.
+* KERBEROS_V5::             Experimental KERBEROS_V5 authentication.
+@end menu
+
+@node EXTERNAL
+@section The EXTERNAL mechanism
+
+The EXTERNAL mechanism is used to authenticate a user to a server
+based on out-of-band authentication.  EXTERNAL is typically used over
+TLS authenticated channels.  Note that in the server, you need to make
+sure that TLS actually authenticated the client successfully.  It is
+normally not sufficient to use TLS, since it also supports anonymous
+modes.
+
+In the client, this mechanism is always enabled, and it will send the
+@code{GSASL_AUTHZID} property as the authorization name to the server,
+if the property is set.  If the property is not set, the empty
+authorization name is sent.  You need not implement a callback.
+
+In the server, this mechanism will request the
+@code{GSASL_VALIDATE_EXTERNAL} callback property to decide whether the
+client is authenticated and authorized to log in.  Your callback can
+retrieve the @code{GSASL_AUTHZID} property to inspect the requested
+authorization name from the client.
+
+@node ANONYMOUS
+@section The ANONYMOUS mechanism
+
+The ANONYMOUS mechanism is used to ``authenticate'' clients to
+anonymous services; or rather, just indicate that the client wishes to
+use the service anonymously.  The client sends a token, usually her
+email address, which serve the purpose of some trace information
+suitable for log files.  The token is not permitted to be empty.
+
+In the client, this mechanism is always enabled, and will send the
+@code{GSASL_ANONYMOUS_TOKEN} property as the trace information to the
+server.
+
+In the server, this mechanism will invoke the
+@code{GSASL_VALIDATE_ANONYMOUS} callback to decide whether the client
+should be permitted to log in.  Your callback can retrieve the
+@code{GSASL_ANONYMOUS_TOKEN} property to, for example, save it in a
+log file.  The token is normally not used to decide whether the client
+should be permitted to log in or not.
+
+@node PLAIN
+@section The PLAIN mechanism
+
+The PLAIN mechanism uses username and password to authenticate users.
+Two user names are relevant.  The first, the authentication identity,
+indicates the credential holder, i.e., whom the provided password
+belongs to.  The second, the authorization identity, is typically
+empty, to indicate that the user requests to log on to the server as
+herself.  However, if the authorization identity is not empty, the
+server should decide whether the authenticated user may log on as the
+authorization identity.  Normally, only ``super-user'' accounts such
+as @samp{admin} or similar should be allowed this.
+
+In the client, this mechanism is always enabled, and require the
+@code{GSASL_AUTHID} and @code{GSASL_PASSWORD} properties.  If set,
+@code{GSASL_AUTHZID} will also be used.
+
+In the server, the mechanism is always enabled.  Two approaches to
+authenticate and authorize the client are provided.
+
+In the first approach, the server side of the mechanism will request
+the @code{GSASL_VALIDATE_SIMPLE} callback property to decide whether
+the client should be accepted or not.  The callback may inspect the
+@code{GSASL_AUTHID}, @code{GSASL_AUTHZID}, and @code{GSASL_PASSWORD}
+properties.  These property values will be normalized.
+
+If the first approach fails (because, e.g., your callback returns
+@samp{GSASL_NO_CALLBACK} to signal that it does not implement
+@code{GSASL_VALIDATE_SIMPLE}) the mechanism will continue to query the
+application for a password, via the @code{GSASL_PASSWORD} property.
+Your callback may use the @code{GSASL_AUTHID} and @code{GSASL_AUTHZID}
+properties to select the proper password.  The password is then
+normalized and compared to the client credential.
+
+Which approach to use?  If your database stores hashed passwords, you
+have no option, but must use the first approach.  If passwords in your
+user database are stored in prepared (SASLprep) form, the
+first approach will be faster.  If you do not have prepared passwords
+available, you can use the second approach to make sure the password
+is prepared properly before comparison.
+
+@node LOGIN
+@section The LOGIN mechanism
+
+The LOGIN mechanism is a non-standard mechanism, and is similar to the
+PLAIN mechanism except that LOGIN lacks the support for authorization
+identities.  Always use PLAIN instead of LOGIN in new applications.
+
+The callback behaviour is the same as for PLAIN, except that
+@code{GSASL_AUTHZID} is neither used nor required, and that the server
+does not normalize the password using SASLprep.
+
+@xref{Use of SASLprep in LOGIN}, for a proposed clarification of the
+interpretation of a hypothetical LOGIN specification.
+
+@node CRAM-MD5
+@section The CRAM-MD5 mechanism
+@cindex CRAM-MD5
+
+The CRAM-MD5 is a widely used, but officially deprecated (apparently
+in favor of DIGEST-MD5), challenge-response mechanism that transfers
+hashed passwords instead of clear text passwords.  For insecure
+channels (e.g., when TLS is not used), it is safer than
+PLAIN.  The CRAM-MD5 mechanism does not support authorization
+identities; making the relationship between CRAM-MD5 and DIGEST-MD5
+similar to the relationship between LOGIN and PLAIN.
+
+The disadvantage with hashed passwords is that the server cannot use
+normal authentication infrastructures such as PAM, because the server
+must have access to the correct password in order to validate an
+authentication attempt.
+
+In the client, this mechanism is always enabled, and it requires the
+@code{GSASL_AUTHID} and @code{GSASL_PASSWORD} properties.
+
+In the server, the mechanism will require the @code{GSASL_PASSWORD}
+callback property, which may use the @code{GSASL_AUTHID} property to
+determine which users' password should be used.  The
+@code{GSASL_AUTHID} will be in normalized form.  The server will then
+normalize the returned password, and compare the client response with
+the computed correct response, and accept the user accordingly.
+
+@xref{Use of SASLprep in CRAM-MD5}, for a clarification on the
+interpretation of the CRAM-MD5 specification that this implementation
+rely on.
+
+@node DIGEST-MD5
+@section The DIGEST-MD5 mechanism
+@cindex DIGEST-MD5
+
+The DIGEST-MD5 mechanism is based on repeated hashing using MD5, which
+after the MD5 break may be argued to be weaker than HMAC-MD5, but
+supports more features.  For example, authorization identities and
+data integrity and privacy protection are supported.  Like CRAM-MD5,
+only a hashed password is transferred.  Consequently, DIGEST-MD5 needs
+access to the correct password (although it may be hashed, another
+improvement compared to CRAM-MD5) to verify the client response.
+Alas, this makes it impossible to use, e.g., PAM on the
+server side.
+
+In the client, this mechanism is always enabled, and it requires the
+@code{GSASL_AUTHID}, @code{GSASL_PASSWORD}, @code{GSASL_SERVICE}, and
+@code{GSASL_HOSTNAME} properties.  If set, @code{GSASL_AUTHZID} and
+@code{GSASL_REALM} will also be used.
+
+In the server, the mechanism will first request the
+@code{GSASL_DIGEST_MD5_HASHED_PASSWORD} callback property to get the
+user's hashed password.  If the callback doesn't supply a hashed
+password, the @code{GSASL_PASSWORD} callback property will be
+requested.  Both callbacks may use the @code{GSASL_AUTHID},
+@code{GSASL_AUTHZID} and @code{GSASL_REALM} properties to determine
+which users' password should be used.  The server will then compare
+the client response with a computed correct response, and accept the
+user accordingly.
+
+The server uses the @code{GSASL_QOPS} callback to get the set of
+quality of protection values to use.  By default, it advertises
+support for authentication (@code{qop-auth}) only.  You can use the
+callback, for example, to make the server advertise support for
+authentication with integrity layers.
+
+The client uses the @code{GSASL_QOP} callback to get the quality of
+protection value to request.  The client must choose one of the QOP
+values offered by the server (which may be inspected through the
+@code{GSASL_QOPS} property).  If the client does not return a value,
+@code{qop-auth} is used by default.
+
+@node SCRAM-SHA-1
+@section The SCRAM-SHA-1 mechanism
+@cindex SCRAM
+
+The SCRAM-SHA-1 mechanism is designed to provide (almost) the same
+capabilities as CRAM-MD5 and DIGEST-MD5 but use modern cryptographic
+techniques such as HMAC-SHA-1 hashing and PKCS#5 PBKDF2 key
+derivation.  SCRAM-SHA-1 supports authorization identities.  Like
+CRAM-MD5 and DIGEST-MD5, only a hashed password is transferred.
+Consequently, SCRAM-SHA-1 needs access to the correct password to
+verify the client response.  Channel bindings are supported through
+the SCRAM-SHA-1-PLUS mechanism.
+
+In the client, the non-PLUS mechanism is always enabled, and it
+requires the @code{GSASL_AUTHID} property, and either
+@code{GSASL_PASSWORD} or @code{GSASL_SCRAM_SALTED_PASSWORD}.  When the
+@code{GSASL_CB_TLS_UNIQUE} property is available, the SCRAM-SHA-1-PLUS
+mechanism is also available and it will negotiate channel bindings
+when the server also supports it.  If set, @code{GSASL_AUTHZID} will
+be used by the client.  To be able to return the proper
+@code{GSASL_SCRAM_SALTED_PASSWORD} value, the client needs to check
+the @code{GSASL_SCRAM_ITER} and @code{GSASL_SCRAM_SALT} values which
+are available when the @code{GSASL_SCRAM_SALTED_PASSWORD} property is
+queried for.
+
+In the server, the mechanism will require the @code{GSASL_PASSWORD}
+callback property, which may use the @code{GSASL_AUTHID} property to
+determine which users' password should be used.  The
+@code{GSASL_AUTHID} will be in normalized form.  The server will then
+normalize the returned password, and compare the client response with
+the computed correct response, and accept the user accordingly.  The
+server may also set the @code{GSASL_SCRAM_ITER} and
+@code{GSASL_SCRAM_SALT} properties to influence the values to be used
+by clients to derive a key from a password.  When the
+@code{GSASL_CB_TLS_UNIQUE} property is set, the SCRAM-SHA-1-PLUS
+mechanism is supported and is used to negotiate channel bindings.
+
+@cindex channel binding
+The @code{GSASL_CB_TLS_UNIQUE} property signal that this side of the
+authentication supports channel bindings.  Setting the property will
+enable the SCRAM-SHA-1-PLUS mechanism.  For clients, this also
+instructs the SCRAM-SHA-1 mechanism to tell servers that the client
+believes the server does not support channel bindings if it is used
+(remember that clients should otherwise have chosen the
+SCRAM-SHA-1-PLUS mechanism instead of the SCRAM-SHA-1 mechanism).  For
+servers, it means the SCRAM-SHA-1 mechanism will refuse to
+authenticate against a client that signals that it believes the server
+does not support channel bindings.
+
+The SCRAM-SHA-1-PLUS mechanism will never complete authentication
+successfully if channel bindings are not confirmed.
+
+@node NTLM
+@section The NTLM mechanism
+@cindex NTLM
+
+The NTLM is a non-standard mechanism.  Do not use it in new
+applications, and do not expect it to be secure.  Currently only the
+client side is supported.
+
+In the client, this mechanism is always enabled, and it requires the
+@code{GSASL_AUTHID} and @code{GSASL_PASSWORD} properties.  It will set
+the @samp{domain} field in the NTLM request to the value of
+@code{GSASL_REALM}.  Some servers reportedly need non-empty but
+arbitrary values in that field.
+
+@node SECURID
+@section The SECURID mechanism
+@cindex SECURID
+
+The SECURID mechanism uses authentication and authorization identity
+together with a passcode from a hardware token to authenticate users.
+
+In the client, this mechanism is always enabled, and it requires the
+@code{GSASL_AUTHID} and @code{GSASL_PASSCODE} properties.  If set,
+@code{GSASL_AUTHZID} will also be used.  If the server requests it,
+the @code{GSASL_PIN} property is also required, and its callback may
+inspect the @code{GSASL_SUGGESTED_PIN} property to discover a
+server-provided PIN to use.
+
+In the server, this mechanism will invoke the
+@code{GSASL_VALIDATE_SECURID} callback.  The callback may inspect the
+@code{GSASL_AUTHID}, @code{GSASL_AUTHZID}, and @code{GSASL_PASSCODE}
+properties.  The callback can return
+@code{GSASL_SECURID_SERVER_NEED_ADDITIONAL_PASSCODE} to ask for
+another additional passcode from the client.  The callback can return
+@code{GSASL_SECURID_SERVER_NEED_NEW_PIN} to ask for a new PIN code
+from the client, in which case it may also set the
+@code{GSASL_SUGGESTED_PIN} property to indicate a recommended new PIN.
+If the callbacks is invoked again, after having returned
+@code{GSASL_SECURID_SERVER_NEED_NEW_PIN}, it may also inspect the
+@code{GSASL_PIN} property, in addition to the other properties, to
+find out the client selected PIN code.
+
+@node GSSAPI
+@section The GSSAPI mechanism
+@cindex GSSAPI
+
+The GSSAPI mechanism allows you to authenticate using Kerberos V5.
+The mechanism was originally designed to allow for any GSS-API
+mechanism to be used, but problems with the protocol made it
+unpractical and it is today restricted for use with Kerberos V5.  See
+the GS2 mechanism (@pxref{GS2-KRB5}) for a general solution.
+
+In the client, the mechanism is enabled only if the user has acquired
+credentials (i.e., a ticket granting ticket), and it requires the
+@code{GSASL_AUTHID}, @code{GSASL_SERVICE}, and @code{GSASL_HOSTNAME}
+properties.
+
+In the server, the mechanism requires the @code{GSASL_SERVICE} and
+@code{GSASL_HOSTNAME} properties, and it will invoke the
+@code{GSASL_VALIDATE_GSSAPI} callback property in order to validate
+the user.  The callback may inspect the @code{GSASL_AUTHZID} and
+@code{GSASL_GSSAPI_DISPLAY_NAME} properties to decide whether to
+authorize the user.  Note that authentication is performed by the
+GSS-API library.
+
+XXX: explain more about quality of service, maximum buffer size, etc.
+
+@node GS2-KRB5
+@section The GS2-KRB5 mechanism
+@cindex GS2
+@cindex GS2-KRB5
+
+GS2 is a protocol bridge between GSS-API and SASL, and allows every
+GSS-API mechanism that supports mutual authentication and channel
+bindings to be used as a SASL mechanism.  Currently we support the
+GS2-KRB5 mechanism, for Kerberos V5 authentication, however our GS2
+implementation is flexible enough to easily support other GSS-API
+mechanism if any gains popularity.
+
+In the client, the mechanism is enabled only if the user has acquired
+credentials (i.e., a ticket granting ticket), and it requires the
+@code{GSASL_AUTHID}, @code{GSASL_SERVICE}, and @code{GSASL_HOSTNAME}
+properties.
+
+In the server, the mechanism requires the @code{GSASL_SERVICE} and
+@code{GSASL_HOSTNAME} properties, and it will invoke the
+@code{GSASL_VALIDATE_GSSAPI} callback property in order to validate
+the user.  The callback may inspect the @code{GSASL_AUTHZID} and
+@code{GSASL_GSSAPI_DISPLAY_NAME} properties to decide whether to
+authorize the user.  Note that authentication is performed by the
+GSS-API library.
+
+@cindex GS2-KRB5-PLUS
+The GS2 framework supports a variant of each mechanism, called the
+PLUS variant, which can also bind the authentication to a secure
+channel through channel bindings.  Currently this is not supported by
+GNU SASL.
+
+@node SAML20
+@section The SAML20 mechanism
+@cindex SAML
+
+The SAML20 mechanism makes it possible to use SAML in SASL, in a way
+that offloads the authentication exchange to an external browser.  The
+protocol implemented is as specified in RFC 6595.
+
+The mechanism makes use of the following properties: GSASL_AUTHZID,
+@code{GSASL_SAML20_IDP_IDENTIFIER}, @code{GSASL_SAML20_REDIRECT_URL},
+@code{GSASL_SAML20_AUTHENTICATE_IN_BROWSER} and
+@code{GSASL_VALIDATE_SAML20}.
+
+In client mode, the mechanism will retrieve the @code{GSASL_AUTHZID} and
+@code{GSASL_SAML20_IDP_IDENTIFIER} properties and form a request to the
+server.  The server will respond with a redirect URL stored in the
+@code{GSASL_SAML20_REDIRECT_URL} property, which the client can retrieve
+from the @code{GSASL_SAML20_AUTHENTICATE_IN_BROWSER} callback.  The
+intention is that the client launches a browser to the given URL, and
+then proceeds with authentication.  The server responds whether
+authentication was successful or not.
+
+In server mode, the mechanism will invoke the
+@code{GSASL_SAML20_REDIRECT_URL} callback and the application can
+inspect the @code{GSASL_AUTHZID} and @code{GSASL_SAML20_IDP_IDENTIFIER}
+properties when forming the redirect URL.  The URL is passed to the
+client which will hopefully complete authentication in the browser.  The
+server callback @code{GSASL_VALIDATE_SAML20} should check whether the
+authentication attempt was successful.
+
+Note that SAML itself is not implemented by the GNU SASL library.  On
+the client side, no SAML knowledge is needed, it is only required on the
+server side.  The client only needs to be able to start a browser
+accessing the redirect URL.  The server side is expected to call a SAML
+library of your choice to generate the AuthRequest and to implement an
+AssertionConsumerService to validate the AuthResponse.  There is a
+complete proof-of-concept example of a SMTP server with SAML 2.0 support
+distributed with GNU SASL in the examples/saml20/ sub-directory.  It
+uses the Lasso SAML implementation (@url{http://lasso.entrouvert.org/}).
+The example may be used as inspiration for your own server
+implementation.  The @code{gsasl} command line client supports SAML20 as
+a client.
+
+@node OPENID20
+@section The OPENID20 mechanism
+@cindex OpenID
+
+The OPENID20 mechanism makes it possible to use OpenID in SASL, in a way
+that offloads the authentication exchange to an external browser.  The
+protocol implemented is as specified in RFC 6616.
+
+The mechanism makes use of the following properties:
+@code{GSASL_AUTHID} (for the OpenID User-Supplied Identifier),
+@code{GSASL_AUTHZID}, @code{GSASL_OPENID20_REDIRECT_URL},
+@code{GSASL_OPENID20_OUTCOME_DATA},
+@code{GSASL_OPENID20_AUTHENTICATE_IN_BROWSER}, and
+@code{GSASL_VALIDATE_OPENID20}.
+
+In the client, the mechanism is enabled by default.  The
+@code{GSASL_AUTHID} property is required and should contain the
+User-Supplied OpenID Identifier (for example
+@code{http://josefsson.org}).  If set, @code{GSASL_AUTHZID} will be
+used by the client.  The client will be invoked with the
+@code{GSASL_OPENID20_AUTHENTICATE_IN_BROWSER} callback to perform the
+OpenID authentication in a web browser.  The callback can retrieve the
+@code{GSASL_OPENID20_REDIRECT_URL} property to find out the URL to
+redirect the user to.  After authentication, the client can retrieve
+the @code{GSASL_OPENID20_OUTCOME_DATA} property with the OpenID Simple
+Registry (SREG) attributes sent by the server (they are not always
+sent).
+
+In the server, the mechanism is enabled by default.  The server will
+request the @code{GSASL_OPENID20_REDIRECT_URL} property, and your
+callback may inspect the @code{GSASL_AUTHID} to find the OpenID
+User-Supplied Identifier.  The server callback should perform OpenID
+discovery and return the URL to redirect the user to.  After this, the
+user would access the URL and proceed with authentication in the
+browser.  The server is invoked with the
+@code{GSASL_VALIDATE_OPENID20} callback to perform the actual
+validation of the authentication.  Usually the callback will perform
+some IPC communication with an OpenID consumer running in a web
+server.  The callback should return @code{GSASL_OK} on successful
+authentication and @code{GSASL_AUTHENTICATION_ERROR} on authentication
+errors, or any other error code.  If the server received some OpenID
+Simple Registry (SREG) attributes from the OpenID Identity Provider,
+it may use the @code{GSASL_OPENID20_OUTCOME_DATA} property to send
+these to the client.
+
+Note that OpenID itself is not implemented by the GNU SASL library.  On
+the client side, no OpenID knowledge is required, it is only required on
+the server side.  The client only needs to be able to start a browser
+accessing the redirect URL.  The server side is expected to use an
+OpenID library of your choice to generate the redirect URL and to
+implement the Service Provider to validate the response from the IdP.
+There is a complete proof-of-concept example with a SMTP server with
+OpenID 2.0 support distributed with GNU SASL in the examples/openid20/
+sub-directory.  It uses the JanRain PHP5 OpenID implementation.  The
+example may be used as inspiration for your own server implementation.
+The @code{gsasl} command line client supports OPENID20 as a client.
+
+@node KERBEROS_V5
+@section The KERBEROS_V5 mechanism
+@cindex KERBEROS_V5
+
+The KERBEROS_V5 is an experimental mechanism, the protocol
+specification is available on the GNU SASL homepage.  It can operate
+in three modes, non-infrastructure mode, infrastructure mode and
+proxied infrastructure mode.  Currently only non-infrastructure mode
+is supported.
+
+In the non-infrastructure mode, it works as a superset of most
+features provided by PLAIN, CRAM-MD5, DIGEST-MD5 and GSSAPI while at
+the same time building on what is believed to be proven technology
+(the RFC 1510 network security system).  In the non-infrastructure
+mode, the client must specify (via callbacks) the name of the user,
+and optionally the server name and realm.  The server must be able to
+retrieve passwords given the name of the user.
+
+In the infrastructure mode (proxied or otherwise), it allows clients
+and servers to authenticate via SASL in an RFC 1510 environment, using
+a trusted third party, a ``Key Distribution Central''.  In the normal
+mode, clients acquire tickets out of band and then invokes a one
+roundtrip AP-REQ and AP-REP exchange.  In the proxied mode, which can
+be used by clients without IP addresses or without connectivity to the
+KDC (e.g., when the KDC is IPv4 and the client is IPV6-only), the
+client uses the server to proxy ticket requests and finishes with the
+AP-REQ/AP-REP exchange.  In infrastructure mode (proxied or
+otherwise), neither the client nor server need to implement any
+callbacks (this will likely change later, to allow a server to
+authorize users, similar to the GSSAPI callback).
+
+XXX: update when implementation has matured
+
+@c **********************************************************
+@c *****************  Global Functions  *********************
+@c **********************************************************
+@node Global Functions
+@chapter Global Functions
+
+@include texi/init.c.texi
+@include texi/done.c.texi
+@include texi/listmech.c.texi
+@include texi/supportp.c.texi
+@include texi/suggest.c.texi
+@include texi/register.c.texi
+
+
+@c **********************************************************
+@c ******************  Callback Functions  ******************
+@c **********************************************************
+@node Callback Functions
+@chapter Callback Functions
+@cindex Callbacks
+
+The callback is used by mechanisms to retrieve information, such as
+username and password, from the application.  In a server, the
+callback is used to decide whether a user is permitted to log in or
+not.  You tell the library of your callback function by calling
+@code{gsasl_callback_set}.
+
+Since your callback may need access to data from other parts of your
+application, there are hooks to store and retrieve application
+specific pointers.  This avoids the use of global variables, which
+wouldn't be thread safe.  You store a pointer to some information
+(opaque from the point of view of the library) by calling
+@code{gsasl_callback_hook_set} and can later retrieve this data in
+your callback by calling @code{gsasl_callback_hook_get}.
+
+@include texi/callback.c.texi
+
+@c **********************************************************
+@c ******************  Property Functions  ******************
+@c **********************************************************
+@node Property Functions
+@chapter Property Functions
+@cindex Properties
+
+@include texi/property.c.texi
+
+
+@c **********************************************************
+@c *****************  Session Functions  ********************
+@c **********************************************************
+@node Session Functions
+@chapter Session Functions
+@cindex SASL sessions
+
+@include texi/xstart.c.texi
+@include texi/xstep.c.texi
+@include texi/xfinish.c.texi
+@include texi/xcode.c.texi
+@include texi/mechname.c.texi
+
+
+
+@c **********************************************************
+@c *******************  Utilities  **************************
+@c **********************************************************
+@node Utilities
+@chapter Utilities
+
+@include texi/saslprep.c.texi
+@include texi/base64.c.texi
+@include texi/md5pwd.c.texi
+@include texi/crypto.c.texi
+
+@c **********************************************************
+@c ****************  Memory Handling  ***********************
+@c **********************************************************
+@node Memory Handling
+@chapter Memory Handling
+
+@include texi/free.c.texi
+
+
+@c **********************************************************
+@c *******************  Errors  ****************************
+@c **********************************************************
+@node Error Handling
+@chapter Error Handling
+@cindex Error Handling
+
+Most functions in the GNU SASL Library return an error if they fail.
+For this reason, the application should always catch the error
+condition and take appropriate measures, for example by releasing the
+resources and passing the error up to the caller, or by displaying a
+descriptive message to the user and cancelling the operation.
+
+Some error values do not indicate a system error or an error in the
+operation, but the result of an operation that failed properly.
+
+@menu
+* Error values::                A list of all error values used.
+* Error strings::               How to get a descriptive string from a value.
+@end menu
+
+@node Error values
+@section Error values
+
+Errors are returned as @code{int} values.
+
+The value of the symbol @code{GSASL_OK} is guaranteed to always be
+@code{0}, and all other error codes are guaranteed to be non-@code{0},
+so you may use that information to build boolean expressions involving
+return codes.  Otherwise, an application should not depend on the
+particular value for error codes, and are encouraged to use the
+constants even for @code{GSASL_OK} to improve readability.  Possible
+values are:
+
+@table @code
+
+@include gsasl-api-error-labels.texi
+
+@end table
+
+@node Error strings
+@section Error strings
+
+@include texi/error.c.texi
+
+@c **********************************************************
+@c ***********************  Examples  ***********************
+@c **********************************************************
+@node Examples
+@chapter Examples
+@cindex Examples
+
+This chapter contains example code which illustrates how the GNU SASL
+Library can be used when writing your own application.
+
+@menu
+* Example 1::		SASL client.
+* Example 2::		SASL client where server send data first.
+* Example 3::		SASL client, with a choice of mechanism to use.
+* Example 4::		SASL client, with callback for user info.
+* Example 5::		Example SMTP server with GNU SASL authentication.
+@end menu
+
+@node Example 1
+@section Example 1
+
+@example
+@verbatiminclude client.c
+@end example
+
+@node Example 2
+@section Example 2
+
+@example
+@verbatiminclude client-serverfirst.c
+@end example
+
+@node Example 3
+@section Example 3
+
+@example
+@verbatiminclude client-mech.c
+@end example
+
+@node Example 4
+@section Example 4
+
+@example
+@verbatiminclude client-callback.c
+@end example
+
+@node Example 5
+@section Example 5
+
+@example
+@verbatiminclude smtp-server.c
+@end example
+
+
+@c **********************************************************
+@c *******************  Acknowledgements  *******************
+@c **********************************************************
+@node Acknowledgements
+@chapter Acknowledgements
+
+The makefiles, manuals, etc borrowed much from Libgcrypt written by
+Werner Koch.
+
+Cryptographic functions for some SASL mechanisms uses Libgcrypt by
+Werner Koch et al.  The NTLM mechanism uses Libntlm by Grant Edwards
+et al, using code from Samba written by Andrew Tridgell, and now
+maintained by Simon Josefsson.  The KERBEROS_V5 mechanism uses Shishi
+by Simon Josefsson.  The GSSAPI and GS2-KRB5 mechanism uses a GSS-API
+implementation, such as GNU GSS by Simon Josefsson.
+
+Gnulib is used to simplify portability.
+
+This manual borrows text from the SASL specification.
+
+@c **********************************************************
+@c ********************  Invoking gsasl  ********************
+@c **********************************************************
+@node Invoking gsasl
+@chapter Invoking gsasl
+
+@pindex gsasl
+@cindex invoking @command{gsasl}
+@cindex command line
+
+@majorheading Name
+
+GNU SASL (gsasl) -- Command line interface to libgsasl.
+
+@majorheading Description
+
+@code{gsasl} is the main program of GNU SASL.
+
+This section only lists the commands and options available.
+
+Mandatory or optional arguments to long options are also mandatory or
+optional for any corresponding short options.
+
+@majorheading Commands
+
+@code{gsasl} recognizes these commands:
+
+@verbatim
+  -c, --client               Act as client (the default).
+      --client-mechanisms    Write name of supported client mechanisms
+                             separated by space to stdout.
+  -s, --server               Act as server.
+      --server-mechanisms    Write name of supported server mechanisms
+                             separated by space to stdout.
+@end verbatim
+
+@majorheading Network Options
+
+Normally the SASL negotiation is performed on the terminal, with
+reading from stdin and writing to stdout.  It is also possible to
+perform the negotiation with a server over a TCP network connection.
+
+@verbatim
+      --connect=HOSTNAME[:SERVICE]
+                             Connect to TCP server and negotiate on stream
+                             instead of stdin/stdout. SERVICE is the protocol
+                             service, or an integer denoting the port, and
+                             defaults to 143 (imap) if not specified. Also sets
+                             the --hostname default.
+@end verbatim
+
+@majorheading Miscellaneous Options:
+
+These parameters affect overall behaviour.
+
+@verbatim
+  -d, --application-data     After authentication, read data from stdin and run
+                             it through the mechanism's security layer and
+                             print it base64 encoded to stdout. The default is
+                             to terminate after authentication.
+      --imap                 Use a IMAP-like logon procedure (client only).
+                             Also sets the --service default to "imap".
+  -m, --mechanism=STRING     Mechanism to use.
+      --no-client-first      Disallow client to send data first (client only).
+@end verbatim
+
+@majorheading SASL Mechanism Options
+
+These options modify the behaviour of the callbacks (@pxref{Callback
+Functions}) in the library.  The default is to query the user on the
+terminal.
+
+@verbatim
+  -n, --anonymous-token=STRING    Token for anonymous authentication, usually
+                                  mail address (ANONYMOUS only).
+  -a, --authentication-id=STRING  Identity of credential owner.
+  -z, --authorization-id=STRING   Identity to request service for.
+      --disable-cleartext-validate
+                             Disable cleartext validate hook, forcing server to
+                             prompt for password.
+      --enable-cram-md5-validate  Validate CRAM-MD5 challenge and response
+                                  interactively.
+      --hostname=STRING      Set the name of the server with the requested
+                             service.
+  -p, --password=STRING      Password for authentication (insecure for
+                             non-testing purposes).
+      --passcode=NUMBER      Passcode for authentication (SECURID only).
+      --quality-of-protection=<qop-auth | qop-int | qop-conf>
+                             How application payload will be protected.
+                             "qop-auth" means no protection,
+                             "qop-int" means integrity protection,
+                             "qop-conf" means confidentiality.
+                             Currently only used by DIGEST-MD5, where the
+                             default is "qop-int".
+  -r, --realm=STRING         Realm. Defaults to hostname.
+      --service=STRING       Set the requested service name (should be a
+                             registered GSSAPI host based service name).
+      --service-name=STRING  Set the generic server name in case of a
+                             replicated server (DIGEST-MD5 only).
+  -x, --maxbuf=NUMBER        Indicate maximum buffer size (DIGEST-MD5 only).
+@end verbatim
+
+@majorheading STARTTLS options
+
+@verbatim
+      --starttls                Force use of STARTTLS.  The default is to use
+                                  STARTTLS when available.  (default=off)
+      --no-starttls             Unconditionally disable STARTTLS.
+                                  (default=off)
+      --no-cb                   Don't set any channel bindings.  (default=off)
+      --x509-ca-file=FILE       File containing one or more X.509 Certificate
+                                  Authorities certificates in PEM format, used
+                                  to verify the certificate received from the
+                                  server.  If not specified, no verification of
+                                  the remote server certificate will be done.
+      --x509-cert-file=FILE     File containing client X.509 certificate in PEM
+                                  format.  Used together with --x509-key-file
+                                  to specify the certificate/key pair.
+      --x509-key-file=FILE      Private key for the client X.509 certificate in
+                                  PEM format.  Used together with
+                                  --x509-key-file to specify the
+                                  certificate/key pair.
+      --priority                Cipher priority string.
+@end verbatim
+
+@majorheading Other Options
+
+These are some standard parameters.
+
+@verbatim
+  -q, --quiet, --silent      Don't produce any diagnostic output.
+  -v, --verbose              Produce verbose output.
+
+  -?, --help                 Give this help list
+      --usage                Give a short usage message
+  -V, --version              Print program version
+@end verbatim
+
+@c **********************************************************
+@c *******************  Appendices  *************************
+@c **********************************************************
+
+@node Protocol Clarifications
+@appendix Protocol Clarifications
+
+This appendix contains clarifications to various SASL specification
+that we felt were necessary to include, if for nothing else it may
+serve as a guide for other implementers that worry about the same
+issues.
+
+@menu
+* Use of SASLprep in CRAM-MD5::
+* Use of SASLprep in LOGIN::
+@end menu
+
+@node Use of SASLprep in CRAM-MD5
+@section Use of SASLprep in CRAM-MD5
+
+The specification, as of @file{draft-ietf-sasl-crammd5-04.txt}, is
+silent on whether a SASL server implementation applying SASLprep on a
+password received from an external, non-SASL specific database (i.e.,
+the passwords are not stored in SASLprep form in the database), should
+set or clear the AllowUnassigned bit.  The motivation for the AU-bit
+in StringPrep/SASLprep is for stored vs query strings.  It could be
+argued that in this situation the server can treat the external
+password either as a stored string (from a database) or as a query
+(the server uses the string as a query into the fixed HMAC-MD5 hash).
+
+The specification is also unclear on whether clients should set or
+clear the AllowUnassigned flag.
+
+In the server, GNU SASL applies SASLprep to the password with the
+AllowUnassigned bit cleared.
+
+@node Use of SASLprep in LOGIN
+@section Use of SASLprep in LOGIN
+
+The non-standard mechanism LOGIN presumably does not support
+non-ASCII.  We suggest that the client should send unprepared UTF-8
+and that the server apply SASLprep with the AllowUnassigned bit
+cleared on the received username and password.
+
+@c **********************************************************
+@c *******************  Old Functions  **********************
+@c **********************************************************
+@node Old Functions
+@appendix Old Functions
+@cindex Deprecated functions
+@cindex Obsolete functions
+
+As GNU SASL is still under heavy development, some API functions have
+been found to be less useful.  Those old API functions will be
+supported during a transition period.  Refer to the NEWS file to find
+out since when a function has been deprecated.
+
+@include texi/obsolete.c.texi
+
+@section Obsolete callback function prototypes
+
+@deftypefn Prototype int (*Gsasl_client_callback_anonymous) (Gsasl_session_ctx * @var{ctx}, char * @var{out}, size_t * @var{outlen})
+
+@var{ctx}:  libgsasl handle.
+
+@var{out}:  output array with client token.
+
+@var{outlen}:  on input the maximum size of the output array, on output
+contains the actual size of the output array.
+
+Type of callback function the application implements.  It should
+populate the output array with some input from the user and set the
+output array length, and return @code{GSASL_OK}, or fail with an error
+code.
+
+If OUT is NULL, the function should only populate the output length
+field with the length, and return GSASL_OK.  This usage may be used by
+the caller to allocate the proper buffer size.
+
+@end deftypefn
+
+@deftypefn Prototype int (*Gsasl_server_callback_anonymous) (Gsasl_session_ctx * @var{ctx}, const char * @var{token})
+
+@var{ctx}:  libgsasl handle.
+
+@var{ctx}:  output array with client token.
+
+@var{ctx}:  on input the maximum size of the output array, on output
+contains the actual size of the output array.  If OUT is
+
+Type of callback function the application implements.  It should
+return @code{GSASL_OK} if user should be permitted anonymous access,
+otherwise @code{GSASL_AUTHENTICATION_ERROR}.
+
+@end deftypefn
+
+@include gsasl-callback-authentication.texi
+@include gsasl-callback-authorization.texi
+@include gsasl-callback-client-service.texi
+@include gsasl-callback-cram-md5.texi
+@include gsasl-callback-digest-md5.texi
+
+@deftypefn Prototype int (*Gsasl_server_callback_external) (Gsasl_session_ctx * @var{ctx})
+
+@var{ctx}:  libgsasl handle.
+
+Type of callback function the application implements.  It should
+return @code{GSASL_OK} if user is authenticated by out of band means,
+otherwise @code{GSASL_AUTHENTICATION_ERROR}.
+
+@end deftypefn
+
+@include gsasl-callback-gssapi.texi
+@include gsasl-callback-passcode.texi
+@include gsasl-callback-password.texi
+@include gsasl-callback-retrieve.texi
+@include gsasl-callback-securid.texi
+@include gsasl-callback-server-service.texi
+@include gsasl-callback-validate.texi
+
+@node Copying Information
+@appendix Copying Information
+
+@menu
+* GNU Free Documentation License::   License for copying this manual.
+@end menu
+
+@node GNU Free Documentation License
+@appendixsec GNU Free Documentation License
+
+@cindex FDL, GNU Free Documentation License
+
+@include fdl-1.3.texi
+
+@node Function and Data Index
+@unnumbered Function and Data Index
+
+@printindex fn
+
+@node Concept Index
+@unnumbered Concept Index
+
+@printindex cp
+
+@bye

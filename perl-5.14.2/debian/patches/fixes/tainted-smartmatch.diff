@@ -1,0 +1,186 @@
+From bbcc2ed685e887c153554b86f2bbbd53e7e9b06d Mon Sep 17 00:00:00 2001
+From: Father Chrysostomos <sprout@cpan.org>
+Date: Tue, 20 Sep 2011 08:55:09 -0700
+Subject: $tainted ~~ [...] failing
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When smartmatch is about to start, to avoid calling get-magic (e.g.,
+FETCH methods) more than once, it copies any argument that has
+get-magic.
+
+Tainting uses get-magic to taint the expression.  Calling mg_get(sv)
+on a tainted scalar causes PL_tainted to be set, causing any scalars
+modified by sv_setsv_flags to be tainted.  That means that tainting
+magic gets copied from one scalar to another.
+
+So when smartmatch tries to copy the variable to avoid repeated calls
+to magic, it still copies taint magic to the new variable.
+
+For $scalar ~~ @array (or ~~ [...]), S_do_smartmatch calls itself
+recursively for each element of @array, with $scalar (on the suppos-
+edly non-magical copy of $scalar) on the left and the element on
+the right.
+
+In that recursive call, it again does the get-magic check and copies
+the argument.  Since the copied of a tainted variable on the LHS is
+magical, it gets copied again.  Since the first copy is a mortal
+(marked TEMP) with a refcount of one, the second copy steal its
+string buffer.
+
+The outer call to S_do_smartmatch then proceeds with the second ele-
+ment of @array, without realising that its copy of $scalar has lost
+its string buffer and is now undefined.
+
+So these produce incorrect results under -T (where $^X is ‘perl’):
+
+    $^X =~ ["whatever", undef]  # matches
+    $^X =~ ["whatever", "perl"] # fails
+
+This problem did not start occurring until this commit:
+
+commit 8985fe98dcc5c0af2fadeac15dfbc13f553ee7fc
+Author: David Mitchell <davem@iabyn.com>
+Date:   Thu Dec 30 10:32:44 2010 +0000
+
+    Better handling of magic methods freeing the SV
+
+mg_get used to increase the refcount unconditionally, pushing it on to
+the mortals stack.  So the magical copy would have had a refcount of
+2, preventing its string buffer from being stolen.  Now it has a ref-
+erence count of 1.
+
+This commit solves it by adding a new parameter to S_do_smartmatch
+telling it that the variable has already been copied and does not even
+need to be checked.  The $scalar~~@array case sets that parameter for
+the recursive calls.  That avoids the whole string-stealing problem
+*and* avoids extra unnecessary SVs.
+
+Bug: http://rt.perl.org/rt3/Public/Bug/Display.html?id=93590
+Bug-Debian: http://bugs.debian.org/690571
+Origin: upstream, http://perl5.git.perl.org/perl.git/commit/be88a5c3cc8efc0dbee86240eabf0050554fc717
+Patch-Name: fixes/tainted-smartmatch.diff
+
+(Backported to 5.14 by Niko Tyni.)
+---
+ embed.fnc    |    3 ++-
+ embed.h      |    2 +-
+ pp_ctl.c     |   10 +++++-----
+ proto.h      |    2 +-
+ t/op/taint.t |    7 ++++++-
+ 5 files changed, 15 insertions(+), 9 deletions(-)
+
+diff --git a/embed.fnc b/embed.fnc
+index bce167e..e508212 100644
+--- a/embed.fnc
++++ b/embed.fnc
+@@ -1739,7 +1739,8 @@ sR	|I32	|run_user_filter|int idx|NN SV *buf_sv|int maxlen
+ sR	|PMOP*	|make_matcher	|NN REGEXP* re
+ sR	|bool	|matcher_matches_sv|NN PMOP* matcher|NN SV* sv
+ s	|void	|destroy_matcher|NN PMOP* matcher
+-s	|OP*	|do_smartmatch	|NULLOK HV* seen_this|NULLOK HV* seen_other
++s	|OP*	|do_smartmatch	|NULLOK HV* seen_this \
++				|NULLOK HV* seen_other|const bool copied
+ #endif
+ 
+ #if defined(PERL_IN_PP_HOT_C)
+diff --git a/embed.h b/embed.h
+index 04b32d1..b2876f4 100644
+--- a/embed.h
++++ b/embed.h
+@@ -1382,7 +1382,7 @@
+ #  if defined(PERL_IN_PP_CTL_C)
+ #define check_type_and_open(a)	S_check_type_and_open(aTHX_ a)
+ #define destroy_matcher(a)	S_destroy_matcher(aTHX_ a)
+-#define do_smartmatch(a,b)	S_do_smartmatch(aTHX_ a,b)
++#define do_smartmatch(a,b,c)	S_do_smartmatch(aTHX_ a,b,c)
+ #define docatch(a)		S_docatch(aTHX_ a)
+ #define doeval(a,b,c,d)		S_doeval(aTHX_ a,b,c,d)
+ #define dofindlabel(a,b,c,d)	S_dofindlabel(aTHX_ a,b,c,d)
+diff --git a/pp_ctl.c b/pp_ctl.c
+index 60bc30d..7c4651c 100644
+--- a/pp_ctl.c
++++ b/pp_ctl.c
+@@ -4339,14 +4339,14 @@ S_destroy_matcher(pTHX_ PMOP *matcher)
+ PP(pp_smartmatch)
+ {
+     DEBUG_M(Perl_deb(aTHX_ "Starting smart match resolution\n"));
+-    return do_smartmatch(NULL, NULL);
++    return do_smartmatch(NULL, NULL, 0);
+ }
+ 
+ /* This version of do_smartmatch() implements the
+  * table of smart matches that is found in perlsyn.
+  */
+ STATIC OP *
+-S_do_smartmatch(pTHX_ HV *seen_this, HV *seen_other)
++S_do_smartmatch(pTHX_ HV *seen_this, HV *seen_other, const bool copied)
+ {
+     dVAR;
+     dSP;
+@@ -4358,7 +4358,7 @@ S_do_smartmatch(pTHX_ HV *seen_this, HV *seen_other)
+     /* Take care only to invoke mg_get() once for each argument.
+      * Currently we do this by copying the SV if it's magical. */
+     if (d) {
+-	if (SvGMAGICAL(d))
++	if (!copied && SvGMAGICAL(d))
+ 	    d = sv_mortalcopy(d);
+     }
+     else
+@@ -4669,7 +4669,7 @@ S_do_smartmatch(pTHX_ HV *seen_this, HV *seen_other)
+ 			
+ 			PUTBACK;
+ 			DEBUG_M(Perl_deb(aTHX_ "        recursively comparing array element...\n"));
+-			(void) do_smartmatch(seen_this, seen_other);
++			(void) do_smartmatch(seen_this, seen_other, 0);
+ 			SPAGAIN;
+ 			DEBUG_M(Perl_deb(aTHX_ "        recursion finished\n"));
+ 			
+@@ -4731,7 +4731,7 @@ S_do_smartmatch(pTHX_ HV *seen_this, HV *seen_other)
+ 		    PUTBACK;
+ 		    /* infinite recursion isn't supposed to happen here */
+ 		    DEBUG_M(Perl_deb(aTHX_ "        recursively testing array element...\n"));
+-		    (void) do_smartmatch(NULL, NULL);
++		    (void) do_smartmatch(NULL, NULL, 1);
+ 		    SPAGAIN;
+ 		    DEBUG_M(Perl_deb(aTHX_ "        recursion finished\n"));
+ 		    if (SvTRUEx(POPs))
+diff --git a/proto.h b/proto.h
+index 0b46a79..666e0d6 100644
+--- a/proto.h
++++ b/proto.h
+@@ -5696,7 +5696,7 @@ STATIC void	S_destroy_matcher(pTHX_ PMOP* matcher)
+ #define PERL_ARGS_ASSERT_DESTROY_MATCHER	\
+ 	assert(matcher)
+ 
+-STATIC OP*	S_do_smartmatch(pTHX_ HV* seen_this, HV* seen_other);
++STATIC OP*	S_do_smartmatch(pTHX_ HV* seen_this, HV* seen_other, const bool copied);
+ STATIC OP*	S_docatch(pTHX_ OP *o)
+ 			__attribute__warn_unused_result__;
+ 
+diff --git a/t/op/taint.t b/t/op/taint.t
+index 3a2b5d9..3929f58 100644
+--- a/t/op/taint.t
++++ b/t/op/taint.t
+@@ -17,7 +17,7 @@ BEGIN {
+ use strict;
+ use Config;
+ 
+-plan tests => 779;
++plan tests => 781;
+ 
+ $| = 1;
+ 
+@@ -2156,6 +2156,11 @@ end
+     ok(!tainted "", "tainting still works after index() of the constant");
+ }
+ 
++# Tainted values with smartmatch
++# [perl #93590] S_do_smartmatch stealing its own string buffers
++ok "M$TAINT" ~~ ['m', 'M'], '$tainted ~~ ["whatever", "match"]';
++ok !("M$TAINT" ~~ ['m', undef]), '$tainted ~~ ["whatever", undef]';
++
+ { # 111654
+   eval {
+     eval { die "Test\n".substr($ENV{PATH}, 0, 0); };

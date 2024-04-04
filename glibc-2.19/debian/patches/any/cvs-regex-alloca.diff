@@ -1,0 +1,21 @@
+2014-07-13  Jim Meyering  <meyering@fb.com>
+
+	[BZ 17150]
+	regex: don't deref NULL upon heap allocation failure
+	* posix/regcomp.c: (parse_dup_op): Handle duplicate_tree
+	failure in one more place.
+	To trigger the segfault, configure grep -with-included-regex,
+	build it, and run these commands:
+	( ulimit -v 300000; echo a|src/grep -E a+++++++++++++++++++++ )
+
+--- a/posix/regcomp.c
++++ b/posix/regcomp.c
+@@ -2582,6 +2582,8 @@ parse_dup_op (bin_tree_t *elem, re_string_t *regexp, re_dfa_t *dfa,
+ 
+       /* Duplicate ELEM before it is marked optional.  */
+       elem = duplicate_tree (elem, dfa);
++      if (BE (elem == NULL, 0))
++        goto parse_dup_op_espace;
+       old_tree = tree;
+     }
+   else

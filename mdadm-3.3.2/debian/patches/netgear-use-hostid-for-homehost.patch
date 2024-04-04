@@ -1,0 +1,41 @@
+Description: Change default homehost from hostname to hostid.
+ .
+ mdadm (3.2.5-3.netgear1) unstable; urgency=low
+ .
+   * Non-maintainer upload.
+   * Make md device type more consistent (d-0).
+   * Change default homehost from hostname to hostid.
+Author: Justin Maggard <justin.maggard@netgear.com>
+
+---
+
+--- mdadm-3.2.5.orig/mdadm.c
++++ mdadm-3.2.5/mdadm.c
+@@ -1258,10 +1258,8 @@ int main(int argc, char *argv[])
+ 	if (c.homehost == NULL)
+ 		c.homehost = conf_get_homehost(&c.require_homehost);
+ 	if (c.homehost == NULL || strcasecmp(c.homehost, "<system>")==0) {
+-		if (gethostname(sys_hostname, sizeof(sys_hostname)) == 0) {
+-			sys_hostname[sizeof(sys_hostname)-1] = 0;
+-			c.homehost = sys_hostname;
+-		}
++		sprintf(sys_hostname, "%08lx", (long)gethostid());
++		c.homehost = sys_hostname;
+ 	}
+ 	if (c.homehost && (!c.homehost[0] || strcasecmp(c.homehost, "<none>") == 0)) {
+ 		c.homehost = NULL;
+--- mdadm-3.2.5.orig/mapfile.c
++++ mdadm-3.2.5/mapfile.c
+@@ -356,10 +356,8 @@ void RebuildMap(void)
+ 	char *homehost = conf_get_homehost(&require_homehost);
+ 
+ 	if (homehost == NULL || strcmp(homehost, "<system>")==0) {
+-		if (gethostname(sys_hostname, sizeof(sys_hostname)) == 0) {
+-			sys_hostname[sizeof(sys_hostname)-1] = 0;
+-			homehost = sys_hostname;
+-		}
++		sprintf(sys_hostname, "%08lx", (long)gethostid());
++		homehost = sys_hostname;
+ 	}
+ 
+ 	for (md = mdstat ; md ; md = md->next) {

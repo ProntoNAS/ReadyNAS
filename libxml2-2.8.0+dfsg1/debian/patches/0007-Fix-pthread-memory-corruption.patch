@@ -1,0 +1,32 @@
+From 7a2215dbcd4882e45f618c5f78f8d975b7c47ed3 Mon Sep 17 00:00:00 2001
+From: Daniel Veillard <veillard@redhat.com>
+Date: Tue, 4 Sep 2012 12:05:17 +0800
+Subject: Fix reuse of xmlInitParser
+
+While xmlCleanupParser() should not be used unless complete control
+is insured over the programe making sure libxml2 is not in use anywhere
+It should still be usable, and allow a sequence of
+    xmlInitParser();
+    xmlCleanupParser();
+calls if needed, the problem is that the thread key wasn't reallocated
+on subsequent xmlinitParser() calls leading to corruption of pthread
+keys used by the program.
+
+* threads.c: make sure xmlCleanupParser() reset the pthread_once()
+             global variable driving thread key allocation.
+
+diff --git a/threads.c b/threads.c
+index 6d25565..f206149 100644
+--- a/threads.c
++++ b/threads.c
+@@ -915,6 +915,7 @@ xmlCleanupThreads(void)
+ #ifdef HAVE_PTHREAD_H
+     if ((libxml_is_threaded)  && (pthread_key_delete != NULL))
+         pthread_key_delete(globalkey);
++    once_control = PTHREAD_ONCE_INIT;
+ #elif defined(HAVE_WIN32_THREADS) && !defined(HAVE_COMPILER_TLS) && (!defined(LIBXML_STATIC) || defined(LIBXML_STATIC_FOR_DLL))
+     if (globalkey != TLS_OUT_OF_INDEXES) {
+         xmlGlobalStateCleanupHelperParams *p;
+-- 
+cgit v0.10.1
+

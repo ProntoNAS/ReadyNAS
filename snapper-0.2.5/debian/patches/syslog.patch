@@ -1,0 +1,58 @@
+diff --git a/server/snapperd.cc b/server/snapperd.cc
+index a9a81b8..85ffb07 100644
+--- a/server/snapperd.cc
++++ b/server/snapperd.cc
+@@ -22,6 +22,7 @@
+ 
+ #include <stdlib.h>
+ #include <getopt.h>
++#include <syslog.h>
+ #include <iostream>
+ #include <string>
+ 
+@@ -40,7 +41,7 @@ using namespace std;
+ const int idle_time = 120;
+ const int snapper_cleanup_time = 60;
+ 
+-bool log_stdout = false;
++bool log_stdout = true;
+ bool log_debug = false;
+ 
+ 
+@@ -169,7 +170,26 @@ void
+ log_do(LogLevel level, const string& component, const char* file, const int line, const char* func,
+        const string& text)
+ {
+-    cout << text << endl;
++    int syslog_level;
++
++    switch (level) {
++    case DEBUG:
++        syslog_level = LOG_DEBUG;
++        break;
++    case MILESTONE:
++        syslog_level = LOG_INFO;
++        break;
++    case WARNING:
++        syslog_level = LOG_WARNING;
++        break;
++    case ERROR:
++        syslog_level = LOG_ERR;
++        break;
++    default:
++        syslog_level = LOG_CRIT;
++        break;
++    }
++    syslog(syslog_level, "%s", text.c_str());
+ }
+ 
+ 
+@@ -227,7 +247,7 @@ main(int argc, char** argv)
+ 	switch (c)
+ 	{
+ 	    case 's':
+-		log_stdout = true;
++		log_stdout = false;
+ 		break;
+ 
+ 	    case 'd':

@@ -1,0 +1,31 @@
+ nut (2.7.2-1.netgear3) stable; urgency=low
+ .
+   * Add a couple logging tweaks to make upsd not look broken.
+Author: Justin Maggard <justin.maggard@netgear.com>
+
+---
+
+--- nut-2.7.2.orig/server/upsd.c
++++ nut-2.7.2/server/upsd.c
+@@ -985,9 +985,6 @@ int main(int argc, char **argv)
+ 
+ 	open_syslog(progname);
+ 
+-	/* send logging to the syslog pre-background for later use */
+-	syslogbit_set();
+-
+ 	/* do this here, since getpwnam() might not work in the chroot */
+ 	new_uid = get_user_pwent(user);
+ 
+--- nut-2.7.2.orig/common/common.c
++++ nut-2.7.2/common/common.c
+@@ -238,7 +238,8 @@ int sendsignalfn(const char *pidfn, int
+ 
+ 	pidf = fopen(pidfn, "r");
+ 	if (!pidf) {
+-		upslog_with_errno(LOG_NOTICE, "fopen %s", pidfn);
++		if (sig)
++			upslog_with_errno(LOG_NOTICE, "fopen %s", pidfn);
+ 		return -1;
+ 	}
+ 

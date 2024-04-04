@@ -1,0 +1,32 @@
+Description: fixed to get it building on kFreeBSD
+ Small tweaks to get procps working on kFreeBSD
+Author: Petr Salinger <Petr.Salinger@seznam.cz>
+Bug-Debian: http://bugs.debian.org/674785
+
+--- a/proc/version.c
++++ b/proc/version.c
+@@ -69,9 +69,9 @@
+ 	
+     if ((version_string_depth < 2) ||		 /* Non-standard for all known kernels */
+        ((version_string_depth < 3) && (x < 3))) /* Non-standard for 2.x.x kernels */
+-#ifdef __linux__
+ 	fprintf(stderr,		/* *very* unlikely to happen by accident */
+ 		"Non-standard uts for running kernel:\n"
++#ifdef __linux__
+ 		"release %s=%d.%d.%d gives version code %d\n",
+ 		uts.release, x, y, z, LINUX_VERSION(x,y,z));
+ #else
+--- a/testsuite/ps.test/test-schedbatch.c
++++ b/testsuite/ps.test/test-schedbatch.c
+@@ -25,9 +25,11 @@
+ 		nice = atoi(argv[1]);
+ 	}
+ 	sp.sched_priority = 0;
++#ifdef SCHED_BATCH
+ 	if (sched_setscheduler(0, SCHED_BATCH, &sp)) {
+ 		perror("sched_setscheduler(0,SCHED_BATCH,{.sched_priority=0}");
+ 	}
++#endif /* SCHED_BATCH */
+ 	if (setpriority(PRIO_PROCESS, 0, nice) || errno) {
+ 		(void)snprintf(msg, sizeof(msg),
+ 			       "setpriority(PRIO_PROCESS, 0, %d)", nice);

@@ -1,0 +1,117 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# Sample debian/rules that uses debhelper.
+# This file was originally written by Joey Hess and Craig Small.
+# As a special exception, when this file is copied by dh-make into a
+# dh-make output file, you may use that output file without restriction.
+# This special exception was added by Craig Small in version 0.37 of dh-make.
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+
+# These are used for cross-compiling and for saving the configure script
+# from having to guess our platform (since we know it already)
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+ifneq ($(DEB_HOST_GNU_TYPE),$(DEB_BUILD_GNU_TYPE))
+CROSS= --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+else
+CROSS= --build $(DEB_BUILD_GNU_TYPE)
+endif
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+DEB_HOST_ARCH_BITS ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_BITS)
+ifeq ($(DEB_HOST_ARCH_BITS),64)
+ENABLE_64BIT = --enable-64bit
+endif
+
+autotools: autotools-stamp
+autotools-stamp:
+	-rm -f config.sub config.guess
+	ln -s /usr/share/misc/config.sub config.sub
+	ln -s /usr/share/misc/config.guess config.guess
+	touch autotools-stamp
+
+configure: configure-stamp
+configure-stamp: autotools-stamp
+	dh_testdir
+
+	# Configure with ANTLR remote debugger enabled
+	mkdir build-dbg
+	( cd build-dbg; \
+		../configure $(CROSS) --prefix=/usr --libdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH) \
+		--enable-debuginfo --disable-abiflags --enable-antlrdebug $(ENABLE_64BIT); \
+		ln -s ../include )
+
+	# Configure with ANTLR remote debugger disabled
+	mkdir build-nodbg
+	( cd build-nodbg; \
+		../configure $(CROSS) --prefix=/usr --libdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH) \
+		--enable-debuginfo --disable-abiflags --disable-antlrdebug $(ENABLE_64BIT); \
+		ln -s ../include )
+
+	touch configure-stamp
+
+build: build-stamp
+build-stamp: configure-stamp 
+	dh_testdir
+
+	# Add here commands to compile the package.
+	( cd build-dbg; $(MAKE) )
+	( cd build-nodbg; $(MAKE) )
+
+	touch $@
+
+clean: 
+	dh_testdir
+	dh_testroot
+	rm -f autotools-stamp configure-stamp build-stamp
+
+	# Add here commands to clean up after the build process.
+	rm -rf build-dbg debian/tmp-dbg
+	rm -rf build-nodbg
+
+	rm -f config.sub config.guess
+
+	dh_clean 
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_prep  
+	dh_installdirs
+
+	# Add here commands to install the package into debian/tmp
+	( cd build-dbg; $(MAKE) DESTDIR=$(CURDIR)/debian/tmp-dbg install )
+	( cd build-nodbg; $(MAKE) DESTDIR=$(CURDIR)/debian/tmp install )
+
+	cp debian/tmp-dbg/usr/lib/$(DEB_HOST_MULTIARCH)/libantlr3c.a \
+		debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/libantlr3c_antlrdbg.a
+
+# Build architecture-independent files here.
+binary-indep: install
+# Nothing to do here.
+
+# Build architecture-dependent files here.
+binary-arch: install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs ChangeLog
+	dh_lintian
+	dh_installdocs
+	dh_install --sourcedir=debian/tmp -Nlibantlr3c-antlrdbg-3.2-0
+	dh_install --sourcedir=debian/tmp-dbg -plibantlr3c-antlrdbg-3.2-0
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install 

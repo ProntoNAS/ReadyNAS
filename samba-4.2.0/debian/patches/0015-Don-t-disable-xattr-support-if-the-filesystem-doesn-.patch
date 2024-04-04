@@ -1,0 +1,57 @@
+From 4101de51b3aa21e2ad16d3f0b05c95f12309a843 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Tue, 4 Nov 2014 14:23:25 -0800
+Subject: [PATCH 15/19] Don't disable xattr support if the filesystem doesn't
+ support it.
+
+We may mount a tmpfs inside a share, and we don't want to disable
+xattr support on the whole share if a getxattr call to tmpfs fails.
+---
+ source3/smbd/dosmode.c | 24 ------------------------
+ 1 file changed, 24 deletions(-)
+
+diff --git a/source3/smbd/dosmode.c b/source3/smbd/dosmode.c
+index 6fd5d69..84464fa 100644
+--- a/source3/smbd/dosmode.c
++++ b/source3/smbd/dosmode.c
+@@ -278,18 +278,6 @@ static bool get_ea_dos_attribute(connection_struct *conn,
+ 				   SAMBA_XATTR_DOS_ATTRIB, attrstr,
+ 				   sizeof(attrstr));
+ 	if (sizeret == -1) {
+-		if (errno == ENOSYS
+-#if defined(ENOTSUP)
+-			|| errno == ENOTSUP) {
+-#else
+-				) {
+-#endif
+-			DEBUG(1,("get_ea_dos_attribute: Cannot get attribute "
+-				 "from EA on file %s: Error = %s\n",
+-				 smb_fname_str_dbg(smb_fname),
+-				 strerror(errno)));
+-			set_store_dos_attributes(SNUM(conn), False);
+-		}
+ 		return False;
+ 	}
+ 
+@@ -429,18 +417,6 @@ static bool set_ea_dos_attribute(connection_struct *conn,
+ 		files_struct *fsp = NULL;
+ 
+ 		if((errno != EPERM) && (errno != EACCES)) {
+-			if (errno == ENOSYS
+-#if defined(ENOTSUP)
+-				|| errno == ENOTSUP) {
+-#else
+-				) {
+-#endif
+-				DEBUG(1,("set_ea_dos_attributes: Cannot set "
+-					 "attribute EA on file %s: Error = %s\n",
+-					 smb_fname_str_dbg(smb_fname),
+-					 strerror(errno) ));
+-				set_store_dos_attributes(SNUM(conn), False);
+-			}
+ 			return false;
+ 		}
+ 
+-- 
+1.9.1
+
