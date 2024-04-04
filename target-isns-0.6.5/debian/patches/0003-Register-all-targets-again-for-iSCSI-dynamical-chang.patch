@@ -1,0 +1,52 @@
+From f200bb9a1a6a18f93970540c160f0db58d2a2877 Mon Sep 17 00:00:00 2001
+From: Justin Ding <justin.ding@netgear.com>
+Date: Tue, 21 Aug 2018 00:35:30 -0700
+Subject: [PATCH] Register all targets again for iSCSI dynamical change.
+
+target-isns has problem to handle iSCSI config change especially for iSCSI np deletion,
+and didn't find a perfect solution for this.  As a workaround, deregister and register
+all targets for each iSCSI dynamical change.
+---
+ src/isns.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/src/isns.c b/src/isns.c
+index 4763a2b..bdc33b6 100644
+--- a/src/isns.c
++++ b/src/isns.c
+@@ -32,6 +32,7 @@
+ #include "itimer.h"
+ #include "log.h"
+ 
++int isns_target_deregister(const struct target *target);
+ extern void isns_set_fd(int isns, int scn_listen, int scn);
+ extern struct list_head targets;
+ extern struct list_head portals;
+@@ -510,12 +511,9 @@ static int isns_target_register(const struct target *target)
+ 	uint32_t protocol = htonl(ISNS_ENTITY_PROTOCOL_ISCSI);
+ 	uint32_t period = htonl(DEFAULT_REGISTRATION_PERIOD);
+ 	int err;
+-	bool all_targets = target == ALL_TARGETS;
++	bool all_targets = true;
+ 	struct isns_query *query;
+ 
+-	if (!all_targets && target->registered)
+-		flags |= ISNS_FLAG_REPLACE;
+-
+ 	if (all_targets) {
+ 		if (list_empty(&targets))
+ 			return 0;
+@@ -524,7 +522,9 @@ static int isns_target_register(const struct target *target)
+ 
+ 	if (isns_fd == -1 && isns_connect() < 0)
+ 		return 0;
+-
++	
++	isns_target_deregister(ALL_TARGETS);
++		
+ 	log_print(LOG_DEBUG, "registering target %s",
+ 		  all_targets ? "(all)" : target->name);
+ 
+-- 
+2.1.4
+

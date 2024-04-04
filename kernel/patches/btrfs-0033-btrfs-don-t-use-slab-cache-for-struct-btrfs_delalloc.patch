@@ -1,0 +1,82 @@
+From a6531c0d1618d6a3d8edd1a6885d5d3cabf79812 Mon Sep 17 00:00:00 2001
+From: David Sterba <dsterba@suse.com>
+Date: Tue, 8 Dec 2015 14:39:32 +0100
+Subject: [PATCH 33/90] btrfs: don't use slab cache for struct
+ btrfs_delalloc_work
+
+Although we prefer to use separate caches for various structs, it seems
+better not to do that for struct btrfs_delalloc_work. Objects of this
+type are allocated rarely, when transaction commit calls
+btrfs_start_delalloc_roots, requesting delayed iputs.
+
+The objects are temporary (with some IO involved) but still allocated
+and freed within __start_delalloc_inodes. Memory allocation failure is
+handled.
+
+The slab cache is empty most of the time (observed on several systems),
+so if we need to allocate a new slab object, the first one has to
+allocate a full page. In a potential case of low memory conditions this
+might fail with higher probability compared to using the generic slab
+caches.
+
+Signed-off-by: David Sterba <dsterba@suse.com>
+---
+ fs/btrfs/inode.c | 14 ++------------
+ 1 file changed, 2 insertions(+), 12 deletions(-)
+
+diff --git a/fs/btrfs/inode.c b/fs/btrfs/inode.c
+index b564151..f389a75 100644
+--- a/fs/btrfs/inode.c
++++ b/fs/btrfs/inode.c
+@@ -84,7 +84,6 @@ static const struct file_operations btrfs_dir_file_operations;
+ static struct extent_io_ops btrfs_extent_io_ops;
+ 
+ static struct kmem_cache *btrfs_inode_cachep;
+-static struct kmem_cache *btrfs_delalloc_work_cachep;
+ struct kmem_cache *btrfs_trans_handle_cachep;
+ struct kmem_cache *btrfs_transaction_cachep;
+ struct kmem_cache *btrfs_path_cachep;
+@@ -9207,8 +9206,6 @@ void btrfs_destroy_cachep(void)
+ 		kmem_cache_destroy(btrfs_path_cachep);
+ 	if (btrfs_free_space_cachep)
+ 		kmem_cache_destroy(btrfs_free_space_cachep);
+-	if (btrfs_delalloc_work_cachep)
+-		kmem_cache_destroy(btrfs_delalloc_work_cachep);
+ }
+ 
+ int btrfs_init_cachep(void)
+@@ -9243,13 +9240,6 @@ int btrfs_init_cachep(void)
+ 	if (!btrfs_free_space_cachep)
+ 		goto fail;
+ 
+-	btrfs_delalloc_work_cachep = kmem_cache_create("btrfs_delalloc_work",
+-			sizeof(struct btrfs_delalloc_work), 0,
+-			SLAB_RECLAIM_ACCOUNT | SLAB_MEM_SPREAD,
+-			NULL);
+-	if (!btrfs_delalloc_work_cachep)
+-		goto fail;
+-
+ 	return 0;
+ fail:
+ 	btrfs_destroy_cachep();
+@@ -9490,7 +9480,7 @@ struct btrfs_delalloc_work *btrfs_alloc_delalloc_work(struct inode *inode,
+ {
+ 	struct btrfs_delalloc_work *work;
+ 
+-	work = kmem_cache_zalloc(btrfs_delalloc_work_cachep, GFP_NOFS);
++	work = kmalloc(sizeof(*work), GFP_NOFS);
+ 	if (!work)
+ 		return NULL;
+ 
+@@ -9508,7 +9498,7 @@ struct btrfs_delalloc_work *btrfs_alloc_delalloc_work(struct inode *inode,
+ void btrfs_wait_and_free_delalloc_work(struct btrfs_delalloc_work *work)
+ {
+ 	wait_for_completion(&work->completion);
+-	kmem_cache_free(btrfs_delalloc_work_cachep, work);
++	kfree(work);
+ }
+ 
+ /*
+-- 
+1.9.1
+

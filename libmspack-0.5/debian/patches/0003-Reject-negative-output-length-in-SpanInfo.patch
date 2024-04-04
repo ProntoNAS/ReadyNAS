@@ -1,0 +1,102 @@
+From 6139a0b9e93fcb7fcf423e56aa825bc869e02229 Mon Sep 17 00:00:00 2001
+From: Stuart Caie <kyzer@4u.net>
+Date: Sun, 13 Aug 2017 12:54:04 +0100
+Subject: [PATCH] Reject negative output length in SpanInfo
+
+---
+ ChangeLog       |   13 +++++++++++++
+ mspack/chmd.c   |   10 ++++++++--
+ mspack/lzxd.c   |   10 ++++++++--
+ mspack/mszipd.c |    3 ++-
+ mspack/qtmd.c   |    1 +
+ 5 files changed, 32 insertions(+), 5 deletions(-)
+
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,3 +1,16 @@
++2017-08-13  Stuart Caie <kyzer@cabextract.org.uk>
++
++	* read_spaninfo(): a CHM file can have no ResetTable and have a
++	negative length in SpanInfo, which then feeds a negative output length
++	to lzxd_init(), which then sets frame_size to a value of your choosing,
++	the lower 32 bits of output length, larger than LZX_FRAME_SIZE. If the
++	first LZX block is uncompressed, this writes data beyond the end of the
++	window. This issue was raised by ClamAV as CVE-2017-6419.  Thanks to
++	Sebastian Andrzej Siewior for finding this by chance!
++
++	* lzxd_init(), lzxd_set_output_length(), mszipd_init(): due to the issue
++	mentioned above, these functions now reject negative lengths
++
+ 2017-08-05  Stuart Caie <kyzer@cabextract.org.uk>
+ 
+ 	* cabd_read_string(): add missing error check on result of read().
+--- a/mspack/chmd.c
++++ b/mspack/chmd.c
+@@ -1269,9 +1269,15 @@ static int read_spaninfo(struct mschm_de
+ 
+     /* get the uncompressed length of the LZX stream */
+     err = read_off64(length_ptr, data, sys, self->d->infh);
+-
+     sys->free(data);
+-    return (err) ? MSPACK_ERR_DATAFORMAT : MSPACK_ERR_OK;
++    if (err) return MSPACK_ERR_DATAFORMAT;
++
++    if (*length_ptr <= 0) {
++        D(("output length is invalid"))
++        return MSPACK_ERR_DATAFORMAT;
++    }
++
++    return MSPACK_ERR_OK;
+ }
+ 
+ /***************************************
+--- a/mspack/lzxd.c
++++ b/mspack/lzxd.c
+@@ -300,8 +300,14 @@ struct lzxd_stream *lzxd_init(struct msp
+       if (window_bits < 15 || window_bits > 21) return NULL;
+   }
+ 
++  if (reset_interval < 0 || output_length < 0) {
++      D(("reset interval or output length < 0"))
++      return NULL;
++  }
++
++  /* round up input buffer size to multiple of two */
+   input_buffer_size = (input_buffer_size + 1) & -2;
+-  if (!input_buffer_size) return NULL;
++  if (input_buffer_size < 2) return NULL;
+ 
+   /* allocate decompression state */
+   if (!(lzx = (struct lzxd_stream *) system->alloc(system, sizeof(struct lzxd_stream)))) {
+@@ -382,7 +388,7 @@ int lzxd_set_reference_data(struct lzxd_
+ }
+ 
+ void lzxd_set_output_length(struct lzxd_stream *lzx, off_t out_bytes) {
+-  if (lzx) lzx->length = out_bytes;
++  if (lzx && out_bytes > 0) lzx->length = out_bytes;
+ }
+ 
+ int lzxd_decompress(struct lzxd_stream *lzx, off_t out_bytes) {
+--- a/mspack/mszipd.c
++++ b/mspack/mszipd.c
+@@ -349,8 +349,9 @@ struct mszipd_stream *mszipd_init(struct
+ 
+   if (!system) return NULL;
+ 
++  /* round up input buffer size to multiple of two */
+   input_buffer_size = (input_buffer_size + 1) & -2;
+-  if (!input_buffer_size) return NULL;
++  if (input_buffer_size < 2) return NULL;
+ 
+   /* allocate decompression state */
+   if (!(zip = (struct mszipd_stream *) system->alloc(system, sizeof(struct mszipd_stream)))) {
+--- a/mspack/qtmd.c
++++ b/mspack/qtmd.c
+@@ -197,6 +197,7 @@ struct qtmd_stream *qtmd_init(struct msp
+   /* Quantum supports window sizes of 2^10 (1Kb) through 2^21 (2Mb) */
+   if (window_bits < 10 || window_bits > 21) return NULL;
+ 
++  /* round up input buffer size to multiple of two */
+   input_buffer_size = (input_buffer_size + 1) & -2;
+   if (input_buffer_size < 2) return NULL;
+ 

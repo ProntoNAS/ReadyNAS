@@ -1,0 +1,61 @@
+Description: Fix "run for ever" bug for deeply nested [: sequences.
+ .
+ Addresses CVE-2015-8391.
+Origin: upstream, http://vcs.pcre.org/pcre?view=revision&revision=1579
+Forwarded: not-needed
+Author: Salvatore Bonaccorso <carnil@debian.org>
+Last-Update: 2015-12-29
+Applied-Upstream: 8.38
+
+---
+ pcre_compile.c       | 17 +++++------------
+ testdata/testinput2  |  2 ++
+ testdata/testoutput2 |  3 +++
+ 4 files changed, 13 insertions(+), 12 deletions(-)
+
+--- a/pcre_compile.c
++++ b/pcre_compile.c
+@@ -3859,19 +3859,12 @@ for (++ptr; *ptr != CHAR_NULL; ptr++)
+       (ptr[1] == CHAR_RIGHT_SQUARE_BRACKET ||
+        ptr[1] == CHAR_BACKSLASH))
+     ptr++;
+-  else if (*ptr == CHAR_RIGHT_SQUARE_BRACKET) return FALSE;
+-  else
++  else if ((*ptr == CHAR_LEFT_SQUARE_BRACKET && ptr[1] == terminator) ||
++            *ptr == CHAR_RIGHT_SQUARE_BRACKET) return FALSE;
++  else if (*ptr == terminator && ptr[1] == CHAR_RIGHT_SQUARE_BRACKET)
+     {
+-    if (*ptr == terminator && ptr[1] == CHAR_RIGHT_SQUARE_BRACKET)
+-      {
+-      *endptr = ptr;
+-      return TRUE;
+-      }
+-    if (*ptr == CHAR_LEFT_SQUARE_BRACKET &&
+-         (ptr[1] == CHAR_COLON || ptr[1] == CHAR_DOT ||
+-          ptr[1] == CHAR_EQUALS_SIGN) &&
+-        check_posix_syntax(ptr, endptr))
+-      return FALSE;
++    *endptr = ptr;
++    return TRUE;
+     }
+   }
+ return FALSE;
+--- a/testdata/testinput2
++++ b/testdata/testinput2
+@@ -4088,4 +4088,6 @@ backtracking verbs. --/
+ 
+ /[[:\\](?'abc')[a:]/
+ 
++"[[[.\xe8Nq\xffq\xff\xe0\x2|||::Nq\xffq\xff\xe0\x6\x2|||::[[[:[::::::[[[[[::::::::[:[[[:[:::[[[[[[[[[[[[:::::::::::::::::[[.\xe8Nq\xffq\xff\xe0\x2|||::Nq\xffq\xff\xe0\x6\x2|||::[[[:[::::::[[[[[::::::::[:[[[:[:::[[[[[[[[[[[[[[:::E[[[:[:[[:[:::[[:::E[[[:[:[[:'[:::::E[[[:[::::::[[[:[[[[[[[::E[[[:[::::::[[[:[[[[[[[[:[[::[::::[[:::::::[[:[[[[[[[:[[::[:[[:[~"
++
+ /-- End of testinput2 --/
+--- a/testdata/testoutput2
++++ b/testdata/testoutput2
+@@ -14213,4 +14213,7 @@ Matched, but too many substrings
+ 
+ /[[:\\](?'abc')[a:]/
+ 
++"[[[.\xe8Nq\xffq\xff\xe0\x2|||::Nq\xffq\xff\xe0\x6\x2|||::[[[:[::::::[[[[[::::::::[:[[[:[:::[[[[[[[[[[[[:::::::::::::::::[[.\xe8Nq\xffq\xff\xe0\x2|||::Nq\xffq\xff\xe0\x6\x2|||::[[[:[::::::[[[[[::::::::[:[[[:[:::[[[[[[[[[[[[[[:::E[[[:[:[[:[:::[[:::E[[[:[:[[:'[:::::E[[[:[::::::[[[:[[[[[[[::E[[[:[::::::[[[:[[[[[[[[:[[::[::::[[:::::::[[:[[[[[[[:[[::[:[[:[~"
++Failed: missing terminating ] for character class at offset 353
++
+ /-- End of testinput2 --/

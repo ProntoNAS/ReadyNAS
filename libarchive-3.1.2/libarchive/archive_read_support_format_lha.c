@@ -737,6 +737,12 @@ archive_read_format_lha_read_header(struct archive_read *a,
 	 * Prepare variables used to read a file content.
 	 */
 	lha->entry_bytes_remaining = lha->compsize;
+	if (lha->entry_bytes_remaining < 0) {
+		archive_set_error(&a->archive,
+		    ARCHIVE_ERRNO_FILE_FORMAT,
+		    "Invalid LHa entry size");
+		return (ARCHIVE_FATAL);
+	}
 	lha->entry_offset = 0;
 	lha->entry_crc_calculated = 0;
 
@@ -959,6 +965,9 @@ lha_read_file_header_1(struct archive_read *a, struct lha *lha)
 		err = err2;
 	/* Get a real compressed file size. */
 	lha->compsize -= extdsize - 2;
+
+	if (lha->compsize < 0)
+		goto invalid;	/* Invalid compressed file size */
 
 	if (sum_calculated != headersum) {
 		archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC,
@@ -1230,13 +1239,15 @@ lha_read_file_extended_header(struct archive_read *a, struct lha *lha,
 				archive_string_empty(&lha->filename);
 				break;
 			}
+			if (extdheader[0] == '\0')
+				goto invalid;
 			archive_strncpy(&lha->filename,
 			    (const char *)extdheader, datasize);
 			break;
 		case EXT_DIRECTORY:
-			if (datasize == 0)
+			if (datasize == 0 || extdheader[0] == '\0')
 				/* no directory name data. exit this case. */
-				break;
+				goto invalid;
 
 			archive_strncpy(&lha->dirname,
 		  	    (const char *)extdheader, datasize);

@@ -1,0 +1,185 @@
+commit d0b5138ba4bccff8a744c99836041ef6322ed39a
+Author: Bram Moolenaar <Bram@vim.org>
+Date:   Fri Nov 4 15:23:45 2016 +0100
+
+    patch 8.0.0056
+    Problem:    When setting 'filetype' there is no check for a valid name.
+    Solution:   Only allow valid characters in 'filetype', 'syntax' and 'keymap'.
+
+Tests adapated to work with 7.4.488
+
+diff --git a/src/option.c b/src/option.c
+--- a/src/option.c
++++ b/src/option.c
+@@ -5606,6 +5606,21 @@ set_string_option(
+ }
+ 
+ /*
++ * Return TRUE if "val" is a valid 'filetype' name.
++ * Also used for 'syntax' and 'keymap'.
++ */
++    static int
++valid_filetype(char_u *val)
++{
++    char_u *s;
++
++    for (s = val; *s != NUL; ++s)
++	if (!ASCII_ISALNUM(*s) && vim_strchr((char_u *)".-_", *s) == NULL)
++	    return FALSE;
++    return TRUE;
++}
++
++/*
+  * Set global value for string option when it's a local option.
+  */
+     static void
+@@ -6079,8 +6094,11 @@ did_set_string_option(
+ #ifdef FEAT_KEYMAP
+     else if (varp == &curbuf->b_p_keymap)
+     {
+-	/* load or unload key mapping tables */
+-	errmsg = keymap_init();
++	if (!valid_filetype(*varp))
++	    errmsg = e_invarg;
++	else
++	    /* load or unload key mapping tables */
++	    errmsg = keymap_init();
+ 
+ 	if (errmsg == NULL)
+ 	{
+@@ -7047,6 +7065,22 @@ did_set_string_option(
+     }
+ #endif
+ 
++#ifdef FEAT_AUTOCMD
++    else if (gvarp == &p_ft)
++    {
++	if (!valid_filetype(*varp))
++	    errmsg = e_invarg;
++    }
++#endif
++
++#ifdef FEAT_SYN_HL
++    else if (gvarp == &p_syn)
++    {
++	if (!valid_filetype(*varp))
++	    errmsg = e_invarg;
++    }
++#endif
++
+     /* Options that are a list of flags. */
+     else
+     {
+diff --git a/src/testdir/test_options.in b/src/testdir/test_options.in
+--- a/src/testdir/test_options.in
++++ b/src/testdir/test_options.in
+@@ -10,6 +10,59 @@
+ :endtry
+ :buf 1
+ :$put =caught
++:function! TrySet(opt, val, exc)
++  :let caught = 'ok'
++  :try
++    :exe 'set '.a:opt.'='.a:val
++  :catch
++    :let caught = v:exception
++  :endtry
++  :$put =a:val.' exception? '.(caught =~ a:exc)
++:endfunction
++: " Test filetype valid
++:set ft=valid_name
++:$put ='ft valid_name? '.(&ft == 'valid_name')
++:set ft=valid-name
++:$put ='ft valid-name? '.(&ft == 'valid-name')
++:"
++:call TrySet('ft', 'wrong;name', 'E474:')
++:call TrySet('ft', 'wrong\\name', 'E474:')
++:call TrySet('ft', 'wrong\|name', 'E474:')
++:call TrySet('ft', 'wrong/name', 'E474:')
++:call TrySet('ft', "wrong\\\nname", 'E474:')
++:"
++:$put ='ft valid-name? '.(&ft == 'valid-name')
++:exe "set ft=trunc\x00name"
++:$put ='ft trunc? '.(&filetype == 'trunc')
++: " Test syntax valid
++:set syn=valid_name
++:$put ='syn valid_name? '.('valid_name' == &syntax)
++:set syn=valid-name
++:$put ='syn valid-name? '.('valid-name' == &syntax)
++:"
++:call TrySet('syn', 'wrong;name', 'E474:')
++:call TrySet('syn', "wrong\\\\name", 'E474:')
++:call TrySet('syn', "wrong\\|name", 'E474:')
++:call TrySet('syn', "wrong/name", 'E474:')
++:call TrySet('syn', "wrong\\\nname", 'E474:')
++:"
++:$put ='syn valid-name? '.('valid-name' == &syntax)
++:exe "set syn=trunc\x00name"
++:$put ='syn trunc? '.('trunc' == &syntax)
++: " Test keymap valid
++:call TrySet('kmp', "valid_name", 'E544:')
++:call TrySet('kmp', "valid_name", 'valid_name')
++:call TrySet('kmp', "valid-name", 'E544:')
++:call TrySet('kmp', "valid-name", 'valid-name')
++:"
++:call TrySet('kmp', "wrong;name", 'E474:')
++:call TrySet('kmp', "wrong\\\\name", 'E474:')
++:call TrySet('kmp', "wrong\\|name", 'E474:')
++:call TrySet('kmp', "wrong/name", 'E474:')
++:call TrySet('kmp', "wrong\\\nname", 'E474:')
++:"
++:call TrySet('kmp', "trunc\x00name", 'E544:')
++:call TrySet('kmp', "trunc\x00name", 'trunc')
+ :/^result/,$w! test.out
+ :qa!
+ ENDTEST
+diff --git a/src/testdir/test_options.ok b/src/testdir/test_options.ok
+--- a/src/testdir/test_options.ok
++++ b/src/testdir/test_options.ok
+@@ -1,2 +1,34 @@
+ result
+ ok
++ft valid_name? 1
++ft valid-name? 1
++wrong;name exception? 1
++wrong\\name exception? 1
++wrong\|name exception? 1
++wrong/name exception? 1
++wrong\
++name exception? 1
++ft valid-name? 1
++ft trunc? 1
++syn valid_name? 1
++syn valid-name? 1
++wrong;name exception? 1
++wrong\\name exception? 1
++wrong\|name exception? 1
++wrong/name exception? 1
++wrong\
++name exception? 1
++syn valid-name? 1
++syn trunc? 1
++valid_name exception? 1
++valid_name exception? 1
++valid-name exception? 1
++valid-name exception? 1
++wrong;name exception? 1
++wrong\\name exception? 1
++wrong\|name exception? 1
++wrong/name exception? 1
++wrong\
++name exception? 1
++trunc exception? 1
++trunc exception? 1
+diff --git a/src/version.c b/src/version.c
+--- a/src/version.c
++++ b/src/version.c
+@@ -1733,6 +1733,8 @@ static char *(features[]) =
+ static char *(extra_patches[]) =
+ {   /* Add your patch description below this line */
+ /**/
++    "8.0.0056",
++/**/
+     NULL
+ };
+ 

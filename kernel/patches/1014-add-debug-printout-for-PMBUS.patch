@@ -1,0 +1,80 @@
+From cb674f6aa85d34c6aaa6edaf6dbd0d8fae5d2e18 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 17:20:39 -0800
+Subject: [PATCH 1014/1014] add debug printout for PMBUS
+
+---
+ drivers/i2c/i2c-core.c | 57 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 57 insertions(+)
+
+diff --git a/drivers/i2c/i2c-core.c b/drivers/i2c/i2c-core.c
+index d625167..947f065 100644
+--- a/drivers/i2c/i2c-core.c
++++ b/drivers/i2c/i2c-core.c
+@@ -3046,6 +3046,63 @@ s32 i2c_smbus_xfer(struct i2c_adapter *adapter, u16 addr, unsigned short flags,
+ 			res = adapter->algo->smbus_xfer(adapter, addr, flags,
+ 							read_write, command,
+ 							protocol, data);
++#define __DEBUG_I2C_SMBUS_PMBUS	0
++#if __DEBUG_I2C_SMBUS_PMBUS
++	{/* Debug printout for simulation using i2cget/i2cset. */
++		char buf[80] = {'U','N','K','O','W','N','\0'};
++
++		switch(protocol) {
++		case I2C_SMBUS_QUICK:
++			buf[0] = '\0';
++			break;
++		case I2C_SMBUS_BYTE:
++			if (read_write == I2C_SMBUS_WRITE)
++				sprintf(buf, "0x%02x", command);
++			else
++				memcpy(buf, "c", 2);
++			break;
++		case I2C_SMBUS_BYTE_DATA:
++			if (read_write == I2C_SMBUS_WRITE)
++				sprintf(buf, "0x%02x 0x%02x b",
++					command,data->byte);
++			else
++				sprintf(buf,"0x%02x b", command);
++			break;
++		case I2C_SMBUS_WORD_DATA:
++			if (read_write == I2C_SMBUS_WRITE)
++				sprintf(buf,"0x%02x 0x%02x w",
++					command,data->word);
++			else
++				sprintf(buf, "0x%02x w", command);
++			break;
++		case I2C_SMBUS_BLOCK_DATA:
++			memcpy(buf, "###", 4);
++			break;
++		default:
++			break;
++		}
++		if(addr == 0x58 || addr==0x59 || addr == 0x5a || addr==0x5b) {
++			if(read_write == I2C_SMBUS_READ &&
++				(protocol == I2C_SMBUS_BYTE ||
++					protocol==I2C_SMBUS_BYTE_DATA ||
++					protocol==I2C_SMBUS_WORD_DATA)) {
++				if (res) sprintf(buf+strlen(buf),
++						" # FAILED (%d)", res);
++				else
++					sprintf(buf+strlen(buf),
++						" # 0x%0*x",
++					(protocol == I2C_SMBUS_WORD_DATA) ?4:2,
++					(protocol == I2C_SMBUS_WORD_DATA) ?
++						data->word: data->byte);
++			}
++			if (flags & I2C_CLIENT_PEC)
++				strcat(buf," ## (PEC)");
++			pr_emerg("i2c%cet -y %d 0x%02x %s\n",
++				(read_write == I2C_SMBUS_WRITE) ? 's' : 'g',
++				adapter->nr, addr, buf);
++		}
++	}
++#endif
+ 			if (res != -EAGAIN)
+ 				break;
+ 			if (time_after(jiffies,
+-- 
+1.9.1
+

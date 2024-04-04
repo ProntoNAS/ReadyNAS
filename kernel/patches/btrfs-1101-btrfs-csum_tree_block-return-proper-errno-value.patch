@@ -1,0 +1,65 @@
+From 612f872329695794e6d9b0dbd5cbaf7b834c37f4 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Fri, 2 Dec 2016 13:33:23 -0800
+Subject: [PATCH 1101/1107] btrfs: csum_tree_block: return proper errno value
+
+---
+ fs/btrfs/disk-io.c | 13 +++++--------
+ 1 file changed, 5 insertions(+), 8 deletions(-)
+
+diff --git a/fs/btrfs/disk-io.c b/fs/btrfs/disk-io.c
+index 341a1a9..9f30b36 100644
+--- a/fs/btrfs/disk-io.c
++++ b/fs/btrfs/disk-io.c
+@@ -307,7 +307,7 @@ static int csum_tree_block(struct btrfs_fs_info *fs_info,
+ 		err = map_private_extent_buffer(buf, offset, 32,
+ 					&kaddr, &map_start, &map_len);
+ 		if (err)
+-			return 1;
++			return err;
+ 		cur_len = min(len, map_len - (offset - map_start));
+ 		crc = btrfs_csum_data(kaddr + offset - map_start,
+ 				      crc, cur_len);
+@@ -317,7 +317,7 @@ static int csum_tree_block(struct btrfs_fs_info *fs_info,
+ 	if (csum_size > sizeof(inline_result)) {
+ 		result = kzalloc(csum_size, GFP_NOFS);
+ 		if (!result)
+-			return 1;
++			return -ENOMEM;
+ 	} else {
+ 		result = (char *)&inline_result;
+ 	}
+@@ -338,7 +338,7 @@ static int csum_tree_block(struct btrfs_fs_info *fs_info,
+ 				val, found, btrfs_header_level(buf));
+ 			if (result != (char *)&inline_result)
+ 				kfree(result);
+-			return !btrfs_test_opt(fs_info->tree_root, RECOVERY);
++			return btrfs_test_opt(fs_info->tree_root, RECOVERY) ? 0 : -EUCLEAN;
+ 		}
+ 	} else {
+ 		write_extent_buffer(buf, result, 0, csum_size);
+@@ -537,8 +537,7 @@ static int csum_dirty_buffer(struct btrfs_fs_info *fs_info, struct page *page)
+ 	found_start = btrfs_header_bytenr(eb);
+ 	if (WARN_ON(found_start != start || !PageUptodate(page)))
+ 		return 0;
+-	csum_tree_block(fs_info, eb, 0);
+-	return 0;
++	return csum_tree_block(fs_info, eb, 0);
+ }
+ 
+ static int check_tree_block_fsid(struct btrfs_fs_info *fs_info,
+@@ -682,10 +681,8 @@ static int btree_readpage_end_io_hook(struct btrfs_io_bio *io_bio,
+ 				       eb, found_level);
+ 
+ 	ret = csum_tree_block(root->fs_info, eb, 1);
+-	if (ret) {
+-		ret = -EIO;
++	if (ret)
+ 		goto err;
+-	}
+ 
+ 	/*
+ 	 * If this is a leaf block and it is corrupt, set the corrupt bit so
+-- 
+1.9.1
+

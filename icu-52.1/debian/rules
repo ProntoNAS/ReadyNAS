@@ -1,0 +1,55 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -Wall
+include /usr/share/dpkg/buildflags.mk
+
+# Install all ICU headers files in the architecture-specific location.
+# While most files are platform-independent, platform.h is different
+# between big and little endina systems, and it's easier to have all
+# header files in a single directory so that icu-config and pkg-config
+# continue to work.
+DEB_CONFIGURE_USER_FLAGS = --libdir="\$${prefix}/lib/$(DEB_HOST_MULTIARCH)" \
+	--includedir="\$${prefix}/include/$(DEB_HOST_MULTIARCH)" \
+	--disable-samples --enable-static --enable-weak-threads
+
+# To distinguish variables that are truly local to this file (rather
+# than for use by cdbs), we adopt the convention of starting local
+# variables' names with l_.
+
+l_SONAME := 52
+
+# Turn off optimization on armel to avoid some internal compiler
+# errors.  This can be removed once bug 484053 is resolved.
+ifeq ($(shell dpkg --print-architecture),armel)
+CFLAGS := $(filter-out -O%,$(CFLAGS)) -O0
+CXXFLAGS := $(filter-out -O%,$(CXXFLAGS)) -O0
+endif
+
+# Include cdbs rules files.
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/autotools.mk
+
+# Variables used by cdbs
+DEB_MAKE_INSTALL_TARGET := \
+	$(DEB_MAKE_INSTALL_TARGET:install=install install-doc)
+DEB_SRCDIR = source
+DEB_COMPRESS_EXCLUDE = html examples
+DEB_INSTALL_EXAMPLES_libicu-dev = \
+	source/samples/*
+DEB_DH_BUILDDEB_ARGS = -- -Zxz
+DEB_DBG_PACKAGE_libicu$(l_SONAME) = libicu$(l_SONAME)-dbg
+
+override DEB_MAKE_CHECK_TARGET = check
+
+clean::
+	$(RM) *.cdbs-config_list
+
+# The libicudata library contains no symbols, so its debug library is
+# useless and triggers lintian warnings.  Just remove it.
+binary-predeb/libicu$(l_SONAME)-dbg::
+	for i in `find debian/libicu$(l_SONAME)-dbg/usr/lib/debug -type f -print`; do \
+	   if ! nm -a $$i | grep -q debug; then rm $$i; fi; \
+	done
+	-find debian/libicu$(l_SONAME)-dbg/usr/lib/debug -type d -empty -exec rmdir {} \;

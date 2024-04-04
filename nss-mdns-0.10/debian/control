@@ -3,20 +3,25 @@ Section: admin
 Priority: optional
 Maintainer: Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>
 Uploaders: Loic Minier <lool@dooz.org>,
-           Sjoerd Simons <sjoerd@debian.org>
-Build-Depends: debhelper (>= 5),
-               lynx,
-               gcc-multilib [amd64]
-Standards-Version: 3.8.2
+           Sjoerd Simons <sjoerd@debian.org>,
+           Simon McVittie <smcv@debian.org>
+Build-Depends: debhelper (>= 9),
+               dh-autoreconf,
+               dpkg-dev (>= 1.16.1~),
+               lynx
+Standards-Version: 3.9.5
 
 Package: libnss-mdns
-Section: admin
+Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          base-files (>= 3.1.10),
          avahi-daemon (>= 0.6.16-1)
 Suggests: avahi-autoipd | zeroconf
+Breaks: lib32nss-mdns (<< ${source:Version})
+Replaces: lib32nss-mdns (<< ${source:Version})
 Architecture: any
+Multi-Arch: same
 Description: NSS module for Multicast DNS name resolution
  nss-mdns is a plugin for the GNU Name Service Switch (NSS) functionality
  of the GNU C Library (glibc) providing host name resolution via Multicast
@@ -25,19 +30,36 @@ Description: NSS module for Multicast DNS name resolution
  domain .local.
 
 Package: lib32nss-mdns
-Section: admin
-Depends: ${shlibs:Depends},
-         ${misc:Depends},
-         base-files (>= 3.1.10),
-         avahi-daemon (>= 0.6.16-1)
-Suggests: avahi-autoipd | zeroconf
-Conflicts: libc6-i386 (<= 2.9-18)
+Section: oldlibs
+Priority: extra
+Pre-Depends: ${misc:Pre-Depends}
+Depends: libnss-mdns-i386 (= ${binary:Version}),
+         ${misc:Depends}
 Architecture: amd64
-Description: NSS module for Multicast DNS name resolution (32-bits version)
+Description: NSS module for mDNS name resolution (amd64 transitional package)
  nss-mdns is a plugin for the GNU Name Service Switch (NSS) functionality
  of the GNU C Library (glibc) providing host name resolution via Multicast
- DNS (using Zeroconf, aka Apple Bonjour / Apple Rendezvous ), effectively
- allowing name resolution by common Unix/Linux programs in the ad-hoc mDNS
- domain .local.
+ DNS.
  .
- This package is built for 32-bits environments.
+ This transitional package exists to upgrade amd64 systems from
+ lib32nss-mdns:amd64 to libnss-mdns:i386. Because direct cross-architecture
+ dependencies are not yet supported, it depends on an intermediate
+ package, libnss-mdns-i386, which is only available on i386.
+
+Package: libnss-mdns-i386
+Section: oldlibs
+Priority: extra
+Pre-Depends: ${misc:Pre-Depends}
+Depends: libnss-mdns (= ${binary:Version}),
+         ${misc:Depends}
+Architecture: i386
+Multi-Arch: foreign
+Description: NSS module for mDNS name resolution (i386 transitional package)
+ nss-mdns is a plugin for the GNU Name Service Switch (NSS) functionality
+ of the GNU C Library (glibc) providing host name resolution via Multicast
+ DNS.
+ .
+ This transitional package exists to upgrade amd64 systems from
+ lib32nss-mdns:amd64 to libnss-mdns:i386. It is a workaround for
+ lack of support for direct cross-architecture dependencies in the
+ Debian archive.

@@ -1,0 +1,25 @@
+From: Gaurav Gupta <g.gupta@samsung.com>
+Date: Mon, 6 Oct 2014 19:28:29 +0800
+Subject: Leak of struct addrinfo in xmlNanoFTPConnect()
+
+For https://bugzilla.gnome.org/show_bug.cgi?id=732352
+
+in case of error condition in IPv6 support, the early return here
+doesn't call freeaddrinfo(result), thus leaking memory.
+---
+ nanoftp.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/nanoftp.c b/nanoftp.c
+index 077bfe2..010e0b1 100644
+--- a/nanoftp.c
++++ b/nanoftp.c
+@@ -908,6 +908,8 @@ xmlNanoFTPConnect(void *ctx) {
+ 	    return (-1);
+ 	}
+ 	if (tmp->ai_addrlen > sizeof(ctxt->ftpAddr)) {
++	    if (result)
++		freeaddrinfo (result);
+ 	    __xmlIOErr(XML_FROM_FTP, 0, "gethostbyname address mismatch");
+ 	    return (-1);
+ 	}

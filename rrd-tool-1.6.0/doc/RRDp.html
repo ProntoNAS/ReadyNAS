@@ -1,0 +1,118 @@
+<?xml version="1.0" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>RRDp</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link rev="made" href="mailto:root@localhost" />
+</head>
+
+<body style="background-color: white">
+
+
+
+<h1 id="NAME">NAME</h1>
+
+<p>RRDp - Attach RRDtool from within a perl script via a set of pipes;</p>
+
+<h1 id="SYNOPSIS">SYNOPSIS</h1>
+
+<p>use <b>RRDp</b></p>
+
+<p><b>RRDp::start</b> <i>path to RRDtool executable</i></p>
+
+<p><b>RRDp::cmd</b> <i>rrdtool commandline</i></p>
+
+<p>$answer = <b>RRD::read</b></p>
+
+<p>$status = <b>RRD::end</b></p>
+
+<p><b>$RRDp::user</b>, <b>$RRDp::sys</b>, <b>$RRDp::real</b>, <b>$RRDp::error_mode</b>, <b>$RRDp::error</b></p>
+
+<h1 id="DESCRIPTION">DESCRIPTION</h1>
+
+<p>With this module you can safely communicate with the RRDtool.</p>
+
+<p>After every <b>RRDp::cmd</b> you have to issue an <b>RRDp::read</b> command to get <b>RRDtool</b>s answer to your command. The answer is returned as a pointer, in order to speed things up. If the last command did not return any data, <b>RRDp::read</b> will return an undefined variable.</p>
+
+<p>If you import the PERFORMANCE variables into your namespace, you can access RRDtool&#39;s internal performance measurements.</p>
+
+<dl>
+
+<dt id="use-RRDp">use <b>RRDp</b></dt>
+<dd>
+
+<p>Load the RRDp::pipe module.</p>
+
+</dd>
+<dt id="RRDp::start-path-to-RRDtool-executable"><b>RRDp::start</b> <i>path to RRDtool executable</i></dt>
+<dd>
+
+<p>start RRDtool. The argument must be the path to the RRDtool executable</p>
+
+</dd>
+<dt id="RRDp::cmd-rrdtool-commandline"><b>RRDp::cmd</b> <i>rrdtool commandline</i></dt>
+<dd>
+
+<p>pass commands on to RRDtool. Check the RRDtool documentation for more info on the RRDtool commands.</p>
+
+<p><b>Note</b>: Due to design limitations, <b>RRDp::cmd</b> does not support the <code>graph -</code> command - use <code>graphv -</code> instead.</p>
+
+</dd>
+<dt id="answer-RRDp::read">$answer = <b>RRDp::read</b></dt>
+<dd>
+
+<p>read RRDtool&#39;s response to your command. Note that the $answer variable will only contain a pointer to the returned data. The reason for this is, that RRDtool can potentially return quite excessive amounts of data and we don&#39;t want to copy this around in memory. So when you want to access the contents of $answer you have to use $$answer which dereferences the variable.</p>
+
+</dd>
+<dt id="status-RRDp::end">$status = <b>RRDp::end</b></dt>
+<dd>
+
+<p>terminates RRDtool and returns RRDtool&#39;s status ...</p>
+
+</dd>
+<dt id="RRDp::user-RRDp::sys-RRDp::real"><b>$RRDp::user</b>, <b>$RRDp::sys</b>, <b>$RRDp::real</b></dt>
+<dd>
+
+<p>these variables will contain totals of the user time, system time and real time as seen by RRDtool. User time is the time RRDtool is running, System time is the time spend in system calls and real time is the total time RRDtool has been running.</p>
+
+<p>The difference between user + system and real is the time spent waiting for things like the hard disk and new input from the Perl script.</p>
+
+</dd>
+<dt id="RRDp::error_mode-and-RRDp::error"><b>$RRDp::error_mode</b> and <b>$RRDp::error</b></dt>
+<dd>
+
+<p>If you set the variable $RRDp::error_mode to the value &#39;catch&#39; before you run RRDp::read a potential ERROR message will not cause the program to abort but will be returned in this variable. If no error occurs the variable will be empty.</p>
+
+<pre><code> $RRDp::error_mode = &#39;catch&#39;;
+ RRDp::cmd qw(info file.rrd);
+ print $RRDp::error if $RRDp::error;</code></pre>
+
+</dd>
+</dl>
+
+<h1 id="EXAMPLE">EXAMPLE</h1>
+
+<pre><code> use RRDp;
+ RRDp::start &quot;/usr/local/bin/rrdtool&quot;;
+ RRDp::cmd   qw(create demo.rrd --step 100 
+               DS:in:GAUGE:100:U:U
+               RRA:AVERAGE:0.5:1:10);
+ $answer = RRDp::read;
+ print $$answer;
+ ($usertime,$systemtime,$realtime) =  ($RRDp::user,$RRDp::sys,$RRDp::real);</code></pre>
+
+<h1 id="SEE-ALSO">SEE ALSO</h1>
+
+<p>For more information on how to use RRDtool, check the manpages.</p>
+
+<h1 id="AUTHOR">AUTHOR</h1>
+
+<p>Tobias Oetiker &lt;tobi@oetiker.ch&gt;</p>
+
+
+</body>
+
+</html>
+
+

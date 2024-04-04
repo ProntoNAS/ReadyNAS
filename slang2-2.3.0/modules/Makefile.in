@@ -1,0 +1,194 @@
+# -*- make -*-
+MODULES = slsmg-module.so termios-module.so select-module.so fcntl-module.so \
+  varray-module.so socket-module.so rand-module.so fork-module.so \
+  csv-module.so base64-module.so chksum-module.so histogram-module.so \
+  stats-module.so json-module.so \
+  @PCRE_MODULE@ @PNG_MODULE@ @ICONV_MODULE@ @ONIG_MODULE@ @ZLIB_MODULE@ @SYSCONF_MODULE@
+SLFILES = slsmg termios select fcntl varray socket pcre png iconv \
+  onig rand csv zlib fork sysconf base64 chksum histogram stats json
+TEST_SCRIPTS = test_rand.sl test_csv.sl test_base64.sl test_chksum.sl \
+  test_hist.sl test_stats.sl test_json.sl
+CHKSUM_OBJS = chksum-module.o chksum_md5.o chksum_sha1.o
+#---------------------------------------------------------------------------
+CC		= @CC@
+CFLAGS		= @CFLAGS@ @SLANG_DLL_CFLAGS@
+LDFLAGS		= @LDFLAGS@
+CC_SHARED_FLAGS = @CC_SHARED_FLAGS@
+CC_SHARED 	= $(CC) $(INCS) $(CC_SHARED_FLAGS) $(CFLAGS)
+CONFIG_DIR	= @CONFIG_DIR@
+SRCDIR		= $(CONFIG_DIR)/modules
+CONFIG_H        = $(SRCDIR)/config.h
+OBJDIR		= $(ARCH)objs
+ELFDIR          = @ELFDIR@
+#---------------------------------------------------------------------------
+# Installation location of the slang library
+#---------------------------------------------------------------------------
+prefix 		= @prefix@
+exec_prefix 	= @exec_prefix@
+SLANG_SRCINC	= -I@SRCDIR@
+DLL_IMPLIB_NAME = @DLL_IMPLIB_NAME@
+# On some systems, the module must be linked to the slang library,
+# but not all do.  If you have such system, point SLANG_LIB to the
+# slang library, otherwise leave it blank.
+SLANG_LIB	= @SLANG_LIB_FOR_MODULES@
+
+#---------------------------------------------------------------------------
+# If building the PCRE module, you may need to set these
+#---------------------------------------------------------------------------
+PCRE_INC	= @PCRE_INC@
+PCRE_LIB	= @PCRE_LIB@ -lpcre
+#---------------------------------------------------------------------------
+# If building the PNG module, you may need to set these
+#---------------------------------------------------------------------------
+PNG_INC	= @PNG_INC@
+PNG_LIB	= @PNG_LIB@ -lpng
+#---------------------------------------------------------------------------
+# If building the ICONV module, you may need to set these
+#---------------------------------------------------------------------------
+ICONV_INC	= @ICONV_INC@
+ICONV_LIB	= @ICONV_LIB@
+#---------------------------------------------------------------------------
+# If building the ONIG module, you may need to set these
+#---------------------------------------------------------------------------
+ONIG_INC	= @ONIG_INC@
+ONIG_LIB	= @ONIG_LIB@ -lonig
+#---------------------------------------------------------------------------
+# If building the ZLIB module, you may need to set these
+#---------------------------------------------------------------------------
+ZLIB_INC	= @Z_INC@
+ZLIB_LIB	= @Z_LIB@ -lz
+#---------------------------------------------------------------------------
+# If building the SOCKET module, you may need to set these
+#---------------------------------------------------------------------------
+SOCKET_LIBS = @X_EXTRA_LIBS@
+#---------------------------------------------------------------------------
+# Installation location of the modules
+#---------------------------------------------------------------------------
+MODULE_INSTALL_DIR = @libdir@/slang/v@slang_major_version@/modules
+INSTALL		= @INSTALL@
+INSTALL_DATA	= @INSTALL_DATA@
+INSTALL_MODULE	= @INSTALL_MODULE@
+MKINSDIR	= $(CONFIG_DIR)/autoconf/mkinsdir.sh
+SLSH_DIR	= $(prefix)/share/slsh
+CMAPS_DIR	= $(SLSH_DIR)/cmaps
+HELP_DIR	= $(SLSH_DIR)/help
+#---------------------------------------------------------------------------
+# DESTDIR is designed to facilitate making packages.  Normally it is empty
+#---------------------------------------------------------------------------
+#DESTDIR =
+DEST_MODULEDIR	= $(DESTDIR)$(MODULE_INSTALL_DIR)
+DEST_SLSH_DIR	= $(DESTDIR)$(SLSH_DIR)
+DEST_CMAPSDIR	= $(DESTDIR)$(CMAPS_DIR)
+DEST_HELPDIR	= $(DESTDIR)$(HELP_DIR)
+#---------------------------------------------------------------------------
+RPATH = @RPATH@
+
+LIBS = $(LDFLAGS) $(RPATH) $(SLANG_LIB) $(DL_LIB) @M_LIB@
+INCS = $(SLANG_SRCINC)
+COMPILE_CMD = $(CC_SHARED) $(INCS) $(LIBS)
+#---------------------------------------------------------------------------
+all: $(OBJDIR)/Makefile
+	cd $(OBJDIR) && $(MAKE) $(MODULES)
+$(CONFIG_H): $(CONFIG_DIR)/src/config.h
+	cp $(CONFIG_DIR)/src/config.h $(CONFIG_H)
+$(OBJDIR):
+	-$(MKINSDIR) $(OBJDIR)
+$(OBJDIR)/Makefile: $(OBJDIR) Makefile
+	cp Makefile $(OBJDIR)
+
+#
+# These (and only these) targets are supposed to be built only in $(OBJDIR):
+#
+slsmg-module.so: $(SRCDIR)/slsmg-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/slsmg-module.c -o slsmg-module.so
+rand-module.so: $(SRCDIR)/rand-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/rand-module.c -o rand-module.so
+newt-module.so: $(SRCDIR)/newt-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/newt-module.c -o newt-module.so -lnewt
+termios-module.so: $(SRCDIR)/termios-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/termios-module.c -o termios-module.so
+select-module.so: $(SRCDIR)/select-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/select-module.c -o select-module.so
+fcntl-module.so: $(SRCDIR)/fcntl-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/fcntl-module.c -o fcntl-module.so
+varray-module.so: $(SRCDIR)/varray-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/varray-module.c -o varray-module.so
+pcre-module.so: $(SRCDIR)/pcre-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(PCRE_INC) $(SRCDIR)/pcre-module.c -o pcre-module.so $(PCRE_LIB)
+onig-module.so: $(SRCDIR)/onig-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(ONIG_INC) $(SRCDIR)/onig-module.c -o onig-module.so $(ONIG_LIB)
+png-module.so: $(SRCDIR)/png-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(PNG_INC) $(SRCDIR)/png-module.c -o png-module.so $(PNG_LIB)
+socket-module.so: $(SRCDIR)/socket-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/socket-module.c -o socket-module.so $(SOCKET_LIBS)
+iconv-module.so: $(SRCDIR)/iconv-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(ICONV_INC) $(SRCDIR)/iconv-module.c -o iconv-module.so $(ICONV_LIB)
+zlib-module.so: $(SRCDIR)/zlib-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(ZLIB_INC) $(SRCDIR)/zlib-module.c -o zlib-module.so $(ZLIB_LIB)
+fork-module.so: $(SRCDIR)/fork-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/fork-module.c -o fork-module.so
+sysconf-module.so: $(SRCDIR)/sysconf-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/sysconf-module.c -o sysconf-module.so
+csv-module.so: $(SRCDIR)/csv-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/csv-module.c -o csv-module.so
+base64-module.so: $(SRCDIR)/base64-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/base64-module.c -o base64-module.so
+json-module.so: $(SRCDIR)/json-module.c $(CONFIG_H)
+	$(COMPILE_CMD) $(SRCDIR)/json-module.c -o json-module.so
+#
+chksum-module.so: $(CHKSUM_OBJS)
+	$(COMPILE_CMD) $(CHKSUM_OBJS) -o chksum-module.so
+chksum-module.o: $(SRCDIR)/chksum-module.c $(SRCDIR)/chksum.h
+	$(COMPILE_CMD) -c $(SRCDIR)/chksum-module.c
+chksum_md5.o: $(SRCDIR)/chksum_md5.c $(SRCDIR)/chksum.h
+	$(COMPILE_CMD) -c $(SRCDIR)/chksum_md5.c
+chksum_sha1.o: $(SRCDIR)/chksum_sha1.c $(SRCDIR)/chksum.h
+	$(COMPILE_CMD) -c $(SRCDIR)/chksum_sha1.c
+#
+histogram-module.so: $(SRCDIR)/histogram-module.c $(SRCDIR)/histogram-module.inc
+	$(COMPILE_CMD) $(SRCDIR)/histogram-module.c -o histogram-module.so
+stats-module.so: $(SRCDIR)/stats-module.c $(SRCDIR)/stats-module.inc
+	$(COMPILE_CMD) $(SRCDIR)/stats-module.c -o stats-module.so
+#
+# </targets to be built in $(OBJDIR)>
+#
+
+# Note that Windows/Cygwin modules need execute permissions
+install: all
+	-$(MKINSDIR) $(DEST_MODULEDIR)
+	@for i in $(MODULES); \
+	do \
+		echo $(INSTALL_MODULE) $(OBJDIR)/$$i $(DEST_MODULEDIR); \
+		$(INSTALL_MODULE) $(OBJDIR)/$$i $(DEST_MODULEDIR); \
+	done
+	-$(MKINSDIR) $(DEST_SLSH_DIR)
+	@for i in $(SLFILES); \
+	do \
+		echo $(INSTALL_DATA) $$i.sl $(DEST_SLSH_DIR); \
+		$(INSTALL_DATA) $$i.sl $(DEST_SLSH_DIR); \
+	done
+	-$(MKINSDIR) $(DEST_CMAPSDIR)
+	@for i in cmaps/*.map; \
+	do \
+		echo $(INSTALL_DATA) $$i $(DEST_CMAPSDIR); \
+		$(INSTALL_DATA) $$i $(DEST_CMAPSDIR); \
+	done
+	-$(MKINSDIR) $(DEST_HELPDIR)
+	@for i in help/*.hlp; \
+	do \
+		echo $(INSTALL_DATA) $$i $(DEST_HELPDIR); \
+		$(INSTALL_DATA) $$i $(DEST_HELPDIR); \
+	done
+runtests: all
+	@test_scripts="$(TEST_SCRIPTS)"; \
+	test -z "@PNG_MODULE@" || test_scripts="$$test_scripts test_png.sl"; \
+	test -z "@ONIG_MODULE@" || test_scripts="$$test_scripts test_onig.sl"; \
+	test -z "@ZLIB_MODULE@" || test_scripts="$$test_scripts test_zlib.sl"; \
+	cd test; ./runtests.sh $$test_scripts
+clean:
+	-cd $(OBJDIR) && /bin/rm -f $(MODULES) $(CHKSUM_OBJS)
+	-/bin/rm -f *~ */*~
+distclean: clean
+	-/bin/rm -f Makefile $(OBJDIR)/Makefile $(CONFIG_H)
+
+.PHONY: clean distclean all install runtests

@@ -38,6 +38,12 @@ compute_minus_zero (void)
 long double minus_zero = -0.0L;
 #endif
 
+#ifdef __FLOAT_WORD_ORDER__
+# define FLOAT_BIG_ENDIAN (__FLOAT_WORD_ORDER__ != __ORDER_LITTLE_ENDIAN__)
+#else
+# define FLOAT_BIG_ENDIAN (LDBL_EXPBIT0_WORD < NWORDS / 2)
+#endif
+
 int
 main ()
 {
@@ -70,10 +76,10 @@ main ()
 # if LDBL_EXPBIT0_BIT > 0
     m.word[LDBL_EXPBIT0_WORD] ^= (unsigned int) 1 << (LDBL_EXPBIT0_BIT - 1);
 # else
-    m.word[LDBL_EXPBIT0_WORD + (LDBL_EXPBIT0_WORD < NWORDS / 2 ? 1 : - 1)]
+    m.word[LDBL_EXPBIT0_WORD + (FLOAT_BIG_ENDIAN ? 1 : - 1)]
       ^= (unsigned int) 1 << (sizeof (unsigned int) * CHAR_BIT - 1);
 # endif
-    m.word[LDBL_EXPBIT0_WORD + (LDBL_EXPBIT0_WORD < NWORDS / 2 ? 1 : - 1)]
+    m.word[LDBL_EXPBIT0_WORD + (FLOAT_BIG_ENDIAN ? 1 : - 1)]
       |= (unsigned int) 1 << LDBL_EXPBIT0_BIT;
     ASSERT (isnanl (m.value));
   }

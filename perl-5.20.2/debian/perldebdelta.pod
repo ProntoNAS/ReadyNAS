@@ -1,0 +1,176 @@
+=encoding utf8
+
+=head1 NAME
+
+perldebdelta - selected fixes from 5.20.3
+
+=head1 DESCRIPTION
+
+This document describes a batch of fixes imported into the Debian 
+package from 5.20.3. This is in lieu of uploading 5.20.3 to jessie
+directly, which would be too invasive owing to the version change.
+
+This notes are taken from the
+L<upstream perldelta|https://metacpan.org/pod/release/SHAY/perl-5.20.3/pod/perldelta.pod>
+
+=head1 Modules and Pragmata
+
+=head2 Updated Modules and Pragmata
+
+=over 4
+
+=item *
+
+L<perl5db.pl> has been upgraded.
+
+The debugger would cause an assertion failure.
+L<[perl #124127]|https://rt.perl.org/Ticket/Display.html?id=124127>
+
+=back
+
+=head1 Documentation
+
+=head2 Changes to Existing Documentation
+
+=head3 L<perlfunc>
+
+=over 4
+
+=item *
+
+Mention that L<C<study()>|perlfunc/study> is currently a no-op.
+
+=back
+
+=head3 L<perlguts>
+
+=over 4
+
+=item *
+
+The OOK example has been updated to account for COW changes and a change in the
+storage of the offset.
+
+=back
+
+=head3 L<perlhacktips>
+
+=over 4
+
+=item *
+
+Documentation has been added illustrating the perils of assuming the contents
+of static memory pointed to by the return values of Perl wrappers for C library
+functions doesn't change.
+
+=back
+
+=head3 L<perlpodspec>
+
+=over 4
+
+=item *
+
+The specification of the POD language is changing so that the default encoding
+of PODs that aren't in UTF-8 (unless otherwise indicated) is CP1252 instead of
+ISO-8859-1 (Latin1).
+
+=back
+
+=head1 Utility Changes
+
+=head2 L<h2ph>
+
+=over 4
+
+=item *
+
+B<h2ph> now handles hexadecimal constants in the compiler's predefined macro
+definitions, as visible in C<$Config{cppsymbols}>.
+L<[perl #123784]|https://rt.perl.org/Ticket/Display.html?id=123784>
+
+=back
+
+=head1 Selected Bug Fixes
+
+=over 4
+
+=item *
+
+Repeated global pattern matches in scalar context on large tainted strings were
+exponentially slow depending on the current match position in the string.
+L<[perl #123202]|https://rt.perl.org/Ticket/Display.html?id=123202>
+
+=item *
+
+The original visible value of L<C<$E<sol>>|perlvar/$E<sol>> is now preserved
+when it is set to an invalid value.  Previously if you set C<$/> to a reference
+to an array, for example, perl would produce a runtime error and not set PL_rs,
+but Perl code that checked C<$/> would see the array reference.
+L<[perl #123218]|https://rt.perl.org/Ticket/Display.html?id=123218>
+
+=item *
+
+Perl 5.14.0 introduced a bug whereby C<eval { LABEL: }> would crash.  This has
+been fixed.
+L<[perl #123652]|https://rt.perl.org/Ticket/Display.html?id=123652>
+
+=item *
+
+Extending an array cloned from a parent thread could result in "Modification of
+a read-only value attempted" errors when attempting to modify the new elements.
+L<[perl #124127]|https://rt.perl.org/Ticket/Display.html?id=124127>
+
+=item *
+
+UTF-8 variable names used in array indexes, unquoted UTF-8 HERE-document
+terminators and UTF-8 function names all now work correctly.
+L<[perl #124113]|https://rt.perl.org/Ticket/Display.html?id=124113>
+
+=item *
+
+A subtle bug introduced in Perl 5.20.2 involving UTF-8 in regular expressions
+and sometimes causing a crash has been fixed.
+L<[perl #124109]|https://rt.perl.org/Ticket/Display.html?id=124109>
+
+=item *
+
+Some patterns starting with C</.*..../> matched against long strings have been
+slow since Perl 5.8, and some of the form C</.*..../i> have been slow since
+Perl 5.18.  They are now all fast again.
+L<[perl #123743]|https://rt.perl.org/Ticket/Display.html?id=123743>
+
+=item *
+
+Warning fatality is now ignored when rewinding the stack.  This prevents
+infinite recursion when the now fatal error also causes rewinding of the stack.
+L<[perl #123398]|https://rt.perl.org/Ticket/Display.html?id=123398>
+
+=item *
+
+C<setpgrp($nonzero)> (with one argument) was accidentally changed in Perl 5.16
+to mean C<setpgrp(0)>.  This has been fixed.
+
+=item *
+
+A crash with C<< %::=(); J->${\"::"} >> has been fixed.
+L<[perl #125541]|https://rt.perl.org/Ticket/Display.html?id=125541>
+
+=item *
+
+Regular expression possessive quantifier Perl 5.20 regression now fixed.
+C<qr/>I<PAT>C<{>I<min>,I<max>C<}+>C</> is supposed to behave identically to
+C<qr/(?E<gt>>I<PAT>C<{>I<min>,I<max>C<})/>.  Since Perl 5.20, this didn't work
+if I<min> and I<max> were equal.
+L<[perl #125825]|https://rt.perl.org/Ticket/Display.html?id=125825>
+
+=item *
+
+Code like C</$a[/> used to read the next line of input and treat it as though
+it came immediately after the opening bracket.  Some invalid code consequently
+would parse and run, but some code caused crashes, so this is now disallowed.
+L<[perl #123712]|https://rt.perl.org/Ticket/Display.html?id=123712>
+
+=back
+
+=cut

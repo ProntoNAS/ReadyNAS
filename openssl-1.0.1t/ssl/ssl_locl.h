@@ -492,6 +492,8 @@
 #define CERT_PRIVATE_KEY        2
 */
 
+# define MAX_WARN_ALERT_COUNT    5
+
 # ifndef OPENSSL_NO_EC
 /*
  * From ECC-TLS draft, used in encoding the curve type in ECParameters
@@ -540,6 +542,8 @@ typedef struct cert_st {
 # endif
     CERT_PKEY pkeys[SSL_PKEY_NUM];
     int references;             /* >1 only if SSL_copy_session_id is used */
+    /* Count of the number of consecutive warning alerts received */
+    unsigned int alert_count;
 } CERT;
 
 typedef struct sess_cert_st {
@@ -1026,7 +1030,8 @@ int dtls1_retransmit_message(SSL *s, unsigned short seq,
                              unsigned long frag_off, int *found);
 int dtls1_get_queue_priority(unsigned short seq, int is_ccs);
 int dtls1_retransmit_buffered_messages(SSL *s);
-void dtls1_clear_record_buffer(SSL *s);
+void dtls1_clear_received_buffer(SSL *s);
+void dtls1_clear_sent_buffer(SSL *s);
 void dtls1_get_message_header(unsigned char *data,
                               struct hm_header_st *msg_hdr);
 void dtls1_get_ccs_header(unsigned char *data, struct ccs_header_st *ccs_hdr);

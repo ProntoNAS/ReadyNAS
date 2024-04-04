@@ -44,7 +44,12 @@ objdir = $(CURDIR)/obj-$(DEB_HOST_GNU_TYPE)
 objdir_udeb = $(objdir)-udeb
 
 configure: configure-deb-stamp configure-udeb-stamp
-configure-deb-stamp:
+
+autoreconf-stamp:
+	dh_autoreconf
+	touch $@
+
+configure-deb-stamp: autoreconf-stamp
 	dh_testdir
 	# make build dir
 	mkdir $(objdir)
@@ -53,7 +58,7 @@ configure-deb-stamp:
 	../configure --libdir=/usr/lib/$(DEB_HOST_MULTIARCH) --prefix=/usr --mandir=/usr/share/man --enable-shared $(CROSS)
 	touch $@
 
-configure-udeb-stamp:
+configure-udeb-stamp: autoreconf-stamp
 	dh_testdir
 	# make build dir
 	mkdir $(objdir_udeb)
@@ -84,7 +89,7 @@ clean:
 	rm -f build-stamp configure-stamp config.log
 	rm -f config.log
 	rm -f build-arch-deb-stamp build-arch-udeb-stamp
-	rm -f configure-deb-stamp configure-udeb-stamp
+	rm -f autoreconf-stamp configure-deb-stamp configure-udeb-stamp
 	rm -f po/*.gmo po/stamp-po
 	
 	# Remove build trees
@@ -101,6 +106,7 @@ clean:
 	# Add here commands to clean up after the build process.
 	[ ! -f Makefile ] || $(MAKE) distclean
 
+	dh_autoreconf_clean
 	dh_clean
 	rm -rf $(CURDIR)/tmp
 

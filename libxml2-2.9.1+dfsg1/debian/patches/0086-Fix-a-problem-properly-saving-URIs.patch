@@ -1,0 +1,127 @@
+From beb7281055dbf0ed4d041022a67c6c5cfd126f25 Mon Sep 17 00:00:00 2001
+From: Daniel Veillard <veillard@redhat.com>
+Date: Fri, 3 Oct 2014 19:22:39 +0800
+Subject: [PATCH] Fix a problem properly saving URIs
+
+As written by Martin Kletzander <mkletzan@redhat.com>:
+Since commit 8eb55d782a2b9afacc7938694891cc6fad7b42a5, when you parse
+and save an URI that has no server (or similar) part, two slashes
+after the 'schema:' get lost.  It means 'uri:///noserver' is turned
+into 'uri:/noserver'.
+
+basically
+   foo:///only/path
+
+means a host of "" while
+
+   foo:/only/path
+
+means no host at all
+
+  So the best fix IMHO is to fix the URI parser to record the first
+case and an empty host string and the second case as a NULL host string
+
+ I would not revert the initial patch, we should not 'invent' those
+slash, but we should instead when parsing keep the information that
+it's a host based path and that foo:/// means the presence of a host
+but an empty one.
+
+Once applied the resulting patch below, all cases seems to be saved
+properly:
+
+thinkpad:~/XML -> ./testURI uri:/noserver
+uri:/noserver
+thinkpad:~/XML -> ./testURI uri:///noserver
+uri:///noserver
+thinkpad:~/XML -> ./testURI uri://server/foo
+uri://server/foo
+thinkpad:~/XML -> ./testURI uri:/noserver/foo
+uri:/noserver/foo
+thinkpad:~/XML -> ./testURI uri:///
+uri:///
+thinkpad:~/XML -> ./testURI uri://
+uri://
+thinkpad:~/XML -> ./testURI uri:/
+uri:/
+thinkpad:~/XML ->
+
+  If you revert the initial patch that last case fails
+
+The problem is that I don't want to change the xmlURI structure to
+minimize ABI breakage, so I could not extend the field. The natural
+solution is to denote that uri:/// has an empty host by making
+the uri server field an empty string which works very well but breaks
+applications (like libvirt ;-) who blindly look at uri->server
+not being NULL to try to reach it !
+Simplest was to stick the port to -1 in that case, instead of 0
+application don't bother looking at the port of there is no server
+string, this makes the patch more complex than a 1 liner, but
+is better for ABI.
+---
+ uri.c | 34 +++++++++++++++++++---------------
+ 1 file changed, 19 insertions(+), 15 deletions(-)
+
+diff --git a/uri.c b/uri.c
+index d4dcd2f..ff47abb 100644
+--- a/uri.c
++++ b/uri.c
+@@ -759,6 +759,8 @@ xmlParse3986HierPart(xmlURIPtr uri, const char **str)
+         cur += 2;
+ 	ret = xmlParse3986Authority(uri, &cur);
+ 	if (ret != 0) return(ret);
++	if (uri->server == NULL)
++	    uri->port = -1;
+ 	ret = xmlParse3986PathAbEmpty(uri, &cur);
+ 	if (ret != 0) return(ret);
+ 	*str = cur;
+@@ -1106,7 +1108,7 @@ xmlSaveUri(xmlURIPtr uri) {
+ 	    }
+ 	}
+     } else {
+-	if (uri->server != NULL) {
++	if ((uri->server != NULL) || (uri->port == -1)) {
+ 	    if (len + 3 >= max) {
+                 temp = xmlSaveUriRealloc(ret, &max);
+                 if (temp == NULL) goto mem_error;
+@@ -1143,22 +1145,24 @@ xmlSaveUri(xmlURIPtr uri) {
+ 		}
+ 		ret[len++] = '@';
+ 	    }
+-	    p = uri->server;
+-	    while (*p != 0) {
+-		if (len >= max) {
+-                    temp = xmlSaveUriRealloc(ret, &max);
+-                    if (temp == NULL) goto mem_error;
+-                    ret = temp;
++	    if (uri->server != NULL) {
++		p = uri->server;
++		while (*p != 0) {
++		    if (len >= max) {
++			temp = xmlSaveUriRealloc(ret, &max);
++			if (temp == NULL) goto mem_error;
++			ret = temp;
++		    }
++		    ret[len++] = *p++;
+ 		}
+-		ret[len++] = *p++;
+-	    }
+-	    if (uri->port > 0) {
+-		if (len + 10 >= max) {
+-                    temp = xmlSaveUriRealloc(ret, &max);
+-                    if (temp == NULL) goto mem_error;
+-                    ret = temp;
++		if (uri->port > 0) {
++		    if (len + 10 >= max) {
++			temp = xmlSaveUriRealloc(ret, &max);
++			if (temp == NULL) goto mem_error;
++			ret = temp;
++		    }
++		    len += snprintf((char *) &ret[len], max - len, ":%d", uri->port);
+ 		}
+-		len += snprintf((char *) &ret[len], max - len, ":%d", uri->port);
+ 	    }
+ 	} else if (uri->authority != NULL) {
+ 	    if (len + 3 >= max) {
+-- 
+2.1.4
+

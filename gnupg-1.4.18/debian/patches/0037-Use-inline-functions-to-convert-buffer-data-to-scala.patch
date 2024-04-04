@@ -1,0 +1,741 @@
+From 57af33d9e7c9b20b413b96882e670e75a67a5e65 Mon Sep 17 00:00:00 2001
+From: Werner Koch <wk@gnupg.org>
+Date: Sat, 21 Feb 2015 23:10:32 -0500
+Subject: [PATCH 37/45] Use inline functions to convert buffer data to scalars.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+* include/host2net.h (buf16_to_ulong, buf16_to_uint): New.
+(buf16_to_ushort, buf16_to_u16): New.
+(buf32_to_size_t, buf32_to_ulong, buf32_to_uint, buf32_to_u32): New.
+--
+
+This fixes sign extension on shift problems.  Hanno Böck found a case
+with an invalid read due to this problem.  To fix that almost all uses
+of "<< 24" and "<< 8" are changed by this patch to use an inline
+function from host2net.h.
+
+(back ported from commit 2183683bd633818dd031b090b5530951de76f392)
+
+Signed-off-by: Werner Koch <wk@gnupg.org>
+
+[dkg: rebased to STABLE-BRANCH-1-4]
+Signed-off-by: Daniel Kahn Gillmor <dkg@fifthhorseman.net>
+---
+ g10/apdu.c         | 27 ++++++++----------
+ g10/app-openpgp.c  |  3 +-
+ g10/build-packet.c |  6 ++--
+ g10/ccid-driver.c  |  3 +-
+ g10/getkey.c       | 17 ++++++------
+ g10/keygen.c       | 14 ++++------
+ g10/keyid.c        | 28 ++++++++-----------
+ g10/misc.c         | 11 --------
+ g10/parse-packet.c | 41 ++++++++++++++--------------
+ g10/tdbio.c        | 22 +++++++--------
+ g10/trustdb.c      |  2 +-
+ include/host2net.h | 80 +++++++++++++++++++++++++++++++++++++++++++++++-------
+ 12 files changed, 148 insertions(+), 106 deletions(-)
+
+diff --git a/g10/apdu.c b/g10/apdu.c
+index 66cf30b..ffc7d36 100644
+--- a/g10/apdu.c
++++ b/g10/apdu.c
+@@ -60,6 +60,7 @@
+ #include "scdaemon.h"
+ #include "exechelp.h"
+ #endif /* GNUPG_MAJOR_VERSION != 1 */
++#include "../include/host2net.h"
+ 
+ #include "apdu.h"
+ #include "ccid-driver.h"
+@@ -916,15 +917,14 @@ pcsc_get_status_wrapped (int slot, unsigned int *status)
+                  i? strerror (errno) : "premature EOF");
+       goto command_failed;
+     }
+-  len = (msgbuf[1] << 24) | (msgbuf[2] << 16) | (msgbuf[3] << 8 ) | msgbuf[4];
++  len = buf32_to_size_t (msgbuf+1);
+   if (msgbuf[0] != 0x81 || len < 4)
+     {
+       log_error ("invalid response header from PC/SC received\n");
+       goto command_failed;
+     }
+   len -= 4; /* Already read the error code. */
+-  err = PCSC_ERR_MASK ((msgbuf[5] << 24) | (msgbuf[6] << 16)
+-                       | (msgbuf[7] << 8 ) | msgbuf[8]);
++  err = PCSC_ERR_MASK (buf32_to_ulong (msgbuf+5));
+   if (err)
+     {
+       log_error ("pcsc_status failed: %s (0x%lx)\n",
+@@ -1084,15 +1084,14 @@ pcsc_send_apdu_wrapped (int slot, unsigned char *apdu, size_t apdulen,
+                  i? strerror (errno) : "premature EOF");
+       goto command_failed;
+     }
+-  len = (msgbuf[1] << 24) | (msgbuf[2] << 16) | (msgbuf[3] << 8 ) | msgbuf[4];
++  len = buf32_to_size_t (msgbuf+1);
+   if (msgbuf[0] != 0x81 || len < 4)
+     {
+       log_error ("invalid response header from PC/SC received\n");
+       goto command_failed;
+     }
+   len -= 4; /* Already read the error code. */
+-  err = PCSC_ERR_MASK ((msgbuf[5] << 24) | (msgbuf[6] << 16)
+-                       | (msgbuf[7] << 8 ) | msgbuf[8]);
++  err = PCSC_ERR_MASK (buf32_to_ulong (msgbuf+5));
+   if (err)
+     {
+       log_error ("pcsc_transmit failed: %s (0x%lx)\n",
+@@ -1217,15 +1216,14 @@ close_pcsc_reader_wrapped (int slot)
+                  i? strerror (errno) : "premature EOF");
+       goto command_failed;
+     }
+-  len = (msgbuf[1] << 24) | (msgbuf[2] << 16) | (msgbuf[3] << 8 ) | msgbuf[4];
++  len = buf32_to_size_t (msgbuf+1);
+   if (msgbuf[0] != 0x81 || len < 4)
+     {
+       log_error ("invalid response header from PC/SC received\n");
+       goto command_failed;
+     }
+   len -= 4; /* Already read the error code. */
+-  err = PCSC_ERR_MASK ((msgbuf[5] << 24) | (msgbuf[6] << 16)
+-                       | (msgbuf[7] << 8 ) | msgbuf[8]);
++  err = PCSC_ERR_MASK (buf32_to_ulong (msgbuf+5));
+   if (err)
+     log_error ("pcsc_close failed: %s (0x%lx)\n",
+                pcsc_error_string (err), err);
+@@ -1405,7 +1403,7 @@ reset_pcsc_reader_wrapped (int slot)
+                  i? strerror (errno) : "premature EOF");
+       goto command_failed;
+     }
+-  len = (msgbuf[1] << 24) | (msgbuf[2] << 16) | (msgbuf[3] << 8 ) | msgbuf[4];
++  len = buf32_to_size_t (msgbuf+1);
+   if (msgbuf[0] != 0x81 || len < 4)
+     {
+       log_error ("invalid response header from PC/SC received\n");
+@@ -1419,8 +1417,7 @@ reset_pcsc_reader_wrapped (int slot)
+       sw = SW_HOST_GENERAL_ERROR;
+       goto command_failed;
+     }
+-  err = PCSC_ERR_MASK ((msgbuf[5] << 24) | (msgbuf[6] << 16)
+-                       | (msgbuf[7] << 8 ) | msgbuf[8]);
++  err = PCSC_ERR_MASK (buf32_to_ulong (msgbuf+5));
+   if (err)
+     {
+       log_error ("PC/SC RESET failed: %s (0x%lx)\n",
+@@ -1719,7 +1716,7 @@ open_pcsc_reader_wrapped (const char *portstr)
+                  i? strerror (errno) : "premature EOF");
+       goto command_failed;
+     }
+-  len = (msgbuf[1] << 24) | (msgbuf[2] << 16) | (msgbuf[3] << 8 ) | msgbuf[4];
++  len = buf32_to_size_t (msgbuf+1);
+   if (msgbuf[0] != 0x81 || len < 4)
+     {
+       log_error ("invalid response header from PC/SC received\n");
+@@ -1732,8 +1729,8 @@ open_pcsc_reader_wrapped (const char *portstr)
+                  (unsigned long)len);
+       goto command_failed;
+     }
+-  err = PCSC_ERR_MASK ((msgbuf[5] << 24) | (msgbuf[6] << 16)
+-                       | (msgbuf[7] << 8 ) | msgbuf[8]);
++  err = PCSC_ERR_MASK (buf32_to_ulong (msgbuf+5));
++
+   if (err)
+     {
+       log_error ("PC/SC OPEN failed: %s\n", pcsc_error_string (err));
+diff --git a/g10/app-openpgp.c b/g10/app-openpgp.c
+index c3b4fae..192680c 100644
+--- a/g10/app-openpgp.c
++++ b/g10/app-openpgp.c
+@@ -68,6 +68,7 @@
+ #include "iso7816.h"
+ #include "app-common.h"
+ #include "tlv.h"
++#include "../include/host2net.h"
+ 
+ 
+ /* A table describing the DOs of the card.  */
+@@ -744,7 +745,7 @@ send_fprtime_if_not_null (ctrl_t ctrl, const char *keyword,
+   char numbuf1[50], numbuf2[50];
+   unsigned long value;
+ 
+-  value = (stamp[0] << 24) | (stamp[1]<<16) | (stamp[2]<<8) | stamp[3];
++  value = buf32_to_ulong (stamp);
+   if (!value)
+     return;
+   sprintf (numbuf1, "%d", number);
+diff --git a/g10/build-packet.c b/g10/build-packet.c
+index 499dd68..60eb3c8 100644
+--- a/g10/build-packet.c
++++ b/g10/build-packet.c
+@@ -34,6 +34,7 @@
+ #include "memory.h"
+ #include "i18n.h"
+ #include "options.h"
++#include "../include/host2net.h"
+ 
+ static int do_user_id( IOBUF out, int ctb, PKT_user_id *uid );
+ static int do_public_key( IOBUF out, int ctb, PKT_public_key *pk );
+@@ -586,8 +587,7 @@ delete_sig_subpkt (subpktarea_t *area, sigsubpkttype_t reqtype )
+ 	if( n == 255 ) {
+ 	    if( buflen < 4 )
+ 		break;
+-	    n = (buffer[0] << 24) | (buffer[1] << 16)
+-                | (buffer[2] << 8) | buffer[3];
++	    n = buf32_to_size_t (buffer);
+ 	    buffer += 4;
+ 	    buflen -= 4;
+ 	}
+@@ -710,7 +710,7 @@ build_sig_subpkt (PKT_signature *sig, sigsubpkttype_t type,
+ 	/* This should never happen since we don't currently allow
+ 	   creating such a subpacket, but just in case... */
+       case SIGSUBPKT_SIG_EXPIRE:
+-	if(buffer_to_u32(buffer)+sig->timestamp<=make_timestamp())
++	if (buf32_to_u32 (buffer) + sig->timestamp <= make_timestamp())
+ 	  sig->flags.expired=1;
+ 	else
+ 	  sig->flags.expired=0;
+diff --git a/g10/ccid-driver.c b/g10/ccid-driver.c
+index 8c362d7..515b15a 100644
+--- a/g10/ccid-driver.c
++++ b/g10/ccid-driver.c
+@@ -92,6 +92,7 @@
+ #include <usb.h>
+ 
+ #include "ccid-driver.h"
++#include "../include/host2net.h"
+ 
+ #define DRVNAME "ccid-driver: "
+ 
+@@ -292,7 +293,7 @@ static int abort_cmd (ccid_driver_t handle, int seqno);
+ static unsigned int 
+ convert_le_u32 (const unsigned char *buf)
+ {
+-  return buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24); 
++  return buf[0] | (buf[1] << 8) | (buf[2] << 16) | ((unsigned int)buf[3] << 24);
+ }
+ 
+ 
+diff --git a/g10/getkey.c b/g10/getkey.c
+index 3c953d6..9870710 100644
+--- a/g10/getkey.c
++++ b/g10/getkey.c
+@@ -34,6 +34,7 @@
+ #include "trustdb.h"
+ #include "i18n.h"
+ #include "keyserver-internal.h"
++#include "../include/host2net.h"
+ 
+ #define MAX_PK_CACHE_ENTRIES   PK_UID_CACHE_SIZE
+ #define MAX_UID_CACHE_ENTRIES  PK_UID_CACHE_SIZE
+@@ -1427,14 +1428,14 @@ merge_keys_and_selfsig( KBNODE keyblock )
+ 
+ 	    p = parse_sig_subpkt( sig->hashed, SIGSUBPKT_KEY_EXPIRE, NULL );
+ 	    if( pk ) {
+-		ed = p? pk->timestamp + buffer_to_u32(p):0;
++		ed = p? pk->timestamp + buf32_to_u32(p):0;
+ 		if( sig->timestamp > sigdate ) {
+ 		    pk->expiredate = ed;
+ 		    sigdate = sig->timestamp;
+ 		}
+ 	    }
+ 	    else {
+-		ed = p? sk->timestamp + buffer_to_u32(p):0;
++		ed = p? sk->timestamp + buf32_to_u32(p):0;
+ 		if( sig->timestamp > sigdate ) {
+ 		    sk->expiredate = ed;
+ 		    sigdate = sig->timestamp;
+@@ -1559,8 +1560,8 @@ fixup_uidnode ( KBNODE uidnode, KBNODE signode, u32 keycreated )
+ 
+     /* ditto for the key expiration */
+     p = parse_sig_subpkt (sig->hashed, SIGSUBPKT_KEY_EXPIRE, NULL);
+-    if( p && buffer_to_u32(p) )
+-      uid->help_key_expire = keycreated + buffer_to_u32(p);
++    if( p && buf32_to_u32 (p) )
++      uid->help_key_expire = keycreated + buf32_to_u32(p);
+     else
+       uid->help_key_expire = 0;
+ 
+@@ -1774,9 +1775,9 @@ merge_selfsigs_main(KBNODE keyblock, int *r_revoked, struct revoke_info *rinfo)
+ 	key_usage=parse_key_usage(sig);
+ 
+ 	p = parse_sig_subpkt (sig->hashed, SIGSUBPKT_KEY_EXPIRE, NULL);
+-	if( p && buffer_to_u32(p) )
++	if( p && buf32_to_u32 (p) )
+ 	  {
+-	    key_expire = keytimestamp + buffer_to_u32(p);
++	    key_expire = keytimestamp + buf32_to_u32 (p);
+ 	    key_expire_seen = 1;
+ 	  }
+ 
+@@ -2198,8 +2199,8 @@ merge_selfsigs_subkey( KBNODE keyblock, KBNODE subnode )
+     subpk->pubkey_usage = key_usage;
+ 
+     p = parse_sig_subpkt (sig->hashed, SIGSUBPKT_KEY_EXPIRE, NULL);
+-    if ( p && buffer_to_u32(p) )
+-        key_expire = keytimestamp + buffer_to_u32(p);
++    if ( p && buf32_to_u32 (p) )
++        key_expire = keytimestamp + buf32_to_u32 (p);
+     else
+         key_expire = 0;
+     subpk->has_expired = key_expire >= curtime? 0 : key_expire;
+diff --git a/g10/keygen.c b/g10/keygen.c
+index 995ba63..76ee74e 100644
+--- a/g10/keygen.c
++++ b/g10/keygen.c
+@@ -40,6 +40,7 @@
+ #include "i18n.h"
+ #include "cardglue.h"
+ #include "keyserver-internal.h"
++#include "host2net.h"
+ 
+ #define MAX_PREFS 30
+ 
+@@ -832,10 +833,7 @@ make_backsig (PKT_signature *sig, PKT_public_key *pk,
+ 		}
+ 	      else if(buf[1]==255)
+ 		{
+-		  pktlen =buf[2] << 24;
+-		  pktlen|=buf[3] << 16;
+-		  pktlen|=buf[4] << 8;
+-		  pktlen|=buf[5];
++                  pktlen = buf32_to_size_t (buf+2);
+ 		  buf+=6;
+ 		}
+ 	      else
+@@ -852,14 +850,14 @@ make_backsig (PKT_signature *sig, PKT_public_key *pk,
+ 		  break;
+ 
+ 		case 2:
+-		  pktlen =buf[mark++] << 24;
+-		  pktlen|=buf[mark++] << 16;
++		  pktlen  = (size_t)buf[mark++] << 24;
++		  pktlen |= buf[mark++] << 16;
+ 
+ 		case 1:
+-		  pktlen|=buf[mark++] << 8;
++		  pktlen |= buf[mark++] << 8;
+ 
+ 		case 0:
+-		  pktlen|=buf[mark++];
++		  pktlen |= buf[mark++];
+ 		}
+ 
+ 	      buf+=mark;
+diff --git a/g10/keyid.c b/g10/keyid.c
+index d7072d4..ed30cff 100644
+--- a/g10/keyid.c
++++ b/g10/keyid.c
+@@ -32,6 +32,7 @@
+ #include "mpi.h"
+ #include "keydb.h"
+ #include "i18n.h"
++#include "host2net.h"
+ 
+ #ifdef HAVE_UNSIGNED_TIME_T
+ # define INVALID_TIME_CHECK(a) ((a) == (time_t)(-1))
+@@ -241,15 +242,8 @@ keystr_from_desc(KEYDB_SEARCH_DESC *desc)
+       {
+ 	u32 keyid[2];
+ 
+-	keyid[0] = (unsigned char)desc->u.fpr[12] << 24
+-	  | (unsigned char)desc->u.fpr[13] << 16
+-	  | (unsigned char)desc->u.fpr[14] << 8
+-	  | (unsigned char)desc->u.fpr[15] ;
+-	keyid[1] = (unsigned char)desc->u.fpr[16] << 24
+-	  | (unsigned char)desc->u.fpr[17] << 16
+-	  | (unsigned char)desc->u.fpr[18] << 8
+-	  | (unsigned char)desc->u.fpr[19] ;
+-
++	keyid[0] = buf32_to_u32 (desc->u.fpr+12);
++	keyid[1] = buf32_to_u32 (desc->u.fpr+16);
+ 	return keystr(keyid);
+       }
+ 
+@@ -300,8 +294,8 @@ keyid_from_sk( PKT_secret_key *sk, u32 *keyid )
+       if(md)
+ 	{
+ 	  dp = md_read( md, 0 );
+-	  keyid[0] = dp[12] << 24 | dp[13] << 16 | dp[14] << 8 | dp[15] ;
+-	  keyid[1] = dp[16] << 24 | dp[17] << 16 | dp[18] << 8 | dp[19] ;
++	  keyid[0] = buf32_to_u32 (dp+12);
++	  keyid[1] = buf32_to_u32 (dp+16);
+ 	  lowbits = keyid[1];
+ 	  md_close(md);
+ 	  sk->keyid[0] = keyid[0];
+@@ -354,8 +348,8 @@ keyid_from_pk( PKT_public_key *pk, u32 *keyid )
+       if(md)
+ 	{
+ 	  dp = md_read( md, 0 );
+-	  keyid[0] = dp[12] << 24 | dp[13] << 16 | dp[14] << 8 | dp[15] ;
+-	  keyid[1] = dp[16] << 24 | dp[17] << 16 | dp[18] << 8 | dp[19] ;
++	  keyid[0] = buf32_to_u32 (dp+12);
++	  keyid[1] = buf32_to_u32 (dp+16);
+ 	  lowbits = keyid[1];
+ 	  md_close(md);
+ 	  pk->keyid[0] = keyid[0];
+@@ -398,8 +392,8 @@ keyid_from_fingerprint( const byte *fprint, size_t fprint_len, u32 *keyid )
+     }
+     else {
+ 	const byte *dp = fprint;
+-	keyid[0] = dp[12] << 24 | dp[13] << 16 | dp[14] << 8 | dp[15] ;
+-	keyid[1] = dp[16] << 24 | dp[17] << 16 | dp[18] << 8 | dp[19] ;
++	keyid[0] = buf32_to_u32 (dp+12);
++	keyid[1] = buf32_to_u32 (dp+16);
+     }
+ 
+     return keyid[1];
+@@ -687,8 +681,8 @@ fingerprint_from_pk( PKT_public_key *pk, byte *array, size_t *ret_len )
+ 	if( !array )
+ 	    array = xmalloc( len );
+ 	memcpy(array, dp, len );
+-	pk->keyid[0] = dp[12] << 24 | dp[13] << 16 | dp[14] << 8 | dp[15] ;
+-	pk->keyid[1] = dp[16] << 24 | dp[17] << 16 | dp[18] << 8 | dp[19] ;
++        pk->keyid[0] = buf32_to_u32 (dp+12);
++        pk->keyid[1] = buf32_to_u32 (dp+16);
+ 	md_close(md);
+     }
+ 
+diff --git a/g10/misc.c b/g10/misc.c
+index 60ecf96..2c5c6cc 100644
+--- a/g10/misc.c
++++ b/g10/misc.c
+@@ -295,17 +295,6 @@ checksum_mpi( MPI a )
+     return csum;
+ }
+ 
+-u32
+-buffer_to_u32( const byte *buffer )
+-{
+-    unsigned long a;
+-    a =  *buffer << 24;
+-    a |= buffer[1] << 16;
+-    a |= buffer[2] << 8;
+-    a |= buffer[3];
+-    return a;
+-}
+-
+ void
+ print_pubkey_algo_note( int algo )
+ {
+diff --git a/g10/parse-packet.c b/g10/parse-packet.c
+index e7e923b..862ec6e 100644
+--- a/g10/parse-packet.c
++++ b/g10/parse-packet.c
+@@ -35,6 +35,7 @@
+ #include "options.h"
+ #include "main.h"
+ #include "i18n.h"
++#include "host2net.h"
+ 
+ #ifndef MAX_EXTERN_MPI_BITS
+ #define MAX_EXTERN_MPI_BITS 16384
+@@ -94,7 +95,7 @@ static unsigned short
+ read_16(IOBUF inp)
+ {
+     unsigned short a;
+-    a = iobuf_get_noeof(inp) << 8;
++    a = (unsigned short)iobuf_get_noeof(inp) << 8;
+     a |= iobuf_get_noeof(inp);
+     return a;
+ }
+@@ -103,7 +104,7 @@ static unsigned long
+ read_32(IOBUF inp)
+ {
+     unsigned long a;
+-    a =  iobuf_get_noeof(inp) << 24;
++    a =  (unsigned long)iobuf_get_noeof(inp) << 24;
+     a |= iobuf_get_noeof(inp) << 16;
+     a |= iobuf_get_noeof(inp) << 8;
+     a |= iobuf_get_noeof(inp);
+@@ -383,7 +384,8 @@ parse( IOBUF inp, PACKET *pkt, int onlykeypkts, off_t *retpos,
+ 	       }
+              else if( c == 255 )
+ 	       {
+-		 pktlen  = (hdr[hdrlen++] = iobuf_get_noeof(inp)) << 24;
++		 pktlen  =
++                   (unsigned long)(hdr[hdrlen++] = iobuf_get_noeof(inp)) << 24;
+ 		 pktlen |= (hdr[hdrlen++] = iobuf_get_noeof(inp)) << 16;
+ 		 pktlen |= (hdr[hdrlen++] = iobuf_get_noeof(inp)) << 8;
+ 		 if( (c = iobuf_get(inp)) == -1 )
+@@ -878,14 +880,15 @@ dump_sig_subpkt( int hashed, int type, int critical,
+     switch( type ) {
+       case SIGSUBPKT_SIG_CREATED:
+ 	if( length >= 4 )
+-	    fprintf (listfp, "sig created %s", strtimestamp( buffer_to_u32(buffer) ) );
++	    fprintf (listfp, "sig created %s",
++                     strtimestamp (buf32_to_u32(buffer)) );
+ 	break;
+       case SIGSUBPKT_SIG_EXPIRE:
+ 	if( length >= 4 )
+ 	  {
+-	    if(buffer_to_u32(buffer))
++	    if(buf32_to_u32(buffer))
+ 	      fprintf (listfp, "sig expires after %s",
+-		       strtimevalue( buffer_to_u32(buffer) ) );
++		       strtimevalue( buf32_to_u32(buffer) ) );
+ 	    else
+ 	      fprintf (listfp, "sig does not expire");
+ 	  }
+@@ -918,9 +921,9 @@ dump_sig_subpkt( int hashed, int type, int critical,
+       case SIGSUBPKT_KEY_EXPIRE:
+ 	if( length >= 4 )
+ 	  {
+-	    if(buffer_to_u32(buffer))
++	    if(buf32_to_u32(buffer))
+ 	      fprintf (listfp, "key expires after %s",
+-		       strtimevalue( buffer_to_u32(buffer) ) );
++		       strtimevalue( buf32_to_u32(buffer) ) );
+ 	    else
+ 	      fprintf (listfp, "key does not expire");
+ 	  }
+@@ -943,8 +946,8 @@ dump_sig_subpkt( int hashed, int type, int critical,
+       case SIGSUBPKT_ISSUER:
+ 	if( length >= 8 )
+ 	    fprintf (listfp, "issuer key ID %08lX%08lX",
+-		      (ulong)buffer_to_u32(buffer),
+-		      (ulong)buffer_to_u32(buffer+4) );
++                     buf32_to_ulong (buffer),
++                     buf32_to_ulong (buffer+4));
+ 	break;
+       case SIGSUBPKT_NOTATION:
+ 	{
+@@ -1192,8 +1195,7 @@ enum_sig_subpkt( const subpktarea_t *pktbuf, sigsubpkttype_t reqtype,
+ 	if( n == 255 ) { /* 4 byte length header */
+ 	    if( buflen < 4 )
+ 		goto too_short;
+-	    n = (buffer[0] << 24) | (buffer[1] << 16)
+-                | (buffer[2] << 8) | buffer[3];
++            n = buf32_to_size_t (buffer);
+ 	    buffer += 4;
+ 	    buflen -= 4;
+ 	}
+@@ -1415,7 +1417,7 @@ parse_signature( IOBUF inp, int pkttype, unsigned long pktlen,
+ 
+ 	p = parse_sig_subpkt (sig->hashed, SIGSUBPKT_SIG_CREATED, NULL );
+ 	if(p)
+-	  sig->timestamp = buffer_to_u32(p);
++	  sig->timestamp = buf32_to_u32 (p);
+ 	else if(!(sig->pubkey_algo>=100 && sig->pubkey_algo<=110)
+ 		&& opt.verbose)
+ 	  log_info ("signature packet without timestamp\n");
+@@ -1423,16 +1425,16 @@ parse_signature( IOBUF inp, int pkttype, unsigned long pktlen,
+ 	p = parse_sig_subpkt2( sig, SIGSUBPKT_ISSUER, NULL );
+ 	if(p)
+ 	  {
+-	    sig->keyid[0] = buffer_to_u32(p);
+-	    sig->keyid[1] = buffer_to_u32(p+4);
++	    sig->keyid[0] = buf32_to_u32 (p);
++	    sig->keyid[1] = buf32_to_u32 (p+4);
+ 	  }
+ 	else if(!(sig->pubkey_algo>=100 && sig->pubkey_algo<=110)
+ 		&& opt.verbose)
+ 	  log_info ("signature packet without keyid\n");
+ 
+ 	p=parse_sig_subpkt(sig->hashed,SIGSUBPKT_SIG_EXPIRE,NULL);
+-	if(p && buffer_to_u32(p))
+-	  sig->expiredate=sig->timestamp+buffer_to_u32(p);
++	if(p && buf32_to_u32 (p))
++	  sig->expiredate = sig->timestamp + buf32_to_u32 (p);
+ 	if(sig->expiredate && sig->expiredate<=make_timestamp())
+ 	  sig->flags.expired=1;
+ 
+@@ -2032,9 +2034,8 @@ parse_attribute_subpkts(PKT_user_id *uid)
+       if( n == 255 ) { /* 4 byte length header */
+ 	if( buflen < 4 )
+ 	  goto too_short;
+-	n = (buffer[0] << 24) | (buffer[1] << 16)
+-	  | (buffer[2] << 8) | buffer[3];
+-	buffer += 4;
++        n = buf32_to_size_t (buffer);
++        buffer += 4;
+ 	buflen -= 4;
+       }
+       else if( n >= 192 ) { /* 2 byte special encoded length header */
+diff --git a/g10/tdbio.c b/g10/tdbio.c
+index f109dde..403b608 100644
+--- a/g10/tdbio.c
++++ b/g10/tdbio.c
+@@ -1219,13 +1219,13 @@ tdbio_read_record( ulong recnum, TRUSTREC *rec, int expected )
+ 	rec->r.ver.trust_model = *p++;
+ 	rec->r.ver.min_cert_level = *p++;
+ 	p += 2;
+-	rec->r.ver.created  = buftoulong(p); p += 4;
+-	rec->r.ver.nextcheck = buftoulong(p); p += 4;
++	rec->r.ver.created  = buf32_to_ulong (p); p += 4;
++	rec->r.ver.nextcheck = buf32_to_ulong (p); p += 4;
+ 	p += 4;
+ 	p += 4;
+-	rec->r.ver.firstfree =buftoulong(p); p += 4;
++	rec->r.ver.firstfree =buf32_to_ulong (p); p += 4;
+ 	p += 4;
+-	rec->r.ver.trusthashtbl =buftoulong(p); p += 4;
++	rec->r.ver.trusthashtbl =buf32_to_ulong (p); p += 4;
+ 	if( recnum ) {
+ 	    log_error( _("%s: version record with recnum %lu\n"), db_name,
+ 							     (ulong)recnum );
+@@ -1238,17 +1238,17 @@ tdbio_read_record( ulong recnum, TRUSTREC *rec, int expected )
+ 	}
+ 	break;
+       case RECTYPE_FREE:
+-	rec->r.free.next  = buftoulong(p); p += 4;
++	rec->r.free.next  = buf32_to_ulong (p); p += 4;
+ 	break;
+       case RECTYPE_HTBL:
+ 	for(i=0; i < ITEMS_PER_HTBL_RECORD; i++ ) {
+-	    rec->r.htbl.item[i] = buftoulong(p); p += 4;
++	    rec->r.htbl.item[i] = buf32_to_ulong (p); p += 4;
+ 	}
+ 	break;
+       case RECTYPE_HLST:
+-	rec->r.hlst.next = buftoulong(p); p += 4;
++	rec->r.hlst.next = buf32_to_ulong (p); p += 4;
+ 	for(i=0; i < ITEMS_PER_HLST_RECORD; i++ ) {
+-	    rec->r.hlst.rnum[i] = buftoulong(p); p += 4;
++	    rec->r.hlst.rnum[i] = buf32_to_ulong (p); p += 4;
+ 	}
+ 	break;
+       case RECTYPE_TRUST:
+@@ -1257,12 +1257,12 @@ tdbio_read_record( ulong recnum, TRUSTREC *rec, int expected )
+         rec->r.trust.depth = *p++;
+         rec->r.trust.min_ownertrust = *p++;
+         p++;
+-	rec->r.trust.validlist = buftoulong(p); p += 4;
++	rec->r.trust.validlist = buf32_to_ulong (p); p += 4;
+ 	break;
+       case RECTYPE_VALID:
+ 	memcpy( rec->r.valid.namehash, p, 20); p+=20;
+         rec->r.valid.validity = *p++;
+-	rec->r.valid.next = buftoulong(p); p += 4;
++	rec->r.valid.next = buf32_to_ulong (p); p += 4;
+ 	rec->r.valid.full_count = *p++;
+ 	rec->r.valid.marginal_count = *p++;
+ 	break;
+@@ -1570,7 +1570,7 @@ migrate_from_v2 ()
+           ottable_size += 1000;
+           ottable = xrealloc (ottable, ottable_size * sizeof *ottable);
+         }
+-      ottable[ottable_used].keyrecno = buftoulong (oldbuf+6);
++      ottable[ottable_used].keyrecno = buf32_to_ulong (oldbuf+6);
+       ottable[ottable_used].ot = oldbuf[18];
+       ottable[ottable_used].okay = 0;
+       memset (ottable[ottable_used].fpr,0, 20);
+diff --git a/g10/trustdb.c b/g10/trustdb.c
+index a541106..e4317e2 100644
+--- a/g10/trustdb.c
++++ b/g10/trustdb.c
+@@ -1624,7 +1624,7 @@ mark_usable_uid_certs (KBNODE keyblock, KBNODE uidnode,
+           u32 expire;
+ 
+           p = parse_sig_subpkt (sig->hashed, SIGSUBPKT_SIG_EXPIRE, NULL );
+-          expire = p? sig->timestamp + buffer_to_u32(p) : 0;
++          expire = p? sig->timestamp + buf32_to_u32 (p) : 0;
+ 
+           if (expire==0 || expire > curtime )
+             {
+diff --git a/include/host2net.h b/include/host2net.h
+index fe0ec41..ecb00dc 100644
+--- a/include/host2net.h
++++ b/include/host2net.h
+@@ -1,5 +1,5 @@
+-/* host2net.h - Some macros
+- *	Copyright (C) 1998, 1999, 2000, 2001 Free Software Foundation, Inc.
++/* host2net.h - Endian conversion macros
++ * Copyright (C) 1998, 2014, 2015  Werner Koch
+  *
+  * This file is part of GNUPG.
+  *
+@@ -17,14 +17,11 @@
+  * along with this program; if not, see <http://www.gnu.org/licenses/>.
+  */
+ 
+-#ifndef G10_HOST2NET_H
+-#define G10_HOST2NET_H
++#ifndef GNUPG_COMMON_HOST2NET_H
++#define GNUPG_COMMON_HOST2NET_H
+ 
+ #include "types.h"
+ 
+-#define buftoulong( p )  ((*(byte*)(p) << 24) | (*((byte*)(p)+1)<< 16) | \
+-		       (*((byte*)(p)+2) << 8) | (*((byte*)(p)+3)))
+-#define buftoushort( p )  ((*((byte*)(p)) << 8) | (*((byte*)(p)+1)))
+ #define ulongtobuf( p, a ) do { 			  \
+ 			    ((byte*)p)[0] = a >> 24;	\
+ 			    ((byte*)p)[1] = a >> 16;	\
+@@ -35,8 +32,71 @@
+ 			    ((byte*)p)[0] = a >>  8;	\
+ 			    ((byte*)p)[1] = a	   ;	\
+ 			} while(0)
+-#define buftou32( p)	buftoulong( (p) )
+-#define u32tobuf( p, a) ulongtobuf( (p), (a) )
+ 
+ 
+-#endif /*G10_HOST2NET_H*/
++static inline unsigned long
++buf16_to_ulong (const void *buffer)
++{
++  const unsigned char *p = buffer;
++
++  return (((unsigned long)p[0] << 8) | p[1]);
++}
++
++static inline unsigned int
++buf16_to_uint (const void *buffer)
++{
++  const unsigned char *p = buffer;
++
++  return (((unsigned int)p[0] << 8) | p[1]);
++}
++
++static inline unsigned short
++buf16_to_ushort (const void *buffer)
++{
++  const unsigned char *p = buffer;
++
++  return (((unsigned short)p[0] << 8) | p[1]);
++}
++
++static inline u16
++buf16_to_u16 (const void *buffer)
++{
++  const unsigned char *p = buffer;
++
++  return (((u16)p[0] << 8) | p[1]);
++}
++
++static inline size_t
++buf32_to_size_t (const void *buffer)
++{
++  const unsigned char *p = buffer;
++
++  return (((size_t)p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]);
++}
++
++static inline unsigned long
++buf32_to_ulong (const void *buffer)
++{
++  const unsigned char *p = buffer;
++
++  return (((unsigned long)p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]);
++}
++
++static inline unsigned int
++buf32_to_uint (const void *buffer)
++{
++  const unsigned char *p = buffer;
++
++  return (((unsigned int)p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]);
++}
++
++static inline u32
++buf32_to_u32 (const void *buffer)
++{
++  const unsigned char *p = buffer;
++
++  return (((u32)p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]);
++}
++
++
++#endif /*GNUPG_COMMON_HOST2NET_H*/
+-- 
+2.1.4
+

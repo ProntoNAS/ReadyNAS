@@ -1,0 +1,81 @@
+#!/usr/bin/make -f
+
+include /usr/share/dpkg/architecture.mk
+
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed -Wl,-Bsymbolic
+
+%:
+	dh $@ --with gir
+
+autoreconf:
+	NOCONFIGURE=true gnome-autogen.sh
+
+override_dh_autoreconf:
+	dh_autoreconf --as-needed debian/rules -- autoreconf
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		--with-unicode-support=libunistring \
+		--enable-enca \
+		--enable-introspection \
+		--enable-generic-media-extractor=libav \
+		--enable-tracker-fts \
+		--enable-libstemmer \
+		--disable-upower \
+		--disable-tracker-needle \
+		--disable-tracker-preferences \
+		--disable-nautilus-extension \
+		--enable-libiptcdata \
+		--enable-exempi \
+		--disable-libmediaart \
+		--enable-libexif \
+		--enable-libgif \
+		--enable-libjpeg \
+		--enable-libtiff \
+		--enable-libpng \
+		--disable-poppler \
+		--enable-libgsf \
+		--disable-abiword \
+		--enable-libxml2 \
+		--enable-libvorbis \
+		--enable-libflac \
+		--disable-playlist \
+		--enable-mp3 \
+		--disable-libgxps \
+		--enable-dvi \
+		--enable-ps \
+		--enable-icon \
+		--enable-text \
+		--enable-gtk-doc \
+		--enable-unit-tests \
+		--disable-network-manager \
+		--disable-miner-rss \
+		--disable-miner-evolution \
+		--disable-miner-thunderbird \
+		--disable-miner-firefox \
+		--disable-hal \
+		--enable-taglib \
+		--disable-libosinfo \
+		--enable-libcue \
+		--disable-tracker-writeback \
+		--disable-miner-user-guides \
+		--disable-static \
+		--libexecdir=\$${prefix}/lib/tracker
+
+override_dh_install:
+	dh_install -X.la --list-missing
+
+# Enforce tight shlibs dependencies
+override_dh_makeshlibs:
+	dh_makeshlibs -V \
+		-X/usr/lib/$(DEB_HOST_MULTIARCH)/tracker-1.0/ \
+		-X/usr/lib/$(DEB_HOST_MULTIARCH)/nautilus/ \
+		-X/usr/lib/evolution/
+
+override_dh_strip:
+	dh_strip --dbgsym-migration='tracker-dbg (<< 1.7.4-1~)'
+
+override_dh_auto_test:
+ifeq (, $(filter nocheck, $(DEB_BUILD_OPTIONS)))
+	dbus-run-session -- $(MAKE) check -k VERBOSE=1 || true
+endif

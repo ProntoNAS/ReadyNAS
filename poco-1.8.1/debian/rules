@@ -1,0 +1,18 @@
+#!/usr/bin/make -f
+
+DPKG_EXPORT_BUILDFLAGS = 1
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+include /usr/share/dpkg/buildflags.mk
+
+CONFFLAGS = -DENABLE_TESTS=OFF -DPOCO_UNBUNDLED=ON
+
+# Disable fpenvironment on armel (fixes #843225)
+ifneq (,$(filter $(DEB_BUILD_ARCH),armel))
+       CPPFLAGS+=-DPOCO_NO_FPENVIRONMENT
+endif
+
+%:
+	dh $@ --buildsystem=cmake $(EXTRA_DH_OPTS)
+
+override_dh_auto_configure:
+	dh_auto_configure -- $(CONFFLAGS)

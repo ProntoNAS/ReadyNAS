@@ -1,10 +1,11 @@
 #! /usr/bin/make -f
 
 tmp     = $(CURDIR)/debian/tmp
-sysvtmp = $(CURDIR)/debian/sysvinit
+sysvtmp = $(CURDIR)/debian/sysvinit-core
 utiltmp = $(CURDIR)/debian/sysvinit-utils
 rctmp   = $(CURDIR)/debian/sysv-rc
 inittmp = $(CURDIR)/debian/initscripts
+sysvinittmp = $(CURDIR)/debian/sysvinit
 bootlogdtmp = $(CURDIR)/debian/bootlogd
 doc	= /usr/share/doc
 
@@ -39,16 +40,8 @@ DH_OPTIONS =
 
 override_dh_auto_build:
 	$(MAKE) $(CROSS) $(CONFFLAGS) -C src DISTRO=Debian LIBDIR=/usr/lib/$(DEB_HOST_MULTIARCH) CFLAGS="$(CFLAGS) $(CPPFLAGS)" LDFLAGS="$(LDFLAGS)"
-	$(MAKE) $(CROSS) COPTS="$(CFLAGS) $(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" -C startpar
-ifeq ($(DEB_HOST_ARCH_OS),linux)
-	$(MAKE) $(CROSS) COPTS="$(CFLAGS) $(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" -C startpar startpar-upstart-inject
-endif
 
 override_dh_auto_install-arch:
-	$(MAKE) $(CROSS) -C startpar DESTDIR=$(utiltmp) install
-ifeq ($(DEB_HOST_ARCH_OS),linux)
-	install -m755 startpar/startpar-upstart-inject $(utiltmp)/sbin/
-endif
 	$(MAKE) -C debian/src/bootlogd install DESTDIR=$(bootlogdtmp)
 	$(MAKE) -C debian/src/initscripts install DESTDIR=$(inittmp)
 	$(MAKE) -C src $(CROSS) ROOT=$(tmp) DISTRO=Debian install
@@ -76,20 +69,20 @@ override_dh_install-arch:
 	fi
 
 	$(INSTALL) debian/share/update-rc.d $(sysvtmp)/usr/share/sysvinit/
+	$(INSTALL) $(tmp)/sbin/init $(sysvinittmp)/lib/sysvinit/
 
 	# initscripts package may include /sys
 ifneq (,$(findstring $(DEB_HOST_ARCH_OS),linux kfreebsd))
 	$(INSTALL) -d $(inittmp)/sys
 endif
 
-debian/copyright: debian/copyright.in
-	cat $< COPYRIGHT > $@
-
-install-arch: build-arch debian/copyright
+install-arch: build-arch
 	dh $@ $(DH_OPTIONS)
 
 override_dh_installchangelogs-arch:
-	dh_installchangelogs -psysvinit doc/Changelog
+	dh_installchangelogs -psysvinit-core doc/Changelog
+
+	dh_installchangelogs -psysvinit
 
 	dh_installchangelogs -psysvinit-utils doc/Changelog
 	sed -i -ne '/sysvinit (2.86.ds1-47)/q' -e p \
@@ -127,6 +120,10 @@ ifeq ($(DEB_HOST_ARCH_OS), hurd)
 	mv $(sysvtmp)/sbin/halt $(sysvtmp)/sbin/halt-sysv
 	rm $(sysvtmp)/sbin/reboot
 	ln -s halt-sysv $(sysvtmp)/sbin/reboot-sysv
+	# Add runsystem to conffiles, suppress lintian error
+	echo /etc/hurd/runsystem.sysv >> $(inittmp)/DEBIAN/conffiles
+else
+	rm -rf $(inittmp)/etc/hurd
 endif
 
 override_dh_installdeb-indep:
@@ -135,17 +132,8 @@ override_dh_installdeb-indep:
 	# Neither rc, rcS nor README are conffiles
 	$(RM) $(rctmp)/DEBIAN/conffiles
 
-override_dh_installinit-arch:
-	dh_installinit --name startpar-bridge -n
-
 override_dh_clean:
-	dh_clean debian/copyright
+	dh_clean
 	$(MAKE) -C src clobber
-	if [ -d startpar ] && [ -f startpar/Makefile ] ; then \
-		$(MAKE) -C startpar clean ; \
-	fi
-ifeq ($(DEB_HOST_ARCH_OS),linux)
-	rm -f startpar/startpar-upstart-inject
-endif
 
 .PHONY: override_dh_auto_build override_dh_auto_install-arch override_dh_auto_install-indep override_dh_installchangelogs-arch override_dh_installchangelogs-indep override_dh_fixperms override_dh_installdeb-arch override_dh_installdeb-indep override_dh_clean install-arch

@@ -40,7 +40,7 @@ pf::powerwait:/etc/init.d/powerfail start
 pn::powerfailnow:/etc/init.d/powerfail now
 po::powerokwait:/etc/init.d/powerfail stop
 
-# /libexec/getty invocations for the runlevels.
+# /sbin/getty invocations for the runlevels.
 #
 # The "id" field MUST be the same as the last
 # characters of the device (after "tty").
@@ -51,17 +51,18 @@ po::powerokwait:/etc/init.d/powerfail stop
 # Note that on most Debian systems tty7 is used by the X Window System,
 # so if you want to add more getty's go ahead but skip tty7 if you run X.
 #
-1:2345:respawn:/libexec/getty 38400 tty1
-2:23:respawn:/libexec/getty 38400 tty2
-3:23:respawn:/libexec/getty 38400 tty3
-4:23:respawn:/libexec/getty 38400 tty4
-5:23:respawn:/libexec/getty 38400 tty5
-6:23:respawn:/libexec/getty 38400 tty6
+1:2345:respawn:/sbin/getty 38400 tty1
+2:23:respawn:/sbin/getty 38400 tty2
+3:23:respawn:/sbin/getty 38400 tty3
+4:23:respawn:/sbin/getty 38400 tty4
+5:23:respawn:/sbin/getty 38400 tty5
+6:23:respawn:/sbin/getty 38400 tty6
+c:23:respawn:/sbin/getty 38400 console
 
 # Example how to put a getty on a serial line (for a terminal)
 #
-#T0:23:respawn:/libexec/getty -L ttyS0 9600 vt100
-#T1:23:respawn:/libexec/getty -L ttyS1 9600 vt100
+#T0:23:respawn:/sbin/getty -L ttyS0 9600 vt100
+#T1:23:respawn:/sbin/getty -L ttyS1 9600 vt100
 
 # Example how to put a getty on a modem line.
 #

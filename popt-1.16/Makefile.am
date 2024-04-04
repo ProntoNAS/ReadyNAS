@@ -37,7 +37,7 @@ noinst_SCRIPTS = testit.sh
 TESTS_ENVIRONMENT = \
 test1="$(top_builddir)/test1"
 
-TESTS = $(top_srcdir)/testit.sh
+TESTS = testit.sh
 
 include_HEADERS = popt.h
 

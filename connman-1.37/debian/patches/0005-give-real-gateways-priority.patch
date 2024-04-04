@@ -1,0 +1,98 @@
+From d835330396ab05b3eff6c2e87fb14f330d1a8892 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 15 Sep 2016 00:30:43 +0000
+Subject: [PATCH] give real gateways priority
+
+---
+ src/connman.h |  1 +
+ src/service.c | 48 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 49 insertions(+)
+
+diff --git a/src/connman.h b/src/connman.h
+index 0d6729a..865ec39 100644
+--- a/src/connman.h
++++ b/src/connman.h
+@@ -701,6 +701,7 @@ bool __connman_service_is_connected_state(struct connman_service *service,
+ 					enum connman_ipconfig_type type);
+ const char *__connman_service_get_path(struct connman_service *service);
+ const char *__connman_service_get_name(struct connman_service *service);
++unsigned int __connman_service_get_order(struct connman_service *service);
+ struct connman_network *__connman_service_get_network(struct connman_service *service);
+ enum connman_service_security __connman_service_get_security(struct connman_service *service);
+ const char *__connman_service_get_phase2(struct connman_service *service);
+diff --git a/src/service.c b/src/service.c
+index 11a17ed..2a7b37f 100644
+--- a/src/service.c
++++ b/src/service.c
+@@ -5611,6 +5611,9 @@ int __connman_service_set_favorite_delayed(struct connman_service *service,
+ 
+ 	service->favorite = favorite;
+ 
++	if (!delay_ordering)
++		__connman_service_get_order(service);
++
+ 	favorite_changed(service);
+ 
+ 	if (!delay_ordering) {
+@@ -5931,6 +5934,13 @@ static int service_update_preferred_order(struct connman_service *default_servic
+ 		}
+ 	}
+ 
++	if (__connman_service_get_order(new_service) >
++			__connman_service_get_order(default_service)) {
++		switch_default_service(default_service, new_service);
++		__connman_connection_update_gateway();
++		return 0;
++	}
++
+ 	return -EALREADY;
+ }
+ 
+@@ -7310,6 +7320,44 @@ enum connman_service_state connman_service_get_state(struct connman_service *ser
+ 	return service ? service->state : CONNMAN_SERVICE_STATE_UNKNOWN;
+ }
+ 
++unsigned int __connman_service_get_order(struct connman_service *service)
++{
++	unsigned int order = 0;
++	const char *gw;
++	int index;
++
++	if (!service)
++		return 0;
++
++	service->order = 0;
++
++	if (!service->favorite)
++		return 0;
++
++	index = __connman_service_get_index(service);
++
++	order = 100 - index;
++
++	if (service->type == CONNMAN_SERVICE_TYPE_VPN &&
++			!service->do_split_routing) {
++		service->order = 10;
++		order = 10;
++	}
++
++	gw = __connman_ipconfig_get_gateway_from_index(
++			index, CONNMAN_IPCONFIG_TYPE_IPV4);
++	if (gw && g_strcmp0(gw, "0.0.0.0") != 0 &&
++	    g_strcmp0(gw, "255.255.255.255") != 0)
++		order += 100;
++
++	DBG("service %p name %s order %d split %d gw %s", service, service->name,
++		order, service->do_split_routing, gw);
++	service->order = order;
++
++	return order;
++}
++
++
+ static enum connman_service_type convert_network_type(struct connman_network *network)
+ {
+ 	enum connman_network_type type = connman_network_get_type(network);
+-- 
+2.1.4
+

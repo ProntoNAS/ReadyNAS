@@ -1,0 +1,40 @@
+From 68f260f77a9e4f5cacf0a58e4f55ddee125d3f00 Mon Sep 17 00:00:00 2001
+From: Werner Koch <wk@gnupg.org>
+Date: Sat, 21 Feb 2015 23:10:29 -0500
+Subject: [PATCH 34/45] gpg: Fix a NULL-deref in export due to invalid packet
+ lengths.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+* g10/build-packet.c (write_fake_data): Take care of a NULL stored as
+opaque MPI.
+--
+
+Reported-by: Hanno Böck <hanno@hboeck.de>
+
+(back ported from commit 0835d2f44ef62eab51fce6a927908f544e01cf8f)
+
+[dkg: rebased to STABLE-BRANCH-1-4]
+Signed-off-by: Daniel Kahn Gillmor <dkg@fifthhorseman.net>
+---
+ g10/build-packet.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/g10/build-packet.c b/g10/build-packet.c
+index abe0181..499dd68 100644
+--- a/g10/build-packet.c
++++ b/g10/build-packet.c
+@@ -193,7 +193,8 @@ write_fake_data( IOBUF out, MPI a )
+ 	void *p;
+ 
+ 	p = mpi_get_opaque( a, &i );
+-	iobuf_write( out, p, i );
++	if (p)
++          iobuf_write( out, p, i );
+     }
+ }
+ 
+-- 
+2.1.4
+

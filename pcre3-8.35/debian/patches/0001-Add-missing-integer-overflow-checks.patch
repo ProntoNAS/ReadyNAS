@@ -1,0 +1,66 @@
+Description: Add missing integer overflow checks.
+ .
+ Addresses CVE-2015-8394.
+Origin: upstream, http://vcs.pcre.org/pcre?view=revision&revision=1589
+Forwarded: not-needed
+Author: Salvatore Bonaccorso <carnil@debian.org>
+Last-Update: 2015-12-29
+Applied-Upstream: 8.36
+
+---
+ pcre_compile.c       | 11 +++++++++++
+ testdata/testinput2  |  4 ++++
+ testdata/testoutput2 |  6 ++++++
+ 4 files changed, 25 insertions(+)
+
+--- a/pcre_compile.c
++++ b/pcre_compile.c
+@@ -6651,6 +6651,12 @@ for (;; ptr++)
+           {
+           while (IS_DIGIT(*ptr))
+             {
++            if (recno > INT_MAX / 10 - 1)  /* Integer overflow */              
++              {                                                             
++              while (IS_DIGIT(*ptr)) ptr++;                                 
++              *errorcodeptr = ERR61;                                        
++              goto FAILED; 
++              }
+             recno = recno * 10 + (int)(*ptr - CHAR_0);
+             ptr++;
+             }
+@@ -6781,6 +6787,11 @@ for (;; ptr++)
+               *errorcodeptr = ERR15;
+               goto FAILED;
+               }
++            if (recno > INT_MAX / 10 - 1)   /* Integer overflow */          
++              {                                                                
++              *errorcodeptr = ERR61;                                        
++              goto FAILED;                                
++              }   
+             recno = recno * 10 + name[i] - CHAR_0;
+             }
+           if (recno == 0) recno = RREF_ANY;
+--- a/testdata/testinput2
++++ b/testdata/testinput2
+@@ -4092,4 +4092,8 @@ backtracking verbs. --/
+ 
+ /(?J:(?|(:(?|(?'R')(\k'R')|((?'R')))H'Rk'Rf)|s(?'R')))/
+ 
++/((?(R8000000000)))/ 
++
++/(?(8000000000/
++
+ /-- End of testinput2 --/
+--- a/testdata/testoutput2
++++ b/testdata/testoutput2
+@@ -14218,4 +14218,10 @@ Failed: missing terminating ] for charac
+ 
+ /(?J:(?|(:(?|(?'R')(\k'R')|((?'R')))H'Rk'Rf)|s(?'R')))/
+ 
++/((?(R8000000000)))/ 
++Failed: number is too big at offset 16
++
++/(?(8000000000/
++Failed: number is too big at offset 13
++
+ /-- End of testinput2 --/

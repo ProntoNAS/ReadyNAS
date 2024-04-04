@@ -1,0 +1,85 @@
+diff -ur gsoap-2.8.17.orig/configure.in gsoap-2.8.17/configure.in
+--- gsoap-2.8.17.orig/configure.in	2013-12-18 14:58:32.000000000 +0100
++++ gsoap-2.8.17/configure.in	2014-07-09 10:17:53.755340303 +0200
+@@ -163,12 +163,12 @@
+ AC_SUBST(SOAPCPP2_DEBUG)
+ 
+ # set the default soapcpp2 import path
+-SOAPCPP2_IMPORTPATH="-DSOAPCPP_IMPORT_PATH=\"\\\"${datadir}/gsoap/import\\\"\""
++SOAPCPP2_IMPORTPATH="-DSOAPCPP2_IMPORT_PATH=\"\\\"${datadir}/gsoap/import\\\"\""
+ #SOAPCPP2_IMPORTPATH="-DSOAPCPP2_IMPORT_PATH=\"\\\"`pwd`/gsoap/import\\\"\""
+ AC_SUBST(SOAPCPP2_IMPORTPATH)
+ 
+ # set the default wsdl2h import path
+-WSDL2H_IMPORTPATH="-DWSDL_IMPORT_PATH=\"\\\"${datadir}/gsoap/WS\\\"\""
++WSDL2H_IMPORTPATH="-DWSDL2H_IMPORT_PATH=\"\\\"${datadir}/gsoap/WS\\\"\""
+ #WSDL2H_IMPORTPATH="-DWSDL2H_IMPORT_PATH=\"\\\"`pwd`/gsoap/WS\\\"\""
+ AC_SUBST(WSDL2H_IMPORTPATH)
+ 
+diff -ur gsoap-2.8.17.orig/gsoap/samples/autotest/Makefile.am gsoap-2.8.17/gsoap/samples/autotest/Makefile.am
+--- gsoap-2.8.17.orig/gsoap/samples/autotest/Makefile.am	2013-12-18 14:58:36.000000000 +0100
++++ gsoap-2.8.17/gsoap/samples/autotest/Makefile.am	2014-07-09 13:04:46.403086798 +0200
+@@ -26,7 +26,7 @@
+ 
+ autotest_CFLAGS=$(C_DEBUG_FLAGS) -D$(platform)
+ autotest_CPPFLAGS=$(C_DEBUG_FLAGS) -D$(platform)
+-autotest_CXXFLAGS=$(WSDL2H_EXTRA_FLAGS) $(WSDL2H_IMPORTPATH)
++autotest_CXXFLAGS=$(WSDL2H_EXTRA_FLAGS)
+ autotest_SOURCES=$(SOAP_CPP_SRC) soapTester.cpp
+ autotest_LDADD=$(SOAP_CPP_LIB)
+ 
+diff -ur gsoap-2.8.17.orig/gsoap/samples/databinding/Makefile.am gsoap-2.8.17/gsoap/samples/databinding/Makefile.am
+--- gsoap-2.8.17.orig/gsoap/samples/databinding/Makefile.am	2013-12-18 14:58:36.000000000 +0100
++++ gsoap-2.8.17/gsoap/samples/databinding/Makefile.am	2014-07-09 13:05:09.423086046 +0200
+@@ -26,7 +26,7 @@
+ 
+ address_CFLAGS=$(C_DEBUG_FLAGS) -D$(platform)
+ address_CPPFLAGS=$(C_DEBUG_FLAGS) -D$(platform)
+-address_CXXFLAGS=$(WSDL2H_EXTRA_FLAGS) $(WSDL2H_IMPORTPATH)
++address_CXXFLAGS=$(WSDL2H_EXTRA_FLAGS)
+ address_SOURCES=$(SOAP_CPP_SRC) address.cpp
+ address_LDADD=$(SOAP_CPP_LIB)
+ 
+diff -ur gsoap-2.8.17.orig/gsoap/src/soapcpp2.c gsoap-2.8.17/gsoap/src/soapcpp2.c
+--- gsoap-2.8.17.orig/gsoap/src/soapcpp2.c	2013-12-18 14:58:38.000000000 +0100
++++ gsoap-2.8.17/gsoap/src/soapcpp2.c	2014-07-09 11:35:36.175116807 +0200
+@@ -78,7 +78,8 @@
+ char dirpath[1024];	/* directory path for generated source files */
+ char *prefix = "soap";	/* file name prefix for generated source files */
+ char filename[1024];	/* current file name */
+-char *importpath = SOAPCPP2_IMPORT_PATH; /* default file import path */
++char *importpath = NULL;
++char *defimportpath = SOAPCPP2_IMPORT_PATH; /* default file import path */
+ 
+ /*
+ IMPORTANT:
+@@ -319,6 +320,17 @@
+ 		else
+ 			strcpy(filename, argv[i]);
+ 	}
++
++	if (importpath && defimportpath)
++	{	char *t	= emalloc(strlen(importpath) + strlen(defimportpath) + 2);
++		strcpy(t, importpath);
++		strcat(t, SOAP_PATHSEP);
++		strcat(t, defimportpath);
++		importpath = t;
++	}
++	else
++		importpath = defimportpath;
++
+ 	fprintf(fmsg, "\n**  The gSOAP code generator for C and C++, soapcpp2 release "VERSION"\n**  Copyright (C) 2000-2013, Robert van Engelen, Genivia Inc.\n**  All Rights Reserved. This product is provided \"as is\", without any warranty.\n**  The soapcpp2 tool is released under one of the following licenses:\n**  GPL or the commercial license by Genivia Inc.\n\n");
+ 	if (stop_flag)
+ 	  exit(0);
+diff -ur gsoap-2.8.17.orig/gsoap/wsdl/Makefile.am gsoap-2.8.17/gsoap/wsdl/Makefile.am
+--- gsoap-2.8.17.orig/gsoap/wsdl/Makefile.am	2013-12-18 14:58:38.000000000 +0100
++++ gsoap-2.8.17/gsoap/wsdl/Makefile.am	2014-07-09 13:04:43.491085736 +0200
+@@ -26,7 +26,7 @@
+ bin_PROGRAMS=wsdl2h
+ 
+ wsdl2h_CFLAGS=$(C_DEBUG_FLAGS) $(WSDL2H_EXTRA_FLAGS)
+-wsdl2h_CXXFLAGS=$(C_DEBUG_FLAGS) $(WSDL2H_EXTRA_FLAGS)
++wsdl2h_CXXFLAGS=$(C_DEBUG_FLAGS) $(WSDL2H_EXTRA_FLAGS) $(WSDL2H_IMPORTPATH)
+ wsdl2h_CPPFLAGS=$(AM_CPPFLAGS) $(SOAPCPP2_NONAMESPACES) -D$(platform)
+ wsdl2h_SOURCES=wsdl2h.cpp wsdl.cpp schema.cpp types.cpp service.cpp soap.cpp mime.cpp wsp.cpp $(SOAP_CPP_SRC)
+ wsdl2h_LDADD=$(SOAP_CPP_LIB) $(WSDL2H_EXTRA_LIBS)

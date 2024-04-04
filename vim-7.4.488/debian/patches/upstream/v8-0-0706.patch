@@ -1,0 +1,40 @@
+commit 5a15b6aa0aa5c1559c6f1a9f06c595a8c564637d
+Author: Bram Moolenaar <Bram@vim.org>
+Date:   Tue Jul 11 15:11:57 2017 +0200
+
+    patch 8.0.0706: crash when cancelling the cmdline window in Ex mode
+    
+    Problem:    Crash when cancelling the cmdline window in Ex mode. (James McCoy)
+    Solution:   Do not set cmdbuff to NULL, make it empty.
+
+Index: vim-7.4.488/src/ex_getln.c
+===================================================================
+--- vim-7.4.488.orig/src/ex_getln.c
++++ vim-7.4.488/src/ex_getln.c
+@@ -6573,7 +6573,13 @@ ex_window()
+ 	else
+ 	    ccline.cmdbuff = vim_strsave(ml_get_curline());
+ 	if (ccline.cmdbuff == NULL)
++	{
++	    ccline.cmdbuff = vim_strsave((char_u *)"");
++	    ccline.cmdlen = 0;
++	    ccline.cmdbufflen = 1;
++	    ccline.cmdpos = 0;
+ 	    cmdwin_result = Ctrl_C;
++	}
+ 	else
+ 	{
+ 	    ccline.cmdlen = (int)STRLEN(ccline.cmdbuff);
+Index: vim-7.4.488/src/version.c
+===================================================================
+--- vim-7.4.488.orig/src/version.c
++++ vim-7.4.488/src/version.c
+@@ -1733,6 +1733,8 @@ static int included_patches[] =
+ static char *(extra_patches[]) =
+ {   /* Add your patch description below this line */
+ /**/
++    "8.0.0706",
++/**/
+     "8.0.0703",
+ /**/
+     "8.0.0378",

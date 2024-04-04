@@ -1,0 +1,77 @@
+--- a/conf/example.conf.in
++++ b/conf/example.conf.in
+@@ -135,7 +135,7 @@
+     # N.B. If obtain_device_list_from_udev is set to 1 the list of
+     # devices is instead obtained from udev and any existing .cache
+     # file is removed.
+-    cache_dir = "@DEFAULT_SYS_DIR@/@DEFAULT_CACHE_SUBDIR@"
++    cache_dir = "/run/lvm"
+     cache_file_prefix = ""
+ 
+     # You can turn off writing this cache file by setting this to 0.
+@@ -589,7 +589,7 @@
+     # Full pathnames can be given.
+ 
+     # Search this directory first for shared libraries.
+-    #   library_dir = "/lib"
++    #   library_dir = "/lib/lvm2"
+ 
+     # The external locking library to load if locking_type is set to 2.
+     #   locking_library = "liblvm2clusterlock.so"
+--- a/daemons/dmeventd/dmeventd.c
++++ b/daemons/dmeventd/dmeventd.c
+@@ -933,8 +933,17 @@
+ {
+ 	void *dl;
+ 	struct dso_data *ret;
++	char dso_name[PATH_MAX];
+ 
+-	if (!(dl = dlopen(data->dso_name, RTLD_NOW))) {
++	if (strchr(data->dso_name, '/') == NULL) {
++		strcpy(dso_name, PLUGIN_PATH);
++		strncat(dso_name, data->dso_name, sizeof(dso_name));
++	} else {
++		strncpy(dso_name, data->dso_name, sizeof(dso_name));
++	}
++	dso_name[sizeof(dso_name) - 1] = 0;
++
++	if (!(dl = dlopen(dso_name, RTLD_NOW))) {
+ 		const char *dlerr = dlerror();
+ 		syslog(LOG_ERR, "dmeventd %s dlopen failed: %s", data->dso_name,
+ 		       dlerr);
+--- a/daemons/dmeventd/Makefile.in
++++ b/daemons/dmeventd/Makefile.in
+@@ -58,6 +58,7 @@
+ 
+ LIBS += -ldevmapper
+ LVMLIBS += -ldevmapper-event $(PTHREAD_LIBS)
++CFLAGS += -DPLUGIN_PATH=\"$(libdir)/device-mapper/\"
+ 
+ CFLAGS_dmeventd.o += $(EXTRA_EXEC_CFLAGS)
+ 
+--- a/lib/config/config.c
++++ b/lib/config/config.c
+@@ -1914,10 +1914,8 @@
+ 
+ 	if (cache_dir || cache_file_prefix) {
+ 		if (dm_snprintf(buf, sizeof(buf),
+-				"%s%s%s/%s.cache",
+-				cache_dir ? "" : cmd->system_dir,
+-				cache_dir ? "" : "/",
+-				cache_dir ? : DEFAULT_CACHE_SUBDIR,
++				"%s/%s.cache",
++				cache_dir ? : DEFAULT_RUN_DIR,
+ 				cache_file_prefix ? : DEFAULT_CACHE_FILE_PREFIX) < 0) {
+ 			log_error("Persistent cache filename too long.");
+ 			return NULL;
+@@ -1925,8 +1923,8 @@
+ 		return dm_pool_strdup(cmd->mem, buf);
+ 	}
+ 
+-	if (dm_snprintf(buf, sizeof(buf), "%s/%s/%s.cache", cmd->system_dir,
+-			DEFAULT_CACHE_SUBDIR, DEFAULT_CACHE_FILE_PREFIX) < 0) {
++	if (dm_snprintf(buf, sizeof(buf), "%s/%s.cache",
++			DEFAULT_RUN_DIR, DEFAULT_CACHE_FILE_PREFIX) < 0) {
+ 		log_error("Persistent cache filename too long.");
+ 		return NULL;
+ 	}

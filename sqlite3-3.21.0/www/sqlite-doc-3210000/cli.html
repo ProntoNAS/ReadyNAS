@@ -1,0 +1,951 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html><head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<link href="sqlite.css" rel="stylesheet">
+<title>Command Line Shell For SQLite</title>
+<!-- path= -->
+</head>
+<body>
+<div class=nosearch>
+<a href="index.html">
+<img class="logo" src="images/sqlite370_banner.gif" alt="SQLite" border="0">
+</a>
+<div><!-- IE hack to prevent disappearing logo --></div>
+<div class="tagline desktoponly">
+Small. Fast. Reliable.<br>Choose any three.
+</div>
+<div class="menu mainmenu">
+<ul>
+<li><a href="index.html">Home</a>
+<li class='mobileonly'><a href="javascript:void(0)" onclick='toggle_div("submenu")'>Menu</a>
+<li class='wideonly'><a href='about.html'>About</a>
+<li class='desktoponly'><a href="docs.html">Documentation</a>
+<li class='desktoponly'><a href="download.html">Download</a>
+<li class='wideonly'><a href='copyright.html'>License</a>
+<li class='desktoponly'><a href="support.html">Support</a>
+<li class='desktoponly'><a href="prosupport.html">Purchase</a>
+<li class='search' id='search_menubutton'>
+<a href="javascript:void(0)" onclick='toggle_search()'>Search</a>
+</ul>
+</div>
+<div class="menu submenu" id="submenu">
+<ul>
+<li><a href='about.html'>About</a>
+<li><a href='docs.html'>Documentation</a>
+<li><a href='download.html'>Download</a>
+<li><a href='support.html'>Support</a>
+<li><a href='prosupport.html'>Purchase</a>
+</ul>
+</div>
+<div class="searchmenu" id="searchmenu">
+<form method="GET" action="search">
+<select name="s" id="searchtype">
+<option value="d">Search Documentation</option>
+<option value="c">Search Changelog</option>
+</select>
+<input type="text" name="q" id="searchbox" value="">
+<input type="submit" value="Go">
+</form>
+</div>
+</div>
+<script>
+function toggle_div(nm) {
+var w = document.getElementById(nm);
+if( w.style.display=="block" ){
+w.style.display = "none";
+}else{
+w.style.display = "block";
+}
+}
+function toggle_search() {
+var w = document.getElementById("searchmenu");
+if( w.style.display=="block" ){
+w.style.display = "none";
+} else {
+w.style.display = "block";
+setTimeout(function(){
+document.getElementById("searchbox").focus()
+}, 30);
+}
+}
+function div_off(nm){document.getElementById(nm).style.display="none";}
+window.onbeforeunload = function(e){div_off("submenu");}
+/* Disable the Search feature if we are not operating from CGI, since */
+/* Search is accomplished using CGI and will not work without it. */
+if( !location.origin.match || !location.origin.match(/http/) ){
+document.getElementById("search_menubutton").style.display = "none";
+}
+/* Used by the Hide/Show button beside syntax diagrams, to toggle the */
+function hideorshow(btn,obj){
+var x = document.getElementById(obj);
+var b = document.getElementById(btn);
+if( x.style.display!='none' ){
+x.style.display = 'none';
+b.innerHTML='show';
+}else{
+x.style.display = '';
+b.innerHTML='hide';
+}
+return false;
+}
+</script>
+</div>
+<div class=fancy>
+<div class=nosearch>
+<div class="fancy_title">
+Command Line Shell For SQLite
+</div>
+<div class="fancy_toc">
+<a onclick="toggle_toc()">
+<span class="fancy_toc_mark" id="toc_mk">&#x25ba;</span>
+Table Of Contents
+</a>
+<div id="toc_sub"><div class="fancy-toc1"><a href="#getting_started">1. Getting Started</a></div>
+<div class="fancy-toc1"><a href="#double_click_startup_on_windows">2. Double-click Startup On Windows</a></div>
+<div class="fancy-toc1"><a href="#special_commands_to_sqlite3_dot_commands_">3. Special commands to sqlite3 (dot-commands)</a></div>
+<div class="fancy-toc1"><a href="#rules_for_dot_commands_">4. Rules for "dot-commands"</a></div>
+<div class="fancy-toc1"><a href="#changing_output_formats">5. Changing Output Formats</a></div>
+<div class="fancy-toc1"><a href="#writing_results_to_a_file">6. Writing results to a file</a></div>
+<div class="fancy-toc2"><a href="#file_i_o_functions">6.1. File I/O Functions</a></div>
+<div class="fancy-toc1"><a href="#querying_the_database_schema">7. Querying the database schema</a></div>
+<div class="fancy-toc1"><a href="#csv_import">8. CSV Import</a></div>
+<div class="fancy-toc1"><a href="#csv_export">9. CSV Export</a></div>
+<div class="fancy-toc1"><a href="#converting_an_entire_database_to_an_ascii_text_file">10. Converting An Entire Database To An ASCII Text File</a></div>
+<div class="fancy-toc1"><a href="#loading_extensions">11. Loading Extensions</a></div>
+<div class="fancy-toc1"><a href="#cryptographic_hashes_of_database_content">12. Cryptographic Hashes Of Database Content</a></div>
+<div class="fancy-toc1"><a href="#database_content_self_tests">13. Database Content Self-Tests</a></div>
+<div class="fancy-toc1"><a href="#other_dot_commands">14. Other Dot Commands</a></div>
+<div class="fancy-toc1"><a href="#using_sqlite3_in_a_shell_script">15. Using sqlite3 in a shell script</a></div>
+<div class="fancy-toc1"><a href="#ending_shell_commands">16. Ending shell commands</a></div>
+<div class="fancy-toc1"><a href="#compiling_the_sqlite3_program_from_sources">17. Compiling the sqlite3 program from sources</a></div>
+</div>
+</div>
+<script>
+function toggle_toc(){
+var sub = document.getElementById("toc_sub")
+var mk = document.getElementById("toc_mk")
+if( sub.style.display!="block" ){
+sub.style.display = "block";
+mk.innerHTML = "&#x25bc;";
+} else {
+sub.style.display = "none";
+mk.innerHTML = "&#x25ba;";
+}
+}
+</script>
+</div>
+
+
+
+
+<a name="intro"></a>
+
+<h1 id="getting_started"><span>1. </span>Getting Started</h1>
+
+<p>The SQLite project provides a simple command-line utility named
+<b>sqlite3</b> (or <b>sqlite3.exe</b> on Windows)
+that allows the user to manually enter and execute SQL
+statements against an SQLite database.  This document provides a brief
+introduction on how to use the <b>sqlite3</b> program.
+
+</p><p>To start the <b>sqlite3</b> program, simply type "sqlite3" at the
+command prompt.  The "sqlite3" command may be optionally
+followed by the name the file that holds the SQLite database.  If the 
+file does not exist, a new database file with the given name will be
+created automatically.  If no database file is specified on the
+command-line, a temporary database is created, then deleted when 
+the "sqlite3" program exits.
+
+</p><p>On startup, the <b>sqlite3</b> program will show a brief banner
+message then prompt you to enter SQL.  Type in SQL statements (terminated
+by a semicolon), press "Enter" and the SQL will be executed.</p>
+
+<p>For example, to create a new SQLite database named "ex1" 
+with a single table named "tbl1", you might do this:</p>
+
+<div class="codeblock"><pre>$ <b>sqlite3 ex1</b>
+SQLite version 3.8.5 2014-05-29 12:36:14
+Enter ".help" for usage hints.
+sqlite&gt; <b>create table tbl1(one varchar(10), two smallint);</b>
+sqlite&gt; <b>insert into tbl1 values('hello!',10);</b>
+sqlite&gt; <b>insert into tbl1 values('goodbye', 20);</b>
+sqlite&gt; <b>select * from tbl1;</b>
+hello!|10
+goodbye|20
+sqlite&gt;
+</pre></div>
+
+<p>You can terminate the sqlite3 program by typing your system
+End-Of-File character (usually a Control-D).  Use the interrupt
+character (usually a Control-C) to stop a long-running SQL statement.</p>
+
+<p>Make sure you type a semicolon at the end of each SQL command!
+The sqlite3 program looks for a semicolon to know when your SQL command is
+complete.  If you omit the semicolon, sqlite3 will give you a
+continuation prompt and wait for you to enter more text to be
+added to the current SQL command.  This feature allows you to
+enter SQL commands that span multiple lines.  For example:</p>
+
+
+<div class="codeblock"><pre>sqlite&gt; <b>CREATE TABLE tbl2 (</b>
+   ...&gt; <b>  f1 varchar(30) primary key,</b>
+   ...&gt; <b>  f2 text,</b>
+   ...&gt; <b>  f3 real</b>
+   ...&gt; <b>);</b>
+sqlite&gt;
+</pre></div>
+
+<a name="dblclick"></a>
+
+<h1 id="double_click_startup_on_windows"><span>2. </span>Double-click Startup On Windows</h1>
+
+<p>Windows users can double-click on the <b>sqlite3.exe</b> icon to cause
+the command-line shell to pop-up a terminal window running SQLite.  However,
+because double-clicking starts the sqlite3.exe without command-line arguments,
+no database file will have been specified, so SQLite will use a temporary
+database that is deleted when the session exits.
+To use a persistent disk file as the database, enter the ".open" command
+immediately after the terminal window starts up:
+
+</p><div class="codeblock"><pre>SQLite version 3.8.5 2014-05-29 12:36:14
+Enter ".help" for usage hints.
+Connected to a transient in-memory database.
+Use ".open FILENAME" to reopen on a persistent database.
+sqlite&gt; <b>.open ex1.db</b>
+sqlite&gt;
+</pre></div>
+
+<p>The example above causes the database file named "ex1.db" to be opened
+and used, and created if it does not previously exist.  You might want to
+use a full pathname to ensure that the file is in the directory that you
+think it is in.  Use forward-slashes as the directory separator character.
+In other words use "c:/work/ex1.db", not "c:\work\ex1.db".</p>
+
+<p>Alternatively, you can create a new database using the default temporary
+storage, then save that database into a disk file using the ".save" command:
+
+</p><div class="codeblock"><pre>SQLite version 3.16.0 2016-12-29 19:48:46
+Enter ".help" for usage hints.
+Connected to a transient in-memory database.
+Use ".open FILENAME" to reopen on a persistent database.
+sqlite&gt; <i>... many SQL commands omitted ...</i>
+sqlite&gt; <b>.save ex1.db</b>
+sqlite&gt;
+</pre></div>
+
+<p>Be careful when using the ".save" command as it will overwrite any
+preexisting database files having the same name without prompting for
+confirmation.  As with the ".open" command, you might want to use a
+full pathname with forward-slash directory separators to avoid ambiguity.
+
+<a name="dotcmd"></a>
+
+</p><h1 id="special_commands_to_sqlite3_dot_commands_"><span>3. </span>Special commands to sqlite3 (dot-commands)</h1>
+
+<p>
+Most of the time, sqlite3 just reads lines of input and passes them
+on to the SQLite library for execution.
+But input lines that begin with a dot (".")
+are intercepted and interpreted by the sqlite3 program itself.
+These "dot commands" are typically used to change the output format
+of queries, or to execute certain prepackaged query statements.
+</p>
+
+<p>
+For a listing of the available dot commands, you can enter ".help"
+at any time.  For example:
+</p>
+
+<div class="codeblock"><pre>sqlite&gt; <b>.help</b>
+.auth ON|OFF           Show authorizer callbacks
+.backup ?DB? FILE      Backup DB (default "main") to FILE
+.bail on|off           Stop after hitting an error.  Default OFF
+.binary on|off         Turn binary output on or off.  Default OFF
+.cd DIRECTORY          Change the working directory to DIRECTORY
+.changes on|off        Show number of rows changed by SQL
+.check GLOB            Fail if output since .testcase does not match
+.clone NEWDB           Clone data into NEWDB from the existing database
+.databases             List names and files of attached databases
+.dbinfo ?DB?           Show status information about the database
+.dump ?TABLE? ...      Dump the database in an SQL text format
+                         If TABLE specified, only dump tables matching
+                         LIKE pattern TABLE.
+.echo on|off           Turn command echo on or off
+.eqp on|off|full       Enable or disable automatic EXPLAIN QUERY PLAN
+.exit                  Exit this program
+.fullschema ?--indent? Show schema and the content of sqlite_stat tables
+.headers on|off        Turn display of headers on or off
+.help                  Show this message
+.import FILE TABLE     Import data from FILE into TABLE
+.imposter INDEX TABLE  Create imposter table TABLE on index INDEX
+.indexes ?TABLE?       Show names of all indexes
+                         If TABLE specified, only show indexes for tables
+                         matching LIKE pattern TABLE.
+.iotrace FILE          Enable I/O diagnostic logging to FILE
+.limit ?LIMIT? ?VAL?   Display or change the value of an SQLITE_LIMIT
+.lint OPTIONS          Report potential schema issues. Options:
+                         fkey-indexes     Find missing foreign key indexes
+.load FILE ?ENTRY?     Load an extension library
+.log FILE|off          Turn logging on or off.  FILE can be stderr/stdout
+.mode MODE ?TABLE?     Set output mode where MODE is one of:
+                         ascii    Columns/rows delimited by 0x1F and 0x1E
+                         csv      Comma-separated values
+                         column   Left-aligned columns.  (See .width)
+                         html     HTML &lt;table&gt; code
+                         insert   SQL insert statements for TABLE
+                         line     One value per line
+                         list     Values delimited by "|"
+                         quote    Escape answers as for SQL
+                         tabs     Tab-separated values
+                         tcl      TCL list elements
+.nullvalue STRING      Use STRING in place of NULL values
+.once FILENAME         Output for the next SQL command only to FILENAME
+.open ?OPTIONS? ?FILE? Close existing database and reopen FILE
+                         The --new option starts with an empty file
+.output ?FILENAME?     Send output to FILENAME or stdout
+.print STRING...       Print literal STRING
+.prompt MAIN CONTINUE  Replace the standard prompts
+.quit                  Exit this program
+.read FILENAME         Execute SQL in FILENAME
+.restore ?DB? FILE     Restore content of DB (default "main") from FILE
+.save FILE             Write in-memory database into FILE
+.scanstats on|off      Turn sqlite3_stmt_scanstatus() metrics on or off
+.schema ?PATTERN?      Show the CREATE statements matching PATTERN
+                          Add --indent for pretty-printing
+.selftest ?--init?     Run tests defined in the SELFTEST table
+.separator COL ?ROW?   Change the column separator and optionally the row
+                         separator for both the output mode and .import
+.session CMD ...       Create or control sessions
+.sha3sum ?OPTIONS...?  Compute a SHA3 hash of database content
+.shell CMD ARGS...     Run CMD ARGS... in a system shell
+.show                  Show the current values for various settings
+.stats ?on|off?        Show stats or turn stats on or off
+.system CMD ARGS...    Run CMD ARGS... in a system shell
+.tables ?TABLE?        List names of tables
+                         If TABLE specified, only list tables matching
+                         LIKE pattern TABLE.
+.testcase NAME         Begin redirecting output to 'testcase-out.txt'
+.timeout MS            Try opening locked tables for MS milliseconds
+.timer on|off          Turn SQL timer on or off
+.trace FILE|off        Output each SQL statement as it is run
+.vfsinfo ?AUX?         Information about the top-level VFS
+.vfslist               List all available VFSes
+.vfsname ?AUX?         Print the name of the VFS stack
+.width NUM1 NUM2 ...   Set column widths for "column" mode
+                         Negative values right-justify
+sqlite&gt;
+</pre></div>
+
+<a name="dotrules"></a>
+
+<h1 id="rules_for_dot_commands_"><span>4. </span>Rules for "dot-commands"</h1>
+
+<p>Ordinary SQL statements are free-form, and can be
+spread across multiple lines, and can have whitespace and
+comments anywhere.  Dot-commands are
+more restrictive:
+
+</p><ul>
+<li>A dot-command must begin with the "." at the left margin
+    with no preceding whitespace.
+</li><li>The dot-command must be entirely contained on a single input line.
+</li><li>A dot-command cannot occur in the middle of an ordinary SQL
+    statement.  In other words, a dot-command cannot occur at a
+    continuation prompt.
+</li><li>Dot-commands do not recognize comments.
+</li></ul>
+
+<p>The dot-commands
+are interpreted by the sqlite3.exe command-line program, not by
+SQLite itself.  So none of the dot-commands will work as an argument
+to SQLite interfaces like <a href="c3ref/prepare.html">sqlite3_prepare()</a> or <a href="c3ref/exec.html">sqlite3_exec()</a>.
+
+<a name="dotmode"></a>
+
+</p><h1 id="changing_output_formats"><span>5. </span>Changing Output Formats</h1>
+
+<p>The sqlite3 program is able to show the results of a query
+in eight different formats: "csv", "column", "html", "insert",
+"line", "list", "quote", "tabs", and "tcl".
+You can use the ".mode" dot command to switch between these output
+formats.</p>
+
+<p>The default output mode is "list".  In
+list mode, each row of a query result is written on one line of
+output and each column within that row is separated by a specific
+separator string.  The default separator is a pipe symbol ("|").
+List mode is especially useful when you are going to send the output
+of a query to another program (such as AWK) for additional processing.</p>
+
+<div class="codeblock"><pre>sqlite&gt; <b>.mode list</b>
+sqlite&gt; <b>select * from tbl1;</b>
+hello|10
+goodbye|20
+sqlite&gt;
+</pre></div>
+
+<p>Use the ".separator" dot command to change the separator.
+For example, to change the separator to a comma and
+a space, you could do this:</p>
+
+<div class="codeblock"><pre>sqlite&gt; <b>.separator ", "</b>
+sqlite&gt; <b>select * from tbl1;</b>
+hello, 10
+goodbye, 20
+sqlite&gt;
+</pre></div>
+
+<p>The next ".mode" command will reset the ".separator" back to its default.
+So you will need repeat the ".separator" command whenever you change
+modes if you want to continue using a non-standard separator.
+
+</p><p>In "quote" mode, the output is formatted as SQL literals.  Strings are
+enclosed in single-quotes and internal single-quotes are escaped by doubling.
+Blobs are displayed in hexadecimal blob literal notation (Ex: x'abcd').
+Numbers are displayed as ASCII text and NULL values are shown as "NULL".
+All columns are separated from each other by a comma (or whatever alternative
+character is selected using ".separator").
+
+</p><div class="codeblock"><pre>sqlite&gt; <b>.mode quote</b>
+sqlite&gt; <b>select * from tbl1;</b>
+'hello',10
+'goodbye',20
+sqlite&gt;
+</pre></div>
+
+<p>In "line" mode, each column in a row of the database
+is shown on a line by itself.  Each line consists of the column
+name, an equal sign and the column data.  Successive records are
+separated by a blank line.  Here is an example of line mode
+output:</p>
+
+<div class="codeblock"><pre>sqlite&gt; <b>.mode line</b>
+sqlite&gt; <b>select * from tbl1;</b>
+one = hello
+two = 10
+
+one = goodbye
+two = 20
+sqlite&gt;
+</pre></div>
+
+<p>In column mode, each record is shown on a separate line with the
+data aligned in columns.  For example:</p>
+
+<div class="codeblock"><pre>sqlite&gt; <b>.mode column</b>
+sqlite&gt; <b>select * from tbl1;</b>
+one         two       
+----------  ----------
+hello       10        
+goodbye     20        
+sqlite&gt;
+</pre></div>
+
+<p>By default, each column is between 1 and 10 characters wide, depending
+on the column header name and the width of the first column of data.
+Data that is too wide to fit in a column is truncated.  Use the
+".width" dot-command to adjust column widths, like this:</p>
+
+<div class="codeblock"><pre>sqlite&gt; <b>.width 12 6</b>
+sqlite&gt; <b>select * from tbl1;</b>
+one           two   
+------------  ------
+hello         10    
+goodbye       20    
+sqlite&gt;
+</pre></div>
+
+<p>The ".width" command in the example above sets the width of the first
+column to 12 and the width of the second column to 6.  All other column
+widths were unaltered.  You can gives as many arguments to ".width" as
+necessary to specify the widths of as many columns as are in your
+query results.</p>
+
+<p>If you specify a column a width of 0, then the column
+width is automatically adjusted to be the maximum of three
+numbers: 10, the width of the header, and the width of the
+first row of data.  This makes the column width self-adjusting.
+The default width setting for every column is this 
+auto-adjusting 0 value.</p>
+
+<p>Use a negative column width for right-justified columns.</p>
+
+<p>The column labels that appear on the first two lines of output
+can be turned on and off using the ".header" dot command.  In the
+examples above, the column labels are on.  To turn them off you
+could do this:</p>
+
+<div class="codeblock"><pre>sqlite&gt; <b>.header off</b>
+sqlite&gt; <b>select * from tbl1;</b>
+hello         10    
+goodbye       20    
+sqlite&gt;
+</pre></div>
+
+<p>Another useful output mode is "insert".  In insert mode, the output
+is formatted to look like SQL INSERT statements.  Use insert
+mode to generate text that can later be used to input data into a 
+different database.</p>
+
+<p>When specifying insert mode, you have to give an extra argument
+which is the name of the table to be inserted into.  For example:</p>
+
+<div class="codeblock"><pre>sqlite&gt; <b>.mode insert new_table</b>
+sqlite&gt; <b>select * from tbl1;</b>
+INSERT INTO "new_table" VALUES('hello',10);
+INSERT INTO "new_table" VALUES('goodbye',20);
+sqlite&gt;
+</pre></div>
+
+
+<p>The last output mode is "html".  In this mode, sqlite3 writes
+the results of the query as an XHTML table.  The beginning
+&lt;TABLE&gt; and the ending &lt;/TABLE&gt; are not written, but
+all of the intervening &lt;TR&gt;s, &lt;TH&gt;s, and &lt;TD&gt;s
+are.  The html output mode is envisioned as being useful for
+CGI.</p>
+
+<a name="dotoutput"></a>
+
+<h1 id="writing_results_to_a_file"><span>6. </span>Writing results to a file</h1>
+
+<p>By default, sqlite3 sends query results to standard output.  You
+can change this using the ".output" and ".once" commands.  Just put 
+the name of an output file as an argument to .output and all subsequent
+query results will be written to that file.  Or use the .once command
+instead of .output and output will only be redirected for the single next
+command before reverting to the console.  Use .output with no arguments to
+begin writing to standard output again.  For example:</p>
+
+<div class="codeblock"><pre>sqlite&gt; <b>.mode list</b>
+sqlite&gt; <b>.separator |</b>
+sqlite&gt; <b>.output test_file_1.txt</b>
+sqlite&gt; <b>select * from tbl1;</b>
+sqlite&gt; <b>.exit</b>
+$ <b>cat test_file_1.txt</b>
+hello|10
+goodbye|20
+$
+</pre></div>
+
+<p>If the first character of the ".output" or ".once" filename is a pipe
+symbol ("|") then the remaining characters are treated as a command and the
+output is sent to that command.  This makes it easy to pipe the results
+of a query into some other process.  For example, the 
+"open -f" command on a Mac opens a text editor to display the content that
+it reads from standard input.  So to see the results of a query
+in a text editor, one could type:</p>
+
+<div class="codeblock"><pre>sqlite3&gt; <b>.once '|open -f'</b>
+sqlite3&gt; <b>SELECT * FROM bigTable;</b>
+</pre></div>
+
+<a name="fileio"></a>
+
+<h2 id="file_i_o_functions"><span>6.1. </span>File I/O Functions</h2>
+
+<p>The command-line shell adds two <a href="c3ref/create_function.html">application-defined SQL functions</a> that
+facilitate reading content from a file into a table column, and writing the
+content of a column into a file, respectively.
+
+</p><p>The readfile(X) SQL function reads the entire content of the file named
+X and returns that content as a BLOB.  This can be used to load content into
+a table.  For example:
+
+</p><div class="codeblock"><pre>sqlite&gt; <b>CREATE TABLE images(name TEXT, type TEXT, img BLOB);</b>
+sqlite&gt; <b>INSERT INTO images(name,type,img</b>)
+   ...&gt; <b>  VALUES('icon','jpeg',readfile('icon.jpg'));</b>
+</pre></div>
+
+<p>The writefile(X,Y) SQL function write the blob Y into the file named X
+and returns the number of bytes written.  Use this function to extract
+the content of a single table column into a file.  For example:
+
+</p><div class="codeblock"><pre>sqlite&gt; <b>SELECT writefile('icon.jpg',img) FROM images WHERE name='icon';</b>
+</pre></div>
+
+<p>Note that the readfile(X) and writefile(X,Y) functions are extension
+functions and are not built into the core SQLite library.  These routines
+are available as a <a href="loadext.html">loadable extension</a> in the
+<a href="http://www.sqlite.org/src/artifact?ci=trunk&filename=ext/misc/fileio.c">ext/misc/fileio.c</a>
+source file in the <a href="download.html#srctree">SQLite source code repositories</a>.
+
+<a name="schema"></a>
+
+</p><h1 id="querying_the_database_schema"><span>7. </span>Querying the database schema</h1>
+
+<p>The sqlite3 program provides several convenience commands that
+are useful for looking at the schema of the database.  There is
+nothing that these commands do that cannot be done by some other
+means.  These commands are provided purely as a shortcut.</p>
+
+<a name="dtables"></a>
+
+<p>For example, to see a list of the tables in the database, you
+can enter ".tables".</p>
+
+
+<div class="codeblock"><pre>sqlite&gt; <b>.tables</b>
+tbl1
+tbl2
+sqlite&gt;
+</pre></div>
+
+
+<p>The ".tables" command is similar to setting list mode then
+executing the following query:</p>
+
+<div class="codeblock"><pre>SELECT name FROM sqlite_master 
+WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%'
+ORDER BY 1
+</pre></div>
+
+<p>But the ".tables" command does more.  It queries the sqlite_master table
+for all <a href="lang_attach.html">attached</a> databases, not just the primary database.  And it arranges
+its output into neat columns.
+
+</p><p>The ".indexes" command works in a similar way to list all of
+the indexes. If the ".indexes" command is given an argument which is
+the name of a table, then it shows just indexes on that table.
+
+<a name="dschema"></a>
+
+</p><p>The ".schema" command shows the complete schema for the database,
+or for a single table if an optional tablename argument is provided:
+
+</p><div class="codeblock"><pre>sqlite&gt; <b>.schema</b>
+create table tbl1(one varchar(10), two smallint)
+CREATE TABLE tbl2 (
+  f1 varchar(30) primary key,
+  f2 text,
+  f3 real
+)
+sqlite&gt; <b>.schema tbl2</b>
+CREATE TABLE tbl2 (
+  f1 varchar(30) primary key,
+  f2 text,
+  f3 real
+)
+sqlite&gt;
+</pre></div>
+
+
+<p>The ".schema" command is roughly the same as setting
+list mode, then entering the following query:</p>
+
+<div class="codeblock"><pre>SELECT sql FROM sqlite_master
+ORDER BY tbl_name, type DESC, name
+</pre></div>
+
+<p>As with ".tables", the ".schema" command shows the schema for
+all <a href="lang_attach.html">attached</a> databases.  If you only want to see the schema for
+a single database (perhaps "main") then you can add an argument
+to ".schema" to restrict its output:
+
+</p><div class="codeblock"><pre>sqlite&gt; <b>.schema main.*</b>
+</pre></div>
+
+<p>The ".schema" command can be augmented with the "--indent" option,
+in which case it tries to reformat the various CREATE statements of
+the schema so that they are more easily readable by humans.
+
+</p><p>The ".databases" command shows a list of all databases open in
+the current connection.  There will always be at least 2.  The first
+one is "main", the original database opened.  The second is "temp",
+the database used for temporary tables. There may be additional 
+databases listed for databases attached using the ATTACH statement.
+The first output column is the name the database is attached with, 
+and the second column is the filename of the external file.</p>
+
+<div class="codeblock"><pre>sqlite&gt; <b>.databases</b>
+</pre></div>
+
+<a name="fullschema"></a>
+
+<p>The ".fullschema" dot-command works like the ".schema" command in
+that it displays the entire database schema.  But ".fullschema" also
+includes dumps of the statistics tables "sqlite_stat1", "sqlite_stat3",
+and "sqlite_stat4", if they exist.  The ".fullschema" command normally
+provides all of the information needed to exactly recreate a query
+plan for a specific query.  When reporting suspected problems with
+the SQLite query planner to the SQLite development team, developers
+are requested to provide the complete ".fullschema" output as part
+of the trouble report.  Note that the sqlite_stat3 and sqlite_stat4
+tables contain samples of index entries and so might contain sensitive
+data, so do not send the ".fullschema" output of a proprietary database
+over a public channel.</p>
+
+<a name="csv"></a>
+
+<h1 id="csv_import"><span>8. </span>CSV Import</h1>
+
+<p>Use the ".import" command to import CSV (comma separated value) data into
+an SQLite table.  The ".import" command takes two arguments which are the
+name of the disk file from which CSV data is to be read and the name of the
+SQLite table into which the CSV data is to be inserted.
+
+</p><p>Note that it is important to set the "mode" to "csv" before running the
+ ".import" command.  This is necessary to prevent the command-line shell
+from trying to interpret the input file text as some other format.
+
+</p><div class="codeblock"><pre>sqlite&gt; <b>.mode csv</b>
+sqlite&gt; <b>.import C:/work/somedata.csv tab1</b>
+</pre></div>
+
+<p>There are two cases to consider:  (1) Table "tab1" does not previously
+exist and (2) table "tab1" does already exist.
+
+</p><p>In the first case, when the table does not previously exist, the table is
+automatically created and the content of the first row of the input CSV
+file is used to determine the name of all the columns in the table.  In
+other words, if the table does not previously exist, the first row of the
+CSV file is interpreted to be column names and the actual data starts on
+the second row of the CSV file.
+
+</p><p>For the second case, when the table already exists, every row of the
+CSV file, including the first row, is assumed to be actual content.  If
+the CSV file contains an initial row of column labels, that row will be
+read as data and inserted into the table.  To avoid this, make sure that
+table does not previously exist.
+
+<a name="csvout"></a>
+
+</p><h1 id="csv_export"><span>9. </span>CSV Export</h1>
+
+<p>To export an SQLite table (or part of a table) as CSV, simply set
+the "mode" to "csv" and then run a query to extract the desired rows
+of the table.
+
+</p><div class="codeblock"><pre>sqlite&gt; <b>.header on</b>
+sqlite&gt; <b>.mode csv</b>
+sqlite&gt; <b>.once c:/work/dataout.csv</b>
+sqlite&gt; <b>SELECT * FROM tab1;</b>
+sqlite&gt; <b>.system c:/work/dataout.csv</b>
+</pre></div>
+
+<p>In the example above, the ".header on" line causes column labels to
+be printed as the first row of output.  This means that the first row of
+the resulting CSV file will contain column labels.  If column labels are
+not desired, set ".header off" instead. (The ".header off" setting is
+the default and can be omitted if the headers have not been previously
+turned on.)
+
+</p><p>The line ".once <i>FILENAME</i>" causes all query output to go into
+the named file instead of being printed on the console.  In the example
+above, that line causes the CSV content to be written into a file named
+"C:/work/dataout.csv".
+
+</p><p>The final line of the example (the ".system c:/work/dataout.csv")
+has the same effect as double-clicking on the c:/work/dataout.csv file
+in windows.  This will typically bring up a spreadsheet program to display
+the CSV file.  That command only works as shown on Windows.  The
+equivalent line on a Mac would be ".system open /work/dataout.csv".
+On Linux and other unix systems you will need to enter something like
+".system libreoffice /work/dataout.csv", substituting your preferred
+CSV viewing program for "libreoffice".
+
+<a name="dump"></a>
+
+</p><h1 id="converting_an_entire_database_to_an_ascii_text_file"><span>10. </span>Converting An Entire Database To An ASCII Text File</h1>
+
+<p>Use the ".dump" command to convert the entire contents of a
+database into a single ASCII text file.  This file can be converted
+back into a database by piping it back into <b>sqlite3</b>.</p>
+
+<p>A good way to make an archival copy of a database is this:</p>
+
+
+<div class="codeblock"><pre>$ <b>sqlite3 ex1 .dump | gzip -c &gt;ex1.dump.gz</b>
+</pre></div>
+
+
+<p>This generates a file named <b>ex1.dump.gz</b> that contains everything
+you need to reconstruct the database at a later time, or on another
+machine.  To reconstruct the database, just type:</p>
+
+
+<div class="codeblock"><pre>$ <b>zcat ex1.dump.gz | sqlite3 ex2</b>
+</pre></div>
+
+
+<p>The text format is pure SQL so you
+can also use the .dump command to export an SQLite database
+into other popular SQL database engines.  Like this:</p>
+
+
+<div class="codeblock"><pre>$ <b>createdb ex2</b>
+$ <b>sqlite3 ex1 .dump | psql ex2</b>
+</pre></div>
+
+<a name="dotload"></a>
+
+<h1 id="loading_extensions"><span>11. </span>Loading Extensions</h1>
+
+<p>You can add new custom <a href="c3ref/create_function.html">application-defined SQL functions</a>,
+<a href="datatype3.html#collation">collating sequences</a>, <a href="vtab.html">virtual tables</a>, and <a href="vfs.html">VFSes</a> to the command-line
+shell at run-time using the ".load" command.  First, convert the
+extension in to a DLL or shared library (as described in the
+<a href="loadext.html">Run-Time Loadable Extensions</a> document) then type:
+
+</p><div class="codeblock"><pre>sqlite&gt; .load /path/to/my_extension
+</pre></div>
+
+<p>Note that SQLite automatically adds the appropriate extension suffix
+(".dll" on windows, ".dylib" on Mac, ".so" on most other unixes) to the
+extension filename.  It is generally a good idea to specify the full
+pathname of the extension.
+
+</p><p>SQLite computes the entry point for the extension based on the extension
+filename.  To override this choice, simply add the name of the extension
+as a second argument to the ".load" command.
+
+</p><p>Source code for several useful extensions can be found in the
+<a href="http://www.sqlite.org/src/tree?name=ext/misc&ci=trunk">ext/misc</a>
+subdirectory of the SQLite source tree.  You can use these extensions
+as-is, or as a basis for creating your own custom extensions to address
+your own particular needs.
+
+<a name="sha3sum"></a>
+
+</p><h1 id="cryptographic_hashes_of_database_content"><span>12. </span>Cryptographic Hashes Of Database Content</h1>
+
+<p>The ".sha3sum" dot-command computes a
+<a href="https://en.wikipedia.org/wiki/SHA-3">SHA3</a> hash of the <em>content</em>
+of the database.  To be clear, the hash is computed over the database content,
+not its representation on disk.  This means, for example, that a <a href="lang_vacuum.html">VACUUM</a>
+or similar data-preserving transformation does not change the hash.
+
+</p><p>The ".sha3sum" command supports options "--sha3-224", "--sha3-256", 
+"--sha3-384", and "--sha3-512" to define which variety of SHA3 to use
+for the hash.  The default is SHA3-256.
+
+</p><p>The database schema (in the <a href="fileformat2.html#sqlite_master">sqlite_master</a> table) is not normally
+included in the hash, but can be added by the "--schema" option.
+
+</p><p>The ".sha3sum" command takes a single optional argument which is a
+<a href="lang_expr.html#like">LIKE</a> pattern.  If this option is present, only tables whose names match
+the <a href="lang_expr.html#like">LIKE</a> pattern will be hashed.
+
+</p><p>The ".sha3sum" command is implemented with the help of the
+<a href="https://www.sqlite.org/src/file/ext/misc/shathree.c">extension function "sha3_query()"</a>
+that is included with the command-line shell.
+
+<a name="selftest"></a>
+
+</p><h1 id="database_content_self_tests"><span>13. </span>Database Content Self-Tests</h1>
+
+<p>The ".selftest" command attempts to verify that a database is
+intact and is not corrupt.  
+The .selftest command looks for a table in schema named "selftest"
+and defined as follows:
+
+</p><div class="codeblock"><pre>CREATE TABLE selftest(
+  tno INTEGER PRIMARY KEY,  -- Test number
+  op TEXT,                  -- 'run' or 'memo'
+  cmd TEXT,                 -- SQL command to run, or text of "memo"
+  ans TEXT                  -- Expected result of the SQL command
+);
+</pre></div>
+
+<p>The .selftest command reads the rows of the selftest table in
+selftest.tno order.
+For each 'memo' row, it writes the text in 'cmd' to the output.  For
+each 'run' row, it runs the 'cmd' text as SQL and compares the result
+to the value in 'ans', and shows an error message if the results differ.
+
+</p><p>If there is no selftest table, the ".selftest" command runs
+<a href="pragma.html#pragma_integrity_check">PRAGMA integrity_check</a>.
+
+</p><p>The ".selftest --init" command creates the selftest table if it
+does not already exists, then appends entries that check the SHA3
+hash of the content of all tables.  Subsequent runs of ".selftest"
+will verify that the database has not been changed in any way.  To
+generates tests to verify that a subset of the tables are unchanged,
+simply run ".selftest --init" then <a href="lang_delete.html">DELETE</a> the selftest rows that
+refer to tables that are not constant.  
+
+<a name="dotother"></a>
+
+</p><h1 id="other_dot_commands"><span>14. </span>Other Dot Commands</h1>
+
+<p>There are many other dot-commands available in the command-line
+shell.  See the ".help" command for a complete list for any particular
+version and build of SQLite.
+
+<a name="insh"></a>
+
+</p><h1 id="using_sqlite3_in_a_shell_script"><span>15. </span>Using sqlite3 in a shell script</h1>
+
+<p>
+One way to use sqlite3 in a shell script is to use "echo" or
+"cat" to generate a sequence of commands in a file, then invoke sqlite3
+while redirecting input from the generated command file.  This
+works fine and is appropriate in many circumstances.  But as
+an added convenience, sqlite3 allows a single SQL command to be
+entered on the command line as a second argument after the
+database name.  When the sqlite3 program is launched with two
+arguments, the second argument is passed to the SQLite library
+for processing, the query results are printed on standard output
+in list mode, and the program exits.  This mechanism is designed
+to make sqlite3 easy to use in conjunction with programs like
+"awk".  For example:</p>
+
+<div class="codeblock"><pre>$ <b>sqlite3 ex1 'select * from tbl1' |</b>
+&gt; <b> awk '{printf "&lt;tr&gt;&lt;td&gt;%s&lt;td&gt;%s\n",$1,$2 }'</b>
+&lt;tr&gt;&lt;td&gt;hello&lt;td&gt;10
+&lt;tr&gt;&lt;td&gt;goodbye&lt;td&gt;20
+$
+</pre></div>
+
+<a name="endsh"></a>
+
+<h1 id="ending_shell_commands"><span>16. </span>Ending shell commands</h1>
+
+<p>
+SQLite commands are normally terminated by a semicolon.  In the shell 
+you can also use the word "GO" (case-insensitive) or a slash character 
+"/" on a line by itself to end a command.  These are used by SQL Server 
+and Oracle, respectively.  These won't work in <b>sqlite3_exec()</b>, 
+because the shell translates these into a semicolon before passing them 
+to that function.</p>
+
+
+<a name="compiling"></a>
+
+<h1 id="compiling_the_sqlite3_program_from_sources"><span>17. </span>Compiling the sqlite3 program from sources</h1>
+
+<p>
+The source code to the sqlite3 command line interface is in a single
+file named "shell.c".  The shell.c source file is generated from other
+sources, but most of the code for shell.c can be found in
+<a href="https://sqlite.org/src/file/src/shell.c.in">src/shell.c.in</a>.
+(Regenerate shell.c by typing "make shell.c" from the canonical source tree.)
+<a href="howtocompile.html">Compile</a> the shell.c file (together
+with the <a href="amalgamation.html">sqlite3 library source code</a>) to generate
+the executable.  For example:</p>
+
+<div class="codeblock"><pre>gcc -o sqlite3 shell.c sqlite3.c -ldl -lpthread
+</pre></div>
+
+<p>
+You might want to provide additional compile-time options:
+</p><ul>
+<li><p><a href="compile.html#threadsafe">-DSQLITE_THREADSAFE=0</a>:
+The command-line shell does no use threads, so you might as well turn
+thread-safety off, for improved performance and a reduced code footprint.
+This also eliminates the need for the "-lpthread" switch on the
+compiler command line.
+
+</p></li><li><p>-DSQLITE_ENABLE_EXPLAIN_COMMENT:
+This option adds comment text to the end of each opcode in the
+output of <a href="lang_explain.html">EXPLAIN</a>.  The EXPLAIN output is much easier to read
+with this option enabled.
+
+</p></li><li><p><a href="compile.html#enable_unknown_sql_function">-DSQLITE_ENABLE_UNKNOWN_SQL_FUNCTION</a>:
+This option allows <a href="lang_explain.html">EXPLAIN</a> statements to succeed even if the contain
+references to unknown SQL functions.  This makes the shell useful for
+looking at EXPLAIN or EXPLAIN QUERY PLAN output for queries pasted out
+of applications that define and use custom SQL functions.
+</p></li></ul>
+

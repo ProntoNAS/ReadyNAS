@@ -1,0 +1,45 @@
+From b1d5d637af2e4992a819c3b12880cebfd89b9855 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Fri, 4 Apr 2014 14:47:20 -0700
+Subject: [PATCH 1006/1016] btrfs: Handle two overlapping extents in
+ __btrfs_drop_extents() while replaying log tree
+
+Without this patch, we get into cases where we hit a BUG_ON in
+btrfs_set_item_key_safe() during mount time.
+---
+ fs/btrfs/file.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/fs/btrfs/file.c b/fs/btrfs/file.c
+index 7d98ff5..fe6dd64 100644
+--- a/fs/btrfs/file.c
++++ b/fs/btrfs/file.c
+@@ -700,6 +700,7 @@ int __btrfs_drop_extents(struct btrfs_trans_handle *trans,
+ 	struct btrfs_file_extent_item *fi;
+ 	struct btrfs_key key;
+ 	struct btrfs_key new_key;
++	struct btrfs_key next_key;
+ 	u64 ino = btrfs_ino(inode);
+ 	u64 search_start = start;
+ 	u64 disk_bytenr = 0;
+@@ -800,6 +801,17 @@ next_slot:
+ 		if (extent_end == key.offset && extent_end >= search_start)
+ 			goto delete_extent_item;
+ 
++		/* handle two extents overlap during replaying log tree */
++		if (path->slots[0] < btrfs_header_nritems(leaf) - 1) {
++			btrfs_item_key_to_cpu(leaf, &next_key, path->slots[0] + 1);
++			if (next_key.objectid == key.objectid &&
++			    next_key.type == key.type &&
++			    extent_end > next_key.offset) {
++				WARN_ON(1);
++				extent_end = next_key.offset;
++			}
++		}
++
+ 		if (extent_end <= search_start) {
+ 			path->slots[0]++;
+ 			goto next_slot;
+-- 
+1.9.1
+

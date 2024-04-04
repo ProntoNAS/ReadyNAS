@@ -1,0 +1,34 @@
+From eb0d44bb5583302ea156ee3dcacc5ce6f4646034 Mon Sep 17 00:00:00 2001
+From: Mitch Williams <mitch.a.williams@intel.com>
+Date: Mon, 12 Sep 2016 14:18:43 -0700
+Subject: [PATCH 211/224] i40e: don't configure zero-size RSS table
+
+In some rare cases, we might get a VSI with no queues. In this case, we
+cannot configure RSS on this VSI as it will try to divide by zero when
+configuring the lookup table.
+
+Change-ID: I6ae173a7dd3481a081e079eb10eb80275de2adb0
+Signed-off-by: Mitch Williams <mitch.a.williams@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_main.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_main.c b/drivers/net/ethernet/intel/i40e/i40e_main.c
+index 0203138..ccbddab 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_main.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_main.c
+@@ -8243,6 +8243,8 @@ static int i40e_pf_config_rss(struct i40e_pf *pf)
+ 	if (!vsi->rss_size)
+ 		vsi->rss_size = min_t(int, pf->alloc_rss_size,
+ 				      vsi->num_queue_pairs);
++	if (!vsi->rss_size)
++		return -EINVAL;
+ 
+ 	lut = kzalloc(vsi->rss_table_size, GFP_KERNEL);
+ 	if (!lut)
+-- 
+1.9.1
+

@@ -1,0 +1,28 @@
+From 580865ea8cef8f821fb0c63e61569306d2d14082 Mon Sep 17 00:00:00 2001
+From: Tony Cook <tony@develop-help.com>
+Date: Mon, 10 Aug 2015 13:37:26 +0100
+Subject: don't leak the temp utf8 copy of namepv
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=123786
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/leak_namepv_copy.diff
+---
+ pad.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/pad.c b/pad.c
+index fed28922e..f22c3c526 100644
+--- a/pad.c
++++ b/pad.c
+@@ -976,8 +976,10 @@ Perl_pad_findmy_pvn(pTHX_ const char *namepv, STRLEN namelen, U32 flags)
+ 
+         if (is_utf8)
+             flags |= padadd_UTF8_NAME;
+-        else
++        else {
+             flags &= ~padadd_UTF8_NAME;
++            SAVEFREEPV(namepv);
++        }
+     }
+ 
+     offset = pad_findlex(namepv, namelen, flags,

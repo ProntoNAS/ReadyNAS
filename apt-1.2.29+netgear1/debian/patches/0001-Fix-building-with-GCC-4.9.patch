@@ -1,0 +1,68 @@
+From: Bryan Liang <bliang@netgear.com>
+Date: Mon, 27 Aug 2018 15:26:34 -0700
+Subject: Fix building with GCC 4.9
+
+Signed-off-by: Bryan Liang <bliang@netgear.com>
+---
+ apt-pkg/contrib/strutl.cc |  7 +++++++
+ ftparchive/writer.cc      | 13 +++++++++++++
+ 2 files changed, 20 insertions(+)
+
+diff --git a/apt-pkg/contrib/strutl.cc b/apt-pkg/contrib/strutl.cc
+index 61a86a4..e647bf8 100644
+--- a/apt-pkg/contrib/strutl.cc
++++ b/apt-pkg/contrib/strutl.cc
+@@ -27,6 +27,7 @@
+ #include <sstream>
+ #include <string>
+ #include <vector>
++#include <array>
+ 
+ #include <stddef.h>
+ #include <stdlib.h>
+@@ -757,7 +758,13 @@ string TimeRFC1123(time_t Date)
+    auto const posix = std::locale::classic();
+    std::ostringstream datestr;
+    datestr.imbue(posix);
++   #if __GNUC__ < 5
++   char rfc1123[128];
++   strftime(rfc1123, sizeof(rfc1123), "%a, %d %b %Y %H:%M:%S GMT", &Conv);
++   datestr << rfc1123;
++   #else
+    datestr << std::put_time(&Conv, "%a, %d %b %Y %H:%M:%S GMT");
++   #endif
+    return datestr.str();
+ }
+ 									/*}}}*/
+diff --git a/ftparchive/writer.cc b/ftparchive/writer.cc
+index 2596382..7c1efb3 100644
+--- a/ftparchive/writer.cc
++++ b/ftparchive/writer.cc
+@@ -989,14 +989,27 @@ ReleaseWriter::ReleaseWriter(FileFd * const GivenOutput, string const &/*DB*/) :
+    // FIXME: use TimeRFC1123 here? But that uses GMT to satisfy HTTP/1.1
+    std::ostringstream datestr;
+    datestr.imbue(posix);
++   #if __GNUC__ < 5
++   char timestr[128];
++   strftime(timestr, sizeof(timestr), "%a, %d %b %Y %H:%M:%S UTC", gmtime(&now
++));
++   datestr << timestr;
++   #else
+    datestr << std::put_time(gmtime(&now), "%a, %d %b %Y %H:%M:%S UTC");
++   #endif
+ 
+    time_t const validuntil = now + _config->FindI("APT::FTPArchive::Release::ValidTime", 0);
+    std::ostringstream validstr;
+    if (validuntil != now)
+    {
+       datestr.imbue(posix);
++      #if __GNUC__ < 5
++      strftime(timestr, sizeof(timestr), "%a, %d %b %Y %H:%M:%S UTC", gmtime(&
++validuntil));
++      validstr << timestr;
++      #else
+       validstr << std::put_time(gmtime(&validuntil), "%a, %d %b %Y %H:%M:%S UTC");
++      #endif
+    }
+ 
+    map<string,string> Fields;

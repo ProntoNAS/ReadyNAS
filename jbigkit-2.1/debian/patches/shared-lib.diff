@@ -1,0 +1,121 @@
+Subject: Build library with libtool
+Author: Michael van der Kolff <mvanderkolff@gmail.com>
+Forwarded: no
+
+Upstream Makefile is barebones, and doesn't make any shared libraries.
+
+This part actually builds the libraries.
+Index: b/libjbig/Makefile
+===================================================================
+--- a/libjbig/Makefile
++++ b/libjbig/Makefile
+@@ -6,7 +6,12 @@ CC = gcc
+ # Options for the compiler: A high optimization level is suggested
+ CFLAGS = -g -O -W -Wall -ansi -pedantic # --coverage
+ 
+-all: libjbig.a libjbig85.a tstcodec tstcodec85
++%.o: %.c
++	$(CC) $(CFLAGS) -c $<
++%.pic_o: %.c
++	$(CC) -fPIC $(CFLAGS) -c -o $@ $<
++
++all: libjbig.a libjbig.so libjbig85.a tstcodec tstcodec85
+ 
+ tstcodec: tstcodec.o jbig.o jbig_ar.o
+ 	$(CC) $(CFLAGS) -o tstcodec tstcodec.o jbig.o jbig_ar.o
+@@ -14,15 +19,23 @@ tstcodec: tstcodec.o jbig.o jbig_ar.o
+ tstcodec85: tstcodec85.o jbig85.o jbig_ar.o
+ 	$(CC) $(CFLAGS) -o tstcodec85 tstcodec85.o jbig85.o jbig_ar.o
+ 
+-libjbig.a: jbig.o jbig_ar.o
++libjbig.a: jbig.o jbig_ar.o jbig85.o
+ 	rm -f libjbig.a
+-	ar rc libjbig.a jbig.o jbig_ar.o
+-	-ranlib libjbig.a
++	$(if $(DEB_HOST_GNU_TYPE),$(DEB_HOST_GNU_TYPE)-ar,ar) cru \
++		libjbig.a jbig.o jbig_ar.o
++	$(if $(DEB_HOST_GNU_TYPE),$(DEB_HOST_GNU_TYPE)-ranlib,ranlib) \
++		libjbig.a
++
++libjbig.so: jbig.pic_o jbig_ar.pic_o jbig85.pic_o
++	$(CC) -shared $(LDFLAGS) -Wl,-soname,libjbig.so.0 -o libjbig.so.0 $+
++	ln -sf libjbig.so.0 libjbig.so
+ 
+ libjbig85.a: jbig85.o jbig_ar.o
+ 	rm -f libjbig85.a
+-	ar rc libjbig85.a jbig85.o jbig_ar.o
+-	-ranlib libjbig85.a
++	$(if $(DEB_HOST_GNU_TYPE),$(DEB_HOST_GNU_TYPE)-ar,ar) cru \
++		libjbig85.a jbig85.o jbig_ar.o
++	$(if $(DEB_HOST_GNU_TYPE),$(DEB_HOST_GNU_TYPE)-ranlib,ranlib) \
++		libjbig85.a
+ 
+ jbig.o: jbig.c jbig.h jbig_ar.h
+ jbig85.o: jbig85.c jbig85.h jbig_ar.h
+@@ -51,5 +64,6 @@ t82test.pbm: tstcodec
+ 
+ clean:
+ 	rm -f *.o *.gcda *.gcno *.gcov *.plist *~ core gmon.out dbg_d\=??.pbm
++	rm -f *.so* *.a *.la *.pic_o
+ 	rm -f t82test.pbm
+ 	rm -f tstcodec tstcodec85
+Index: b/Makefile
+===================================================================
+--- a/Makefile
++++ b/Makefile
+@@ -46,10 +46,9 @@ release:
+ 
+ install: all
+ 	install -d $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)
+-	install -m 644 libjbig/.libs/*.so.*.*.* libjbig/.libs/*.a $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)
+-	install -m 644 libjbig/.libs/*.la $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)
++	install -m 644 libjbig/*.so.* libjbig/*.a $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)
+ 	/sbin/ldconfig -n $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)
+-	ln -s libjbig.so.0.0.0 $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/libjbig.so
++	ln -s libjbig.so.0 $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/libjbig.so
+ 	install -d $(DESTDIR)/usr/include
+ 	install -m 644 libjbig/*.h $(DESTDIR)/usr/include
+ 	install -d $(DESTDIR)/usr/bin
+Index: b/pbmtools/Makefile
+===================================================================
+--- a/pbmtools/Makefile
++++ b/pbmtools/Makefile
+@@ -7,7 +7,7 @@ CC = gcc
+ CFLAGS = -g -O -W -Wall -Wno-unused-result -ansi -pedantic # --coverage
+ override CPPFLAGS += -I../libjbig
+ override CFLAGS += -I../libjbig
+-export LD_LIBRARY_PATH = ../libjbig/.libs
++export LD_LIBRARY_PATH = ../libjbig
+ 
+ .SUFFIXES: .1 .5 .txt $(SUFFIXES)
+ .PHONY: txt test test82 test85 clean
+@@ -17,16 +17,16 @@ all: pbmtojbg jbgtopbm pbmtojbg85 jbgtop
+ txt: pbmtojbg.txt jbgtopbm.txt pbm.txt pgm.txt
+ 
+ pbmtojbg: pbmtojbg.o
+-	$(CC) $(LDFLAGS) $(CFLAGS) -o pbmtojbg pbmtojbg.o -L../libjbig/.libs -ljbig
++	$(CC) $(LDFLAGS) $(CFLAGS) -o pbmtojbg pbmtojbg.o -L../libjbig -ljbig
+ 
+ jbgtopbm: jbgtopbm.o
+-	$(CC) $(LDFLAGS) $(CFLAGS) -o jbgtopbm jbgtopbm.o -L../libjbig/.libs -ljbig
++	$(CC) $(LDFLAGS) $(CFLAGS) -o jbgtopbm jbgtopbm.o -L../libjbig -ljbig
+ 
+ pbmtojbg85: pbmtojbg85.o
+-	$(CC) $(LDFLAGS) $(CFLAGS) -o pbmtojbg85 pbmtojbg85.o -L../libjbig/.libs -ljbig
++	$(CC) $(LDFLAGS) $(CFLAGS) -o pbmtojbg85 pbmtojbg85.o -L../libjbig -ljbig
+ 
+ jbgtopbm85: jbgtopbm85.o
+-	$(CC) $(LDFLAGS) $(CFLAGS) -o jbgtopbm85 jbgtopbm85.o -L../libjbig/.libs -ljbig
++	$(CC) $(LDFLAGS) $(CFLAGS) -o jbgtopbm85 jbgtopbm85.o -L../libjbig -ljbig
+ 
+ jbgtopbm.o: jbgtopbm.c ../libjbig/jbig.h
+ pbmtojbg.o: pbmtojbg.c ../libjbig/jbig.h
+@@ -90,7 +90,7 @@ dotest2g:
+ 	cmp test-$(IMG).pgm ../examples/$(IMG).pgm
+ 
+ test85: pbmtojbg jbgtopbm pbmtojbg85 jbgtopbm85 test-t82.pbm
+-	export LD_LIBRARY_PATH=`pwd`/../libjbig/.libs
++	export LD_LIBRARY_PATH=`pwd`/../libjbig
+ 	echo $(LD_LIBRARY_PATH)
+ 	make IMG=t82 "OPTIONSP=-p 0"      dotest85
+ 	make IMG=t82 "OPTIONSP=-p 8"      dotest85

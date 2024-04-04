@@ -1,8 +1,15 @@
 #!/usr/bin/make -f
 
 CC =gcc
-CFLAGS =-g -O2 -Wall
 STRIP =strip
+
+DEB_BUILD_MAINT_OPTIONS =hardening=+all
+CFLAGS =$(shell DEB_BUILD_MAINT_OPTIONS=$(DEB_BUILD_MAINT_OPTIONS) \
+  dpkg-buildflags --get CFLAGS)
+LDFLAGS =$(shell DEB_BUILD_MAINT_OPTIONS=$(DEB_BUILD_MAINT_OPTIONS) \
+  dpkg-buildflags --get LDFLAGS)
+CPPFLAGS =$(shell DEB_BUILD_MAINT_OPTIONS=$(DEB_BUILD_MAINT_OPTIONS) \
+  dpkg-buildflags --get CPPFLAGS)
 
 DEB_HOST_GNU_TYPE =$(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 DEB_BUILD_GNU_TYPE =$(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
@@ -13,6 +20,8 @@ endif
 ifneq (,$(findstring diet,$(DEB_BUILD_OPTIONS)))
   CC =diet -v -Os gcc
   CFLAGS =-nostdinc -Wall
+  CPPFLAGS =
+  LDFLAGS =
 endif
 ifneq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
   STRIP =: strip
@@ -32,14 +41,15 @@ configure: deb-checkdir configure-stamp
 configure-stamp: patch-stamp
 	mkdir -p build-tmp
 	touch configure
-	(cd build-tmp && CC='$(CC)' CFLAGS='$(CFLAGS)' \
+	(cd build-tmp && CC='$(CC)' \
+	  CFLAGS='$(CFLAGS)' CPPFLAGS='$(CPPFLAGS)' LDFLAGS='$(LDFLAGS)' \
 	  exec ../configure --host='$(DEB_HOST_GNU_TYPE)')
 	touch configure-stamp
 
 build: deb-checkdir build-stamp
 build-stamp: configure-stamp
 	-$(CC) -v
-	(cd build-tmp && exec $(MAKE) CFLAGS='$(CFLAGS)') || \
+	(cd build-tmp && exec $(MAKE) CFLAGS='$(CFLAGS)' CPPFLAGS='$(CPPFLAGS)' LDFLAGS='$(LDFLAGS)') || \
 	  (cat build-tmp/config.log; exit 1) || exit 1
 	touch build-stamp
 

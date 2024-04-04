@@ -1,0 +1,36 @@
+From 3bfdd52220b749adf62e64eb374346b8674c3aef Mon Sep 17 00:00:00 2001
+From: Guenter Roeck <linux@roeck-us.net>
+Date: Tue, 9 Aug 2016 22:09:19 -0700
+Subject: [PATCH 26/28] hwmon: (it87) Features mask must be 32 bit wide
+
+Coverity reports:
+
+result_independent_of_operands: data->features & (65536UL /* 1UL << 16 */)
+is always 0 regardless of the values of its operands. This occurs as the
+logical operand of if.
+
+data->features needs to be 32 bit wide since there are more than 16 features.
+
+Fixes: cc18da79d9b7 ("hwmon: (it87) Support up to 6 temperature sensors ... ");
+Signed-off-by: Guenter Roeck <linux@roeck-us.net>
+(cherry picked from commit aa8b187eeab5e6757e959b81889ddbfda7d02ad1)
+---
+ drivers/hwmon/it87.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/hwmon/it87.c b/drivers/hwmon/it87.c
+index 730d840..d0203a1 100644
+--- a/drivers/hwmon/it87.c
++++ b/drivers/hwmon/it87.c
+@@ -491,7 +491,7 @@ struct it87_sio_data {
+ struct it87_data {
+ 	const struct attribute_group *groups[7];
+ 	enum chips type;
+-	u16 features;
++	u32 features;
+ 	u8 peci_mask;
+ 	u8 old_peci_mask;
+ 
+-- 
+1.9.1
+

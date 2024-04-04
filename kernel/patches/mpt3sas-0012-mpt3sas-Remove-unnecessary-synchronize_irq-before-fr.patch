@@ -1,0 +1,44 @@
+From 3c55934698a0609fb247292cfc70f6fb4503d655 Mon Sep 17 00:00:00 2001
+From: Lars-Peter Clausen <lars@metafoo.de>
+Date: Fri, 4 Mar 2016 11:15:07 +0100
+Subject: [PATCH 12/15] mpt3sas: Remove unnecessary synchronize_irq() before
+ free_irq()
+
+Calling synchronize_irq() right before free_irq() is quite useless. On
+one hand the IRQ can easily fire again before free_irq() is entered, on
+the other hand free_irq() itself calls synchronize_irq() internally (in
+a race condition free way), before any state associated with the IRQ is
+freed.
+
+Patch was generated using the following semantic patch:
+// <smpl>
+@@
+expression irq;
+@@
+-synchronize_irq(irq);
+ free_irq(irq, ...);
+// </smpl>
+
+Signed-off-by: Lars-Peter Clausen <lars@metafoo.de>
+Acked-by: Sreekanth Reddy <sreekanth.reddy@broadcom.com>
+Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>
+Acked-by: Hannes Reinecke <hare@suse.de>
+---
+ drivers/scsi/mpt3sas/mpt3sas_base.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/scsi/mpt3sas/mpt3sas_base.c b/drivers/scsi/mpt3sas/mpt3sas_base.c
+index 579e4f0..d5b6063 100644
+--- a/drivers/scsi/mpt3sas/mpt3sas_base.c
++++ b/drivers/scsi/mpt3sas/mpt3sas_base.c
+@@ -1820,7 +1820,6 @@ _base_free_irq(struct MPT3SAS_ADAPTER *ioc)
+ 			irq_set_affinity_hint(reply_q->vector, NULL);
+ 			free_cpumask_var(reply_q->affinity_hint);
+ 		}
+-		synchronize_irq(reply_q->vector);
+ 		free_irq(reply_q->vector, reply_q);
+ 		kfree(reply_q);
+ 	}
+-- 
+1.9.1
+

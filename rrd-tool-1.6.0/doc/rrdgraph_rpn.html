@@ -1,0 +1,428 @@
+<?xml version="1.0" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>rrdgraph_rpn</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link rev="made" href="mailto:root@localhost" />
+</head>
+
+<body style="background-color: white">
+
+
+
+<h1 id="NAME">NAME</h1>
+
+<p>rrdgraph_rpn - About RPN Math in rrdtool graph</p>
+
+<h1 id="SYNOPSIS">SYNOPSIS</h1>
+
+<p><i>RPN expression</i>:=<i>vname</i>|<i>operator</i>|<i>value</i>[,<i>RPN expression</i>]</p>
+
+<h1 id="DESCRIPTION">DESCRIPTION</h1>
+
+<p>If you have ever used a traditional HP calculator you already know <b>RPN</b> (Reverse Polish Notation). The idea behind <b>RPN</b> is that you have a stack and push your data onto this stack. Whenever you execute an operation, it takes as many elements from the stack as needed. Pushing is done implicitly, so whenever you specify a number or a variable, it gets pushed onto the stack automatically.</p>
+
+<p>At the end of the calculation there should be one and only one value left on the stack. This is the outcome of the function and this is what is put into the <i>vname</i>. For <b>CDEF</b> instructions, the stack is processed for each data point on the graph. <b>VDEF</b> instructions work on an entire data set in one run. Note, that currently <b>VDEF</b> instructions only support a limited list of functions.</p>
+
+<p>Example: <code>VDEF:maximum=mydata,MAXIMUM</code></p>
+
+<p>This will set variable &quot;maximum&quot; which you now can use in the rest of your RRD script.</p>
+
+<p>Example: <code>CDEF:mydatabits=mydata,8,*</code></p>
+
+<p>This means: push variable <i>mydata</i>, push the number 8, execute the operator <i>*</i>. The operator needs two elements and uses those to return one value. This value is then stored in <i>mydatabits</i>. As you may have guessed, this instruction means nothing more than <i>mydatabits = mydata * 8</i>. The real power of <b>RPN</b> lies in the fact that it is always clear in which order to process the input. For expressions like <code>a = b + 3 * 5</code> you need to multiply 3 with 5 first before you add <i>b</i> to get <i>a</i>. However, with parentheses you could change this order: <code>a = (b + 3) * 5</code>. In <b>RPN</b>, you would do <code>a = b, 3, +, 5, *</code> without the need for parentheses.</p>
+
+<h1 id="OPERATORS">OPERATORS</h1>
+
+<dl>
+
+<dt id="Boolean-operators">Boolean operators</dt>
+<dd>
+
+<p><b>LT, LE, GT, GE, EQ, NE</b></p>
+
+<p>Less than, Less or equal, Greater than, Greater or equal, Equal, Not equal all pop two elements from the stack, compare them for the selected condition and return 1 for true or 0 for false. Comparing an <i>unknown</i> or an <i>infinite</i> value will result in <i>unknown</i> returned ... which will also be treated as false by the <b>IF</b> call.</p>
+
+<p><b>UN, ISINF</b></p>
+
+<p>Pop one element from the stack, compare this to <i>unknown</i> respectively to <i>positive or negative infinity</i>. Returns 1 for true or 0 for false.</p>
+
+<p><i>then</i>,<i>else</i>,<i>condition</i>,<b>IF</b></p>
+
+<p>Pops three elements from the stack. If the element popped last is 0 (false), the value popped first is pushed back onto the stack, otherwise the value popped second is pushed back. This does, indeed, mean that any value other than 0 is considered to be true.</p>
+
+<p>Example: <code>A,B,C,IF</code> should be read as <code>if (A) then (B) else (C)</code></p>
+
+<p></p>
+
+</dd>
+<dt id="Comparing-values">Comparing values</dt>
+<dd>
+
+<p><b>MIN, MAX</b></p>
+
+<p>Pops two elements from the stack and returns the smaller or larger, respectively. Note that <i>infinite</i> is larger than anything else. If one of the input numbers is <i>unknown</i> then the result of the operation will be <i>unknown</i> too.</p>
+
+<p><b>MINNAN, MAXNAN</b></p>
+
+<p>NAN-safe version of MIN and MAX. If one of the input numbers is <i>unknown</i> then the result of the operation will be the other one. If both are <i>unknown</i>, then the result of the operation is <i>unknown</i>.</p>
+
+<p><i>lower-limit</i>,<i>upper-limit</i>,<b>LIMIT</b></p>
+
+<p>Pops two elements from the stack and uses them to define a range. Then it pops another element and if it falls inside the range, it is pushed back. If not, an <i>unknown</i> is pushed.</p>
+
+<p>The range defined includes the two boundaries (so: a number equal to one of the boundaries will be pushed back). If any of the three numbers involved is either <i>unknown</i> or <i>infinite</i> this function will always return an <i>unknown</i></p>
+
+<p>Example: <code>CDEF:a=alpha,0,100,LIMIT</code> will return <i>unknown</i> if alpha is lower than 0 or if it is higher than 100.</p>
+
+<p></p>
+
+</dd>
+<dt id="Arithmetics">Arithmetics</dt>
+<dd>
+
+<p><b>+, -, *, /, %</b></p>
+
+<p>Add, subtract, multiply, divide, modulo</p>
+
+<p><b>ADDNAN</b></p>
+
+<p>NAN-safe addition. If one parameter is NAN/UNKNOWN it&#39;ll be treated as zero. If both parameters are NAN/UNKNOWN, NAN/UNKNOWN will be returned.</p>
+
+<p><i>value</i>,<i>power</i>,<b>POW</b></p>
+
+<p>Raise <i>value</i> to the power of <i>power</i>.</p>
+
+<p><b>SIN, COS, LOG, EXP, SQRT</b></p>
+
+<p>Sine and cosine (input in radians), log and exp (natural logarithm), square root.</p>
+
+<p><b>ATAN</b></p>
+
+<p>Arctangent (output in radians).</p>
+
+<p><b>ATAN2</b></p>
+
+<p>Arctangent of y,x components (output in radians). This pops one element from the stack, the x (cosine) component, and then a second, which is the y (sine) component. It then pushes the arctangent of their ratio, resolving the ambiguity between quadrants.</p>
+
+<p>Example: <code>CDEF:angle=Y,X,ATAN2,RAD2DEG</code> will convert <code>X,Y</code> components into an angle in degrees.</p>
+
+<p><b>FLOOR, CEIL</b></p>
+
+<p>Round down or up to the nearest integer.</p>
+
+<p><b>DEG2RAD, RAD2DEG</b></p>
+
+<p>Convert angle in degrees to radians, or radians to degrees.</p>
+
+<p><b>ABS</b></p>
+
+<p>Take the absolute value.</p>
+
+</dd>
+<dt id="Set-Operations">Set Operations</dt>
+<dd>
+
+<p><i>count</i>,<b>SORT</b></p>
+
+<p>Pop one element from the stack. This is the <i>count</i> of items to be sorted. The top <i>count</i> of the remaining elements are then sorted from the smallest to the largest, in place on the stack.</p>
+
+<pre><code>   4,3,22.1,1,4,SORT -&gt; 1,3,4,22.1</code></pre>
+
+<p><i>count</i>,<b>REV</b></p>
+
+<p>Reverse the number</p>
+
+<p>Example: <code>CDEF:x=v1,v2,v3,v4,v5,v6,6,SORT,POP,5,REV,POP,+,+,+,4,/</code> will compute the average of the values v1 to v6 after removing the smallest and largest.</p>
+
+<p><i>count</i>,<b>AVG</b></p>
+
+<p>Pop one element (<i>count</i>) from the stack. Now pop <i>count</i> elements and build the average, ignoring all UNKNOWN values in the process.</p>
+
+<p>Example: <code>CDEF:x=a,b,c,d,4,AVG</code></p>
+
+<p><i>count</i>,<b>SMIN</b> and <i>count</i>,<b>SMAX</b></p>
+
+<p>Pop one element (<i>count</i>) from the stack. Now pop <i>count</i> elements and push the minimum/maximum back onto the stack.</p>
+
+<p>Example: <code>CDEF:x=a,b,c,d,4,AVG</code></p>
+
+<p><i>count</i>,<b>MEDIAN</b></p>
+
+<p>pop one element (<i>count</i>) from the stack. Now pop <i>count</i> elements and find the median, ignoring all UNKNOWN values in the process. If there are an even number of non-UNKNOWN values, the average of the middle two will be pushed on the stack.</p>
+
+<p>Example: <code>CDEF:x=a,b,c,d,4,MEDIAN</code></p>
+
+<p><i>count</i>,<b>STDEV</b></p>
+
+<p>pop one element (<i>count</i>) from the stack. Now pop <i>count</i> elements and calculate the standard deviation over these values (ignoring any NAN values). Push the result back on to the stack.</p>
+
+<p>Example: <code>CDEF:x=a,b,c,d,4,STDEV</code></p>
+
+<p><i>percent</i>,<i>count</i>,<b>PERCENT</b></p>
+
+<p>pop two elements (<i>count</i>,<i>percent</i>) from the stack. Now pop <i>count</i> element, order them by size (while the smalles elements are -INF, the largest are INF and NaN is larger than -INF but smaller than anything else. No pick the element from the ordered list where <i>percent</i> of the elements are equal then the one picked. Push the result back on to the stack.</p>
+
+<p>Example: <code>CDEF:x=a,b,c,d,95,4,PERCENT</code></p>
+
+<p><i>count</i>,<b>TREND, TRENDNAN</b></p>
+
+<p>Create a &quot;sliding window&quot; average of another data series.</p>
+
+<p>Usage: CDEF:smoothed=x,1800,TREND</p>
+
+<p>This will create a half-hour (1800 second) sliding window average of x. The average is essentially computed as shown here:</p>
+
+<pre><code>                 +---!---!---!---!---!---!---!---!---&gt;
+                                                     now
+                       delay     t0
+                 &lt;---------------&gt;
+                         delay       t1
+                     &lt;---------------&gt;
+                              delay      t2
+                         &lt;---------------&gt;
+
+
+     Value at sample (t0) will be the average between (t0-delay) and (t0)
+     Value at sample (t1) will be the average between (t1-delay) and (t1)
+     Value at sample (t2) will be the average between (t2-delay) and (t2)</code></pre>
+
+<p>TRENDNAN is - in contrast to TREND - NAN-safe. If you use TREND and one source value is NAN the complete sliding window is affected. The TRENDNAN operation ignores all NAN-values in a sliding window and computes the average of the remaining values.</p>
+
+<p><b>PREDICT, PREDICTSIGMA, PREDICTPERC</b></p>
+
+<p>Create a &quot;sliding window&quot; average/sigma/percentil of another data series, that also shifts the data series by given amounts of time as well</p>
+
+<p>Usage - explicit stating shifts: <code>CDEF:predict=&lt;shift n&gt;,...,&lt;shift 1&gt;,n,&lt;window&gt;,x,PREDICT</code> <code>CDEF:sigma=&lt;shift n&gt;,...,&lt;shift 1&gt;,n,&lt;window&gt;,x,PREDICTSIGMA</code> <code>CDEF:perc=&lt;shift n&gt;,...,&lt;shift 1&gt;,n,&lt;window&gt;,&lt;percentil&gt;,x,PREDICTPERC</code></p>
+
+<p>Usage - shifts defined as a base shift and a number of time this is applied <code>CDEF:predict=&lt;shift multiplier&gt;,-n,&lt;window&gt;,x,PREDICT</code> <code>CDEF:sigma=&lt;shift multiplier&gt;,-n,&lt;window&gt;,x,PREDICTSIGMA</code> <code>CDEF:sigma=&lt;shift multiplier&gt;,-n,&lt;window&gt;,&lt;percentil&gt;,x,PREDICTPERC</code></p>
+
+<p>Example: CDEF:predict=172800,86400,2,1800,x,PREDICT</p>
+
+<p>This will create a half-hour (1800 second) sliding window average/sigma of x, that average is essentially computed as shown here:</p>
+
+<pre><code> +---!---!---!---!---!---!---!---!---!---!---!---!---!---!---!---!---!---&gt;
+                                                                     now
+                                                  shift 1        t0
+                                         &lt;-----------------------&gt;
+                               window
+                         &lt;---------------&gt;
+                                       shift 2
+                 &lt;-----------------------------------------------&gt;
+       window
+ &lt;---------------&gt;
+                                                      shift 1        t1
+                                             &lt;-----------------------&gt;
+                                   window
+                             &lt;---------------&gt;
+                                            shift 2
+                     &lt;-----------------------------------------------&gt;
+           window
+     &lt;---------------&gt;
+
+ Value at sample (t0) will be the average between (t0-shift1-window) and (t0-shift1)
+                                      and between (t0-shift2-window) and (t0-shift2)
+ Value at sample (t1) will be the average between (t1-shift1-window) and (t1-shift1)
+                                      and between (t1-shift2-window) and (t1-shift2)</code></pre>
+
+<p>The function is by design NAN-safe. This also allows for extrapolation into the future (say a few days) - you may need to define the data series whit the optional start= parameter, so that the source data series has enough data to provide prediction also at the beginning of a graph...</p>
+
+<p>The percentile can be between [-100:+100]. The positive percentiles interpolates between values while the negative will take the closest.</p>
+
+<p>Example: you run 7 shifts with a window of 1800seconds. Assuming that the rrd-file has a step size of 300 seconds this means we have to do the percentile calculation based on a max of 42 distinct values (less if you got NAN). that means that in the best case you get a step rate between values of 2.4 percent. so if you ask for the 99th percentile, then you would need to look at the 41.59th value. As we only have integers, either the 41st or the 42nd value.</p>
+
+<p>With the positive percentile a linear interpolation between the 2 values is done to get the effective value.</p>
+
+<p>The negative returns the closest value distance wise - so in the above case 42nd value, which is effectively returning the Percentile100 or the max of the previous 7 days in the window.</p>
+
+<p>Here an example, that will create a 10 day graph that also shows the prediction 3 days into the future with its uncertainty value (as defined by avg+-4*sigma) This also shows if the prediction is exceeded at a certain point.</p>
+
+<pre><code>    rrdtool graph image.png --imgformat=PNG \
+    --start=-7days --end=+3days --width=1000 --height=200 --alt-autoscale-max \
+    DEF:value=value.rrd:value:AVERAGE:start=-14days \
+    LINE1:value#ff0000:value \
+    CDEF:predict=86400,-7,1800,value,PREDICT \
+    CDEF:sigma=86400,-7,1800,value,PREDICTSIGMA \
+    CDEF:upper=predict,sigma,3,*,+ \
+    CDEF:lower=predict,sigma,3,*,- \
+    LINE1:predict#00ff00:prediction \
+    LINE1:upper#0000ff:upper\ certainty\ limit \
+    LINE1:lower#0000ff:lower\ certainty\ limit \
+    CDEF:exceeds=value,UN,0,value,lower,upper,LIMIT,UN,IF \
+    TICK:exceeds#aa000080:1 \
+    CDEF:perc95=86400,-7,1800,95,value,PREDICTPERC \
+    LINE1:perc95#ffff00:95th_percentile</code></pre>
+
+<p>Note: Experience has shown that a factor between 3 and 5 to scale sigma is a good discriminator to detect abnormal behavior. This obviously depends also on the type of data and how &quot;noisy&quot; the data series is.</p>
+
+<p>Also Note the explicit use of start= in the CDEF - this is necessary to load all the necessary data (even if it is not displayed)</p>
+
+<p>This prediction can only be used for short term extrapolations - say a few days into the future.</p>
+
+</dd>
+<dt id="Special-values">Special values</dt>
+<dd>
+
+<p><b>UNKN</b></p>
+
+<p>Pushes an unknown value on the stack</p>
+
+<p><b>INF, NEGINF</b></p>
+
+<p>Pushes a positive or negative infinite value on the stack. When such a value is graphed, it appears at the top or bottom of the graph, no matter what the actual value on the y-axis is.</p>
+
+<p><b>PREV</b></p>
+
+<p>Pushes an <i>unknown</i> value if this is the first value of a data set or otherwise the result of this <b>CDEF</b> at the previous time step. This allows you to do calculations across the data. This function cannot be used in <b>VDEF</b> instructions.</p>
+
+<p><b>PREV(vname)</b></p>
+
+<p>Pushes an <i>unknown</i> value if this is the first value of a data set or otherwise the result of the vname variable at the previous time step. This allows you to do calculations across the data. This function cannot be used in <b>VDEF</b> instructions.</p>
+
+<p><b>COUNT</b></p>
+
+<p>Pushes the number 1 if this is the first value of the data set, the number 2 if it is the second, and so on. This special value allows you to make calculations based on the position of the value within the data set. This function cannot be used in <b>VDEF</b> instructions.</p>
+
+</dd>
+<dt id="Time">Time</dt>
+<dd>
+
+<p>Time inside RRDtool is measured in seconds since the epoch. The epoch is defined to be <span style="white-space: nowrap;"><code>Thu Jan 1 00:00:00 UTC 1970</code></span>.</p>
+
+<p><b>NOW</b></p>
+
+<p>Pushes the current time on the stack.</p>
+
+<p><b>STEPWIDTH</b></p>
+
+<p>The with of the current step in seconds. You can use this to go back from rate based presentations to absolute numbers</p>
+
+<pre><code>  CDEF:abs=rate,STEPWIDTH,*,PREV,ADDNAN</code></pre>
+
+<p><b>NEWDAY</b>,<b>NEWWEEK</b>,<b>NEWMONTH</b>,<b>NEWYEAR</b></p>
+
+<p>These three operators will return 1.0 whenever a step is the first of the given period. The periods are determined according to the local timezone AND the <code>LC_TIME</code> settings.</p>
+
+<pre><code>  CDEF:mtotal=rate,STEPWIDTH,*,NEWMONTH,0,PREV,IF,ADDNAN</code></pre>
+
+<p><b>TIME</b></p>
+
+<p>Pushes the time the currently processed value was taken at onto the stack.</p>
+
+<p><b>LTIME</b></p>
+
+<p>Takes the time as defined by <b>TIME</b>, applies the time zone offset valid at that time including daylight saving time if your OS supports it, and pushes the result on the stack. There is an elaborate example in the examples section below on how to use this.</p>
+
+</dd>
+<dt id="Processing-the-stack-directly">Processing the stack directly</dt>
+<dd>
+
+<p><b>DUP, POP, EXC</b></p>
+
+<p>Duplicate the top element, remove the top element, exchange the two top elements.</p>
+
+<p><b>DEPTH</b></p>
+
+<p>pushes the current depth of the stack onto the stack</p>
+
+<pre><code> a,b,DEPTH -&gt; a,b,2</code></pre>
+
+<p>n,<b>COPY</b></p>
+
+<p>push a copy of the top n elements onto the stack</p>
+
+<pre><code> a,b,c,d,2,COPY =&gt; a,b,c,d,c,d</code></pre>
+
+<p>n,<b>INDEX</b></p>
+
+<p>push the nth element onto the stack.</p>
+
+<pre><code> a,b,c,d,3,INDEX -&gt; a,b,c,d,b</code></pre>
+
+<p>n,m,<b>ROLL</b></p>
+
+<p>rotate the top n elements of the stack by m</p>
+
+<pre><code> a,b,c,d,3,1,ROLL =&gt; a,d,b,c
+ a,b,c,d,3,-1,ROLL =&gt; a,c,d,b</code></pre>
+
+<p></p>
+
+</dd>
+</dl>
+
+<h1 id="VARIABLES">VARIABLES</h1>
+
+<p>These operators work only on <b>VDEF</b> statements. Note that currently ONLY these work for <b>VDEF</b>.</p>
+
+<dl>
+
+<dt id="MAXIMUM-MINIMUM-AVERAGE">MAXIMUM, MINIMUM, AVERAGE</dt>
+<dd>
+
+<p>Return the corresponding value, MAXIMUM and MINIMUM also return the first occurrence of that value in the time component.</p>
+
+<p>Example: <code>VDEF:avg=mydata,AVERAGE</code></p>
+
+</dd>
+<dt id="STDEV">STDEV</dt>
+<dd>
+
+<p>Returns the standard deviation of the values.</p>
+
+<p>Example: <code>VDEF:stdev=mydata,STDEV</code></p>
+
+</dd>
+<dt id="LAST-FIRST">LAST, FIRST</dt>
+<dd>
+
+<p>Return the last/first non-nan or infinite value for the selected data stream, including its timestamp.</p>
+
+<p>Example: <code>VDEF:first=mydata,FIRST</code></p>
+
+</dd>
+<dt id="TOTAL">TOTAL</dt>
+<dd>
+
+<p>Returns the rate from each defined time slot multiplied with the step size. This can, for instance, return total bytes transferred when you have logged bytes per second. The time component returns the number of seconds.</p>
+
+<p>Example: <code>VDEF:total=mydata,TOTAL</code></p>
+
+</dd>
+<dt id="PERCENT-PERCENTNAN">PERCENT, PERCENTNAN</dt>
+<dd>
+
+<p>This should follow a <b>DEF</b> or <b>CDEF</b> <i>vname</i>. The <i>vname</i> is popped, another number is popped which is a certain percentage (0..100). The data set is then sorted and the value returned is chosen such that <i>percentage</i> percent of the values is lower or equal than the result. For PERCENTNAN <i>Unknown</i> values are ignored, but for PERCENT <i>Unknown</i> values are considered lower than any finite number for this purpose so if this operator returns an <i>unknown</i> you have quite a lot of them in your data. <b>Inf</b>inite numbers are lesser, or more, than the finite numbers and are always more than the <i>Unknown</i> numbers. (NaN &lt; -INF &lt; finite values &lt; INF)</p>
+
+<p>Example: <code>VDEF:perc95=mydata,95,PERCENT</code> <code>VDEF:percnan95=mydata,95,PERCENTNAN</code></p>
+
+</dd>
+<dt id="LSLSLOPE-LSLINT-LSLCORREL">LSLSLOPE, LSLINT, LSLCORREL</dt>
+<dd>
+
+<p>Return the parameters for a <b>L</b>east <b>S</b>quares <b>L</b>ine <i>(y = mx +b)</i> which approximate the provided dataset. LSLSLOPE is the slope <i>(m)</i> of the line related to the COUNT position of the data. LSLINT is the y-intercept <i>(b)</i>, which happens also to be the first data point on the graph. LSLCORREL is the Correlation Coefficient (also know as Pearson&#39;s Product Moment Correlation Coefficient). It will range from 0 to +/-1 and represents the quality of fit for the approximation.</p>
+
+<p>Example: <code>VDEF:slope=mydata,LSLSLOPE</code></p>
+
+</dd>
+</dl>
+
+<h1 id="SEE-ALSO">SEE ALSO</h1>
+
+<p><a href="./rrdgraph.html">rrdgraph</a> gives an overview of how <b>rrdtool graph</b> works. <a href="./rrdgraph_data.html">rrdgraph_data</a> describes <b>DEF</b>,<b>CDEF</b> and <b>VDEF</b> in detail. <a href="./rrdgraph_rpn.html">rrdgraph_rpn</a> describes the <b>RPN</b> language used in the <b>?DEF</b> statements. <a href="./rrdgraph_graph.html">rrdgraph_graph</a> page describes all of the graph and print functions.</p>
+
+<p>Make sure to read <a href="./rrdgraph_examples.html">rrdgraph_examples</a> for tips&amp;tricks.</p>
+
+<h1 id="AUTHOR">AUTHOR</h1>
+
+<p>Program by Tobias Oetiker &lt;tobi@oetiker.ch&gt;</p>
+
+<p>This manual page by Alex van den Bogaerdt &lt;alex@vandenbogaerdt.nl&gt; with corrections and/or additions by several people</p>
+
+
+</body>
+
+</html>
+
+

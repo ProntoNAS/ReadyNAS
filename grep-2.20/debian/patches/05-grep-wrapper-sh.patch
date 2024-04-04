@@ -1,0 +1,50 @@
+Removes needless call to bash.
+
+* src/Makefile.am: Specifies /bin/sh as shell, used for egrep and fgrep wrappers. 
+* src/egrep.sh Stops adding the working directory in PATH if a ./grep exists 
+
+Closes: #762427, #762917
+
+--- a/src/egrep.sh
++++ b/src/egrep.sh
+@@ -1,11 +1,3 @@
+ #!@SHELL@
+-grep=grep
+-case $0 in
+-  */*)
+-    dir=${0%/*}
+-    if test -x "$dir/@grep@"; then
+-      PATH=$dir:$PATH
+-      grep=@grep@
+-    fi;;
+-esac
+-exec $grep @option@ "$@"
++
++exec grep @option@ "$@"
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -16,6 +16,8 @@
+ 
+ LN = ln
+ 
++SHELL = /bin/sh
++
+ AM_CFLAGS = $(WARN_CFLAGS) $(WERROR_CFLAGS)
+ 
+ # Tell the linker to omit references to unused shared libraries.
+@@ -47,15 +49,7 @@
+ egrep fgrep: egrep.sh Makefile
+ 	$(AM_V_GEN)grep=`echo grep | sed -e '$(transform)'`	&& \
+ 	case $@ in egrep) option=-E;; fgrep) option=-F;; esac	&& \
+-	shell_does_substrings='set x/y && d=$${1%/*} && test "$$d" = x' && \
+-	if $(SHELL) -c "$$shell_does_substrings" 2>/dev/null; then \
+-	  edit_substring='s,X,X,'; \
+-	else \
+-	  edit_substring='s,\$${0%/\*},`expr "X$$0" : '\''X\\(.*\\)/'\''`,g'; \
+-	fi && \
+ 	sed -e 's|[@]SHELL@|$(SHELL)|g' \
+-	    -e "$$edit_substring" \
+-	    -e "s|[@]grep@|$$grep|g" \
+ 	    -e "s|[@]option@|$$option|g" <$(srcdir)/egrep.sh >$@-t
+ 	$(AM_V_at)chmod +x $@-t
+ 	$(AM_V_at)mv $@-t $@

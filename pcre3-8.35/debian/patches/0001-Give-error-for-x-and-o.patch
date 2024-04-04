@@ -1,0 +1,105 @@
+Description: Give error for \x{} and \o{}.
+Origin: upstream, http://vcs.pcre.org/pcre?view=revision&revision=1481
+Forwarded: not-needed
+Author: Philip Hazel <ph10@cam.ac.uk>
+Reviewed-by: Salvatore Bonaccorso <carnil@debian.org>
+Last-Update: 2016-03-25
+Applied-Upstream: 8.36
+---
+
+--- a/pcre_compile.c
++++ b/pcre_compile.c
+@@ -549,6 +549,7 @@ static const char error_texts[] =
+   "group name must start with a non-digit\0"
+   /* 85 */
+   "parentheses are too deeply nested (stack check)\0"
++  "digits missing in \\x{} or \\o{}\0" 
+   ;
+ 
+ /* Table to identify digits and hex digits. This is used when compiling
+@@ -1259,6 +1260,7 @@ else
+ 
+     case CHAR_o:
+     if (ptr[1] != CHAR_LEFT_CURLY_BRACKET) *errorcodeptr = ERR81; else
++    if (ptr[2] == CHAR_RIGHT_CURLY_BRACKET) *errorcodeptr = ERR86; else 
+       {
+       ptr += 2;
+       c = 0;
+@@ -1328,6 +1330,11 @@ else
+       if (ptr[1] == CHAR_LEFT_CURLY_BRACKET)
+         {
+         ptr += 2;
++        if (*ptr == CHAR_RIGHT_CURLY_BRACKET)
++          {
++          *errorcodeptr = ERR86;
++          break;
++          }    
+         c = 0;
+         overflow = FALSE;
+         while (MAX_255(*ptr) && (digitab[*ptr] & ctype_xdigit) != 0)
+--- a/pcre_internal.h
++++ b/pcre_internal.h
+@@ -2281,7 +2281,7 @@ enum { ERR0,  ERR1,  ERR2,  ERR3,  ERR4,
+        ERR50, ERR51, ERR52, ERR53, ERR54, ERR55, ERR56, ERR57, ERR58, ERR59,
+        ERR60, ERR61, ERR62, ERR63, ERR64, ERR65, ERR66, ERR67, ERR68, ERR69,
+        ERR70, ERR71, ERR72, ERR73, ERR74, ERR75, ERR76, ERR77, ERR78, ERR79,
+-       ERR80, ERR81, ERR82, ERR83, ERR84, ERR85, ERRCOUNT };
++       ERR80, ERR81, ERR82, ERR83, ERR84, ERR85, ERR86, ERRCOUNT };
+ 
+ /* JIT compiling modes. The function list is indexed by them. */
+ 
+--- a/pcreposix.c
++++ b/pcreposix.c
+@@ -172,7 +172,8 @@ static const int eint[] = {
+   REG_BADPAT,  /* invalid range in character class */
+   REG_BADPAT,  /* group name must start with a non-digit */
+   /* 85 */
+-  REG_BADPAT   /* parentheses too deeply nested (stack check) */
++  REG_BADPAT,  /* parentheses too deeply nested (stack check) */
++  REG_BADPAT   /* missing digits in \x{} or \o{} */ 
+ };
+ 
+ /* Table of texts corresponding to POSIX error codes */
+--- a/testdata/testinput2
++++ b/testdata/testinput2
+@@ -4098,4 +4098,16 @@ backtracking verbs. --/
+ 
+ /(?J:(?|(:(?|(?'R')(\z(?|(?'R')(\k'R')|((?'R')))k'R')|((?'R')))H'Ak'Rf)|s(?'R')))/
+ 
++/\othing/
++
++/\o{}/
++
++/\o{whatever}/
++
++/\xthing/
++
++/\x{}/
++
++/\x{whatever}/
++
+ /-- End of testinput2 --/
+--- a/testdata/testoutput2
++++ b/testdata/testoutput2
+@@ -14226,4 +14226,21 @@ Failed: number is too big at offset 13
+ 
+ /(?J:(?|(:(?|(?'R')(\z(?|(?'R')(\k'R')|((?'R')))k'R')|((?'R')))H'Ak'Rf)|s(?'R')))/
+ 
++/\othing/
++Failed: missing opening brace after \o at offset 1
++
++/\o{}/
++Failed: digits missing in \x{} or \o{} at offset 1
++
++/\o{whatever}/
++Failed: non-octal character in \o{} (closing brace missing?) at offset 3
++
++/\xthing/
++
++/\x{}/
++Failed: digits missing in \x{} or \o{} at offset 3
++
++/\x{whatever}/
++Failed: non-hex character in \x{} (closing brace missing?) at offset 3
++
+ /-- End of testinput2 --/

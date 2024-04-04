@@ -1,0 +1,140 @@
+From ed0ed9add992b1ea929156e9c8707be4d1f3f88e Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 24 May 2016 15:15:40 -0700
+Subject: [PATCH] hwmon: (w83627ehf) add proper support for fan speed cruise
+ control
+
+The current w83627ehf has poor support of the Speed Cruise Control
+feature of W83627DHG SuperIO chip.  Fix up the implemetation to match
+the standard defined in several other hwmon drivers.
+
+ALSO, move enabling of min rpm for cpu fan thermal cruise control mode to init function.
+---
+ drivers/hwmon/w83627ehf.c | 76 +++++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 74 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/hwmon/w83627ehf.c b/drivers/hwmon/w83627ehf.c
+index 697007a..37b5a7c 100644
+--- a/drivers/hwmon/w83627ehf.c
++++ b/drivers/hwmon/w83627ehf.c
+@@ -1562,6 +1562,53 @@ store_tolerance(struct device *dev, struct device_attribute *attr,
+ 	return count;
+ }
+ 
++static ssize_t
++show_fan_target(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct w83627ehf_data *data = w83627ehf_update_device(dev);
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	int target = fan_from_reg8(data->target_temp[nr], data->fan_div[nr]);
++	return sprintf(buf, "%d\n", target);
++}
++
++static ssize_t
++store_fan_target(struct device *dev, struct device_attribute *attr,
++			const char *buf, size_t count)
++{
++	struct w83627ehf_data *data = dev_get_drvdata(dev);
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	long val, low, tolerance;
++	u16 reg;
++	int err;
++
++	err = kstrtol(buf, 10, &val);
++	if (err < 0)
++		return err;
++
++	/* Hard-code tolerance to ~100 RPM */
++	low = clamp_val(fan_from_reg8(val * 9 / 10, data->fan_div[nr]), 0, 255);
++	val = clamp_val(fan_from_reg8(val, data->fan_div[nr]), 0, 255);
++	tolerance = low - val;
++
++	mutex_lock(&data->update_lock);
++	data->target_temp[nr] = val;
++	w83627ehf_write_value(data, data->REG_TARGET[nr], val);
++
++	reg = w83627ehf_read_value(data, W83627EHF_REG_TOLERANCE[nr]);
++	if (nr == 1)
++		reg = (reg & 0x0f) | (tolerance << 4);
++	else
++		reg = (reg & 0xf0) | tolerance;
++	w83627ehf_write_value(data, W83627EHF_REG_TOLERANCE[nr], reg);
++	data->tolerance[nr] = tolerance;
++
++	mutex_unlock(&data->update_lock);
++	return count;
++}
++
+ static struct sensor_device_attribute sda_pwm[] = {
+ 	SENSOR_ATTR(pwm1, S_IWUSR | S_IRUGO, show_pwm, store_pwm, 0),
+ 	SENSOR_ATTR(pwm2, S_IWUSR | S_IRUGO, show_pwm, store_pwm, 1),
+@@ -1613,6 +1660,17 @@ static struct sensor_device_attribute sda_tolerance[] = {
+ 		    store_tolerance, 3),
+ };
+ 
++static struct sensor_device_attribute sda_fan_target[] = {
++	SENSOR_ATTR(fan1_target, S_IWUSR | S_IRUGO, show_fan_target,
++		    store_fan_target, 0),
++	SENSOR_ATTR(fan2_target, S_IWUSR | S_IRUGO, show_fan_target,
++		    store_fan_target, 1),
++	SENSOR_ATTR(fan3_target, S_IWUSR | S_IRUGO, show_fan_target,
++		    store_fan_target, 2),
++	SENSOR_ATTR(fan4_target, S_IWUSR | S_IRUGO, show_fan_target,
++		    store_fan_target, 3),
++};
++
+ /* Smart Fan registers */
+ 
+ #define fan_functions(reg, REG) \
+@@ -1849,6 +1907,7 @@ static void w83627ehf_device_remove_files(struct device *dev)
+ 		device_remove_file(dev, &sda_pwm_enable[i].dev_attr);
+ 		device_remove_file(dev, &sda_target_temp[i].dev_attr);
+ 		device_remove_file(dev, &sda_tolerance[i].dev_attr);
++		device_remove_file(dev, &sda_fan_target[i].dev_attr);
+ 	}
+ 	for (i = 0; i < NUM_REG_TEMP; i++) {
+ 		if (!(data->have_temp & (1 << i)))
+@@ -1932,6 +1991,17 @@ static inline void w83627ehf_init_device(struct w83627ehf_data *data,
+ 		else
+ 			data->temp_type[i] = 4; /* thermistor */
+ 	}
++
++	/* NETGEAR: If we're going to CPU Thermal Cruise Control mode, we need to make sure
++	 * the CPUFANOUT0_MIN_Value register bit is set so the fan doesn't stop */
++	if (kind == w83627dhg) {
++		u16 reg = w83627ehf_read_value(data, W83627EHF_REG_PWM_ENABLE[2]);
++		if (!(reg & 0x10)) {
++			pr_info("Enabling min RPM for CPU Fan Thermal Cruise Control mode\n");
++			reg |= 0x10;
++			w83627ehf_write_value(data, W83627EHF_REG_PWM_ENABLE[2], reg);
++		}
++	}
+ }
+ 
+ static void w82627ehf_swap_tempreg(struct w83627ehf_data *data,
+@@ -2058,7 +2128,7 @@ static int w83627ehf_probe(struct platform_device *pdev)
+ 	res = platform_get_resource(pdev, IORESOURCE_IO, 0);
+ 	if (!request_region(res->start, IOREGION_LENGTH, DRVNAME)) {
+ 		err = -EBUSY;
+-		dev_err(dev, "Failed to request region 0x%lx-0x%lx\n",
++		dev_dbg(dev, "Failed to request region 0x%lx-0x%lx\n",
+ 			(unsigned long)res->start,
+ 			(unsigned long)res->start + IOREGION_LENGTH - 1);
+ 		goto exit;
+@@ -2511,7 +2581,9 @@ static int w83627ehf_probe(struct platform_device *pdev)
+ 				|| (err = device_create_file(dev,
+ 					&sda_target_temp[i].dev_attr))
+ 				|| (err = device_create_file(dev,
+-					&sda_tolerance[i].dev_attr))))
++					&sda_tolerance[i].dev_attr))
++				|| (err = device_create_file(dev,
++					&sda_fan_target[i].dev_attr))))
+ 				goto exit_remove;
+ 		}
+ 	}
+-- 
+1.9.1
+

@@ -1,0 +1,42 @@
+From 39cb61e68e6da2dde6a872248cda3e1f4b0a1cce Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Fri, 30 Jan 2015 12:10:23 -0800
+Subject: [PATCH 08/16] skip virtual adapters
+
+Skip the LeafNets virtual adapter when doing ADS DNS updates.
+---
+ source3/utils/net_dns.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/source3/utils/net_dns.c b/source3/utils/net_dns.c
+index d972a5d4bad..6f55206d229 100644
+--- a/source3/utils/net_dns.c
++++ b/source3/utils/net_dns.c
+@@ -186,6 +186,7 @@ int get_my_ip_address( struct sockaddr_storage **pp_ss )
+ 
+ 	for ( i=0; i<n; i++ ) {
+ 		const struct sockaddr_storage *nic_sa_storage = NULL;
++		const struct interface *iface = NULL;
+ 
+ 		if ((nic_sa_storage = iface_n_sockaddr_storage(i)) == NULL)
+ 			continue;
+@@ -200,6 +201,16 @@ int get_my_ip_address( struct sockaddr_storage **pp_ss )
+ 			continue;
+ 		}
+ 
++		/* Skip leaf interfaces on DNS updates */
++		if ((iface = get_interface(i)) == NULL) {
++			continue;
++		}
++
++		if (strcmp(iface->name, "LeafNets") == 0) {
++			DEBUG(6,("Skipping LeafNets interface for DNS registration\n"));
++			continue;
++		}
++
+ 		memcpy(&list[count++], nic_sa_storage, sizeof(struct sockaddr_storage));
+ 	}
+ 	*pp_ss = list;
+-- 
+2.15.1
+

@@ -1,0 +1,59 @@
+From a6e0a0b58f5cdaf4e9beca5bce69c09808cbb625 Mon Sep 17 00:00:00 2001
+From: Nikos Mavrogiannopoulos <nmav@redhat.com>
+Date: Wed, 6 Apr 2016 13:02:19 +0200
+Subject: [PATCH] _asn1_extract_der_octet: properly account the bytes read
+ through indefinite encodings
+
+This prevents infinite recursions in the function loop.
+Reported by Pascal Cuoq.
+---
+ lib/decoding.c | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/lib/decoding.c b/lib/decoding.c
+index 6fd60d0..4fff03e 100644
+--- a/lib/decoding.c
++++ b/lib/decoding.c
+@@ -753,7 +753,7 @@ _asn1_delete_not_used (asn1_node node)
+ 
+ static int
+ _asn1_extract_der_octet (asn1_node node, const unsigned char *der,
+-			 int der_len, unsigned flags)
++			 int der_len, unsigned flags, int *bytes)
+ {
+   int len2, len3;
+   int counter, counter_end;
+@@ -799,15 +799,19 @@ _asn1_extract_der_octet (asn1_node node, const unsigned char *der,
+ 	  DECR_LEN(der_len, len3);
+ 	  result =
+ 	    _asn1_extract_der_octet (node, der + counter + len3,
+-				     der_len, flags);
++				     der_len, flags, &len2);
+ 	  if (result != ASN1_SUCCESS)
+ 	    return result;
+-	  len2 = 0;
++
++	  DECR_LEN(der_len, len2);
+ 	}
+ 
+       counter += len2 + len3 + 1;
+     }
+ 
++  if (bytes)
++    *bytes = counter;
++
+   return ASN1_SUCCESS;
+ 
+ cleanup:
+@@ -889,7 +893,7 @@ get_octet_string (asn1_node node, const unsigned char *der, int der_len,
+ 	  asn1_length_der (tot_len, temp, &len2);
+ 	  _asn1_set_value (node, temp, len2);
+ 
+-	  ret = _asn1_extract_der_octet (node, der, orig_der_len, flags);
++	  ret = _asn1_extract_der_octet (node, der, orig_der_len, flags, NULL);
+ 	  if (ret != ASN1_SUCCESS)
+ 	    {
+ 	      warn();
+-- 
+2.8.1
+

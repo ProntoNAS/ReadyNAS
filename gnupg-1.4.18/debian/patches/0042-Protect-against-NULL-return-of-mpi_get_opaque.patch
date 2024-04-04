@@ -1,0 +1,55 @@
+From e0c13ad5f290aec05706797b8f6c9e13d613eb66 Mon Sep 17 00:00:00 2001
+From: Werner Koch <wk@gnupg.org>
+Date: Mon, 23 Feb 2015 11:04:35 +0100
+Subject: [PATCH 42/45] Protect against NULL return of mpi_get_opaque.
+
+* g10/seckey-cert.c (do_check): Call BUG for NULL return of
+get_opaque.
+--
+
+This is the suggested addition from commit 6f03218.  We better run
+into an fatal error than into a segv.
+
+Signed-off-by: Werner Koch <wk@gnupg.org>
+---
+ g10/seckey-cert.c | 17 ++++++++++++-----
+ 1 file changed, 12 insertions(+), 5 deletions(-)
+
+diff --git a/g10/seckey-cert.c b/g10/seckey-cert.c
+index cad4e63..4edd74e 100644
+--- a/g10/seckey-cert.c
++++ b/g10/seckey-cert.c
+@@ -91,8 +91,12 @@ do_check( PKT_secret_key *sk, const char *tryagain_text, int mode,
+             u16 csumc = 0;
+ 
+ 	    i = pubkey_get_npkey(sk->pubkey_algo);
+-	    assert( mpi_is_opaque( sk->skey[i] ) );
+-	    p = mpi_get_opaque( sk->skey[i], &ndata );
++	    if (!mpi_is_opaque (sk->skey[i]))
++              p = NULL;
++            else
++              p = mpi_get_opaque (sk->skey[i], &ndata);
++            if (!p)
++              BUG ();
+             if ( ndata > 1 )
+                 csumc = p[ndata-2] << 8 | p[ndata-1];
+ 	    data = xmalloc_secure( ndata );
+@@ -169,9 +173,12 @@ do_check( PKT_secret_key *sk, const char *tryagain_text, int mode,
+                 byte *p;
+                 unsigned int ndata;
+ 
+-                assert (mpi_is_opaque (sk->skey[i]));
+-                p = mpi_get_opaque (sk->skey[i], &ndata);
+-                assert (ndata >= 2);
++                if (!mpi_is_opaque (sk->skey[i]))
++                  p = NULL;
++                else
++                  p = mpi_get_opaque (sk->skey[i], &ndata);
++                if (!p || !(ndata >= 2))
++                  BUG ();
+                 assert (ndata == ((p[0] << 8 | p[1]) + 7)/8 + 2);
+                 buffer = xmalloc_secure (ndata);
+ 		cipher_sync (cipher_hd);
+-- 
+2.1.4
+

@@ -1,0 +1,44 @@
+From 5f365e51608d9806f59a6509330f03a6e1a1440e Mon Sep 17 00:00:00 2001
+From: Karl Williamson <khw@cpan.org>
+Date: Thu, 8 Jan 2015 12:22:21 -0700
+Subject: perlpodspec: Corrections/adds to detecting =encoding
+
+C0 and C1 are not legal UTF-8 start bytes.  utf8::decode() is a more
+accurate way of determining UTF-8.
+(cherry picked from commit 9a5b9407081290adfb965563aed854ccd8560db6)
+
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/docs/encoding.diff
+---
+ pod/perlpodspec.pod | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/pod/perlpodspec.pod b/pod/perlpodspec.pod
+index 67f74b629..f2af63e2c 100644
+--- a/pod/perlpodspec.pod
++++ b/pod/perlpodspec.pod
+@@ -633,15 +633,21 @@ UTF-16.  If the file begins with the three literal byte values
+ 
+ =item *
+ 
+-A naive but sufficient heuristic for testing the first highbit
++A naive but often sufficient heuristic for testing the first highbit
+ byte-sequence in a BOM-less file (whether in code or in Pod!), to see
+ whether that sequence is valid as UTF-8 (RFC 2279) is to check whether
+-that the first byte in the sequence is in the range 0xC0 - 0xFD
++that the first byte in the sequence is in the range 0xC2 - 0xFD
+ I<and> whether the next byte is in the range
+ 0x80 - 0xBF.  If so, the parser may conclude that this file is in
+ UTF-8, and all highbit sequences in the file should be assumed to
+ be UTF-8.  Otherwise the parser should treat the file as being
+-in Latin-1.  In the unlikely circumstance that the first highbit
++in Latin-1.  (A better check is to pass a copy of the sequence to
++L<utf8::decode()|utf8> which performs a full validity check on the
++sequence and returns TRUE if it is valid UTF-8, FALSE otherwise.  This
++function is always pre-loaded, is fast because it is written in C, and
++will only get called at most once, so you don't need to avoid it out of
++performance concerns.)
++In the unlikely circumstance that the first highbit
+ sequence in a truly non-UTF-8 file happens to appear to be UTF-8, one
+ can cater to our heuristic (as well as any more intelligent heuristic)
+ by prefacing that line with a comment line containing a highbit

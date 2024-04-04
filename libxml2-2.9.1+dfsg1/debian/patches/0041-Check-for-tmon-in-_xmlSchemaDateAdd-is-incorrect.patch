@@ -1,0 +1,32 @@
+From: David Kilzer <ddkilzer@kilzer.net>
+Date: Mon, 14 Jul 2014 22:29:56 +0800
+Subject: Check for tmon in _xmlSchemaDateAdd() is incorrect
+
+For https://bugzilla.gnome.org/show_bug.cgi?id=732705
+In _xmlSchemaDateAdd(), the check for |tmon| should be the following
+since MAX_DAYINMONTH() expects a month in the range [1,12]:
+
+    if (tmon < 1)
+	tmon = 1;
+
+Regression introduced in
+https://git.gnome.org/browse/libxml2/commit/?id=14b5643947845df089376106517c4f7ba061e4b0
+---
+ xmlschemastypes.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/xmlschemastypes.c b/xmlschemastypes.c
+index ec403e8..7e1d54a 100644
+--- a/xmlschemastypes.c
++++ b/xmlschemastypes.c
+@@ -3848,8 +3848,8 @@ _xmlSchemaDateAdd (xmlSchemaValPtr dt, xmlSchemaValPtr dur)
+ 	     * Coverity detected an overrun in daysInMonth
+ 	     * of size 12 at position 12 with index variable "((r)->mon - 1)"
+ 	     */
+-	    if (tmon < 0)
+-	        tmon = 0;
++	    if (tmon < 1)
++	        tmon = 1;
+ 	    if (tmon > 12)
+ 	        tmon = 12;
+             tempdays += MAX_DAYINMONTH(tyr, tmon);

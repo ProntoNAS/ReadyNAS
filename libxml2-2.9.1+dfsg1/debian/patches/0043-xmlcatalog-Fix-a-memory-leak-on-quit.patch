@@ -1,0 +1,34 @@
+From: Philip Withnall <philip.withnall@collabora.co.uk>
+Date: Fri, 20 Jun 2014 21:05:33 +0100
+Subject: xmlcatalog: Fix a memory leak on quit
+
+Coverity issue: #60442
+
+https://bugzilla.gnome.org/show_bug.cgi?id=731990
+---
+ xmlcatalog.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/xmlcatalog.c b/xmlcatalog.c
+index 43f455a..b9ed6a4 100644
+--- a/xmlcatalog.c
++++ b/xmlcatalog.c
+@@ -181,12 +181,13 @@ static void usershell(void) {
+ 	/*
+ 	 * start interpreting the command
+ 	 */
+-        if (!strcmp(command, "exit"))
+-	    break;
+-        if (!strcmp(command, "quit"))
+-	    break;
+-        if (!strcmp(command, "bye"))
++	if (!strcmp(command, "exit") ||
++	    !strcmp(command, "quit") ||
++	    !strcmp(command, "bye")) {
++	    free(cmdline);
+ 	    break;
++	}
++
+ 	if (!strcmp(command, "public")) {
+ 	    if (nbargs != 1) {
+ 		printf("public requires 1 arguments\n");

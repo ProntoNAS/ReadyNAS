@@ -1,0 +1,30 @@
+From bc8c93e596d2434f1d21af107d9132ec331ecbbc Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 17 Sep 2015 10:11:43 -0700
+Subject: [PATCH] hwmon: g762: allow fan speed reading with OOC condition.
+
+Some early/pre-production RN20x had fan cirtuitry that wouldn't allow the
+fan to spin faster than about 1200RPM.  If we set the fan target to >~1500
+this triggers the OOC (out-of-control) bit, and the driver ignores the fan
+RPM reading.  So we need to allow reading even with OOC, or else we'll end
+up sending alerts when they're not really necessary.
+---
+ drivers/hwmon/g762.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/hwmon/g762.c b/drivers/hwmon/g762.c
+index b96a2a9..2e61ac8 100644
+--- a/drivers/hwmon/g762.c
++++ b/drivers/hwmon/g762.c
+@@ -746,7 +746,7 @@ static ssize_t get_fan_rpm(struct device *dev, struct device_attribute *da,
+ 
+ 	mutex_lock(&data->update_lock);
+ 	/* reverse logic: fan out of control reporting is enabled low */
+-	if (data->fan_sta & G762_REG_FAN_STA_OOC) {
++	{
+ 		rpm = rpm_from_cnt(data->act_cnt, data->clk_freq,
+ 				   G762_PULSE_FROM_REG(data->fan_cmd1),
+ 				   G762_CLKDIV_FROM_REG(data->fan_cmd1),
+-- 
+1.9.1
+

@@ -1,0 +1,37 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+LIBPKG := libseccomp2
+DEVPKG := libseccomp-dev
+
+# Enable verbose build details.
+export V=1
+
+%:
+	dh $@ --parallel --with autoreconf
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -f regression.out
+
+override_dh_link:
+	dh_link -p$(DEVPKG) \
+		lib/$(DEB_HOST_MULTIARCH)/$$(basename $$(readlink debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/libseccomp.so)) \
+		usr/lib/$(DEB_HOST_MULTIARCH)/libseccomp.so
+	dh_link --remaining-packages
+
+override_dh_install:
+	dh_install -p$(LIBPKG) \
+		"usr/lib/$(DEB_HOST_MULTIARCH)/libseccomp.so.*" \
+		lib/$(DEB_HOST_MULTIARCH)
+	dh_install --remaining-packages --list-missing
+
+override_dh_auto_test:
+ifeq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
+	make check 2>&1 | tee regression.out && \
+	  grep -q "^ tests failed: 0" regression.out || true
+endif

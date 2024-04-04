@@ -1,0 +1,21 @@
+# Misc. notes
+
+## List tab-separated types and subtypes from `mime.types`.
+
+    perl -nE 'next if /^#|^ |^$/ ; say join "\t", (split m,/|\s,)[0,1]' mime.types
+
+## List types and subtypes from the FreeDesktop shared-mime-info project.
+
+    wget http://cgit.freedesktop.org/xdg/shared-mime-info/plain/freedesktop.org.xml.in
+    vi freedesktop.org.xml.in  # edit by removing DOCTYPE, removing the <?xml line
+                                 and removing the xmlns attribute in the mime-info tag.
+    cat freedesktop.org.xml.in |
+      xmlstarlet sel -T -t -m "mime-info" \
+                           -m "mime-type" -v "@type" -o "$(printf "\t")" \
+                           -m "glob" -v "@pattern" -o " " -b -nl |
+      sed 's/\*\.//g'
+
+## To do ?
+
+ - Test at build time that there are no duplicated media types in `mime.types`.
+ - Synchronise `mime.types` from `freedesktop.org.xml.in`. 

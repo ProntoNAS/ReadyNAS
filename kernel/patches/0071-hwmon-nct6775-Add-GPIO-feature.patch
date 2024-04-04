@@ -1,0 +1,284 @@
+From b0cabd0d3e57babbbd2e9c8ab8e4832836a84bd5 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 21 Oct 2015 11:46:38 -0700
+Subject: [PATCH 71/72] hwmon: (nct6775) Add GPIO feature.
+
+---
+ drivers/gpio/Kconfig    |   6 ++
+ drivers/hwmon/nct6775.c | 235 +++++++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 238 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
+index 469dc37..a7f9b33 100644
+--- a/drivers/gpio/Kconfig
++++ b/drivers/gpio/Kconfig
+@@ -901,6 +901,12 @@ config GPIO_WM8994
+ 	  Say yes here to access the GPIO signals of WM8994 audio hub
+ 	  CODECs from Wolfson Microelectronics.
+ 
++config GPIO_NCT6775
++	tristate "Nuvoton NCT6775 LPC I/O"
++	depends on SENSORS_NCT6775
++	help
++	  Enable GPIO function of Nuvoton LPC I/O chip."
++
+ endmenu
+ 
+ menu "PCI GPIO expanders"
+diff --git a/drivers/hwmon/nct6775.c b/drivers/hwmon/nct6775.c
+index 13f76b7..abf806f 100644
+--- a/drivers/hwmon/nct6775.c
++++ b/drivers/hwmon/nct6775.c
+@@ -4464,7 +4464,7 @@ exit_unregister:
+ 	return err;
+ }
+ 
+-static void __exit sensors_nct6775_exit(void)
++static void sensors_nct6775_exit(void)
+ {
+ 	int i;
+ 
+@@ -4475,9 +4475,238 @@ static void __exit sensors_nct6775_exit(void)
+ 	platform_driver_unregister(&nct6775_driver);
+ }
+ 
++#include <linux/gpio.h>
++#include <linux/delay.h>
++static const u8 nct6775_gpio0_active_ldev = 8;
++static const u8 nct6775_gpio0_active = 0x30;
++static const u8 nct6775_gpio0_active_mask = 0x02;
++
++static const u8 nct6775_gpio_ba_active_ldev = 8;
++static const u8 nct6775_gpio_ba_active = 0x30;
++static const u8 nct6775_gpio_ba_active_mask = 0x80;
++
++static const u8 nct6775_gpio_active_ldev = 9;
++static const u8 nct6775_gpio_active = 0x30;
++
++static struct nct6775_gpio {
++	const u8	ldev;	/* Logical device. */
++	const u8	active;	/* Active bit mask. */
++	const u8	mask;	/* Valid bit mask. */
++	const u8	input;	/* Input configuration register. */
++	const u8	data;	/* Data register. */
++	const u8	inv;	/* Bit inversion register. */
++	const u8	stat;	/* Status register. */
++	const u8	mfsr;	/* Multi-function select register. */
++} nct6775_gpio[11] = {
++	[0]	= {8, 0x00, 0xff, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4},
++	[1]	= {8, 0x02, 0xff, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4},
++
++	[2]	= {9, 0x04, 0xff, 0xe0, 0xe1, 0xe2, 0xe3, 0xe9},
++	[3]	= {9, 0x08, 0xff, 0xe4, 0xe5, 0xe6, 0xe7, 0xea},
++	[4]	= {9, 0x10, 0xff, 0xf0, 0xf1, 0xf2, 0xe8, 0xee},
++	[5]	= {9, 0x20, 0xff, 0xf4, 0xf5, 0xf6, 0xf7, 0xeb},
++
++	[6]	= {7, 0x40, 0xff, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8},
++	[7]	= {7, 0x80, 0x0f, 0xe0, 0xe1, 0xe2, 0xe3, 0xec},
++	[8]	= {7, 0x01, 0xff, 0xe4, 0xe5, 0xe6, 0xe7, 0xed},
++
++	/* Front LED control. */
++	[9]	= {11, 0x0, 0x01, 0x00, 0xf7},	/* GRN_LED */
++	[10]	= {11, 0x0, 0x01, 0x00, 0xf8},	/* YLW_LED */
++};
++
++static struct platform_device *find_nct6775_pdev_by_sioreg(int sirereg)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(pdev); i++) {
++		if (pdev[i]) {
++			struct nct6775_sio_data *sio_data =
++				dev_get_platdata(&pdev[i]->dev);
++
++			if (sio_data && sio_data->sioreg == sirereg)
++				return pdev[i];
++		}
++	}
++	return NULL;
++}
++
++static void nct6775_gpio_set(struct gpio_chip *gc,
++				unsigned int gpio_num, int val)
++{
++	u8 cdata;
++	struct nct6775_data *data;
++	unsigned int chip_num	= gpio_num / 8;
++	unsigned int bit_num	= gpio_num % 8;
++	struct platform_device *gpio_pdev = find_nct6775_pdev_by_sioreg(0x4e);
++
++	if (!gpio_pdev)
++		return;
++
++	if (!(nct6775_gpio[chip_num].mask & (1 << bit_num)))
++		return;
++
++	data = dev_get_drvdata(&gpio_pdev->dev);
++
++	mutex_lock(&data->update_lock);
++	superio_enter(0x4e);
++	superio_select(0x4e, nct6775_gpio[chip_num].ldev);
++
++	switch (nct6775_gpio[chip_num].ldev) {
++	case 7:
++	case 8:
++	case 9:
++		cdata = superio_inb(0x4e, nct6775_gpio[chip_num].data);
++
++		if (val)
++			cdata |= (1 << bit_num);
++		else
++			cdata &= ~(1 << bit_num);
++		superio_outb(0x4e, nct6775_gpio[chip_num].data, cdata);
++		break;
++	case 11:	/* Logical device B - Front panel GRN/YLW LEDs. */
++		superio_outb(0x4e, nct6775_gpio[chip_num].data,
++				val ? 0x87 : 0x80);
++		break;
++	default:
++		break;
++	}
++
++	superio_exit(0x4e);
++	mutex_unlock(&data->update_lock);
++}
++
++static int nct6775_gpio_get(struct gpio_chip *gc, unsigned int gpio_num)
++{
++	u8 cdata, mask = 0;
++	struct nct6775_data *data;
++	unsigned int chip_num	= gpio_num / 8;
++	unsigned int bit_num	= gpio_num % 8;
++	struct platform_device *gpio_pdev = find_nct6775_pdev_by_sioreg(0x4e);
++
++	if (!gpio_pdev)
++		return 0;
++
++	if (!(nct6775_gpio[chip_num].mask & (1 << bit_num)))
++		return 0;
++
++	switch (nct6775_gpio[chip_num].ldev) {
++	case 7:
++	case 8:
++	case 9:
++		mask = (1 << bit_num);
++		break;
++	case 11:	/* Logical device B - Front pabel GRN/YLW LEDs. */
++		mask = 0x07;
++		break;
++	default:
++		return 0;
++	}
++
++	data = dev_get_drvdata(&gpio_pdev->dev);
++
++	mutex_lock(&data->update_lock);
++	superio_enter(0x4e);
++	superio_select(0x4e, nct6775_gpio[chip_num].ldev);
++	cdata = superio_inb(0x4e, nct6775_gpio[chip_num].data);
++
++	superio_exit(0x4e);
++	mutex_unlock(&data->update_lock);
++	return !!(cdata & mask);
++}
++
++static int nct6775_gpio_direction(struct gpio_chip *gc,
++					unsigned int gpio_num, bool input)
++{
++	u8 cdata;
++	struct nct6775_data *data;
++	unsigned int chip_num	= gpio_num / 8;
++	unsigned int bit_num	= gpio_num % 8;
++	struct platform_device *gpio_pdev = find_nct6775_pdev_by_sioreg(0x4e);
++
++	if (!gpio_pdev)
++		return -ENODEV;
++
++	if (!nct6775_gpio[chip_num].input)
++		return 0;	/* GRN/YLW LEDs are always output. */
++
++	if (!(nct6775_gpio[chip_num].mask & (1 << bit_num)))
++		return -ENODEV;
++
++	data = dev_get_drvdata(&gpio_pdev->dev);
++
++	mutex_lock(&data->update_lock);
++	superio_enter(0x4e);
++	superio_select(0x4e, nct6775_gpio[chip_num].ldev);
++	cdata = superio_inb(0x4e, nct6775_gpio[chip_num].input);
++	if (input)
++		cdata |= (1 << bit_num);
++	else
++		cdata &= ~(1 << bit_num);
++	superio_outb(0x4e, nct6775_gpio[chip_num].input, cdata);
++
++	superio_exit(0x4e);
++	mutex_unlock(&data->update_lock);
++	return 0;
++}
++
++static int nct6775_gpio_direction_in(struct gpio_chip *gc,
++					unsigned int gpio_num)
++{
++	return nct6775_gpio_direction(gc, gpio_num, true);
++}
++
++static int nct6775_gpio_direction_out(struct gpio_chip *gc,
++					unsigned int gpio_num, int val)
++{
++	int err = nct6775_gpio_direction(gc, gpio_num, false);
++
++	if (!err)
++		nct6775_gpio_set(gc, gpio_num, val);
++	return err;
++}
++
++static struct gpio_chip nct6775_gpio_chip = {
++	.label		= "gpio_nct6775",
++	.owner		= THIS_MODULE,
++	.get		= nct6775_gpio_get,
++	.set		= nct6775_gpio_set,
++	.direction_input	= nct6775_gpio_direction_in,
++	.direction_output	= nct6775_gpio_direction_out,
++	.base		= -1,
++	.ngpio		= 88,
++};
++
++static int __init gpio_nct6775_init(void)
++{
++	return gpiochip_add(&nct6775_gpio_chip);
++}
++
++static void  __exit gpio_nct6775_exit(void)
++{
++	gpiochip_remove(&nct6775_gpio_chip);
++}
++
++static int __init __sensors_nct6775_init(void)
++{
++	int err = sensors_nct6775_init();
++
++	if (err)
++		return err;
++	if ((err = gpio_nct6775_init()))
++		sensors_nct6775_exit();
++	return err;
++}
++
++static void __exit __sensors_nct6775_exit(void)
++{
++	gpio_nct6775_exit();
++	sensors_nct6775_exit();
++}
++
+ MODULE_AUTHOR("Guenter Roeck <linux@roeck-us.net>");
+ MODULE_DESCRIPTION("Driver for NCT6775F and compatible chips");
+ MODULE_LICENSE("GPL");
+ 
+-module_init(sensors_nct6775_init);
+-module_exit(sensors_nct6775_exit);
++module_init(__sensors_nct6775_init);
++module_exit(__sensors_nct6775_exit);
+-- 
+1.9.1
+

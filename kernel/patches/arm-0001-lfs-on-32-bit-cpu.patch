@@ -1,0 +1,1399 @@
+From b8daad21d75e6039c628f8ae6fb777661bc03fa8 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 8 Dec 2016 00:42:28 -0800
+Subject: [PATCH] lfs on 32-bit cpu
+
+---
+ arch/x86/Kconfig                 |  2 +-
+ drivers/md/bitmap.c              |  2 +-
+ drivers/pci/pci-sysfs.c          |  5 ++-
+ fs/Kconfig                       | 10 +++++
+ fs/afs/rxrpc.c                   |  2 +-
+ fs/afs/vnode.c                   |  4 +-
+ fs/afs/write.c                   |  6 +--
+ fs/btrfs/extent_io.c             |  2 +-
+ fs/cifs/file.c                   |  8 ++--
+ fs/ecryptfs/crypto.c             |  7 ++--
+ fs/ecryptfs/mmap.c               | 16 ++++----
+ fs/ecryptfs/read_write.c         |  4 +-
+ fs/ext2/dir.c                    |  8 ++--
+ fs/ext4/mballoc.c                | 10 ++---
+ fs/fscache/page.c                |  8 ++--
+ fs/fuse/dev.c                    |  2 +-
+ fs/jffs2/file.c                  |  8 ++--
+ fs/nfs/blocklayout/blocklayout.c |  2 +-
+ fs/nfs/objlayout/objio_osd.c     |  8 ++--
+ fs/ubifs/debug.c                 |  4 +-
+ fs/ubifs/file.c                  | 26 ++++++------
+ fs/xfs/xfs_mount.c               |  2 +-
+ fs/xfs/xfs_trace.h               |  4 +-
+ include/linux/mm.h               |  8 ++--
+ include/linux/mm_types.h         |  2 +-
+ include/linux/radix-tree.h       | 63 +++++++++++++++++++----------
+ include/linux/rmap.h             |  4 +-
+ include/linux/types.h            | 11 ++++-
+ include/trace/events/btrfs.h     |  8 ++--
+ include/trace/events/ext4.h      |  4 +-
+ include/trace/events/writeback.h |  4 +-
+ kernel/events/uprobes.c          |  2 +-
+ lib/radix-tree.c                 | 86 ++++++++++++++++++++--------------------
+ mm/debug.c                       |  4 +-
+ mm/filemap.c                     |  8 +++-
+ mm/hugetlb.c                     |  6 ++-
+ mm/interval_tree.c               | 14 +++----
+ mm/ksm.c                         |  2 +-
+ mm/memory.c                      |  4 +-
+ mm/page-writeback.c              |  2 +-
+ mm/percpu.c                      |  1 +
+ mm/readahead.c                   |  2 +-
+ 42 files changed, 216 insertions(+), 169 deletions(-)
+
+diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
+index 436639a..c799d97 100644
+--- a/arch/x86/Kconfig
++++ b/arch/x86/Kconfig
+@@ -74,7 +74,7 @@ config X86
+ 	select GENERIC_TIME_VSYSCALL
+ 	select HAVE_ACPI_APEI			if ACPI
+ 	select HAVE_ACPI_APEI_NMI		if ACPI
+-	select HAVE_ALIGNED_STRUCT_PAGE		if SLUB
++	select HAVE_ALIGNED_STRUCT_PAGE		if SLUB && !LFS_ON_32CPU
+ 	select HAVE_AOUT			if X86_32
+ 	select HAVE_ARCH_AUDITSYSCALL
+ 	select HAVE_ARCH_HUGE_VMAP		if X86_64 || X86_PAE
+diff --git a/drivers/md/bitmap.c b/drivers/md/bitmap.c
+index 4f22e91..a782774 100644
+--- a/drivers/md/bitmap.c
++++ b/drivers/md/bitmap.c
+@@ -919,7 +919,7 @@ static void bitmap_file_set_bit(struct bitmap *bitmap, sector_t block)
+ 	else
+ 		set_bit_le(bit, kaddr);
+ 	kunmap_atomic(kaddr);
+-	pr_debug("set file bit %lu page %lu\n", bit, page->index);
++	pr_debug("set file bit %lu page %llu\n", bit, (unsigned long long)page->index);
+ 	/* record page number so it gets flushed to disk when unplug occurs */
+ 	set_page_attr(bitmap, page->index, BITMAP_PAGE_DIRTY);
+ }
+diff --git a/drivers/pci/pci-sysfs.c b/drivers/pci/pci-sysfs.c
+index d750870..89ad577 100644
+--- a/drivers/pci/pci-sysfs.c
++++ b/drivers/pci/pci-sysfs.c
+@@ -1014,8 +1014,9 @@ static int pci_mmap_resource(struct kobject *kobj, struct bin_attribute *attr,
+ 		return -ENODEV;
+ 
+ 	if (!pci_mmap_fits(pdev, i, vma, PCI_MMAP_SYSFS)) {
+-		WARN(1, "process \"%s\" tried to map 0x%08lx bytes at page 0x%08lx on %s BAR %d (start 0x%16Lx, size 0x%16Lx)\n",
+-			current->comm, vma->vm_end-vma->vm_start, vma->vm_pgoff,
++		WARN(1, "process \"%s\" tried to map 0x%08lx bytes "
++			"at page 0x%016llx on %s BAR %d (start 0x%16llx, size 0x%16llx)\n",
++			current->comm, vma->vm_end-vma->vm_start, (unsigned long long)vma->vm_pgoff,
+ 			pci_name(pdev), i,
+ 			(u64)pci_resource_start(pdev, i),
+ 			(u64)pci_resource_len(pdev, i));
+diff --git a/fs/Kconfig b/fs/Kconfig
+index 6ce72d8..a47bd41 100644
+--- a/fs/Kconfig
++++ b/fs/Kconfig
+@@ -10,6 +10,16 @@ config DCACHE_WORD_ACCESS
+ 
+ if BLOCK
+ 
++config LFS_ON_32CPU
++	bool "Support for large (16TB+) filesystems on 32-bit cpu"
++	depends on LBDAF
++	depends on !HUGETLBFS #hugetlbfs not supported yet
++	default n
++	help
++	  Enable support of running filesystem on block devices that are larger
++	  than 16TB on 32bit cpus
++
++
+ source "fs/ext2/Kconfig"
+ source "fs/ext4/Kconfig"
+ source "fs/jbd2/Kconfig"
+diff --git a/fs/afs/rxrpc.c b/fs/afs/rxrpc.c
+index b506428..437e912 100644
+--- a/fs/afs/rxrpc.c
++++ b/fs/afs/rxrpc.c
+@@ -284,7 +284,7 @@ static int afs_send_pages(struct afs_call *call, struct msghdr *msg,
+ 	call->first_offset = 0;
+ 
+ 	do {
+-		_debug("attach %lx-%lx", first, last);
++		_debug("attach %llx-%llx", (unsigned long long)first, (unsigned long long)last);
+ 
+ 		count = last - first + 1;
+ 		if (count > ARRAY_SIZE(pages))
+diff --git a/fs/afs/vnode.c b/fs/afs/vnode.c
+index 25cf4c3..c294fec 100644
+--- a/fs/afs/vnode.c
++++ b/fs/afs/vnode.c
+@@ -773,13 +773,13 @@ int afs_vnode_store_data(struct afs_writeback *wb, pgoff_t first, pgoff_t last,
+ 	struct afs_vnode *vnode = wb->vnode;
+ 	int ret;
+ 
+-	_enter("%s{%x:%u.%u},%x,%lx,%lx,%x,%x",
++	_enter("%s{%x:%u.%u},%x,%llx,%llx,%x,%x",
+ 	       vnode->volume->vlocation->vldb.name,
+ 	       vnode->fid.vid,
+ 	       vnode->fid.vnode,
+ 	       vnode->fid.unique,
+ 	       key_serial(wb->key),
+-	       first, last, offset, to);
++	       (unsigned long long)first, (unsigned long long)last, offset, to);
+ 
+ 	/* this op will fetch the status */
+ 	spin_lock(&vnode->lock);
+diff --git a/fs/afs/write.c b/fs/afs/write.c
+index 0714abc..d751821 100644
+--- a/fs/afs/write.c
++++ b/fs/afs/write.c
+@@ -280,13 +280,13 @@ static void afs_kill_pages(struct afs_vnode *vnode, bool error,
+ 	struct pagevec pv;
+ 	unsigned count, loop;
+ 
+-	_enter("{%x:%u},%lx-%lx",
+-	       vnode->fid.vid, vnode->fid.vnode, first, last);
++	_enter("{%x:%u},%llx-%llx",
++	       vnode->fid.vid, vnode->fid.vnode, (unsigned long long)first, (unsigned long long)last);
+ 
+ 	pagevec_init(&pv, 0);
+ 
+ 	do {
+-		_debug("kill %lx-%lx", first, last);
++		_debug("kill %llx-%llx", (unsigned long long)first, (unsigned long long)last);
+ 
+ 		count = last - first + 1;
+ 		if (count > PAGEVEC_SIZE)
+diff --git a/fs/btrfs/extent_io.c b/fs/btrfs/extent_io.c
+index 257bbdc..4ac99c1 100644
+--- a/fs/btrfs/extent_io.c
++++ b/fs/btrfs/extent_io.c
+@@ -3555,7 +3555,7 @@ static noinline_for_stack int __extent_writepage_io(struct inode *inode,
+ 			set_range_writeback(tree, cur, cur + iosize - 1);
+ 			if (!PageWriteback(page)) {
+ 				btrfs_err(BTRFS_I(inode)->root->fs_info,
+-					   "page %lu not writeback, cur %llu end %llu",
++					   "page %llu not writeback, cur %llu end %llu",
+ 				       page->index, cur, end);
+ 			}
+ 
+diff --git a/fs/cifs/file.c b/fs/cifs/file.c
+index 72f270d..33358b1 100644
+--- a/fs/cifs/file.c
++++ b/fs/cifs/file.c
+@@ -2081,7 +2081,7 @@ retry:
+ 		if (rc)
+ 			break;
+ 
+-		tofind = min((wsize / PAGE_CACHE_SIZE) - 1, end - index) + 1;
++		tofind = min((pgoff_t)((wsize / PAGE_CACHE_SIZE)) - 1, end - index) + 1;
+ 
+ 		wdata = wdata_alloc_and_fillpages(tofind, mapping, end, &index,
+ 						  &found_pages);
+@@ -3318,7 +3318,7 @@ cifs_readpages_read_into_pages(struct TCP_Server_Info *server,
+ 	/* determine the eof that the server (probably) has */
+ 	eof = CIFS_I(rdata->mapping->host)->server_eof;
+ 	eof_index = eof ? (eof - 1) >> PAGE_CACHE_SHIFT : 0;
+-	cifs_dbg(FYI, "eof=%llu eof_index=%lu\n", eof, eof_index);
++	cifs_dbg(FYI, "eof=%llu eof_index=%llu\n", eof, (unsigned long long)eof_index);
+ 
+ 	rdata->got_bytes = 0;
+ 	rdata->tailsz = PAGE_CACHE_SIZE;
+@@ -3329,14 +3329,14 @@ cifs_readpages_read_into_pages(struct TCP_Server_Info *server,
+ 			/* enough data to fill the page */
+ 			iov.iov_base = kmap(page);
+ 			iov.iov_len = PAGE_CACHE_SIZE;
+-			cifs_dbg(FYI, "%u: idx=%lu iov_base=%p iov_len=%zu\n",
++			cifs_dbg(FYI, "%u: idx=%llu iov_base=%p iov_len=%zu\n",
+ 				 i, page->index, iov.iov_base, iov.iov_len);
+ 			len -= PAGE_CACHE_SIZE;
+ 		} else if (len > 0) {
+ 			/* enough for partial page, fill and zero the rest */
+ 			iov.iov_base = kmap(page);
+ 			iov.iov_len = len;
+-			cifs_dbg(FYI, "%u: idx=%lu iov_base=%p iov_len=%zu\n",
++			cifs_dbg(FYI, "%u: idx=%llu iov_base=%p iov_len=%zu\n",
+ 				 i, page->index, iov.iov_base, iov.iov_len);
+ 			memset(iov.iov_base + len,
+ 				'\0', PAGE_CACHE_SIZE - len);
+diff --git a/fs/ecryptfs/crypto.c b/fs/ecryptfs/crypto.c
+index 80d6901..faf4636 100644
+--- a/fs/ecryptfs/crypto.c
++++ b/fs/ecryptfs/crypto.c
+@@ -456,9 +456,10 @@ static int crypt_extent(struct ecryptfs_crypt_stat *crypt_stat,
+ 	rc = crypt_scatterlist(crypt_stat, &dst_sg, &src_sg, extent_size,
+ 			       extent_iv, op);
+ 	if (rc < 0) {
+-		printk(KERN_ERR "%s: Error attempting to crypt page with "
+-		       "page_index = [%ld], extent_offset = [%ld]; "
+-		       "rc = [%d]\n", __func__, page_index, extent_offset, rc);
++		printk(KERN_ERR "%s: Error attempting to encrypt page with "
++		       "page->index = [%lld], extent_offset = [%ld]; "
++		       "rc = [%d]\n", __func__, (unsigned long long)page_index, extent_offset,
++		       rc);
+ 		goto out;
+ 	}
+ 	rc = 0;
+diff --git a/fs/ecryptfs/mmap.c b/fs/ecryptfs/mmap.c
+index caba848..9116a80 100644
+--- a/fs/ecryptfs/mmap.c
++++ b/fs/ecryptfs/mmap.c
+@@ -69,7 +69,7 @@ static int ecryptfs_writepage(struct page *page, struct writeback_control *wbc)
+ 	rc = ecryptfs_encrypt_page(page);
+ 	if (rc) {
+ 		ecryptfs_printk(KERN_WARNING, "Error encrypting "
+-				"page (upper index [0x%.16lx])\n", page->index);
++				"page (upper index [0x%.16llx])\n", (unsigned long long)page->index);
+ 		ClearPageUptodate(page);
+ 		goto out;
+ 	}
+@@ -237,8 +237,8 @@ out:
+ 		ClearPageUptodate(page);
+ 	else
+ 		SetPageUptodate(page);
+-	ecryptfs_printk(KERN_DEBUG, "Unlocking page with index = [0x%.16lx]\n",
+-			page->index);
++	ecryptfs_printk(KERN_DEBUG, "Unlocking page with index = [0x%.16llx]\n",
++			(unsigned long long)page->index);
+ 	unlock_page(page);
+ 	return rc;
+ }
+@@ -343,9 +343,9 @@ static int ecryptfs_write_begin(struct file *file,
+ 				rc = ecryptfs_decrypt_page(page);
+ 				if (rc) {
+ 					printk(KERN_ERR "%s: Error decrypting "
+-					       "page at index [%ld]; "
++					       "page at index [%lld]; "
+ 					       "rc = [%d]\n",
+-					       __func__, page->index, rc);
++					       __func__, (unsigned long long)page->index, rc);
+ 					ClearPageUptodate(page);
+ 					goto out;
+ 				}
+@@ -489,7 +489,7 @@ static int ecryptfs_write_end(struct file *file,
+ 	int rc;
+ 
+ 	ecryptfs_printk(KERN_DEBUG, "Calling fill_zeros_to_end_of_page"
+-			"(page w/ index = [0x%.16lx], to = [%d])\n", index, to);
++			"(page w/ index = [0x%.16llx], to = [%d])\n", (unsigned long long)index, to);
+ 	if (!(crypt_stat->flags & ECRYPTFS_ENCRYPTED)) {
+ 		rc = ecryptfs_write_lower_page_segment(ecryptfs_inode, page, 0,
+ 						       to);
+@@ -511,13 +511,13 @@ static int ecryptfs_write_end(struct file *file,
+ 	rc = fill_zeros_to_end_of_page(page, to);
+ 	if (rc) {
+ 		ecryptfs_printk(KERN_WARNING, "Error attempting to fill "
+-			"zeros in page with index = [0x%.16lx]\n", index);
++			"zeros in page with index = [0x%.16llxlx]\n", (unsigned long long)index);
+ 		goto out;
+ 	}
+ 	rc = ecryptfs_encrypt_page(page);
+ 	if (rc) {
+ 		ecryptfs_printk(KERN_WARNING, "Error encrypting page (upper "
+-				"index [0x%.16lx])\n", index);
++				"index [0x%.16llx])\n", (unsigned long long)index);
+ 		goto out;
+ 	}
+ 	if (pos + copied > i_size_read(ecryptfs_inode)) {
+diff --git a/fs/ecryptfs/read_write.c b/fs/ecryptfs/read_write.c
+index 09fe622..435f848 100644
+--- a/fs/ecryptfs/read_write.c
++++ b/fs/ecryptfs/read_write.c
+@@ -147,9 +147,9 @@ int ecryptfs_write(struct inode *ecryptfs_inode, char *data, loff_t offset,
+ 		if (IS_ERR(ecryptfs_page)) {
+ 			rc = PTR_ERR(ecryptfs_page);
+ 			printk(KERN_ERR "%s: Error getting page at "
+-			       "index [%ld] from eCryptfs inode "
++			       "index [%lld] from eCryptfs inode "
+ 			       "mapping; rc = [%d]\n", __func__,
+-			       ecryptfs_page_idx, rc);
++			       (unsigned long long)ecryptfs_page_idx, rc);
+ 			goto out;
+ 		}
+ 		ecryptfs_page_virt = kmap_atomic(ecryptfs_page);
+diff --git a/fs/ext2/dir.c b/fs/ext2/dir.c
+index 0c6638b..7d955db 100644
+--- a/fs/ext2/dir.c
++++ b/fs/ext2/dir.c
+@@ -175,8 +175,8 @@ Einumber:
+ bad_entry:
+ 	if (!quiet)
+ 		ext2_error(sb, __func__, "bad entry in directory #%lu: : %s - "
+-			"offset=%lu, inode=%lu, rec_len=%d, name_len=%d",
+-			dir->i_ino, error, (page->index<<PAGE_CACHE_SHIFT)+offs,
++			"offset=%llu, inode=%lu, rec_len=%d, name_len=%d",
++			dir->i_ino, error, (unsigned long long)(page->index<<PAGE_CACHE_SHIFT)+offs,
+ 			(unsigned long) le32_to_cpu(p->inode),
+ 			rec_len, p->name_len);
+ 	goto fail;
+@@ -185,8 +185,8 @@ Eend:
+ 		p = (ext2_dirent *)(kaddr + offs);
+ 		ext2_error(sb, "ext2_check_page",
+ 			"entry in directory #%lu spans the page boundary"
+-			"offset=%lu, inode=%lu",
+-			dir->i_ino, (page->index<<PAGE_CACHE_SHIFT)+offs,
++			"offset=%llu, inode=%lu",
++			dir->i_ino, (unsigned long long)(page->index<<PAGE_CACHE_SHIFT)+offs,
+ 			(unsigned long) le32_to_cpu(p->inode));
+ 	}
+ fail:
+diff --git a/fs/ext4/mballoc.c b/fs/ext4/mballoc.c
+index 3c7f0c4..e084f04 100644
+--- a/fs/ext4/mballoc.c
++++ b/fs/ext4/mballoc.c
+@@ -833,7 +833,7 @@ static int ext4_mb_init_cache(struct page *page, char *incore, gfp_t gfp)
+ 	char *bitmap;
+ 	struct ext4_group_info *grinfo;
+ 
+-	mb_debug(1, "init page %lu\n", page->index);
++	mb_debug(1, "init page %llu\n", (unsigned long long)page->index);
+ 
+ 	inode = page->mapping->host;
+ 	sb = inode->i_sb;
+@@ -925,8 +925,8 @@ static int ext4_mb_init_cache(struct page *page, char *incore, gfp_t gfp)
+ 		if ((first_block + i) & 1) {
+ 			/* this is block of buddy */
+ 			BUG_ON(incore == NULL);
+-			mb_debug(1, "put buddy for group %u in page %lu/%x\n",
+-				group, page->index, i * blocksize);
++			mb_debug(1, "put buddy for group %u in page %llu/%x\n",
++				group, (unsigned long long)page->index, i * blocksize);
+ 			trace_ext4_mb_buddy_bitmap_load(sb, group);
+ 			grinfo = ext4_get_group_info(sb, group);
+ 			grinfo->bb_fragments = 0;
+@@ -945,8 +945,8 @@ static int ext4_mb_init_cache(struct page *page, char *incore, gfp_t gfp)
+ 		} else {
+ 			/* this is block of bitmap */
+ 			BUG_ON(incore != NULL);
+-			mb_debug(1, "put bitmap for group %u in page %lu/%x\n",
+-				group, page->index, i * blocksize);
++			mb_debug(1, "put bitmap for group %u in page %llu/%x\n",
++				group, (unsigned long long)page->index, i * blocksize);
+ 			trace_ext4_mb_bitmap_load(sb, group);
+ 
+ 			/* see comments in ext4_mb_put_pa() */
+diff --git a/fs/fscache/page.c b/fs/fscache/page.c
+index 6b35fc4..5a6692e 100644
+--- a/fs/fscache/page.c
++++ b/fs/fscache/page.c
+@@ -129,7 +129,7 @@ page_busy:
+ 
+ 	fscache_stat(&fscache_n_store_vmscan_wait);
+ 	if (!release_page_wait_timeout(cookie, page))
+-		_debug("fscache writeout timeout page: %p{%lx}",
++		_debug("fscache writeout timeout page: %p{%llx}",
+ 			page, page->index);
+ 
+ 	gfp &= ~__GFP_DIRECT_RECLAIM;
+@@ -815,7 +815,7 @@ static void fscache_write_op(struct fscache_operation *_op)
+ 	if (n != 1)
+ 		goto superseded;
+ 	page = results[0];
+-	_debug("gang %d [%lx]", n, page->index);
++	_debug("gang %d [%llx]", n, page->index);
+ 	if (page->index >= op->store_limit) {
+ 		fscache_stat(&fscache_n_store_pages_over_limit);
+ 		goto superseded;
+@@ -1118,12 +1118,12 @@ void fscache_mark_page_cached(struct fscache_retrieval *op, struct page *page)
+ 	atomic_inc(&fscache_n_marks);
+ #endif
+ 
+-	_debug("- mark %p{%lx}", page, page->index);
++	_debug("- mark %p{%llx}", page, page->index);
+ 	if (TestSetPageFsCache(page)) {
+ 		static bool once_only;
+ 		if (!once_only) {
+ 			once_only = true;
+-			pr_warn("Cookie type %s marked page %lx multiple times\n",
++			pr_warn("Cookie type %s marked page %llx multiple times\n",
+ 				cookie->def->name, page->index);
+ 		}
+ 	}
+diff --git a/fs/fuse/dev.c b/fs/fuse/dev.c
+index ebb5e37..e52f1d8 100644
+--- a/fs/fuse/dev.c
++++ b/fs/fuse/dev.c
+@@ -833,7 +833,7 @@ static int fuse_check_page(struct page *page)
+ 	       1 << PG_active |
+ 	       1 << PG_reclaim))) {
+ 		printk(KERN_WARNING "fuse: trying to steal weird page\n");
+-		printk(KERN_WARNING "  page=%p index=%li flags=%08lx, count=%i, mapcount=%i, mapping=%p\n", page, page->index, page->flags, page_count(page), page_mapcount(page), page->mapping);
++		printk(KERN_WARNING "  page=%p index=%llu flags=%08lx, count=%i, mapcount=%i, mapping=%p\n", page, page->index, page->flags, page_count(page), page_mapcount(page), page->mapping);
+ 		return 1;
+ 	}
+ 	return 0;
+diff --git a/fs/jffs2/file.c b/fs/jffs2/file.c
+index 3361979..39bff7f 100644
+--- a/fs/jffs2/file.c
++++ b/fs/jffs2/file.c
+@@ -86,8 +86,8 @@ static int jffs2_do_readpage_nolock (struct inode *inode, struct page *pg)
+ 	unsigned char *pg_buf;
+ 	int ret;
+ 
+-	jffs2_dbg(2, "%s(): ino #%lu, page at offset 0x%lx\n",
+-		  __func__, inode->i_ino, pg->index << PAGE_CACHE_SHIFT);
++	jffs2_dbg(2, "%s(): ino #%lu, page at offset 0x%llx\n",
++		  __func__, inode->i_ino, (unsigned long long)pg->index << PAGE_CACHE_SHIFT);
+ 
+ 	BUG_ON(!PageLocked(pg));
+ 
+@@ -251,8 +251,8 @@ static int jffs2_write_end(struct file *filp, struct address_space *mapping,
+ 	int ret = 0;
+ 	uint32_t writtenlen = 0;
+ 
+-	jffs2_dbg(1, "%s(): ino #%lu, page at 0x%lx, range %d-%d, flags %lx\n",
+-		  __func__, inode->i_ino, pg->index << PAGE_CACHE_SHIFT,
++	jffs2_dbg(1, "%s(): ino #%lu, page at 0x%llx, range %d-%d, flags %lx\n",
++		  __func__, inode->i_ino, (unsigned long long)pg->index << PAGE_CACHE_SHIFT,
+ 		  start, end, pg->flags);
+ 
+ 	/* We need to avoid deadlock with page_cache_read() in
+diff --git a/fs/nfs/blocklayout/blocklayout.c b/fs/nfs/blocklayout/blocklayout.c
+index ddd0138..962f654 100644
+--- a/fs/nfs/blocklayout/blocklayout.c
++++ b/fs/nfs/blocklayout/blocklayout.c
+@@ -809,7 +809,7 @@ static u64 pnfs_num_cont_bytes(struct inode *inode, pgoff_t idx)
+ 	end = DIV_ROUND_UP(i_size_read(inode), PAGE_CACHE_SIZE);
+ 	if (end != inode->i_mapping->nrpages) {
+ 		rcu_read_lock();
+-		end = page_cache_next_hole(mapping, idx + 1, ULONG_MAX);
++		end = page_cache_next_hole(mapping, idx + 1, RDX_TREE_KEY_MAX_VALUE);
+ 		rcu_read_unlock();
+ 	}
+ 
+diff --git a/fs/nfs/objlayout/objio_osd.c b/fs/nfs/objlayout/objio_osd.c
+index 9aebffb..f082743 100644
+--- a/fs/nfs/objlayout/objio_osd.c
++++ b/fs/nfs/objlayout/objio_osd.c
+@@ -462,7 +462,7 @@ static struct page *__r4w_get_page(void *priv, u64 offset, bool *uptodate)
+ 
+ 	if (offset >= i_size) {
+ 		*uptodate = true;
+-		dprintk("%s: g_zero_page index=0x%lx\n", __func__, index);
++		dprintk("%s: g_zero_page index=0x%llx\n", __func__, (unsigned long long)index);
+ 		return ZERO_PAGE(0);
+ 	}
+ 
+@@ -470,14 +470,14 @@ static struct page *__r4w_get_page(void *priv, u64 offset, bool *uptodate)
+ 	if (!page) {
+ 		page = find_or_create_page(mapping, index, GFP_NOFS);
+ 		if (unlikely(!page)) {
+-			dprintk("%s: grab_cache_page Failed index=0x%lx\n",
+-				__func__, index);
++			dprintk("%s: grab_cache_page Failed index=0x%llx\n",
++				__func__, (unsigned long long)index);
+ 			return NULL;
+ 		}
+ 		unlock_page(page);
+ 	}
+ 	*uptodate = PageUptodate(page);
+-	dprintk("%s: index=0x%lx uptodate=%d\n", __func__, index, *uptodate);
++	dprintk("%s: index=0x%llx uptodate=%d\n", __func__, (unsigned long long)index, *uptodate);
+ 	return page;
+ }
+ 
+diff --git a/fs/ubifs/debug.c b/fs/ubifs/debug.c
+index 595ca0d..ccbeeb9 100644
+--- a/fs/ubifs/debug.c
++++ b/fs/ubifs/debug.c
+@@ -267,8 +267,8 @@ void ubifs_dump_inode(struct ubifs_info *c, const struct inode *inode)
+ 	       (unsigned long long)ui->ui_size);
+ 	pr_err("\tflags          %d\n", ui->flags);
+ 	pr_err("\tcompr_type     %d\n", ui->compr_type);
+-	pr_err("\tlast_page_read %lu\n", ui->last_page_read);
+-	pr_err("\tread_in_a_row  %lu\n", ui->read_in_a_row);
++	pr_err("\tlast_page_read %llu\n", (unsigned long long)ui->last_page_read);
++	pr_err("\tread_in_a_row  %llu\n", (unsigned long long)ui->read_in_a_row);
+ 	pr_err("\tdata_len       %d\n", ui->data_len);
+ 
+ 	if (!S_ISDIR(inode->i_mode))
+diff --git a/fs/ubifs/file.c b/fs/ubifs/file.c
+index b895af7..e787b71 100644
+--- a/fs/ubifs/file.c
++++ b/fs/ubifs/file.c
+@@ -110,8 +110,8 @@ static int do_readpage(struct page *page)
+ 	struct inode *inode = page->mapping->host;
+ 	loff_t i_size = i_size_read(inode);
+ 
+-	dbg_gen("ino %lu, pg %lu, i_size %lld, flags %#lx",
+-		inode->i_ino, page->index, i_size, page->flags);
++	dbg_gen("ino %lu, pg %llu, i_size %lld, flags %#lx",
++		inode->i_ino, (unsigned long long)page->index, i_size, page->flags);
+ 	ubifs_assert(!PageChecked(page));
+ 	ubifs_assert(!PagePrivate(page));
+ 
+@@ -167,8 +167,8 @@ static int do_readpage(struct page *page)
+ 			dbg_gen("hole");
+ 			goto out_free;
+ 		}
+-		ubifs_err(c, "cannot read page %lu of inode %lu, error %d",
+-			  page->index, inode->i_ino, err);
++		ubifs_err(c, "cannot read page %llu of inode %lu, error %d",
++			  (unsigned long long)page->index, inode->i_ino, err);
+ 		goto error;
+ 	}
+ 
+@@ -547,8 +547,8 @@ static int ubifs_write_end(struct file *file, struct address_space *mapping,
+ 	loff_t end_pos = pos + len;
+ 	int appending = !!(end_pos > inode->i_size);
+ 
+-	dbg_gen("ino %lu, pos %llu, pg %lu, len %u, copied %d, i_size %lld",
+-		inode->i_ino, pos, page->index, len, copied, inode->i_size);
++	dbg_gen("ino %lu, pos %llu, pg %llu, len %u, copied %d, i_size %lld",
++		inode->i_ino, pos, (unsigned long long)page->index, len, copied, inode->i_size);
+ 
+ 	if (unlikely(copied < len && len == PAGE_CACHE_SIZE)) {
+ 		/*
+@@ -617,8 +617,8 @@ static int populate_page(struct ubifs_info *c, struct page *page,
+ 	void *addr, *zaddr;
+ 	pgoff_t end_index;
+ 
+-	dbg_gen("ino %lu, pg %lu, i_size %lld, flags %#lx",
+-		inode->i_ino, page->index, i_size, page->flags);
++	dbg_gen("ino %lu, pg %llu, i_size %lld, flags %#lx",
++		inode->i_ino, (unsigned long long)page->index, i_size, page->flags);
+ 
+ 	addr = zaddr = kmap(page);
+ 
+@@ -930,8 +930,8 @@ static int do_writepage(struct page *page, int len)
+ 	}
+ 	if (err) {
+ 		SetPageError(page);
+-		ubifs_err(c, "cannot write page %lu of inode %lu, error %d",
+-			  page->index, inode->i_ino, err);
++		ubifs_err(c, "cannot write page %llu of inode %lu, error %d",
++			(unsigned long long)page->index, inode->i_ino, err);
+ 		ubifs_ro_mode(c, err);
+ 	}
+ 
+@@ -1006,8 +1006,8 @@ static int ubifs_writepage(struct page *page, struct writeback_control *wbc)
+ 	int err, len = i_size & (PAGE_CACHE_SIZE - 1);
+ 	void *kaddr;
+ 
+-	dbg_gen("ino %lu, pg %lu, pg flags %#lx",
+-		inode->i_ino, page->index, page->flags);
++	dbg_gen("ino %lu, pg %llu, pg flags %#lx",
++		inode->i_ino, (unsigned long long)page->index, page->flags);
+ 	ubifs_assert(PagePrivate(page));
+ 
+ 	/* Is the page fully outside @i_size? (truncate in progress) */
+@@ -1502,7 +1502,7 @@ static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma,
+ 	struct ubifs_budget_req req = { .new_page = 1 };
+ 	int err, update_time;
+ 
+-	dbg_gen("ino %lu, pg %lu, i_size %lld",	inode->i_ino, page->index,
++	dbg_gen("ino %lu, pg %llu, i_size %lld", inode->i_ino, (unsigned long long)page->index,
+ 		i_size_read(inode));
+ 	ubifs_assert(!c->ro_media && !c->ro_mount);
+ 
+diff --git a/fs/xfs/xfs_mount.c b/fs/xfs/xfs_mount.c
+index bb753b3..b097daa 100644
+--- a/fs/xfs/xfs_mount.c
++++ b/fs/xfs/xfs_mount.c
+@@ -171,7 +171,7 @@ xfs_sb_validate_fsb_count(
+ 	ASSERT(sbp->sb_blocklog >= BBSHIFT);
+ 
+ 	/* Limited by ULONG_MAX of page cache index */
+-	if (nblocks >> (PAGE_CACHE_SHIFT - sbp->sb_blocklog) > ULONG_MAX)
++	if (nblocks >> (PAGE_CACHE_SHIFT - sbp->sb_blocklog) > PGOFF_MAX)
+ 		return -EFBIG;
+ 	return 0;
+ }
+diff --git a/fs/xfs/xfs_trace.h b/fs/xfs/xfs_trace.h
+index 877079eb..dc693bf6 100644
+--- a/fs/xfs/xfs_trace.h
++++ b/fs/xfs/xfs_trace.h
+@@ -1201,8 +1201,8 @@ DECLARE_EVENT_CLASS(xfs_page_class,
+ 		__entry->delalloc = delalloc;
+ 		__entry->unwritten = unwritten;
+ 	),
+-	TP_printk("dev %d:%d ino 0x%llx pgoff 0x%lx size 0x%llx offset %lx "
+-		  "length %x delalloc %d unwritten %d",
++	TP_printk("dev %d:%d ino 0x%llx pgoff 0x%llx size 0x%llx offset %lx "
++		  "delalloc %d unwritten %d",
+ 		  MAJOR(__entry->dev), MINOR(__entry->dev),
+ 		  __entry->ino,
+ 		  __entry->pgoff,
+diff --git a/include/linux/mm.h b/include/linux/mm.h
+index f0ffa01..a68134d 100644
+--- a/include/linux/mm.h
++++ b/include/linux/mm.h
+@@ -1835,9 +1835,9 @@ void vma_interval_tree_insert_after(struct vm_area_struct *node,
+ void vma_interval_tree_remove(struct vm_area_struct *node,
+ 			      struct rb_root *root);
+ struct vm_area_struct *vma_interval_tree_iter_first(struct rb_root *root,
+-				unsigned long start, unsigned long last);
++				 pgoff_t start, pgoff_t last);
+ struct vm_area_struct *vma_interval_tree_iter_next(struct vm_area_struct *node,
+-				unsigned long start, unsigned long last);
++				pgoff_t start, pgoff_t last);
+ 
+ #define vma_interval_tree_foreach(vma, root, start, last)		\
+ 	for (vma = vma_interval_tree_iter_first(root, start, last);	\
+@@ -1848,9 +1848,9 @@ void anon_vma_interval_tree_insert(struct anon_vma_chain *node,
+ void anon_vma_interval_tree_remove(struct anon_vma_chain *node,
+ 				   struct rb_root *root);
+ struct anon_vma_chain *anon_vma_interval_tree_iter_first(
+-	struct rb_root *root, unsigned long start, unsigned long last);
++	struct rb_root *root, pgoff_t start, pgoff_t last);
+ struct anon_vma_chain *anon_vma_interval_tree_iter_next(
+-	struct anon_vma_chain *node, unsigned long start, unsigned long last);
++	struct anon_vma_chain *node, pgoff_t start, pgoff_t last);
+ #ifdef CONFIG_DEBUG_VM_RB
+ void anon_vma_interval_tree_verify(struct anon_vma_chain *node);
+ #endif
+diff --git a/include/linux/mm_types.h b/include/linux/mm_types.h
+index f8d1492..de4a578 100644
+--- a/include/linux/mm_types.h
++++ b/include/linux/mm_types.h
+@@ -343,7 +343,7 @@ struct vm_area_struct {
+ 	const struct vm_operations_struct *vm_ops;
+ 
+ 	/* Information about our backing store: */
+-	unsigned long vm_pgoff;		/* Offset (within vm_file) in PAGE_SIZE
++	pgoff_t vm_pgoff;		/* Offset (within vm_file) in PAGE_SIZE
+ 					   units, *not* PAGE_CACHE_SIZE */
+ 	struct file * vm_file;		/* File we map to (can be NULL). */
+ 	void * vm_private_data;		/* was vm_pte (shared mem) */
+diff --git a/include/linux/radix-tree.h b/include/linux/radix-tree.h
+index 5d5174b..4bc4686 100644
+--- a/include/linux/radix-tree.h
++++ b/include/linux/radix-tree.h
+@@ -27,6 +27,25 @@
+ #include <linux/kernel.h>
+ #include <linux/rcupdate.h>
+ 
++/* index type */
++ /* index type */
++#ifdef CONFIG_LFS_ON_32CPU
++#define rdx_t  unsigned long long
++#define RDX_TREE_KEY_MAX_VALUE ULLONG_MAX
++#else
++#define rdx_t  unsigned long
++#define RDX_TREE_KEY_MAX_VALUE ULONG_MAX
++#endif
++
++
++#ifdef CONFIG_LFS_ON_32CPU
++#define RADIX_TREE_1   1ULL
++#define RADIX_TREE_BITS_PER_KEY                64
++#else
++#define RADIX_TREE_1   1UL
++#define RADIX_TREE_BITS_PER_KEY                BITS_PER_LONG
++#endif
++
+ /*
+  * An indirect pointer (root->rnode pointing to a radix_tree_node, rather
+  * than a data item) is signalled by the low bit set in the root->rnode
+@@ -66,13 +85,13 @@ static inline int radix_tree_is_indirect_ptr(void *ptr)
+ #define RADIX_TREE_MAP_SHIFT	3	/* For more stressful testing */
+ #endif
+ 
+-#define RADIX_TREE_MAP_SIZE	(1UL << RADIX_TREE_MAP_SHIFT)
++#define RADIX_TREE_MAP_SIZE	(RADIX_TREE_1 << RADIX_TREE_MAP_SHIFT)
+ #define RADIX_TREE_MAP_MASK	(RADIX_TREE_MAP_SIZE-1)
+ 
+ #define RADIX_TREE_TAG_LONGS	\
+ 	((RADIX_TREE_MAP_SIZE + BITS_PER_LONG - 1) / BITS_PER_LONG)
+ 
+-#define RADIX_TREE_INDEX_BITS  (8 /* CHAR_BIT */ * sizeof(unsigned long))
++#define RADIX_TREE_INDEX_BITS  (8 /* CHAR_BIT */ * sizeof(rdx_t))
+ #define RADIX_TREE_MAX_PATH (DIV_ROUND_UP(RADIX_TREE_INDEX_BITS, \
+ 					  RADIX_TREE_MAP_SHIFT))
+ 
+@@ -260,46 +279,46 @@ static inline void radix_tree_replace_slot(void **pslot, void *item)
+ 	rcu_assign_pointer(*pslot, item);
+ }
+ 
+-int __radix_tree_create(struct radix_tree_root *root, unsigned long index,
++int __radix_tree_create(struct radix_tree_root *root, rdx_t index,
+ 			struct radix_tree_node **nodep, void ***slotp);
+-int radix_tree_insert(struct radix_tree_root *, unsigned long, void *);
+-void *__radix_tree_lookup(struct radix_tree_root *root, unsigned long index,
++int radix_tree_insert(struct radix_tree_root *, rdx_t, void *);
++void *__radix_tree_lookup(struct radix_tree_root *root, rdx_t index,
+ 			  struct radix_tree_node **nodep, void ***slotp);
+-void *radix_tree_lookup(struct radix_tree_root *, unsigned long);
+-void **radix_tree_lookup_slot(struct radix_tree_root *, unsigned long);
++void *radix_tree_lookup(struct radix_tree_root *, rdx_t);
++void **radix_tree_lookup_slot(struct radix_tree_root *, rdx_t);
+ bool __radix_tree_delete_node(struct radix_tree_root *root,
+ 			      struct radix_tree_node *node);
+-void *radix_tree_delete_item(struct radix_tree_root *, unsigned long, void *);
+-void *radix_tree_delete(struct radix_tree_root *, unsigned long);
++void *radix_tree_delete_item(struct radix_tree_root *, rdx_t, void *);
++void *radix_tree_delete(struct radix_tree_root *, rdx_t);
+ unsigned int
+ radix_tree_gang_lookup(struct radix_tree_root *root, void **results,
+-			unsigned long first_index, unsigned int max_items);
++			rdx_t first_index, unsigned int max_items);
+ unsigned int radix_tree_gang_lookup_slot(struct radix_tree_root *root,
+-			void ***results, unsigned long *indices,
+-			unsigned long first_index, unsigned int max_items);
++			void ***results, rdx_t *indices,
++			rdx_t first_index, unsigned int max_items);
+ int radix_tree_preload(gfp_t gfp_mask);
+ int radix_tree_maybe_preload(gfp_t gfp_mask);
+ void radix_tree_init(void);
+ void *radix_tree_tag_set(struct radix_tree_root *root,
+-			unsigned long index, unsigned int tag);
++			rdx_t index, unsigned int tag);
+ void *radix_tree_tag_clear(struct radix_tree_root *root,
+-			unsigned long index, unsigned int tag);
++			rdx_t index, unsigned int tag);
+ int radix_tree_tag_get(struct radix_tree_root *root,
+-			unsigned long index, unsigned int tag);
++			rdx_t index, unsigned int tag);
+ unsigned int
+ radix_tree_gang_lookup_tag(struct radix_tree_root *root, void **results,
+-		unsigned long first_index, unsigned int max_items,
++		rdx_t first_index, unsigned int max_items,
+ 		unsigned int tag);
+ unsigned int
+ radix_tree_gang_lookup_tag_slot(struct radix_tree_root *root, void ***results,
+-		unsigned long first_index, unsigned int max_items,
++		rdx_t first_index, unsigned int max_items,
+ 		unsigned int tag);
+ unsigned long radix_tree_range_tag_if_tagged(struct radix_tree_root *root,
+-		unsigned long *first_indexp, unsigned long last_index,
++		rdx_t *first_indexp, rdx_t last_index,
+ 		unsigned long nr_to_tag,
+ 		unsigned int fromtag, unsigned int totag);
+ int radix_tree_tagged(struct radix_tree_root *root, unsigned int tag);
+-unsigned long radix_tree_locate_item(struct radix_tree_root *root, void *item);
++rdx_t radix_tree_locate_item(struct radix_tree_root *root, void *item);
+ 
+ static inline void radix_tree_preload_end(void)
+ {
+@@ -321,8 +340,8 @@ static inline void radix_tree_preload_end(void)
+  * radix tree tag.
+  */
+ struct radix_tree_iter {
+-	unsigned long	index;
+-	unsigned long	next_index;
++	rdx_t	index;
++	rdx_t	next_index;
+ 	unsigned long	tags;
+ };
+ 
+@@ -338,7 +357,7 @@ struct radix_tree_iter {
+  * Returns:	NULL
+  */
+ static __always_inline void **
+-radix_tree_iter_init(struct radix_tree_iter *iter, unsigned long start)
++radix_tree_iter_init(struct radix_tree_iter *iter, rdx_t start)
+ {
+ 	/*
+ 	 * Leave iter->tags uninitialized. radix_tree_next_chunk() will fill it
+diff --git a/include/linux/rmap.h b/include/linux/rmap.h
+index ddda2ac..6435ded 100644
+--- a/include/linux/rmap.h
++++ b/include/linux/rmap.h
+@@ -75,9 +75,9 @@ struct anon_vma_chain {
+ 	struct anon_vma *anon_vma;
+ 	struct list_head same_vma;   /* locked by mmap_sem & page_table_lock */
+ 	struct rb_node rb;			/* locked by anon_vma->rwsem */
+-	unsigned long rb_subtree_last;
++	pgoff_t rb_subtree_last;
+ #ifdef CONFIG_DEBUG_VM_RB
+-	unsigned long cached_vma_start, cached_vma_last;
++	pgoff_t cached_vma_start, cached_vma_last;
+ #endif
+ };
+ 
+diff --git a/include/linux/types.h b/include/linux/types.h
+index 70dd3df..39fcd20 100644
+--- a/include/linux/types.h
++++ b/include/linux/types.h
+@@ -135,9 +135,18 @@ typedef unsigned long blkcnt_t;
+ #endif
+ 
+ /*
+- * The type of an index into the pagecache.
++ * The type of an index into the pagecache.  Use a #define so asm/types.h
++ * can override it.
+  */
++#ifndef pgoff_t
++#ifdef CONFIG_LFS_ON_32CPU
++#define pgoff_t unsigned long long
++#define PGOFF_MAX	ULLONG_MAX
++#else
+ #define pgoff_t unsigned long
++#define PGOFF_MAX	ULONG_MAX
++#endif
++#endif
+ 
+ /*
+  * A dma_addr_t can hold any valid DMA address, i.e., any address returned
+diff --git a/include/trace/events/btrfs.h b/include/trace/events/btrfs.h
+index b4473da..81297d9 100644
+--- a/include/trace/events/btrfs.h
++++ b/include/trace/events/btrfs.h
+@@ -338,17 +338,17 @@ DECLARE_EVENT_CLASS(btrfs__writepage,
+ 				 BTRFS_I(inode)->root->root_key.objectid;
+ 	),
+ 
+-	TP_printk("root = %llu(%s), ino = %lu, page_index = %lu, "
++	TP_printk("root = %llu(%s), ino = %lu, page_index = %llu, "
+ 		  "nr_to_write = %ld, pages_skipped = %ld, range_start = %llu, "
+ 		  "range_end = %llu, for_kupdate = %d, "
+-		  "for_reclaim = %d, range_cyclic = %d, writeback_index = %lu",
++		  "for_reclaim = %d, range_cyclic = %d, writeback_index = %llu",
+ 		  show_root_type(__entry->root_objectid),
+-		  (unsigned long)__entry->ino, __entry->index,
++		  (unsigned long)__entry->ino, (unsigned long long)__entry->index,
+ 		  __entry->nr_to_write, __entry->pages_skipped,
+ 		  __entry->range_start, __entry->range_end,
+ 		  __entry->for_kupdate,
+ 		  __entry->for_reclaim, __entry->range_cyclic,
+-		  (unsigned long)__entry->writeback_index)
++		  (unsigned long long)__entry->writeback_index)
+ );
+ 
+ DEFINE_EVENT(btrfs__writepage, __extent_writepage,
+diff --git a/include/trace/events/ext4.h b/include/trace/events/ext4.h
+index 594b4b2..17ce6d0 100644
+--- a/include/trace/events/ext4.h
++++ b/include/trace/events/ext4.h
+@@ -429,10 +429,10 @@ TRACE_EVENT(ext4_da_write_pages,
+ 		__entry->sync_mode	= wbc->sync_mode;
+ 	),
+ 
+-	TP_printk("dev %d,%d ino %lu first_page %lu nr_to_write %ld "
++	TP_printk("dev %d,%d ino %lu first_page %llu nr_to_write %ld "
+ 		  "sync_mode %d",
+ 		  MAJOR(__entry->dev), MINOR(__entry->dev),
+-		  (unsigned long) __entry->ino, __entry->first_page,
++		  (unsigned long) __entry->ino, (unsigned long long)__entry->first_page,
+ 		  __entry->nr_to_write, __entry->sync_mode)
+ );
+ 
+diff --git a/include/trace/events/writeback.h b/include/trace/events/writeback.h
+index fff846b..f1255ae 100644
+--- a/include/trace/events/writeback.h
++++ b/include/trace/events/writeback.h
+@@ -71,10 +71,10 @@ TRACE_EVENT(writeback_dirty_page,
+ 		__entry->index = page->index;
+ 	),
+ 
+-	TP_printk("bdi %s: ino=%lu index=%lu",
++	TP_printk("bdi %s: ino=%lu index=%llu",
+ 		__entry->name,
+ 		__entry->ino,
+-		__entry->index
++		 (unsigned long long)__entry->index
+ 	)
+ );
+ 
+diff --git a/kernel/events/uprobes.c b/kernel/events/uprobes.c
+index da0c09f..a1f9f0f 100644
+--- a/kernel/events/uprobes.c
++++ b/kernel/events/uprobes.c
+@@ -711,7 +711,7 @@ static inline struct map_info *free_map_info(struct map_info *info)
+ static struct map_info *
+ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
+ {
+-	unsigned long pgoff = offset >> PAGE_SHIFT;
++	pgoff_t pgoff = offset >> PAGE_SHIFT;
+ 	struct vm_area_struct *vma;
+ 	struct map_info *curr = NULL;
+ 	struct map_info *prev = NULL;
+diff --git a/lib/radix-tree.c b/lib/radix-tree.c
+index 6b79e90..2598c60 100644
+--- a/lib/radix-tree.c
++++ b/lib/radix-tree.c
+@@ -35,12 +35,11 @@
+ #include <linux/rcupdate.h>
+ #include <linux/preempt.h>		/* in_interrupt() */
+ 
+-
+ /*
+  * The height_to_maxindex array needs to be one deeper than the maximum
+  * path as height 0 holds only 1 entry.
+  */
+-static unsigned long height_to_maxindex[RADIX_TREE_MAX_PATH + 1] __read_mostly;
++static rdx_t height_to_maxindex[RADIX_TREE_MAX_PATH + 1] __read_mostly;
+ 
+ /*
+  * Radix tree node cache.
+@@ -54,9 +53,9 @@ static struct kmem_cache *radix_tree_node_cachep;
+  * radix_tree_extend).
+  *
+  * The worst case is a zero height tree with just a single item at index 0,
+- * and then inserting an item at index ULONG_MAX. This requires 2 new branches
+- * of RADIX_TREE_MAX_PATH size to be created, with only the root node shared.
+- * Hence:
++ * and then inserting an item at index RDX_TREE_KEY_MAX_VALUE. This requires 2
++ * new branches of RADIX_TREE_MAX_PATH size to be created, with only the root
++ * node shared. Hence:
+  */
+ #define RADIX_TREE_PRELOAD_SIZE (RADIX_TREE_MAX_PATH * 2 - 1)
+ 
+@@ -315,7 +314,7 @@ EXPORT_SYMBOL(radix_tree_maybe_preload);
+  *	Return the maximum key which can be store into a
+  *	radix tree with height HEIGHT.
+  */
+-static inline unsigned long radix_tree_maxindex(unsigned int height)
++static inline rdx_t radix_tree_maxindex(unsigned int height)
+ {
+ 	return height_to_maxindex[height];
+ }
+@@ -323,7 +322,7 @@ static inline unsigned long radix_tree_maxindex(unsigned int height)
+ /*
+  *	Extend a radix tree so it can store key @index.
+  */
+-static int radix_tree_extend(struct radix_tree_root *root, unsigned long index)
++static int radix_tree_extend(struct radix_tree_root *root, rdx_t index)
+ {
+ 	struct radix_tree_node *node;
+ 	struct radix_tree_node *slot;
+@@ -387,7 +386,7 @@ out:
+  *
+  *	Returns -ENOMEM, or 0 for success.
+  */
+-int __radix_tree_create(struct radix_tree_root *root, unsigned long index,
++int __radix_tree_create(struct radix_tree_root *root, rdx_t index,
+ 			struct radix_tree_node **nodep, void ***slotp)
+ {
+ 	struct radix_tree_node *node = NULL, *slot;
+@@ -446,7 +445,7 @@ int __radix_tree_create(struct radix_tree_root *root, unsigned long index,
+  *	Insert an item into the radix tree at position @index.
+  */
+ int radix_tree_insert(struct radix_tree_root *root,
+-			unsigned long index, void *item)
++			rdx_t index, void *item)
+ {
+ 	struct radix_tree_node *node;
+ 	void **slot;
+@@ -488,7 +487,7 @@ EXPORT_SYMBOL(radix_tree_insert);
+  *	allocated and @root->rnode is used as a direct slot instead of
+  *	pointing to a node, in which case *@nodep will be NULL.
+  */
+-void *__radix_tree_lookup(struct radix_tree_root *root, unsigned long index,
++void *__radix_tree_lookup(struct radix_tree_root *root, rdx_t index,
+ 			  struct radix_tree_node **nodep, void ***slotp)
+ {
+ 	struct radix_tree_node *node, *parent;
+@@ -548,7 +547,7 @@ void *__radix_tree_lookup(struct radix_tree_root *root, unsigned long index,
+  *	exclusive from other writers. Any dereference of the slot must be done
+  *	using radix_tree_deref_slot.
+  */
+-void **radix_tree_lookup_slot(struct radix_tree_root *root, unsigned long index)
++void **radix_tree_lookup_slot(struct radix_tree_root *root, rdx_t index)
+ {
+ 	void **slot;
+ 
+@@ -570,7 +569,7 @@ EXPORT_SYMBOL(radix_tree_lookup_slot);
+  *	them safely). No RCU barriers are required to access or modify the
+  *	returned item, however.
+  */
+-void *radix_tree_lookup(struct radix_tree_root *root, unsigned long index)
++void *radix_tree_lookup(struct radix_tree_root *root, rdx_t index)
+ {
+ 	return __radix_tree_lookup(root, index, NULL, NULL);
+ }
+@@ -590,7 +589,7 @@ EXPORT_SYMBOL(radix_tree_lookup);
+  *	item is a bug.
+  */
+ void *radix_tree_tag_set(struct radix_tree_root *root,
+-			unsigned long index, unsigned int tag)
++			rdx_t index, unsigned int tag)
+ {
+ 	unsigned int height, shift;
+ 	struct radix_tree_node *slot;
+@@ -636,7 +635,7 @@ EXPORT_SYMBOL(radix_tree_tag_set);
+  *	has the same return value and semantics as radix_tree_lookup().
+  */
+ void *radix_tree_tag_clear(struct radix_tree_root *root,
+-			unsigned long index, unsigned int tag)
++			rdx_t index, unsigned int tag)
+ {
+ 	struct radix_tree_node *node = NULL;
+ 	struct radix_tree_node *slot = NULL;
+@@ -700,7 +699,7 @@ EXPORT_SYMBOL(radix_tree_tag_clear);
+  * from concurrency.
+  */
+ int radix_tree_tag_get(struct radix_tree_root *root,
+-			unsigned long index, unsigned int tag)
++			rdx_t index, unsigned int tag)
+ {
+ 	unsigned int height, shift;
+ 	struct radix_tree_node *node;
+@@ -754,7 +753,8 @@ void **radix_tree_next_chunk(struct radix_tree_root *root,
+ {
+ 	unsigned shift, tag = flags & RADIX_TREE_ITER_TAG_MASK;
+ 	struct radix_tree_node *rnode, *node;
+-	unsigned long index, offset, height;
++	rdx_t index, offset;
++	unsigned long height;
+ 
+ 	if ((flags & RADIX_TREE_ITER_TAGGED) && !root_tag_get(root, tag))
+ 		return NULL;
+@@ -882,11 +882,11 @@ EXPORT_SYMBOL(radix_tree_next_chunk);
+  *
+  * The function returns number of leaves where the tag was set and sets
+  * *first_indexp to the first unscanned index.
+- * WARNING! *first_indexp can wrap if last_index is ULONG_MAX. Caller must
+- * be prepared to handle that.
++ * WARNING! *first_indexp can wrap if last_index is RDX_TREE_KEY_MAX_VALUE.
++ * Caller must be prepared to handle that.
+  */
+ unsigned long radix_tree_range_tag_if_tagged(struct radix_tree_root *root,
+-		unsigned long *first_indexp, unsigned long last_index,
++		rdx_t *first_indexp, rdx_t last_index,
+ 		unsigned long nr_to_tag,
+ 		unsigned int iftag, unsigned int settag)
+ {
+@@ -895,7 +895,7 @@ unsigned long radix_tree_range_tag_if_tagged(struct radix_tree_root *root,
+ 	struct radix_tree_node *slot;
+ 	unsigned int shift;
+ 	unsigned long tagged = 0;
+-	unsigned long index = *first_indexp;
++	rdx_t index = *first_indexp;
+ 
+ 	last_index = min(last_index, radix_tree_maxindex(height));
+ 	if (index > last_index)
+@@ -916,7 +916,7 @@ unsigned long radix_tree_range_tag_if_tagged(struct radix_tree_root *root,
+ 	slot = indirect_to_ptr(root->rnode);
+ 
+ 	for (;;) {
+-		unsigned long upindex;
++		rdx_t upindex;
+ 		int offset;
+ 
+ 		offset = (index >> shift) & RADIX_TREE_MAP_MASK;
+@@ -1009,7 +1009,7 @@ EXPORT_SYMBOL(radix_tree_range_tag_if_tagged);
+  */
+ unsigned int
+ radix_tree_gang_lookup(struct radix_tree_root *root, void **results,
+-			unsigned long first_index, unsigned int max_items)
++			rdx_t first_index, unsigned int max_items)
+ {
+ 	struct radix_tree_iter iter;
+ 	void **slot;
+@@ -1054,8 +1054,8 @@ EXPORT_SYMBOL(radix_tree_gang_lookup);
+  */
+ unsigned int
+ radix_tree_gang_lookup_slot(struct radix_tree_root *root,
+-			void ***results, unsigned long *indices,
+-			unsigned long first_index, unsigned int max_items)
++			void ***results, rdx_t *indices,
++			rdx_t first_index, unsigned int max_items)
+ {
+ 	struct radix_tree_iter iter;
+ 	void **slot;
+@@ -1091,7 +1091,7 @@ EXPORT_SYMBOL(radix_tree_gang_lookup_slot);
+  */
+ unsigned int
+ radix_tree_gang_lookup_tag(struct radix_tree_root *root, void **results,
+-		unsigned long first_index, unsigned int max_items,
++		rdx_t first_index, unsigned int max_items,
+ 		unsigned int tag)
+ {
+ 	struct radix_tree_iter iter;
+@@ -1132,7 +1132,7 @@ EXPORT_SYMBOL(radix_tree_gang_lookup_tag);
+  */
+ unsigned int
+ radix_tree_gang_lookup_tag_slot(struct radix_tree_root *root, void ***results,
+-		unsigned long first_index, unsigned int max_items,
++		rdx_t first_index, unsigned int max_items,
+ 		unsigned int tag)
+ {
+ 	struct radix_tree_iter iter;
+@@ -1158,11 +1158,11 @@ EXPORT_SYMBOL(radix_tree_gang_lookup_tag_slot);
+ /*
+  * This linear search is at present only useful to shmem_unuse_inode().
+  */
+-static unsigned long __locate(struct radix_tree_node *slot, void *item,
+-			      unsigned long index, unsigned long *found_index)
++static rdx_t __locate(struct radix_tree_node *slot, void *item,
++			      rdx_t index, rdx_t *found_index)
+ {
+ 	unsigned int shift, height;
+-	unsigned long i;
++	rdx_t i;
+ 
+ 	height = slot->path & RADIX_TREE_HEIGHT_MASK;
+ 	shift = (height-1) * RADIX_TREE_MAP_SHIFT;
+@@ -1172,8 +1172,8 @@ static unsigned long __locate(struct radix_tree_node *slot, void *item,
+ 		for (;;) {
+ 			if (slot->slots[i] != NULL)
+ 				break;
+-			index &= ~((1UL << shift) - 1);
+-			index += 1UL << shift;
++			index &= ~((RADIX_TREE_1 << shift) - 1);
++			index += RADIX_TREE_1 << shift;
+ 			if (index == 0)
+ 				goto out;	/* 32-bit wraparound */
+ 			i++;
+@@ -1209,12 +1209,12 @@ out:
+  *	Caller must hold no lock (since this time-consuming function needs
+  *	to be preemptible), and must check afterwards if item is still there.
+  */
+-unsigned long radix_tree_locate_item(struct radix_tree_root *root, void *item)
++rdx_t radix_tree_locate_item(struct radix_tree_root *root, void *item)
+ {
+ 	struct radix_tree_node *node;
+-	unsigned long max_index;
+-	unsigned long cur_index = 0;
+-	unsigned long found_index = -1;
++	rdx_t max_index;
++	rdx_t cur_index = 0;
++	rdx_t found_index = -1;
+ 
+ 	do {
+ 		rcu_read_lock();
+@@ -1242,7 +1242,7 @@ unsigned long radix_tree_locate_item(struct radix_tree_root *root, void *item)
+ 	return found_index;
+ }
+ #else
+-unsigned long radix_tree_locate_item(struct radix_tree_root *root, void *item)
++rdx_t radix_tree_locate_item(struct radix_tree_root *root, void *item)
+ {
+ 	return -1;
+ }
+@@ -1374,7 +1374,7 @@ bool __radix_tree_delete_node(struct radix_tree_root *root,
+  *	or the entry at the given @index was not @item.
+  */
+ void *radix_tree_delete_item(struct radix_tree_root *root,
+-			     unsigned long index, void *item)
++			     rdx_t index, void *item)
+ {
+ 	struct radix_tree_node *node;
+ 	unsigned int offset;
+@@ -1424,7 +1424,7 @@ EXPORT_SYMBOL(radix_tree_delete_item);
+  *
+  *	Returns the address of the deleted item, or NULL if it was not present.
+  */
+-void *radix_tree_delete(struct radix_tree_root *root, unsigned long index)
++void *radix_tree_delete(struct radix_tree_root *root, rdx_t index)
+ {
+ 	return radix_tree_delete_item(root, index, NULL);
+ }
+@@ -1450,16 +1450,16 @@ radix_tree_node_ctor(void *arg)
+ 	INIT_LIST_HEAD(&node->private_list);
+ }
+ 
+-static __init unsigned long __maxindex(unsigned int height)
++static __init rdx_t __maxindex(unsigned int height)
+ {
+ 	unsigned int width = height * RADIX_TREE_MAP_SHIFT;
+ 	int shift = RADIX_TREE_INDEX_BITS - width;
+ 
+ 	if (shift < 0)
+-		return ~0UL;
+-	if (shift >= BITS_PER_LONG)
+-		return 0UL;
+-	return ~0UL >> shift;
++		return RDX_TREE_KEY_MAX_VALUE;
++	if (shift >= RADIX_TREE_BITS_PER_KEY)
++		return (rdx_t)0;
++	return RDX_TREE_KEY_MAX_VALUE >> shift;
+ }
+ 
+ static __init void radix_tree_init_maxindex(void)
+diff --git a/mm/debug.c b/mm/debug.c
+index 668aa35..8505894 100644
+--- a/mm/debug.c
++++ b/mm/debug.c
+@@ -82,9 +82,9 @@ static void dump_flags(unsigned long flags,
+ void dump_page_badflags(struct page *page, const char *reason,
+ 		unsigned long badflags)
+ {
+-	pr_emerg("page:%p count:%d mapcount:%d mapping:%p index:%#lx\n",
++	pr_emerg("page:%p count:%d mapcount:%d mapping:%p index:%#llx\n",
+ 		  page, atomic_read(&page->_count), page_mapcount(page),
+-		  page->mapping, page->index);
++		  page->mapping,  (unsigned long long)page->index);
+ 	BUILD_BUG_ON(ARRAY_SIZE(pageflag_names) != __NR_PAGEFLAGS);
+ 	dump_flags(page->flags, pageflag_names, ARRAY_SIZE(pageflag_names));
+ 	if (reason)
+diff --git a/mm/filemap.c b/mm/filemap.c
+index c588d12..657519f 100644
+--- a/mm/filemap.c
++++ b/mm/filemap.c
+@@ -991,7 +991,7 @@ EXPORT_SYMBOL(page_cache_next_hole);
+  *
+  * Returns: the index of the hole if found, otherwise returns an index
+  * outside of the set specified (in which case 'index - return >=
+- * max_scan' will be true). In rare cases of wrap-around, ULONG_MAX
++ * max_scan' will be true). In rare cases of wrap-around, PGOFF_MAX
+  * will be returned.
+  *
+  * page_cache_prev_hole may be called under rcu_read_lock. However,
+@@ -1013,7 +1013,7 @@ pgoff_t page_cache_prev_hole(struct address_space *mapping,
+ 		if (!page || radix_tree_exceptional_entry(page))
+ 			break;
+ 		index--;
+-		if (index == ULONG_MAX)
++		if (index == PGOFF_MAX)
+ 			break;
+ 	}
+ 
+@@ -1883,7 +1883,11 @@ static void do_sync_mmap_readahead(struct vm_area_struct *vma,
+ 	/*
+ 	 * mmap read-around
+ 	 */
++#ifdef CONFIG_LFS_ON_32CPU
++	ra->start = max_t(long long, 0, offset - ra->ra_pages / 2);
++#else
+ 	ra->start = max_t(long, 0, offset - ra->ra_pages / 2);
++#endif
+ 	ra->size = ra->ra_pages;
+ 	ra->async_size = ra->ra_pages / 4;
+ 	ra_submit(ra, mapping, file);
+diff --git a/mm/hugetlb.c b/mm/hugetlb.c
+index 4434cdd..2a8d256 100644
+--- a/mm/hugetlb.c
++++ b/mm/hugetlb.c
+@@ -2984,7 +2984,9 @@ static void hugetlb_vm_op_close(struct vm_area_struct *vma)
+ 	struct hstate *h = hstate_vma(vma);
+ 	struct resv_map *resv = vma_resv_map(vma);
+ 	struct hugepage_subpool *spool = subpool_vma(vma);
+-	unsigned long reserve, start, end;
++	unsigned long reserve;
++	pgoff_t start;
++	pgoff_t end;
+ 	long gbl_reserve;
+ 
+ 	if (!resv || !is_vma_resv_set(vma, HPAGE_RESV_OWNER))
+@@ -3530,7 +3532,7 @@ static int hugetlb_no_page(struct mm_struct *mm, struct vm_area_struct *vma,
+ 	struct hstate *h = hstate_vma(vma);
+ 	int ret = VM_FAULT_SIGBUS;
+ 	int anon_rmap = 0;
+-	unsigned long size;
++	loff_t size;
+ 	struct page *page;
+ 	pte_t new_pte;
+ 	spinlock_t *ptl;
+diff --git a/mm/interval_tree.c b/mm/interval_tree.c
+index f2c2492..8943bbd 100644
+--- a/mm/interval_tree.c
++++ b/mm/interval_tree.c
+@@ -11,18 +11,18 @@
+ #include <linux/rmap.h>
+ #include <linux/interval_tree_generic.h>
+ 
+-static inline unsigned long vma_start_pgoff(struct vm_area_struct *v)
++static inline pgoff_t vma_start_pgoff(struct vm_area_struct *v)
+ {
+ 	return v->vm_pgoff;
+ }
+ 
+-static inline unsigned long vma_last_pgoff(struct vm_area_struct *v)
++static inline pgoff_t vma_last_pgoff(struct vm_area_struct *v)
+ {
+ 	return v->vm_pgoff + ((v->vm_end - v->vm_start) >> PAGE_SHIFT) - 1;
+ }
+ 
+ INTERVAL_TREE_DEFINE(struct vm_area_struct, shared.rb,
+-		     unsigned long, shared.rb_subtree_last,
++		     pgoff_t, shared.rb_subtree_last,
+ 		     vma_start_pgoff, vma_last_pgoff,, vma_interval_tree)
+ 
+ /* Insert node immediately after prev in the interval tree */
+@@ -32,7 +32,7 @@ void vma_interval_tree_insert_after(struct vm_area_struct *node,
+ {
+ 	struct rb_node **link;
+ 	struct vm_area_struct *parent;
+-	unsigned long last = vma_last_pgoff(node);
++	pgoff_t last = vma_last_pgoff(node);
+ 
+ 	VM_BUG_ON_VMA(vma_start_pgoff(node) != vma_start_pgoff(prev), node);
+ 
+@@ -69,7 +69,7 @@ static inline unsigned long avc_last_pgoff(struct anon_vma_chain *avc)
+ 	return vma_last_pgoff(avc->vma);
+ }
+ 
+-INTERVAL_TREE_DEFINE(struct anon_vma_chain, rb, unsigned long, rb_subtree_last,
++INTERVAL_TREE_DEFINE(struct anon_vma_chain, rb, pgoff_t, rb_subtree_last,
+ 		     avc_start_pgoff, avc_last_pgoff,
+ 		     static inline, __anon_vma_interval_tree)
+ 
+@@ -91,14 +91,14 @@ void anon_vma_interval_tree_remove(struct anon_vma_chain *node,
+ 
+ struct anon_vma_chain *
+ anon_vma_interval_tree_iter_first(struct rb_root *root,
+-				  unsigned long first, unsigned long last)
++				  pgoff_t first, pgoff_t last)
+ {
+ 	return __anon_vma_interval_tree_iter_first(root, first, last);
+ }
+ 
+ struct anon_vma_chain *
+ anon_vma_interval_tree_iter_next(struct anon_vma_chain *node,
+-				 unsigned long first, unsigned long last)
++				 pgoff_t first, pgoff_t last)
+ {
+ 	return __anon_vma_interval_tree_iter_next(node, first, last);
+ }
+diff --git a/mm/ksm.c b/mm/ksm.c
+index 2f028e6..bf51246 100644
+--- a/mm/ksm.c
++++ b/mm/ksm.c
+@@ -1937,7 +1937,7 @@ again:
+ 		cond_resched();
+ 		anon_vma_lock_read(anon_vma);
+ 		anon_vma_interval_tree_foreach(vmac, &anon_vma->rb_root,
+-					       0, ULONG_MAX) {
++					       0, PGOFF_MAX) {
+ 			cond_resched();
+ 			vma = vmac->vma;
+ 			if (rmap_item->address < vma->vm_start ||
+diff --git a/mm/memory.c b/mm/memory.c
+index 76dcee3..0d9e97b 100644
+--- a/mm/memory.c
++++ b/mm/memory.c
+@@ -686,8 +686,8 @@ static void print_bad_pte(struct vm_area_struct *vma, unsigned long addr,
+ 	if (page)
+ 		dump_page(page, "bad pte");
+ 	printk(KERN_ALERT
+-		"addr:%p vm_flags:%08lx anon_vma:%p mapping:%p index:%lx\n",
+-		(void *)addr, vma->vm_flags, vma->anon_vma, mapping, index);
++		"addr:%p vm_flags:%08lx anon_vma:%p mapping:%p index:%llx\n",
++		(void *)addr, vma->vm_flags, vma->anon_vma, mapping, (unsigned long long)index);
+ 	/*
+ 	 * Choose text because data symbols depend on CONFIG_KALLSYMS_ALL=y
+ 	 */
+diff --git a/mm/page-writeback.c b/mm/page-writeback.c
+index fd51ebf..957141d 100644
+--- a/mm/page-writeback.c
++++ b/mm/page-writeback.c
+@@ -2168,7 +2168,7 @@ int write_cache_pages(struct address_space *mapping,
+ 			cycled = 1;
+ 		else
+ 			cycled = 0;
+-		end = -1;
++		end = PGOFF_MAX;
+ 	} else {
+ 		index = wbc->range_start >> PAGE_CACHE_SHIFT;
+ 		end = wbc->range_end >> PAGE_CACHE_SHIFT;
+diff --git a/mm/percpu.c b/mm/percpu.c
+index 1f376bc..7b8ee14 100644
+--- a/mm/percpu.c
++++ b/mm/percpu.c
+@@ -235,6 +235,7 @@ static void pcpu_set_page_chunk(struct page *page, struct pcpu_chunk *pcpu)
+ /* obtain pointer to a chunk from a page struct */
+ static struct pcpu_chunk *pcpu_get_page_chunk(struct page *page)
+ {
++	BUG_ON(page->index > (pgoff_t)(~(unsigned long)0));
+ 	return (struct pcpu_chunk *)page->index;
+ }
+ 
+diff --git a/mm/readahead.c b/mm/readahead.c
+index ba22d7f..a9e8cd2 100644
+--- a/mm/readahead.c
++++ b/mm/readahead.c
+@@ -355,7 +355,7 @@ static int try_context_readahead(struct address_space *mapping,
+ 		size *= 2;
+ 
+ 	ra->start = offset;
+-	ra->size = min(size + req_size, max);
++	ra->size = min((unsigned long)size + req_size, max);
+ 	ra->async_size = 1;
+ 
+ 	return 1;
+-- 
+1.9.1
+

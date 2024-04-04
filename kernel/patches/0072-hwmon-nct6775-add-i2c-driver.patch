@@ -1,0 +1,460 @@
+From 1e1a19291090419a5a350f3abf9d07b40585c55c Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 6 Dec 2016 17:48:25 -0800
+Subject: [PATCH 72/72] hwmon: (nct6775) add i2c driver
+
+---
+ drivers/hwmon/nct6775.c          |  67 ++++++++-
+ drivers/i2c/busses/Kconfig       |   7 +
+ drivers/i2c/busses/Makefile      |   1 +
+ drivers/i2c/busses/i2c-nct6775.c | 311 +++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 384 insertions(+), 2 deletions(-)
+ create mode 100644 drivers/i2c/busses/i2c-nct6775.c
+
+diff --git a/drivers/hwmon/nct6775.c b/drivers/hwmon/nct6775.c
+index abf806f..d5bbe1e 100644
+--- a/drivers/hwmon/nct6775.c
++++ b/drivers/hwmon/nct6775.c
+@@ -4490,8 +4490,8 @@ static const u8 nct6775_gpio_active = 0x30;
+ 
+ static struct nct6775_gpio {
+ 	const u8	ldev;	/* Logical device. */
+-	const u8	active;	/* Active bit mask. */
+-	const u8	mask;	/* Valid bit mask. */
++	      u8	active;	/* Active bit mask. */
++	      u8	mask;	/* Valid bit mask. */
+ 	const u8	input;	/* Input configuration register. */
+ 	const u8	data;	/* Data register. */
+ 	const u8	inv;	/* Bit inversion register. */
+@@ -4687,6 +4687,60 @@ static void  __exit gpio_nct6775_exit(void)
+ 	gpiochip_remove(&nct6775_gpio_chip);
+ }
+ 
++#ifdef CONFIG_I2C_NCT6775
++extern int __i2c_nct6775_init(u16 ba, const char *name);
++extern void __i2c_nct6775_exit(void);
++
++static int i2c_nct6775_init(void)
++{
++	struct platform_device *pdev = find_nct6775_pdev_by_sioreg(0x4e);
++	struct nct6775_sio_data *sio_data = dev_get_platdata(&pdev->dev);
++	struct nct6775_data *data = dev_get_drvdata(&pdev->dev);
++	u16 ba;
++	int i;
++
++	static const struct {
++		u8	gpio;
++		u8	reg;
++		u8	mask;
++		u8	bits;
++		char *name;
++	} mfs [] = {
++		{ 041, 0x1a, 0x0c, 0x00, "GP41 MSCL" },
++		{ 042, 0x1b, 0x06, 0x00, "GP42 MSDA" }
++	};
++
++	mutex_lock(&data->update_lock);
++	superio_enter(0x4e);
++	superio_select(0x4e, 0xb);
++	ba = superio_inb(0x4e, 0x62) << 8;
++	ba |= superio_inb(0x4e, 0x63);
++
++	for (i = 0; i < ARRAY_SIZE(mfs); i++) {
++		u8 c;
++
++		/* Switch multi function selector */
++		c = superio_inb(0x4e, mfs[i].reg);
++		superio_outb(0x4e, mfs[i].reg,
++				(c & ~mfs[i].mask) | mfs[i].bits);
++
++		/* Disable GPIO mask */
++		nct6775_gpio[mfs[i].gpio/8].mask &= ~(1 << (mfs[i].gpio % 8));
++	}
++
++	superio_exit(0x4e);
++	mutex_unlock(&data->update_lock);
++	return __i2c_nct6775_init(ba, nct6775_sio_names[sio_data->kind]);
++}
++
++static void i2c_nct6775_exit(void)
++{
++	__i2c_nct6775_exit();
++}
++#endif
++
++extern int rn_use_i2c_nct6775(void);
++
+ static int __init __sensors_nct6775_init(void)
+ {
+ 	int err = sensors_nct6775_init();
+@@ -4695,11 +4749,20 @@ static int __init __sensors_nct6775_init(void)
+ 		return err;
+ 	if ((err = gpio_nct6775_init()))
+ 		sensors_nct6775_exit();
++#ifdef CONFIG_I2C_NCT6775
++	else if (rn_use_i2c_nct6775() && (err = i2c_nct6775_init())) {
++		gpio_nct6775_exit();
++		sensors_nct6775_exit();
++	}
++#endif
+ 	return err;
+ }
+ 
+ static void __exit __sensors_nct6775_exit(void)
+ {
++#ifdef CONFIG_I2C_NCT6775
++	i2c_nct6775_exit();
++#endif
+ 	gpio_nct6775_exit();
+ 	sensors_nct6775_exit();
+ }
+diff --git a/drivers/i2c/busses/Kconfig b/drivers/i2c/busses/Kconfig
+index 7b0aa82..b4a9932 100644
+--- a/drivers/i2c/busses/Kconfig
++++ b/drivers/i2c/busses/Kconfig
+@@ -1111,6 +1111,13 @@ config I2C_VIPERBOARD
+           River Tech's viperboard.h for detailed meaning
+           of the module parameters.
+ 
++config I2C_NCT6775
++	bool "NCT677x I2C/SMBus driver"
++	depends on SENSORS_NCT6775
++	help
++	  Adds I2C/SMBus master driver feature to Nuvoton NCT677x LPC I/O.
++	  NCT6775 NCT6776D/F NCT6779D
++
+ comment "Other I2C/SMBus bus drivers"
+ 
+ config I2C_ACORN
+diff --git a/drivers/i2c/busses/Makefile b/drivers/i2c/busses/Makefile
+index 37f2819..434bb19 100644
+--- a/drivers/i2c/busses/Makefile
++++ b/drivers/i2c/busses/Makefile
+@@ -23,6 +23,7 @@ obj-$(CONFIG_I2C_SIS630)	+= i2c-sis630.o
+ obj-$(CONFIG_I2C_SIS96X)	+= i2c-sis96x.o
+ obj-$(CONFIG_I2C_VIA)		+= i2c-via.o
+ obj-$(CONFIG_I2C_VIAPRO)	+= i2c-viapro.o
++obj-$(CONFIG_I2C_NCT6775)	+= i2c-nct6775.o
+ 
+ # Mac SMBus host controller drivers
+ obj-$(CONFIG_I2C_HYDRA)		+= i2c-hydra.o
+diff --git a/drivers/i2c/busses/i2c-nct6775.c b/drivers/i2c/busses/i2c-nct6775.c
+new file mode 100644
+index 0000000..80c9cbd
+--- /dev/null
++++ b/drivers/i2c/busses/i2c-nct6775.c
+@@ -0,0 +1,311 @@
++/*
++ * i2c_nct6775 - Driver for SMBUS module of Nuvitin NCT677x Super-I/O chips
++ *
++ * Copyright (c) 2016 Hiro Sugawara <hiro.sugawara@netgear.com>
++ *
++ * Distribution for free use under GNU General Public Licemse.
++ */
++
++#include <linux/slab.h>
++#include <linux/delay.h>
++#include <linux/i2c.h>
++#include <linux/i2c.h>
++
++#define NCT6775_REG(p, off)	((p)->smba + I2C_NCT6775_##off)
++#define I2C_NCT6775_DATA	0
++#define I2C_NCT6775_WRSIZE	1
++#define I2C_NCT6775_CMD		2
++#define I2C_NCT6775_IDX		3
++#define I2C_NCT6775_CTL		4
++#define I2C_NCT6775_ADDR	5
++#define I2C_NCT6775_FREQ	6
++#define I2C_NCT6775_ERR_STATUS	6
++#define I2C_NCT6775_CTL3	0xe
++
++#define NCT6775_CTL3_F_EMPT	(1 << 0)
++#define NCT6775_CTL3_F_FULL	(1 << 1)
++#define NCT6775_CTL3_CRC_CHK	(1 << 3)
++
++#define NCT6775_READ_BYTE	0x00
++#define NCT6775_READ_WORD	0x01
++#define NCT6775_READ_BLOCK	0x02
++#define NCT6775_WRITE_BYTE	0x08
++#define NCT6775_WRITE_WORD	0x09
++#define NCT6775_WRITE_BLOCK	0x0a
++
++#define NCT6775_CTL_BYTE_EN	0x02
++#define NCT6775_CTL_CRC8_EN	0x20
++#define NCT6775_CTL_S_RST	0x40
++#define NCT6775_CTL_MMODE_S	0x80
++
++#define NCT6775_CLK_365K	0x0
++#define NCT6775_CLK_261K	0x1
++#define NCT6775_CLK_200K	0x2
++#define NCT6775_CLK_162K	0x3
++#define NCT6775_CLK_136K	0x4
++#define NCT6775_CLK_117K	0x5
++#define NCT6775_CLK_103K	0x6
++#define NCT6775_CLK_92K		0x7
++#define NCT6775_CLK_83K		0x8
++#define NCT6775_CLK_76K		0x9
++#define NCT6775_CLK_71K		0xa
++#define NCT6775_CLK_65K		0xb
++#define NCT6775_CLK_61K		0xc
++#define NCT6775_CLK_57K		0xd
++#define NCT6775_CLK_53K		0xe
++#define NCT6775_CLK_47K		0xf
++
++#define NCT6775_STATUS_ADNACK	(1<<5)
++#define NCT6775_STATUS_TIMEOUT	(1<<4)
++#define NCT6775_STATUS_BERR	(1<<2)
++#define NCT6775_STATUS_NACK	(1<<1)
++
++static struct i2c_nct6775_priv {
++	u16 smba;
++	struct i2c_adapter	adapter;
++} *i2c_nct6775_priv;
++
++static inline int wait_for_room(struct i2c_nct6775_priv *priv)
++{
++	int i;
++	u8 ctl3;
++
++	for (i = 0; i < 1000; i++) {
++		ctl3 = inb(NCT6775_REG(priv, CTL3));
++		if (!(ctl3 & NCT6775_CTL3_F_FULL))
++			break;
++		usleep_range(100, 200);
++	}
++	return (ctl3 & NCT6775_CTL3_F_EMPT) ? -ETIMEDOUT : 0;
++}
++
++static inline int fifo_empty(struct i2c_nct6775_priv *priv)
++{
++	return inb(NCT6775_REG(priv, CTL3)) & NCT6775_CTL3_F_EMPT;
++}
++
++static inline int flush_fifo(struct i2c_nct6775_priv *priv)
++{
++	int i;
++
++	for (i = 0; i < 32 && !fifo_empty(priv); i++)
++		inb(NCT6775_REG(priv, DATA));
++	return fifo_empty(priv) ? 0 : -ETIMEDOUT;
++}
++
++static inline int wait_for_data(struct i2c_nct6775_priv *priv, u16 flags)
++{
++	int i;
++	u8 ctl3;
++
++	for (i = 0; i < 1000; i++) {
++		ctl3 = inb(NCT6775_REG(priv, CTL3));
++		if (!(ctl3 & NCT6775_CTL3_F_EMPT))
++			break;
++		usleep_range(100, 200);
++	}
++	if ((ctl3 & NCT6775_CTL3_F_EMPT))
++		return -ETIMEDOUT;
++	if ((flags & I2C_CLIENT_PEC) && !(ctl3 & NCT6775_CTL3_CRC_CHK))
++		return -EIO;
++	return 0;
++}
++
++static s32 i2c_nct6775_xfer(struct i2c_adapter *adap, u16 addr,
++			unsigned short flags, char read_write, u8 command,
++			int size, union i2c_smbus_data *data)
++{
++	u8 op, ctl = NCT6775_CTL_MMODE_S;
++	int err = 0;
++	bool send_command = true;
++	size_t len = 1;
++	struct i2c_nct6775_priv *priv = i2c_get_adapdata(adap);
++
++	if (flags & I2C_CLIENT_PEC)
++		ctl |= NCT6775_CTL_CRC8_EN;
++
++	switch (size) {
++	case I2C_SMBUS_BYTE:
++		ctl |= NCT6775_CTL_BYTE_EN;
++		send_command = (read_write == I2C_SMBUS_WRITE);
++		len = 0;
++		/* Fall through */
++	case I2C_SMBUS_BYTE_DATA:
++		op = (read_write == I2C_SMBUS_WRITE)	? NCT6775_WRITE_BYTE
++							: NCT6775_READ_BYTE;
++		break;
++	case I2C_SMBUS_WORD_DATA:
++		len = 2;
++		op = (read_write == I2C_SMBUS_WRITE)	? NCT6775_WRITE_WORD
++							: NCT6775_READ_WORD;
++		break;
++	case I2C_SMBUS_BLOCK_DATA:
++		len = data->block[0];
++		op = (read_write == I2C_SMBUS_WRITE)	? NCT6775_WRITE_BLOCK
++							: NCT6775_READ_BLOCK;
++		break;
++	default:
++		pr_err("%s: unexpected transfer type: %d\n", __func__, size);
++	case I2C_SMBUS_QUICK:	/* Return error even if claimed "supported" */
++		return -EOPNOTSUPP;
++	}
++
++	if ((err = flush_fifo(priv))) {
++		pr_err("%s: FIFO busy.\n",__func__);
++		return err;
++	}
++
++	outb((addr << 1) | ((read_write == I2C_SMBUS_WRITE) ? 0 : 0x01),
++						NCT6775_REG(priv, ADDR));
++	outb(op, NCT6775_REG(priv, CMD));
++
++	if (read_write == I2C_SMBUS_WRITE) {
++		unsigned int i = 1;
++
++		if (len > 0)
++			outb(len, NCT6775_REG(priv, WRSIZE));
++
++		if (send_command)
++			outb(command, NCT6775_REG(priv, IDX));
++
++		switch (size) {
++		case I2C_SMBUS_BYTE_DATA:
++			outb(data->byte, NCT6775_REG(priv, DATA));
++			/* Fall through. */
++		case I2C_SMBUS_BYTE:
++			break;
++		case I2C_SMBUS_WORD_DATA:
++			outw(data->word, NCT6775_REG(priv, DATA));
++			break;
++		case I2C_SMBUS_BLOCK_DATA:
++			outb(data->block[0], NCT6775_REG(priv, DATA));
++			while (i < len) {
++				if ((err = wait_for_room(priv)))
++					return err;
++				outb(data->block[i++], NCT6775_REG(priv, DATA));
++			}
++			break;
++		}
++		outb(ctl, NCT6775_REG(priv, CTL));
++		flush_fifo(priv);
++	} else {
++		unsigned int i = 0;
++
++		if (send_command)
++			outb(command, NCT6775_REG(priv, IDX));
++		outb(ctl, NCT6775_REG(priv, CTL));
++		if ((err = wait_for_data(priv, flags))) {
++			pr_err("%s: data timed out addr:%x cmd:%x\n",
++				__func__, addr, command);
++			return err;
++		}
++		data->word = 0;
++		switch (size) {
++		case I2C_SMBUS_BYTE:
++		case I2C_SMBUS_BYTE_DATA:
++			data->byte = inb(NCT6775_REG(priv, DATA));
++			break;
++		case I2C_SMBUS_WORD_DATA:
++			data->word = inb(NCT6775_REG(priv, DATA));
++			if ((err = wait_for_data(priv, flags))) {
++				pr_err("%s: word data timed out "
++				"addr:%x cmd:%x\n", __func__, addr, command);
++				return err;
++			}
++			data->word |= inb(NCT6775_REG(priv, DATA)) << 8;
++			break;
++		case I2C_SMBUS_BLOCK_DATA:
++			len = inb(NCT6775_REG(priv, DATA));
++			if (len >= 32) {
++				err = -EIO;
++				break;
++			}
++			data->block[i++] = len;
++			while (i < len && !(err = wait_for_data(priv, flags)))
++				data->block[i++] = inb(NCT6775_REG(priv, DATA));
++			if (err)
++				pr_err("%s: block data timed out "
++				"addr:%x cmd:%x\n", __func__, addr, command);
++			break;
++		}
++	}
++
++	usleep_range(1000, 2000);
++	return err;
++}
++
++/**
++ * Backdoor accesses for RNx220 PMBus
++ */
++void __i2c_nct6775_reset(struct i2c_adapter *adapter)
++{
++	struct i2c_nct6775_priv *priv = i2c_get_adapdata(adapter);
++
++	i2c_lock_adapter(adapter);
++	outb(NCT6775_CTL_S_RST, NCT6775_REG(priv, CTL));
++	msleep(300);
++	i2c_unlock_adapter(adapter);
++}
++
++static u32 i2c_nct6775_func(struct i2c_adapter *adapter)
++{
++	return I2C_FUNC_SMBUS_BYTE |
++		I2C_FUNC_SMBUS_BYTE_DATA |
++		I2C_FUNC_SMBUS_WORD_DATA |
++		I2C_FUNC_SMBUS_BLOCK_DATA |
++		I2C_FUNC_SMBUS_PEC |
++		I2C_FUNC_SMBUS_QUICK;
++}
++
++static const struct i2c_algorithm i2c_nct6775_algorithm = {
++	.smbus_xfer	= i2c_nct6775_xfer,
++	.functionality	= i2c_nct6775_func,
++};
++
++static const char *chips[] = {"NCT6775", "NCT6776", "NCT6779", NULL};
++int __init __i2c_nct6775_init(u16 ba, const char *name)
++{
++	int err, i;
++
++	for (i = 0; chips[i]; i++)
++		if (strstr(name, chips[i]) == name)
++			break;
++	if (!chips[i]) {
++		pr_err("%s: LPC chip has no I2C master support.\n", __func__);
++		return 0;
++	}
++
++	pr_info("%s: initializing %s SMBus\n", __func__, name);
++	if (!(i2c_nct6775_priv = kzalloc(sizeof *i2c_nct6775_priv, GFP_KERNEL)))
++		return -ENOMEM;
++
++	i2c_set_adapdata(&i2c_nct6775_priv->adapter, i2c_nct6775_priv);
++	i2c_nct6775_priv->adapter.owner	= THIS_MODULE;
++	i2c_nct6775_priv->adapter.class	= I2C_CLASS_HWMON | I2C_CLASS_SPD;
++	i2c_nct6775_priv->adapter.algo	= &i2c_nct6775_algorithm;
++	i2c_nct6775_priv->adapter.timeout	= HZ/5;
++	i2c_nct6775_priv->adapter.retries	= 3;
++	i2c_nct6775_priv->smba = ba;
++
++	outb(NCT6775_CLK_92K, NCT6775_REG(i2c_nct6775_priv, FREQ));
++
++        snprintf(i2c_nct6775_priv->adapter.name,
++		sizeof i2c_nct6775_priv->adapter.name,
++		"SMBus %s adapter at %04x", name, i2c_nct6775_priv->smba);
++
++	err = i2c_add_adapter(&i2c_nct6775_priv->adapter);
++	if (err) {
++		kfree(i2c_nct6775_priv);
++		i2c_nct6775_priv = NULL;
++		return err;
++	}
++
++	return err;
++}
++
++void __exit __i2c_nct6775_exit(void)
++{
++	i2c_del_adapter(&i2c_nct6775_priv->adapter);
++	kfree(i2c_nct6775_priv);
++	i2c_nct6775_priv = NULL;
++}
+-- 
+1.9.1
+

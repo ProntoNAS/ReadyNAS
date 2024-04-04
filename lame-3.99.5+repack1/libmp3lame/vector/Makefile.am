@@ -20,6 +20,7 @@ xmm_sources = xmm_quantize_sub.c
 
 if WITH_XMM
 liblamevectorroutines_la_SOURCES = $(xmm_sources)
+liblamevectorroutines_la_CFLAGS = -msse
 endif
 
 noinst_HEADERS = lame_intrin.h

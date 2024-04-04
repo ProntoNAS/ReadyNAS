@@ -1,0 +1,89 @@
+From 6f032181ba78c5eeb14f9aab4307a75bbaf0b115 Mon Sep 17 00:00:00 2001
+From: Daniel Kahn Gillmor <dkg@fifthhorseman.net>
+Date: Sat, 21 Feb 2015 23:10:37 -0500
+Subject: [PATCH 41/45] gpg: Fix segv due to NULL value stored as opaque MPI
+
+* g10/build-packet.c (do_secret_key): Check for NULL return from
+gcry_mpi_get_opaque.
+* g10/keyid.c (hash_public_key): Ditto.
+--
+
+This is a backport of 76c8122adfed0f0f443cce7bda702ba2b39661b3 from
+master to the STABLE-BRANCH-1-4
+
+On the STABLE-BRANCH-1-4, we may also want to patch g10/seckey-cert.c,
+but that has not been done in this patch.
+
+This fix extends commmit 0835d2f44ef62eab51fce6a927908f544e01cf8f.
+
+  gpg2 --export --no-default-keyring --keyring TESTDATA
+
+With TESTDATA being below after unpacking.
+
+-----BEGIN PGP ARMORED FILE-----
+
+mBMEhdkMmS8BcX8F//8F5voEhQAQmBMEnAAAZwAAo4D/f/8EhQAAAIAEnP8EhQAQ
+iBMEnP8AAAAABf8jIID///8EhQYQmBMEnIUAEIgTBKT/AAAAAAUAACCA/f//BIUA
+EJgTBJx/AP8ABPPzBJx/AP8ABPPz
+=2yE0
+-----END PGP ARMORED FILE-----
+
+Reported-by: Jodie Cunningham
+[dkg: rebased to STABLE-BRANCH-1-4]
+Signed-off-by: Daniel Kahn Gillmor <dkg@fifthhorseman.net>
+---
+ g10/build-packet.c | 6 ++++--
+ g10/keyid.c        | 8 ++++++--
+ 2 files changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/g10/build-packet.c b/g10/build-packet.c
+index 60eb3c8..028d064 100644
+--- a/g10/build-packet.c
++++ b/g10/build-packet.c
+@@ -356,7 +356,8 @@ do_secret_key( IOBUF out, int ctb, PKT_secret_key *sk )
+ 
+ 	assert( mpi_is_opaque( sk->skey[npkey] ) );
+ 	p = mpi_get_opaque( sk->skey[npkey], &ndata );
+-	iobuf_write(a, p, ndata );
++        if (p)
++          iobuf_write(a, p, ndata );
+     }
+     else if( sk->is_protected ) {
+         /* The secret key is protected te old v4 way. */
+@@ -366,7 +367,8 @@ do_secret_key( IOBUF out, int ctb, PKT_secret_key *sk )
+ 
+             assert (mpi_is_opaque (sk->skey[i]));
+             p = mpi_get_opaque (sk->skey[i], &ndata);
+-            iobuf_write (a, p, ndata);
++            if (p)
++              iobuf_write (a, p, ndata);
+         }
+ 	write_16(a, sk->csum );
+     }
+diff --git a/g10/keyid.c b/g10/keyid.c
+index ed30cff..a86ac94 100644
+--- a/g10/keyid.c
++++ b/g10/keyid.c
+@@ -112,13 +112,17 @@ hash_public_key( MD_HANDLE md, PKT_public_key *pk )
+   md_putc( md, pk->pubkey_algo );
+ 
+   if(npkey==0 && pk->pkey[0] && mpi_is_opaque(pk->pkey[0]))
+-    md_write(md,pp[0],nn[0]);
++    {
++      if (pp[0])
++        md_write(md,pp[0],nn[0]);
++    }
+   else
+     for(i=0; i < npkey; i++ )
+       {
+ 	md_putc( md, nb[i]>>8);
+ 	md_putc( md, nb[i] );
+-	md_write( md, pp[i], nn[i] );
++        if (pp[i])
++          md_write( md, pp[i], nn[i] );
+ 	xfree(pp[i]);
+       }
+ }
+-- 
+2.1.4
+

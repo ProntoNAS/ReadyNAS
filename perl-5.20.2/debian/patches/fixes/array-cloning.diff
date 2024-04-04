@@ -1,0 +1,57 @@
+From 531ec0bc39500f3036f2e81bb4e30e6ff45caf8b Mon Sep 17 00:00:00 2001
+From: Tony Cook <tony@develop-help.com>
+Date: Tue, 14 Apr 2015 15:59:03 +1000
+Subject: fix cloning arrays with unused elements
+
+ce0d59fd changed arrays to use NULL instead of &PL_sv_undef for
+unused elements, unfortunately it missed updating sv_dup_common()'s
+initialization of unused elements, leaving them as &PL_sv_undef.
+
+This resulted in modification of read only value errors at runtime.
+
+Origin: upstream, http://perl5.git.perl.org/perl.git/commit/902d16915db2735c3a41f15ef8d95cf300c31801
+Bug: https://rt.perl.org/Public/Bug/Display.html?id=124127
+Bug-Debian: https://bugs.debian.org/779357
+Patch-Name: fixes/array-cloning.diff
+---
+ sv.c           | 2 +-
+ t/op/threads.t | 8 +++++++-
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/sv.c b/sv.c
+index af393bdea..06db7d9b2 100644
+--- a/sv.c
++++ b/sv.c
+@@ -12698,7 +12698,7 @@ S_sv_dup_common(pTHX_ const SV *const sstr, CLONE_PARAMS *const param)
+ 		    }
+ 		    items = AvMAX((const AV *)sstr) - AvFILLp((const AV *)sstr);
+ 		    while (items-- > 0) {
+-			*dst_ary++ = &PL_sv_undef;
++			*dst_ary++ = NULL;
+ 		    }
+ 		}
+ 		else {
+diff --git a/t/op/threads.t b/t/op/threads.t
+index 67b5f4a71..bec210b9d 100644
+--- a/t/op/threads.t
++++ b/t/op/threads.t
+@@ -9,7 +9,7 @@ BEGIN {
+      skip_all_without_config('useithreads');
+      skip_all_if_miniperl("no dynamic loading on miniperl, no threads");
+ 
+-     plan(27);
++     plan(28);
+ }
+ 
+ use strict;
+@@ -403,4 +403,10 @@ fresh_perl_is(
+   'no crash when deleting $::{INC} in thread'
+ );
+ 
++fresh_perl_is(<<'CODE', 'ok', 'no crash modifying extended array element');
++use threads;
++my @a = 1;
++threads->create(sub { $#a = 1; $a[1] = 2; print qq/ok\n/ })->join;
++CODE
++
+ # EOF

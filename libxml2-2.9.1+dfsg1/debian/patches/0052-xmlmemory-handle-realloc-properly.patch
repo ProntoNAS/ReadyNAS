@@ -1,0 +1,39 @@
+From: Yegor Yefremov <yegorslists@googlemail.com>
+Date: Fri, 10 Oct 2014 12:23:09 +0200
+Subject: xmlmemory: handle realloc properly
+
+If realloc fails, free original pointer.
+
+Signed-off-by: Yegor Yefremov <yegorslists@googlemail.com>
+---
+ xmlmemory.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/xmlmemory.c b/xmlmemory.c
+index 37dcf3b..6110849 100644
+--- a/xmlmemory.c
++++ b/xmlmemory.c
+@@ -313,7 +313,7 @@ xmlMemMalloc(size_t size)
+ void *
+ xmlReallocLoc(void *ptr,size_t size, const char * file, int line)
+ {
+-    MEMHDR *p;
++    MEMHDR *p, *tmp;
+     unsigned long number;
+ #ifdef DEBUG_MEMORY
+     size_t oldsize;
+@@ -344,10 +344,12 @@ xmlReallocLoc(void *ptr,size_t size, const char * file, int line)
+ #endif
+     xmlMutexUnlock(xmlMemMutex);
+ 
+-    p = (MEMHDR *) realloc(p,RESERVE_SIZE+size);
+-    if (!p) {
++    tmp = (MEMHDR *) realloc(p,RESERVE_SIZE+size);
++    if (!tmp) {
++	 free(p);
+ 	 goto error;
+     }
++    p = tmp;
+     if (xmlMemTraceBlockAt == ptr) {
+ 	xmlGenericError(xmlGenericErrorContext,
+ 			"%p : Realloced(%lu -> %lu) Ok\n",

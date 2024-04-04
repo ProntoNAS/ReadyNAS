@@ -1,0 +1,34 @@
+From 61bb6b19e2946016e949bd92fba659912d4c3e64 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Fri, 11 Apr 2014 16:40:56 -0700
+Subject: [PATCH 1008/1016] btrfs: allow overlapped extents during log tree
+ replay
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Log tree recovery will check for overlapped extents and drop them.
+So we can just let it go quietly in check_leaf() if it’s recovering.
+
+This fixes a deadloop described in bug #15618.
+---
+ fs/btrfs/disk-io.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/fs/btrfs/disk-io.c b/fs/btrfs/disk-io.c
+index 88ab25a..6133913 100644
+--- a/fs/btrfs/disk-io.c
++++ b/fs/btrfs/disk-io.c
+@@ -596,7 +596,8 @@ static noinline int check_leaf(struct btrfs_root *root,
+ 		/* Make sure the keys are in the right order */
+ 		if (btrfs_comp_cpu_keys(&leaf_key, &key) >= 0) {
+ 			CORRUPT("bad key order", leaf, root, slot);
+-			return -EIO;
++			if (!root->fs_info->log_root_recovering)
++				return -EIO;
+ 		}
+ 
+ 		/*
+-- 
+1.9.1
+

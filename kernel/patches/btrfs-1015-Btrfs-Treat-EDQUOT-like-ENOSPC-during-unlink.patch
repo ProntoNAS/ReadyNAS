@@ -1,0 +1,31 @@
+From 3c37e6232dddd7f168cf2ae0b9f0b67fbd0c1c99 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 1 Dec 2016 15:41:42 -0800
+Subject: [PATCH 1015/1016] Btrfs: Treat -EDQUOT like -ENOSPC during unlink
+
+It's unintuitive and frustrating to not be allowed to
+remove files when you hit a quota limit.  Unlink has a
+special case if we cannot make our reservations the normal
+way try and see if there is plenty of slack room in the
+global reserve to migrate, otherwise we cannot allow the
+unlink to occur.  Use the same retry for -EDQUOT.
+---
+ fs/btrfs/transaction.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/btrfs/transaction.c b/fs/btrfs/transaction.c
+index 0b4d8cd..dd2cfe2 100644
+--- a/fs/btrfs/transaction.c
++++ b/fs/btrfs/transaction.c
+@@ -619,7 +619,7 @@ struct btrfs_trans_handle *btrfs_start_transaction_fallback_global_rsv(
+ 	int ret;
+ 
+ 	trans = btrfs_start_transaction(root, num_items);
+-	if (!IS_ERR(trans) || PTR_ERR(trans) != -ENOSPC)
++	if (!IS_ERR(trans) || (PTR_ERR(trans) != -ENOSPC && PTR_ERR(trans) != -ENOSPC))
+ 		return trans;
+ 
+ 	trans = btrfs_start_transaction(root, 0);
+-- 
+1.9.1
+

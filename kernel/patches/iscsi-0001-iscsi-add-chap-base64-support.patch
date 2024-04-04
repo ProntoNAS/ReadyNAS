@@ -1,0 +1,152 @@
+From 70d348d586c189e1de331bddea360ed0c1925ca4 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 14:54:09 -0800
+Subject: [PATCH 01/10] iscsi: add chap base64 support
+
+Add BASE64 CHAP support needed for some initiators
+---
+ drivers/target/iscsi/iscsi_target_auth.c | 88 +++++++++++++++++++++++++++++++-
+ drivers/target/iscsi/iscsi_target_nego.c |  3 ++
+ drivers/target/iscsi/iscsi_target_nego.h |  1 +
+ 3 files changed, 90 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/target/iscsi/iscsi_target_auth.c b/drivers/target/iscsi/iscsi_target_auth.c
+index 47e249d..c11467f 100644
+--- a/drivers/target/iscsi/iscsi_target_auth.c
++++ b/drivers/target/iscsi/iscsi_target_auth.c
+@@ -26,6 +26,86 @@
+ #include "iscsi_target_nego.h"
+ #include "iscsi_target_auth.h"
+ 
++static unsigned char decode_base64_digit(char base64)
++{
++        switch (base64) {
++        case '=':
++                return 64;
++        case '/':
++                return 63;
++        case '+':
++                return 62;
++        default:
++                if ((base64 >= 'A') && (base64 <= 'Z'))
++                        return base64 - 'A';
++                else if ((base64 >= 'a') && (base64 <= 'z'))
++                        return 26 + (base64 - 'a');
++                else if ((base64 >= '0') && (base64 <= '9'))
++                        return 52 + (base64 - '0');
++                else
++                        return -1;
++        }
++}
++
++static void decode_base64_string(char *string, unsigned char *intnum, int int_len)
++{
++        int len;
++        int count;
++        int intptr;
++        unsigned char num[4];
++        int octets;
++
++        if ((string == NULL) || (intnum == NULL))
++                return;
++        len = strlen(string);
++        if (len == 0)
++                return;
++        if ((len % 4) != 0)
++                return;
++        count = 0;
++        intptr = 0;
++        while (count < len - 4) {
++                num[0] = decode_base64_digit(string[count]);
++                num[1] = decode_base64_digit(string[count + 1]);
++                num[2] = decode_base64_digit(string[count + 2]);
++                num[3] = decode_base64_digit(string[count + 3]);
++                if ((num[0] == 65) || (num[1] == 65) || (num[2] == 65) || (num[3] == 65))
++                        return;
++                count += 4;
++                octets =
++                    (num[0] << 18) | (num[1] << 12) | (num[2] << 6) | num[3];
++                intnum[intptr] = (octets & 0xFF0000) >> 16;
++                intnum[intptr + 1] = (octets & 0x00FF00) >> 8;
++                intnum[intptr + 2] = octets & 0x0000FF;
++                intptr += 3;
++        }
++        num[0] = decode_base64_digit(string[count]);
++        num[1] = decode_base64_digit(string[count + 1]);
++        num[2] = decode_base64_digit(string[count + 2]);
++        num[3] = decode_base64_digit(string[count + 3]);
++        if ((num[0] == 64) || (num[1] == 64))
++                return;
++        if (num[2] == 64) {
++                if (num[3] != 64)
++                        return;
++                intnum[intptr] = (num[0] << 2) | (num[1] >> 4);
++        } else if (num[3] == 64) {
++                intnum[intptr] = (num[0] << 2) | (num[1] >> 4);
++                intnum[intptr + 1] = (num[1] << 4) | (num[2] >> 2);
++        } else {
++                octets =
++                    (num[0] << 18) | (num[1] << 12) | (num[2] << 6) | num[3];
++                intnum[intptr] = (octets & 0xFF0000) >> 16;
++                intnum[intptr + 1] = (octets & 0x00FF00) >> 8;
++                intnum[intptr + 2] = octets & 0x0000FF;
++        }
++}
++
++void chap_base64_to_hex(unsigned char *dst, unsigned char *src, int len)
++{
++        decode_base64_string(src, dst, len);
++}
++
+ static int chap_string_to_hex(unsigned char *dst, unsigned char *src, int len)
+ {
+ 	int j = DIV_ROUND_UP(len, 2), rc;
+@@ -237,13 +317,17 @@ static int chap_server_compute_md5(
+ 		pr_err("Could not find CHAP_R.\n");
+ 		goto out;
+ 	}
+-	if (type != HEX) {
++	if (type != HEX && type != BASE64) {
+ 		pr_err("Could not find CHAP_R.\n");
+ 		goto out;
+ 	}
+ 
+ 	pr_debug("[server] Got CHAP_R=%s\n", chap_r);
+-	chap_string_to_hex(client_digest, chap_r, strlen(chap_r));
++
++	if(type == HEX)
++		chap_string_to_hex(client_digest, chap_r, strlen(chap_r));
++	else
++		chap_base64_to_hex(client_digest, chap_r, strlen(chap_r));
+ 
+ 	tfm = crypto_alloc_hash("md5", 0, CRYPTO_ALG_ASYNC);
+ 	if (IS_ERR(tfm)) {
+diff --git a/drivers/target/iscsi/iscsi_target_nego.c b/drivers/target/iscsi/iscsi_target_nego.c
+index 9fc9117..10349f6 100644
+--- a/drivers/target/iscsi/iscsi_target_nego.c
++++ b/drivers/target/iscsi/iscsi_target_nego.c
+@@ -82,6 +82,9 @@ int extract_param(
+ 	if (*ptr == '0' && (*(ptr+1) == 'x' || *(ptr+1) == 'X')) {
+ 		ptr += 2; /* skip 0x */
+ 		*type = HEX;
++        } else if (*ptr == '0' && (*(ptr+1) == 'b' || *(ptr+1) == 'B')) {
++                ptr += 2; /* skip 0b */
++                *type = BASE64;
+ 	} else
+ 		*type = DECIMAL;
+ 
+diff --git a/drivers/target/iscsi/iscsi_target_nego.h b/drivers/target/iscsi/iscsi_target_nego.h
+index f021cbd..205c46f 100644
+--- a/drivers/target/iscsi/iscsi_target_nego.h
++++ b/drivers/target/iscsi/iscsi_target_nego.h
+@@ -3,6 +3,7 @@
+ 
+ #define DECIMAL         0
+ #define HEX             1
++#define BASE64          2
+ 
+ extern void convert_null_to_semi(char *, int);
+ extern int extract_param(const char *, const char *, unsigned int, char *,
+-- 
+1.9.1
+

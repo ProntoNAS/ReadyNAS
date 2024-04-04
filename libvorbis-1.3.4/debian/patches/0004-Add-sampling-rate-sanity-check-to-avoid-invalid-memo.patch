@@ -1,0 +1,38 @@
+From: =?utf-8?q?Martin_Stegh=C3=B6fer?= <martin@steghoefer.eu>
+Date: Mon, 27 Oct 2014 22:06:15 +0100
+Subject: Add sampling rate sanity check to avoid invalid memory access.
+
+Bug-Debian: https://bugs.debian.org/716613
+
+Input files with sampling rate 0 are useless and can make
+libvorbis access invalid memory because the logic in
+_vp_psy_init (and probably other functions) isn't prepared for
+it. A sanity check lets the library refuse those inputs
+gracefully in the initialization functions before they can
+do harm.
+---
+ lib/vorbisenc.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/lib/vorbisenc.c b/lib/vorbisenc.c
+index f0f7c08..afd1bff 100644
+--- a/lib/vorbisenc.c
++++ b/lib/vorbisenc.c
+@@ -903,6 +903,8 @@ int vorbis_encode_setup_vbr(vorbis_info *vi,
+                             long  channels,
+                             long  rate,
+                             float quality){
++  if(rate <= 0) return OV_EINVAL;
++
+   codec_setup_info *ci=vi->codec_setup;
+   highlevel_encode_setup *hi=&ci->hi;
+ 
+@@ -948,6 +950,8 @@ int vorbis_encode_setup_managed(vorbis_info *vi,
+                                 long nominal_bitrate,
+                                 long min_bitrate){
+ 
++  if(rate <= 0) return OV_EINVAL;
++
+   codec_setup_info *ci=vi->codec_setup;
+   highlevel_encode_setup *hi=&ci->hi;
+   double tnominal=nominal_bitrate;

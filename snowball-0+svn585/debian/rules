@@ -1,0 +1,27 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	dh_auto_build -- $(shell dpkg-buildflags --export=configure)
+
+override_dh_installdocs:
+	dh_installdocs --link-doc=libstemmer0d
+
+override_dh_strip:
+	dh_strip --dbg-package=libstemmer0d-dbg
+	rm -rf debian/libstemmer0d-dbg/usr/lib/debug/usr/bin/
+
+get-packaged-orig-source:
+	set -e; \
+	REV=$(shell dpkg-parsechangelog | sed -rne 's,^Version: .*svn([0-9]+).*,\1,p'); \
+	VER=$(shell dpkg-parsechangelog | sed -rne 's,^Version: ([^-]+).*,\1,p'); \
+	svn export -r $$REV svn://snowball.tartarus.org/snowball/trunk/snowball snowball-$$VER; \
+	svn export -r $$REV svn://snowball.tartarus.org/snowball/trunk/data snowball-$$VER/testdata; \
+	sed -e 's/The Regents of the University of California./2001, Dr Martin Porter, and (for the Java developments) Copyright (c) 2002, Richard Boulton/' \
+	    -e 's/the University/the Snowball project/' \
+	    /usr/share/common-licenses/BSD > snowball-$$VER/COPYING; \
+	GZIP=--best tar -cz --owner root --group root --mode a+rX \
+	                -f snowball_$$VER.orig.tar.gz snowball-$$VER; \
+	rm -rf snowball-$$VER

@@ -1,0 +1,44 @@
+From 6091eebec9cc3e1f0fdc84222b2cb2053dc8fa90 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <justin.maggard@netgear.com>
+Date: Thu, 2 Jun 2016 22:00:54 +0000
+Subject: [PATCH 09/21] use system resolver to handle search domains
+
+Works around some Connman issues with uncomressing DNS answers from some
+servers when utilizing search domains, such as BIND 9.3.2 and BIND
+9.7.3.
+
+http://comments.gmane.org/gmane.linux.network.connman/15703
+---
+ src/dnsproxy.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/dnsproxy.c b/src/dnsproxy.c
+index 40b4f15..67e3219 100644
+--- a/src/dnsproxy.c
++++ b/src/dnsproxy.c
+@@ -2722,12 +2722,12 @@ static void update_domain(int index, const char *domain, bool append)
+ 
+ static void append_domain(int index, const char *domain)
+ {
+-	update_domain(index, domain, true);
++	__connman_resolvfile_append(index, domain, NULL);
+ }
+ 
+ static void remove_domain(int index, const char *domain)
+ {
+-	update_domain(index, domain, false);
++	__connman_resolvfile_remove(index, domain, NULL);
+ }
+ 
+ static void flush_requests(struct server_data *server)
+@@ -2839,6 +2839,7 @@ int __connman_dnsproxy_remove(int index, const char *domain,
+ 
+ 	remove_server(index, domain, server, IPPROTO_UDP);
+ 	remove_server(index, domain, server, IPPROTO_TCP);
++	remove_domain(index, domain);
+ 
+ 	return 0;
+ }
+-- 
+2.1.4
+

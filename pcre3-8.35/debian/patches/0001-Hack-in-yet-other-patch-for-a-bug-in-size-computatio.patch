@@ -1,0 +1,60 @@
+Description: Hack in yet other patch for a bug in size computation that is 
+ fixed "properly" in PCRE2.
+ .
+ Addresses CVE-2015-8395 and CVE-2015-8381.
+Origin: upstream, http://vcs.pcre.org/pcre?view=revision&revision=1594
+Bug-Debian: https://bugs.debian.org/796762
+Forwarded: not-needed
+Author: Salvatore Bonaccorso <carnil@debian.org>
+Last-Update: 2015-12-29
+Applied-Upstream: 8.38
+
+---
+ pcre_compile.c       | 5 ++---
+ testdata/testinput2  | 2 ++
+ testdata/testoutput2 | 2 ++
+ 4 files changed, 13 insertions(+), 5 deletions(-)
+
+--- a/pcre_compile.c
++++ b/pcre_compile.c
+@@ -7105,7 +7105,7 @@ for (;; ptr++)
+           encountered. In that case, we allow yet more memory, just in case. 
+           (Again, this is fixed "properly" in PCRE2. */
+           
+-          if (cd->dupgroups) *lengthptr += 2 + 2*LINK_SIZE;
++          if (cd->dupgroups) *lengthptr += 4 + 4*LINK_SIZE;
+ 
+           /* Otherwise, check for recursion here. The name table does not exist
+           in the first pass; instead we must scan the list of names encountered
+@@ -9306,7 +9306,7 @@ if (errorcode == 0 && re->top_backref >
+ /* Unless disabled, check whether single character iterators can be
+ auto-possessified. The function overwrites the appropriate opcode values. */
+ 
+-if ((options & PCRE_NO_AUTO_POSSESS) == 0)
++if (errorcode == 0 && (options & PCRE_NO_AUTO_POSSESS) == 0)
+   auto_possessify((pcre_uchar *)codestart, utf, cd);
+ 
+ /* If there were any lookbehind assertions that contained OP_RECURSE
+@@ -9530,4 +9530,3 @@ return (pcre32 *)re;
+ }
+ 
+ /* End of pcre_compile.c */
+-
+--- a/testdata/testinput2
++++ b/testdata/testinput2
+@@ -4096,4 +4096,6 @@ backtracking verbs. --/
+ 
+ /(?(8000000000/
+ 
++/(?J:(?|(:(?|(?'R')(\z(?|(?'R')(\k'R')|((?'R')))k'R')|((?'R')))H'Ak'Rf)|s(?'R')))/
++
+ /-- End of testinput2 --/
+--- a/testdata/testoutput2
++++ b/testdata/testoutput2
+@@ -14224,4 +14224,6 @@ Failed: number is too big at offset 16
+ /(?(8000000000/
+ Failed: number is too big at offset 13
+ 
++/(?J:(?|(:(?|(?'R')(\z(?|(?'R')(\k'R')|((?'R')))k'R')|((?'R')))H'Ak'Rf)|s(?'R')))/
++
+ /-- End of testinput2 --/

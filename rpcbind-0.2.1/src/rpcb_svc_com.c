@@ -48,6 +48,7 @@
 #include <rpc/rpc.h>
 #include <rpc/rpcb_prot.h>
 #include <rpc/svc_dg.h>
+#include <rpc/rpc_com.h>
 #include <netconfig.h>
 #include <errno.h>
 #include <syslog.h>
@@ -431,7 +432,7 @@ rpcbproc_taddr2uaddr_com(void *arg, struct svc_req *rqstp /*__unused*/,
 static bool_t
 xdr_encap_parms(XDR *xdrs, struct encap_parms *epp)
 {
-	return (xdr_bytes(xdrs, &(epp->args), (u_int *) &(epp->arglen), ~0));
+	return (xdr_bytes(xdrs, &(epp->args), (u_int *) &(epp->arglen), RPC_MAXDATASIZE));
 }
 
 /*
@@ -1204,12 +1205,33 @@ check_rmtcalls(struct pollfd *pfds, int nfds)
 	return (ncallbacks_found);
 }
 
+/*
+ * This is really a helper function defined in libtirpc, but unfortunately, it hasn't
+ * been exported yet.
+ */
+static struct netbuf *
+__rpc_set_netbuf(struct netbuf *nb, const void *ptr, size_t len)
+{
+	if (nb->len != len) {
+		if (nb->len)
+			mem_free(nb->buf, nb->len);
+		nb->buf = mem_alloc(len);
+		if (nb->buf == NULL)
+			return NULL;
+
+		nb->maxlen = nb->len = len;
+	}
+	memcpy(nb->buf, ptr, len);
+	return nb;
+}
+
 static void
 xprt_set_caller(SVCXPRT *xprt, struct finfo *fi)
 {
+	const struct netbuf *caller = fi->caller_addr;
 	u_int32_t *xidp;
 
-	*(svc_getrpccaller(xprt)) = *(fi->caller_addr);
+	__rpc_set_netbuf(svc_getrpccaller(xprt), caller->buf, caller->len);
 	xidp = __rpcb_get_dg_xidp(xprt);
 	*xidp = fi->caller_xid;
 }

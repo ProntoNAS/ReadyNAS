@@ -1,0 +1,30 @@
+From b5d9365de29a893262f10be997118b18e9ba8622 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 14:56:42 -0800
+Subject: [PATCH 05/10] iscsi: fix vmware 3.5
+
+Add some additional error checking so that VMWare 3.5's initiator won't cause a
+kernel panic.
+---
+ drivers/target/iscsi/iscsi_target_parameters.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/target/iscsi/iscsi_target_parameters.c b/drivers/target/iscsi/iscsi_target_parameters.c
+index 2cbea2a..8187262 100644
+--- a/drivers/target/iscsi/iscsi_target_parameters.c
++++ b/drivers/target/iscsi/iscsi_target_parameters.c
+@@ -821,6 +821,11 @@ static int iscsi_check_numerical_value(struct iscsi_param *param, char *value_pt
+ 	char *tmpptr;
+ 	int value = 0;
+ 
++	if( !param || !param->name || !value_ptr) {
++		printk(KERN_ERR "Bad parameter in iscsi_check_numerical_value.\n");
++		return -1;
++	}
++
+ 	value = simple_strtoul(value_ptr, &tmpptr, 0);
+ 
+ 	if (IS_TYPERANGE_0_TO_2(param)) {
+-- 
+1.9.1
+

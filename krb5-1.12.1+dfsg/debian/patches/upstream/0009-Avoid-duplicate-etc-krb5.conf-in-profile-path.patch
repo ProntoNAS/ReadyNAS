@@ -1,0 +1,88 @@
+From 0fc749e3426189ef94f32f88123b3ebad5b860c2 Mon Sep 17 00:00:00 2001
+From: Tom Yu <tlyu@mit.edu>
+Date: Tue, 25 Feb 2014 17:35:35 -0500
+Subject: Avoid duplicate "/etc/krb5.conf" in profile path
+
+If configure gets run with --sysconfdir=/etc, "/etc/krb5.conf" shows
+up twice in the profile path, which causes its contents to be read
+twice.  This can cause some confusing and possibly problematic
+behavior.
+
+Add some logic to configure.in to avoid adding the duplicate entry for
+"/etc/krb5.conf".
+
+Reported independently by Denis Vlasenko and Fredrik Tolf.
+
+ticket: 3277
+tags: pullup
+target_version: 1.12.2
+
+Patch-Category: upstream
+---
+ src/configure.in        | 9 +++++++++
+ src/include/Makefile.in | 4 +++-
+ src/include/osconf.hin  | 4 ++--
+ 3 files changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/src/configure.in b/src/configure.in
+index e28a222..f1fe154 100644
+--- a/src/configure.in
++++ b/src/configure.in
+@@ -6,6 +6,15 @@ if test x"$runstatedir" == x; then
+ fi
+ AC_SUBST(runstatedir)
+ 
++# Don't make duplicate profile path entries for /etc/krb5.conf if
++# $sysconfdir is /etc
++if test "$sysconfdir" == /etc; then
++  SYSCONFCONF=""
++else
++  SYSCONFCONF=":${sysconfdir}/krb5.conf"
++fi
++AC_SUBST(SYSCONFCONF)
++
+ CONFIG_RULES
+ KRB5_VERSION=K5_VERSION
+ AC_SUBST(KRB5_VERSION)
+diff --git a/src/include/Makefile.in b/src/include/Makefile.in
+index f83ff4e..b160ea4 100644
+--- a/src/include/Makefile.in
++++ b/src/include/Makefile.in
+@@ -57,6 +57,7 @@ RUNSTATEDIR = @runstatedir@
+ BINDIR = @bindir@
+ SBINDIR = @sbindir@
+ LIBDIR  = @libdir@
++SYSCONFCONF = @SYSCONFCONF@
+ 
+ PROCESS_REPLACE = -e "s+@KRB5RCTMPDIR+$(KRB5RCTMPDIR)+" \
+ 		  -e "s+@PREFIX+$(INSTALL_PREFIX)+" \
+@@ -69,7 +70,8 @@ PROCESS_REPLACE = -e "s+@KRB5RCTMPDIR+$(KRB5RCTMPDIR)+" \
+ 		  -e 's+@LOCALSTATEDIR+$(LOCALSTATEDIR)+' \
+ 		  -e 's+@RUNSTATEDIR+$(RUNSTATEDIR)+' \
+ 		  -e 's+@SYSCONFDIR+$(SYSCONFDIR)+' \
+-		  -e 's+@DYNOBJEXT+$(DYNOBJEXT)+'
++		  -e 's+@DYNOBJEXT+$(DYNOBJEXT)+' \
++		  -e 's+@SYSCONFCONF+$(SYSCONFCONF)+'
+ 
+ OSCONFSRC = $(srcdir)/osconf.hin
+ 
+diff --git a/src/include/osconf.hin b/src/include/osconf.hin
+index 862325a..8753ca0 100644
+--- a/src/include/osconf.hin
++++ b/src/include/osconf.hin
+@@ -44,13 +44,13 @@
+ #define DEFAULT_PROFILE_FILENAME "krb5.ini"
+ #else /* !_WINDOWS */
+ #if TARGET_OS_MAC
+-#define DEFAULT_SECURE_PROFILE_PATH "/Library/Preferences/edu.mit.Kerberos:/etc/krb5.conf:@SYSCONFDIR/krb5.conf"
++#define DEFAULT_SECURE_PROFILE_PATH "/Library/Preferences/edu.mit.Kerberos:/etc/krb5.conf@SYSCONFCONF"
+ #define DEFAULT_PROFILE_PATH        ("~/Library/Preferences/edu.mit.Kerberos" ":" DEFAULT_SECURE_PROFILE_PATH)
+ #define KRB5_PLUGIN_BUNDLE_DIR       "/System/Library/KerberosPlugins/KerberosFrameworkPlugins"
+ #define KDB5_PLUGIN_BUNDLE_DIR       "/System/Library/KerberosPlugins/KerberosDatabasePlugins"
+ #define KRB5_AUTHDATA_PLUGIN_BUNDLE_DIR  "/System/Library/KerberosPlugins/KerberosAuthDataPlugins"
+ #else
+-#define DEFAULT_SECURE_PROFILE_PATH     "/etc/krb5.conf:@SYSCONFDIR/krb5.conf"
++#define DEFAULT_SECURE_PROFILE_PATH     "/etc/krb5.conf@SYSCONFCONF"
+ #define DEFAULT_PROFILE_PATH        DEFAULT_SECURE_PROFILE_PATH
+ #endif
+ #endif /* _WINDOWS  */

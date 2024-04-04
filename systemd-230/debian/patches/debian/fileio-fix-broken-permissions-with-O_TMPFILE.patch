@@ -1,0 +1,26 @@
+From: Michael Prokop <mika@debian.org>
+Date: Wed, 27 Jul 2016 18:15:00 +0200
+Subject: fileio: fix broken permissions with O_TMPFILE
+
+Our test-suite is failing on i386 in jessie, specifically
+test-tmpfiles.  It turns out that the files created with
+O_TMPFILE have broken permissions and are unreadable. See
+https://bugs.debian.org/832521 for further details.
+
+Thanks: Felipe Sateler <fsateler@debian.org> and Michael Biebl <biebl@debian.org>
+---
+ src/basic/fileio.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/basic/fileio.c b/src/basic/fileio.c
+index 29f5374..8612771 100644
+--- a/src/basic/fileio.c
++++ b/src/basic/fileio.c
+@@ -1305,6 +1305,7 @@ int open_tmpfile_linkable(const char *target, int flags, char **ret_path) {
+                         return -ENOMEM;
+ 
+                 fd = open(dn, O_TMPFILE|flags, 0640);
++                fchmod(fd, 0640);
+                 if (fd >= 0) {
+                         *ret_path = NULL;
+                         return fd;

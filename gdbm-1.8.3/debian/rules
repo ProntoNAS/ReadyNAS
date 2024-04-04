@@ -20,7 +20,14 @@ include /usr/share/dpkg/buildflags.mk
 
 CFLAGS += -O2 -g -Wall -D_REENTRANT
 
-STRIP=strip --remove-section=.comment --remove-section=.note
+ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+  STRIPBIN = strip
+else
+  CROSSCONF = --host=$(DEB_HOST_GNU_TYPE)
+  STRIPBIN = $(DEB_HOST_GNU_TYPE)-strip
+endif 
+
+STRIP=$(STRIPBIN) --remove-section=.comment --remove-section=.note
 
 install_dir=install -d -m 755
 install_file=install -m 644
@@ -35,6 +42,7 @@ clean:
 	rm -f config.sub config.guess
 	rm -f $$(find . -name "*~")
 	rm -rf debian/tmp debian/files* debian/substvars*
+	dh_clean
 
 build-arch: build
 build-indep: build
@@ -44,17 +52,16 @@ build:
 	aclocal
 	autoconf
 	cp -f /usr/share/misc/config.sub /usr/share/misc/config.guess .
-ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
 	CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" ./configure --prefix=/usr \
-		--libdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH)
-else
-	CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" ./configure --prefix=/usr \
-	--host=$(DEB_HOST_GNU_TYPE) --libdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH)
-endif
+		$(CROSSCONF) --libdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH)
 	echo "/* We use fcntl locking (POSIX) instead of flock (BSD) */" >> autoconf.h
 	echo "#undef HAVE_FLOCK" >> autoconf.h
 	CFLAGS="$(CFLAGS)" LIBS="$(LDFLAGS)" $(MAKE)
+ifeq ($(DEB_BUILD_PROFILE),stage1)
+	touch gdbm.info
+else
 	$(MAKE) gdbm.info
+endif
 	touch build
 
 binary-indep:	checkroot build
@@ -74,16 +81,17 @@ binary-libgdbm: checkroot build
 	$(STRIP) --strip-unneeded debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/*.so*
 	chmod 644 debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/*.so*
 
-	$(compress) debian/tmp/usr/share/info/*
-	$(compress) debian/tmp/usr/share/man/man3/*
+	rm -f debian/tmp/usr/share/info/gdbm.info
+	rmdir debian/tmp/usr/share/info/
+	rm -f debian/tmp/usr/share/man/man3/gdbm.3
+	rmdir debian/tmp/usr/share/man/man3
+	rmdir debian/tmp/usr/share/man
 
 	$(install_dir) debian/tmp/DEBIAN
 	$(install_file) debian/shlibs debian/tmp/DEBIAN/
 	$(install_script) debian/postinst debian/postrm debian/tmp/DEBIAN/
 
-	$(install_dir) debian/tmp/usr/share/doc/libgdbm3/
-	$(install_file) debian/changelog debian/tmp/usr/share/doc/libgdbm3/changelog.Debian
-	$(install_file) ChangeLog debian/tmp/usr/share/doc/libgdbm3/changelog
+	dh_installchangelogs -Pdebian/tmp -plibgdbm3
 	$(compress) debian/tmp/usr/share/doc/libgdbm3/*
 	$(install_file) debian/copyright debian/tmp/usr/share/doc/libgdbm3/copyright
 
@@ -115,7 +123,9 @@ binary-libgdbm-dev: checkroot build
 	# libc6 owns ndbm.h, but some apps want gdbm's
 	mv debian/tmp/usr/include/ndbm.h debian/tmp/usr/include/gdbm-ndbm.h
 
-	rm -f debian/tmp/usr/share/man/man3/gdbm.3
+	$(compress) debian/tmp/usr/share/info/*
+	$(compress) debian/tmp/usr/share/man/man3/*
+
 	cd debian/tmp/usr/share/man/man3 ; \
 	    for i in dbm gdbm_error gdbm_errno gdbm_open \
 		    gdbm_close gdbm_store gdbm_fetch gdbm_delete \
@@ -130,15 +140,10 @@ binary-libgdbm-dev: checkroot build
 		ln -s gdbm.3.gz $$i.3.gz ; \
 	    done
 
-	rm -f debian/tmp/usr/share/info/gdbm.info
-	rmdir debian/tmp/usr/share/info/
-
 	$(install_dir) debian/tmp/DEBIAN/
 
 	$(install_dir) debian/tmp/usr/share/doc/libgdbm-dev/
-	$(install_file) debian/changelog \
-			debian/tmp/usr/share/doc/libgdbm-dev/changelog.Debian
-	$(install_file) ChangeLog  debian/tmp/usr/share/doc/libgdbm-dev/changelog
+	dh_installchangelogs -Pdebian/tmp -plibgdbm-dev
 	$(install_file) NEWS README debian/tmp/usr/share/doc/libgdbm-dev/
 	$(compress) debian/tmp/usr/share/doc/libgdbm-dev/*
 	$(install_file) debian/copyright \

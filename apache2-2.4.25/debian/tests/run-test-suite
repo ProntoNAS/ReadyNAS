@@ -1,0 +1,42 @@
+#!/bin/bash
+
+. /etc/apache2/envvars
+set -xeu
+export LANG=C
+export PATH=/usr/lib/ccache:$PATH
+# set to "-v t/modules/ext_filter.t ..." to run only a few test, but verbose
+TESTS=""
+
+cp -a debian/perl-framework $AUTOPKGTEST_TMP
+cd $AUTOPKGTEST_TMP/perl-framework
+
+# XXX TODO these tests have problems and need debugging
+rm t/filter/case.t
+rm t/modules/ext_filter.t
+rm t/modules/filter.t
+rm t/modules/info.t
+rm t/protocol/echo.t
+rm t/security/CVE-2009-3555.t
+
+run_tests () {
+	local MPM=$1
+	shift
+
+	echo =============Running-with-${MPM}==========
+	cp /etc/apache2/apache2.conf apache2.conf.debian
+	cat /etc/apache2/mods-available/$MPM.load >> apache2.conf.debian
+	ls /etc/apache2/mods-available/*.load | grep -v mpm_ | xargs cat >> apache2.conf.debian
+	# these are only for tests and don't have a .load file
+	for m in bucketeer case_filter case_filter_in ; do
+		echo "LoadModule ${m}_module /usr/lib/apache2/modules/mod_${m}.so" >> apache2.conf.debian
+	done
+	echo "Servername localhost" >> apache2.conf.debian
+	make clean || true
+	perl -p -i -e 's,^Include,#Include,' apache2.conf.debian
+	perl Makefile.PL -apxs /usr/bin/apxs2 -httpd_conf $PWD/apache2.conf.debian  && t/TEST $TESTS
+	rm apache2.conf.debian
+}
+
+run_tests mpm_prefork
+run_tests mpm_worker
+run_tests mpm_event

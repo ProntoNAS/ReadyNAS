@@ -1,0 +1,37 @@
+From 1f003b7f59c211cf5f462068c90b2b158800f439 Mon Sep 17 00:00:00 2001
+From: Sam Hartman <hartmans@debian.org>
+Date: Wed, 4 Jun 2014 12:03:19 -0400
+Subject: Read /etc/gss/mech when no files in mech.d
+
+If the call to glob fails, it's still necessary to read /etc/gss/mech
+if that file exists.
+
+ticket: 7925
+---
+ src/lib/gssapi/mechglue/g_initialize.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/src/lib/gssapi/mechglue/g_initialize.c b/src/lib/gssapi/mechglue/g_initialize.c
+index a586e1c..7fab03d 100644
+--- a/src/lib/gssapi/mechglue/g_initialize.c
++++ b/src/lib/gssapi/mechglue/g_initialize.c
+@@ -444,8 +444,18 @@ loadConfigFiles()
+ 	g_confLastCall = now;
+ 
+ 	globbuf.gl_offs = 1;
+-	if (glob(MECH_CONF_PATTERN, GLOB_DOOFFS, NULL, &globbuf) != 0)
++	if (glob(MECH_CONF_PATTERN, GLOB_DOOFFS, NULL, &globbuf) != 0) {
++		mtime = check_link_mtime(MECH_CONF, &mtime);
++		if (mtime == (time_t)-1)
++			return;
++		if (mtime > highest_mtime)
++			highest_mtime = mtime;
++		if (mtime > g_confFileModTime) {
++			loadConfigFile(MECH_CONF);
++			g_confFileModTime = highest_mtime;
++		}
+ 		return;
++	}
+ 	globbuf.gl_pathv[0] = MECH_CONF;
+ 
+ 	for (pathptr = globbuf.gl_pathv; *pathptr != NULL; pathptr++) {

@@ -1,0 +1,105 @@
+From 4062408f544a83abe362941a03449377dd088337 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 17:18:30 -0800
+Subject: [PATCH 93/93] enable PCH gpio intel sunrisepoint pinctl for rrx312
+
+---
+ drivers/pinctrl/intel/pinctrl-intel.c | 47 ++++++++++++++++++++++++++++++++++-
+ 1 file changed, 46 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pinctrl/intel/pinctrl-intel.c b/drivers/pinctrl/intel/pinctrl-intel.c
+index 26f6b6f..015ddc1 100644
+--- a/drivers/pinctrl/intel/pinctrl-intel.c
++++ b/drivers/pinctrl/intel/pinctrl-intel.c
+@@ -377,6 +377,7 @@ static int intel_gpio_request_enable(struct pinctrl_dev *pctldev,
+ 	/* Disable SCI/SMI/NMI generation */
+ 	value &= ~(PADCFG0_GPIROUTIOXAPIC | PADCFG0_GPIROUTSCI);
+ 	value &= ~(PADCFG0_GPIROUTSMI | PADCFG0_GPIROUTNMI);
++	value |= PADCFG0_GPIROUTIOXAPIC; //libolibo RN4230
+ 	/* Disable TX buffer and enable RX (this will be input) */
+ 	value &= ~PADCFG0_GPIORXDIS;
+ 	value |= PADCFG0_GPIOTXDIS;
+@@ -748,6 +749,9 @@ static int intel_gpio_irq_type(struct irq_data *d, unsigned type)
+ 		value |= PADCFG0_RXEVCFG_EDGE << PADCFG0_RXEVCFG_SHIFT;
+ 	} else if (type & IRQ_TYPE_LEVEL_LOW) {
+ 		value |= PADCFG0_RXINV;
++		value |= PADCFG0_GPIROUTIOXAPIC; //libolibo RN4230
++		/* Disable TX buffer and enable RX (this will be input) */
++		value &= ~PADCFG0_GPIORXDIS;
+ 	} else {
+ 		value |= PADCFG0_RXEVCFG_DISABLED << PADCFG0_RXEVCFG_SHIFT;
+ 	}
+@@ -954,6 +958,45 @@ static int intel_pinctrl_pm_init(struct intel_pinctrl *pctrl)
+ 	return 0;
+ }
+ 
++/*
++ * This is a remedy for ReadyNAS RR[34]312 PWR botton GPIO reading.
++ *
++ * The ACPI GPIO resources are allocated only for
++ *	Community 0: GPP_A & GPP_B (0...47) as resource[0]
++ *	Community 1: GPP_C ... GPP_B (48...180) as resource[1]
++ *	Community 3: GPP_I (181...191) wrongly as resource[2]
++ *
++ * The RR[34]312 needs to access GPD3 (PWRBTN#, 195) of community 2.
++ * __ip_platform_get_resource() intercepts intel_pincontrol_probe()'s
++ * call to platform_get_resource() and, if the call is to get the missing
++ * GPPD resouce, it returns a fake resource whose contents are filled
++ * heuristically from available communities' resource information.
++ */
++static struct resource *
++__ip_platform_get_resource(struct platform_device *pdev,
++				unsigned long flags, int res_num)
++{
++	static struct resource **ress, fake_res;
++
++	if ((!ress && !(ress = kmalloc(sizeof(*ress) * pdev->num_resources,
++					GFP_KERNEL))) ||
++		res_num >= pdev->num_resources)
++		return NULL;
++	if ((ress[res_num] = platform_get_resource(pdev, flags, res_num)))
++		return ress[res_num];
++	if (res_num != 3)
++		return NULL;
++	if (ress[2]->start != ress[0]->start +
++				(ress[1]->start - ress[0]->start) * 3)
++		return NULL;
++	fake_res.name	= ress[0]->name;
++	fake_res.flags	= ress[0]->flags;
++	fake_res.start	= ress[0]->start +
++				(ress[1]->start - ress[0]->start) * 2;
++	fake_res.end	= fake_res.start + (ress[0]->end - ress[0]->start);
++	return &fake_res;
++}
++
+ int intel_pinctrl_probe(struct platform_device *pdev,
+ 			const struct intel_pinctrl_soc_data *soc_data)
+ {
+@@ -989,7 +1032,7 @@ int intel_pinctrl_probe(struct platform_device *pdev,
+ 
+ 		*community = pctrl->soc->communities[i];
+ 
+-		res = platform_get_resource(pdev, IORESOURCE_MEM,
++		res = __ip_platform_get_resource(pdev, IORESOURCE_MEM,
+ 					    community->barno);
+ 		regs = devm_ioremap_resource(&pdev->dev, res);
+ 		if (IS_ERR(regs))
+@@ -1086,6 +1129,7 @@ int intel_pinctrl_suspend(struct device *dev)
+ }
+ EXPORT_SYMBOL_GPL(intel_pinctrl_suspend);
+ 
++#ifdef CONFIG_PM_SLEEP
+ static void intel_gpio_irq_init(struct intel_pinctrl *pctrl)
+ {
+ 	size_t i;
+@@ -1105,6 +1149,7 @@ static void intel_gpio_irq_init(struct intel_pinctrl *pctrl)
+ 		}
+ 	}
+ }
++#endif
+ 
+ int intel_pinctrl_resume(struct device *dev)
+ {
+-- 
+1.9.1
+

@@ -1,0 +1,30 @@
+From a089756fe4b6796e20ec305a8a72b6c2fac74d93 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 14:57:24 -0800
+Subject: [PATCH 06/10] iscsi: fix netware 6.5
+
+Work around a NetWare 6.5 initiator bug where it ignores the random StatSN,
+causing a memory leak and eventually killing the system.
+---
+ drivers/target/iscsi/iscsi_target_login.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/target/iscsi/iscsi_target_login.c b/drivers/target/iscsi/iscsi_target_login.c
+index 316f661..fe52d99 100644
+--- a/drivers/target/iscsi/iscsi_target_login.c
++++ b/drivers/target/iscsi/iscsi_target_login.c
+@@ -765,6 +765,11 @@ void iscsi_post_login_handler(
+ 	}
+ 
+ 	iscsi_set_session_parameters(sess->sess_ops, conn->param_list, 1);
++
++	/* JASON QIAN @ NETGEAR */
++        if(sess->sess_ops && strstr(sess->sess_ops->InitiatorName, "novell"))
++                conn->stat_sn = 1;
++
+ 	iscsi_release_param_list(conn->param_list);
+ 	conn->param_list = NULL;
+ 
+-- 
+1.9.1
+

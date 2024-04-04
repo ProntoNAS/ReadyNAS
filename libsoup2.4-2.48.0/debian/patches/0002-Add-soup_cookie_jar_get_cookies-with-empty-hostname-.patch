@@ -1,0 +1,55 @@
+From: Michael Catanzaro <mcatanzaro@igalia.com>
+Date: Sun, 24 Jun 2018 20:20:18 -0500
+Subject: Add soup_cookie_jar_get_cookies with empty hostname test
+
+This test checks the behavior that occurs wehn
+soup_cookie_jar_get_cookies is called with a SoupURI that contains an
+empty host component.
+
+This verifies the fix for #3.
+
+(cherry picked from commit cf82db7472d3339ccca210342cb453a7ce22a900)
+
+Origin: https://gitlab.gnome.org/GNOME/libsoup/commit/cf82db7472d3339ccca210342cb453a7ce22a900
+Applied-Upstream: 2.62.3
+---
+ tests/cookies-test.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+Index: b/tests/cookies-test.c
+===================================================================
+--- a/tests/cookies-test.c
++++ b/tests/cookies-test.c
+@@ -164,6 +164,24 @@
+ 	soup_test_session_abort_unref (session);
+ }	
+ 
++static void
++do_get_cookies_empty_host_test (void)
++{
++	SoupCookieJar *jar;
++	SoupURI *uri;
++	char *cookies;
++
++	jar = soup_cookie_jar_new ();
++	uri = soup_uri_new ("file:///whatever.html");
++
++	cookies = soup_cookie_jar_get_cookies (jar, uri, FALSE);
++
++	g_assert_null (cookies);
++
++	g_object_unref (jar);
++	soup_uri_free (uri);
++}
++
+ int
+ main (int argc, char **argv)
+ {
+@@ -183,6 +201,7 @@
+ 
+ 	g_test_add_func ("/cookies/accept-policy", do_cookies_accept_policy_test);
+ 	g_test_add_func ("/cookies/parsing", do_cookies_parsing_test);
++	g_test_add_func ("/cookies/get-cookies/empty-host", do_get_cookies_empty_host_test);
+ 
+ 	ret = g_test_run ();
+ 

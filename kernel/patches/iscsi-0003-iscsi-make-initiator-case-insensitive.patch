@@ -1,0 +1,41 @@
+From 05547820fcb9756254bbdf10c8219baf86b0519b Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 14:55:28 -0800
+Subject: [PATCH 03/10] iscsi: make initiator case insensitive
+
+Not all iSCSI initiators send lowercase IQNs, even though they are supposed to be
+normalized to lower case.  So we do a case-insensitive comparison.
+---
+ drivers/target/iscsi/iscsi_target.c | 2 +-
+ drivers/target/target_core_tpg.c    | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/target/iscsi/iscsi_target.c b/drivers/target/iscsi/iscsi_target.c
+index bd810c1..c41ced8 100644
+--- a/drivers/target/iscsi/iscsi_target.c
++++ b/drivers/target/iscsi/iscsi_target.c
+@@ -73,7 +73,7 @@ struct iscsi_tiqn *iscsit_get_tiqn_for_login(unsigned char *buf)
+ 
+ 	spin_lock(&tiqn_lock);
+ 	list_for_each_entry(tiqn, &g_tiqn_list, tiqn_list) {
+-		if (!strcmp(tiqn->tiqn, buf)) {
++		if (!strcasecmp(tiqn->tiqn, buf)) {
+ 
+ 			spin_lock(&tiqn->tiqn_state_lock);
+ 			if (tiqn->tiqn_state == TIQN_STATE_ACTIVE) {
+diff --git a/drivers/target/target_core_tpg.c b/drivers/target/target_core_tpg.c
+index 5fb9dd7..e4c3c38 100644
+--- a/drivers/target/target_core_tpg.c
++++ b/drivers/target/target_core_tpg.c
+@@ -59,7 +59,7 @@ struct se_node_acl *__core_tpg_get_initiator_node_acl(
+ 	struct se_node_acl *acl;
+ 
+ 	list_for_each_entry(acl, &tpg->acl_node_list, acl_list) {
+-		if (!strcmp(acl->initiatorname, initiatorname))
++		if (!strcasecmp(acl->initiatorname, initiatorname))
+ 			return acl;
+ 	}
+ 
+-- 
+1.9.1
+

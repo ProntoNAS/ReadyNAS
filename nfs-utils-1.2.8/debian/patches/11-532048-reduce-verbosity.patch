@@ -1,0 +1,59 @@
+http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=532048
+
+The nfs-utils package in Ubuntu has been patched to reduce the default log
+verbosity in the case of expired Kerberos credentials, for the reasons
+described here:
+
+https://bugs.launchpad.net/ubuntu/+source/nfs-utils/+bug/293705
+
+Please consider applying the attached patch to Debian as well.
+
+Andrew Pollock said he was submitting this patch upstream, but there doesn't
+seem to be any evidence that it's been included yet in 1.2.0.
+
+Steve Langasek <steve.langasek@canonical.com>
+
+Index: nfs-utils/utils/gssd/gssd_proc.c
+===================================================================
+--- nfs-utils.orig/utils/gssd/gssd_proc.c	2013-05-10 08:50:57.000000000 +0000
++++ nfs-utils/utils/gssd/gssd_proc.c	2013-05-10 08:50:57.000000000 +0000
+@@ -714,7 +714,7 @@
+ 	unsigned int timeout = 0;
+ 	int	zero = 0;
+ 
+-	printerr(1, "doing error downcall\n");
++	printerr(2, "doing error downcall\n");
+ 
+ 	if (WRITE_BYTES(&p, end, uid)) goto out_err;
+ 	if (WRITE_BYTES(&p, end, timeout)) goto out_err;
+@@ -978,7 +978,7 @@
+ 	gss_cred_id_t		gss_cred;
+ 	OM_uint32		maj_stat, min_stat, lifetime_rec;
+ 
+-	printerr(1, "handling krb5 upcall (%s)\n", clp->dirname);
++	printerr(2, "handling krb5 upcall (%s)\n", clp->dirname);
+ 
+ 	token.length = 0;
+ 	token.value = NULL;
+@@ -1082,7 +1082,7 @@
+ 	}
+ 
+ 	if (!authgss_get_private_data(auth, &pd)) {
+-		printerr(1, "WARNING: Failed to obtain authentication "
++		printerr(2, "WARNING: Failed to obtain authentication "
+ 			    "data for user with uid %d for server %s\n",
+ 			 uid, clp->servername);
+ 		goto out_return_error;
+Index: nfs-utils/utils/gssd/gss_util.c
+===================================================================
+--- nfs-utils.orig/utils/gssd/gss_util.c	2013-05-10 08:50:57.000000000 +0000
++++ nfs-utils/utils/gssd/gss_util.c	2013-05-10 08:50:57.000000000 +0000
+@@ -126,7 +126,7 @@
+ 				"gss_display_status called from %s\n", m);
+ 			break;
+ 		} else {
+-			printerr(0, "ERROR: GSS-API: (%s) error in %s(): %s\n",
++			printerr(2, "ERROR: GSS-API: (%s) error in %s(): %s\n",
+ 			    typestr, m, (char *)msg.value);
+ 		}
+ 

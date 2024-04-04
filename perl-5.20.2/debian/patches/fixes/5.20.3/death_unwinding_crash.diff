@@ -1,0 +1,161 @@
+From 9d5b26780c808cbb69c6dbb6f38439297b34fd81 Mon Sep 17 00:00:00 2001
+From: David Mitchell <davem@iabyn.com>
+Date: Wed, 19 Aug 2015 08:24:11 +0100
+Subject: RT #124156: death during unwinding causes crash
+
+v5.19.3-139-g2537512 changed POPSUB and POPFORMAT so that they also
+unwind the relevant portion of the scope stack. This (sensible) change
+means that during exception handling, contexts and savestack frames are
+popped in lock-step, rather than all the contexts being popped followed by
+all the savestack contents.
+
+However, LEAVE_SCOPE() is now called by POPSUB/FORMAT, which can trigger
+destructors, tied method calls etc, which themselves may croak. The new
+unwinding will see the old sub context still on the context stack and call
+POPSUB on it again, leading to double frees etc.
+
+At this late stage in code freeze, the least invasive change is to
+use an unused bit in cx->blk_u16 to indicate that POPSUB has already
+been called on this context frame.
+
+Sometime later, this whole area of code really needs a thorough overhaul.
+The main issue is that if cxstack_ix-- is done too early, then calling
+destructors etc can overwrite the current context frame while we're still
+using using it; if cxstack_ix-- is done too late, then that stack frame
+can end up getting unwound twice.
+
+(cherry picked from commit 1956db7ee60460e5b4a25c19fda4999666c8cbd1)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=124156
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/death_unwinding_crash.diff
+---
+ cop.h      | 12 +++++++++++-
+ t/op/sub.t | 52 +++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 62 insertions(+), 2 deletions(-)
+
+diff --git a/cop.h b/cop.h
+index 37980f04b..cb2b42af2 100644
+--- a/cop.h
++++ b/cop.h
+@@ -617,6 +617,7 @@ struct block_format {
+ 	cx->blk_format.gv = gv;						\
+ 	cx->blk_format.retop = (retop);					\
+ 	cx->blk_format.dfoutgv = PL_defoutgv;				\
++	cx->blk_u16 = 0;                                                \
+ 	if (!CvDEPTH(cv)) SvREFCNT_inc_simple_void_NN(cv);		\
+ 	CvDEPTH(cv)++;							\
+ 	SvREFCNT_inc_void(cx->blk_format.dfoutgv)
+@@ -639,6 +640,8 @@ struct block_format {
+ #define POPSUB(cx,sv)							\
+     STMT_START {							\
+ 	const I32 olddepth = cx->blk_sub.olddepth;			\
++        if (!(cx->blk_u16 & CxPOPSUB_DONE)) {                           \
++        cx->blk_u16 |= CxPOPSUB_DONE;                                   \
+ 	RETURN_PROBE(CvNAMED(cx->blk_sub.cv)				\
+ 			? HEK_KEY(CvNAME_HEK(cx->blk_sub.cv))		\
+ 			: GvENAME(CvGV(cx->blk_sub.cv)),		\
+@@ -661,6 +664,7 @@ struct block_format {
+ 		CLEAR_ARGARRAY(cx->blk_sub.argarray);			\
+ 	    }								\
+ 	}								\
++        }                                                               \
+ 	sv = MUTABLE_SV(cx->blk_sub.cv);				\
+ 	LEAVE_SCOPE(PL_scopestack[cx->blk_oldscopesp-1]);		\
+ 	if (sv && (CvDEPTH((const CV*)sv) = olddepth))			\
+@@ -674,13 +678,16 @@ struct block_format {
+ 
+ #define POPFORMAT(cx)							\
+     STMT_START {							\
++        if (!(cx->blk_u16 & CxPOPSUB_DONE)) {                           \
+ 	CV * const cv = cx->blk_format.cv;				\
+ 	GV * const dfuot = cx->blk_format.dfoutgv;			\
++        cx->blk_u16 |= CxPOPSUB_DONE;                                   \
+ 	setdefout(dfuot);						\
+ 	LEAVE_SCOPE(PL_scopestack[cx->blk_oldscopesp-1]);		\
+ 	if (!--CvDEPTH(cv))						\
+ 	    SvREFCNT_dec_NN(cx->blk_format.cv);				\
+ 	SvREFCNT_dec_NN(dfuot);						\
++        }                                                               \
+     } STMT_END
+ 
+ /* eval context */
+@@ -768,7 +775,10 @@ struct block_loop {
+ #define CxLABEL_len(c,len)	(0 + CopLABEL_len((c)->blk_oldcop, len))
+ #define CxLABEL_len_flags(c,len,flags)	(0 + CopLABEL_len_flags((c)->blk_oldcop, len, flags))
+ #define CxHASARGS(c)	(((c)->cx_type & CXp_HASARGS) == CXp_HASARGS)
+-#define CxLVAL(c)	(0 + (c)->blk_u16)
++#define CxLVAL(c)	(0 + ((c)->blk_u16 & 0xff))
++/* POPSUB has already been performed on this context frame */
++#define CxPOPSUB_DONE 0x100
++
+ 
+ #define PUSHLOOP_PLAIN(cx, s)						\
+ 	cx->blk_loop.resetsp = s - PL_stack_base;			\
+diff --git a/t/op/sub.t b/t/op/sub.t
+index 7df8f49aa..fe5353c5a 100644
+--- a/t/op/sub.t
++++ b/t/op/sub.t
+@@ -6,7 +6,7 @@ BEGIN {
+     require './test.pl';
+ }
+ 
+-plan( tests => 33 );
++plan( tests => 36 );
+ 
+ sub empty_sub {}
+ 
+@@ -222,3 +222,53 @@ ok !exists $INC{"re.pm"}, 're.pm not loaded yet';
+     is $str[1], $str[0],
+       'Pure-Perl sub clobbering sub whose DESTROY assigns to the glob';
+ }
++
++# RT #124156 death during unwinding causes crash
++# the tie allows us to trigger another die while cleaning up the stack
++# from an earlier die.
++
++{
++    package RT124156;
++
++    sub TIEHASH { bless({}, $_[0]) }
++    sub EXISTS { 0 }
++    sub FETCH { undef }
++    sub STORE { }
++    sub DELETE { die "outer\n" }
++
++    my @value;
++    eval {
++        @value = sub {
++            @value = sub {
++                my %a;
++                tie %a, "RT124156";
++                local $a{foo} = "bar";
++                die "inner";
++                ("dd2a", "dd2b");
++            }->();
++            ("cc3a", "cc3b");
++        }->();
++    };
++    ::is($@, "outer\n", "RT124156 plain");
++
++    my $destroyed = 0;
++    sub DESTROY { $destroyed = 1 }
++
++    sub f {
++        my $x;
++        my $f = sub {
++            $x = 1; # force closure
++            my %a;
++            tie %a, "RT124156";
++            local $a{foo} = "bar";
++            die "inner";
++        };
++        bless $f, 'RT124156';
++        $f->();
++    }
++
++    eval { f(); };
++    # as opposed to $@ eq "Can't undef active subroutine"
++    ::is($@, "outer\n", "RT124156 depth");
++    ::is($destroyed, 1, "RT124156 freed cv");
++}

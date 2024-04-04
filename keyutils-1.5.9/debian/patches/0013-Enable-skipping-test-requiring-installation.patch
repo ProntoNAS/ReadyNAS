@@ -1,0 +1,119 @@
+From: Christian Kastner <debian@kvr.at>
+Date: Mon, 26 May 2014 23:24:23 +0200
+Subject: Enable skipping test requiring installation
+
+Tests for request2 and prequest2 subcommands require /sbin/request-key to be
+present. The kernel looks for this in the actual root (outside of any chroot),
+which means we cannot test subcommands at build time.
+
+Forwarded: yes
+Last-Update: 2015-05-26
+
+---
+ tests/keyctl/requesting/bad-args/runtest.sh |  9 +++++++++
+ tests/keyctl/requesting/noargs/runtest.sh   |  9 +++++++++
+ tests/keyctl/requesting/piped/runtest.sh    |  9 +++++++++
+ tests/keyctl/requesting/valid/runtest.sh    | 10 ++++++++++
+ tests/prepare.inc.sh                        |  8 ++++++++
+ 5 files changed, 45 insertions(+)
+
+diff --git a/tests/keyctl/requesting/bad-args/runtest.sh b/tests/keyctl/requesting/bad-args/runtest.sh
+index feb2231..f460a9b 100644
+--- a/tests/keyctl/requesting/bad-args/runtest.sh
++++ b/tests/keyctl/requesting/bad-args/runtest.sh
+@@ -7,6 +7,15 @@
+ # ---- do the actual testing ----
+ 
+ result=PASS
++
++if [ $skip_install_required -eq 1 ]
++then
++    echo "++++ SKIPPING TEST" >>$OUTPUTFILE
++    marker "SKIP BECAUSE REQUIRES FULL INSTALLATION (for /sbin/request-key)"
++    toolbox_report_result $TEST PASS
++    exit 0
++fi
++
+ echo "++++ BEGINNING TEST" >$OUTPUTFILE
+ 
+ # check that an empty key type fails correctly
+diff --git a/tests/keyctl/requesting/noargs/runtest.sh b/tests/keyctl/requesting/noargs/runtest.sh
+index 0070708..1df7c6e 100644
+--- a/tests/keyctl/requesting/noargs/runtest.sh
++++ b/tests/keyctl/requesting/noargs/runtest.sh
+@@ -7,6 +7,15 @@
+ # ---- do the actual testing ----
+ 
+ result=PASS
++
++if [ $skip_install_required -eq 1 ]
++then
++    echo "++++ SKIPPING TEST" >>$OUTPUTFILE
++    marker "SKIP BECAUSE REQUIRES FULL INSTALLATION (for /sbin/request-key)"
++    toolbox_report_result $TEST PASS
++    exit 0
++fi
++
+ echo "++++ BEGINNING TEST" >$OUTPUTFILE
+ 
+ marker "NO ARGS"
+diff --git a/tests/keyctl/requesting/piped/runtest.sh b/tests/keyctl/requesting/piped/runtest.sh
+index 529f8af..5f945a7 100644
+--- a/tests/keyctl/requesting/piped/runtest.sh
++++ b/tests/keyctl/requesting/piped/runtest.sh
+@@ -7,6 +7,15 @@
+ # ---- do the actual testing ----
+ 
+ result=PASS
++
++if [ $skip_install_required -eq 1 ]
++then
++    echo "++++ SKIPPING TEST" >>$OUTPUTFILE
++    marker "SKIP BECAUSE REQUIRES FULL INSTALLATION (for /sbin/request-key)"
++    toolbox_report_result $TEST PASS
++    exit 0
++fi
++
+ echo "++++ BEGINNING TEST" >$OUTPUTFILE
+ 
+ set_gc_delay 10
+diff --git a/tests/keyctl/requesting/valid/runtest.sh b/tests/keyctl/requesting/valid/runtest.sh
+index c14d0cc..ec5653b 100644
+--- a/tests/keyctl/requesting/valid/runtest.sh
++++ b/tests/keyctl/requesting/valid/runtest.sh
+@@ -7,6 +7,16 @@
+ # ---- do the actual testing ----
+ 
+ result=PASS
++
++if [ $skip_install_required -eq 1 ]
++then
++    echo "++++ SKIPPING TEST" >>$OUTPUTFILE
++    marker "SKIP BECAUSE REQUIRES FULL INSTALLATION (for /sbin/request-key)"
++    toolbox_report_result $TEST PASS
++    exit 0
++fi
++
++
+ echo "++++ BEGINNING TEST" >$OUTPUTFILE
+ 
+ set_gc_delay 10
+diff --git a/tests/prepare.inc.sh b/tests/prepare.inc.sh
+index 6860e30..f5db313 100644
+--- a/tests/prepare.inc.sh
++++ b/tests/prepare.inc.sh
+@@ -49,3 +49,11 @@ then
+ else
+ 	skip_root_required=0
+ fi
++
++# Allow skipping of tests requiring a full installation
++if [ -n "$SKIPINSTALLED" ]
++then
++    skip_install_required=1
++else
++    skip_install_required=0
++fi
+-- 
+2.0.0.rc4
+

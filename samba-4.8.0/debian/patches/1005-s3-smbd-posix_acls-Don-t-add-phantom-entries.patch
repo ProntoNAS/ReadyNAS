@@ -1,0 +1,69 @@
+From 43dbcda70301514b9652bba22beaf5c84c33103f Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 4 Apr 2017 14:16:50 -0700
+Subject: [PATCH 1005/1005] s3: smbd: posix_acls: Don't add phantom entries
+
+When we're in ADS and using idmap_rid or idmap_autorid mapping modules,
+we end up with POSIX ACL entries for accounts that don't really exist.
+That's because idmap_rid doesn't check the account type, and just calls
+everything ID_TYPE_BOTH, which means that the ID in question is both a
+UID and GID.
+
+Fix this by attempting a SID lookup for each entry that maps to
+ID_TYPE_BOTH. If we're able to look it up, and it maps to a know type,
+then reassign the ID type appropriately.
+---
+ source3/smbd/posix_acls.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/source3/smbd/posix_acls.c b/source3/smbd/posix_acls.c
+index 7bd65390406..df4715228a2 100644
+--- a/source3/smbd/posix_acls.c
++++ b/source3/smbd/posix_acls.c
+@@ -1829,6 +1829,28 @@ static bool add_current_ace_to_acl(files_struct *fsp, struct security_ace *psa,
+ 	return true;
+ }
+ 
++static enum id_type lsa_SidType_to_id_type(const enum lsa_SidType sid_type)
++{
++	enum id_type type;
++
++	switch(sid_type) {
++	case SID_NAME_COMPUTER:
++	case SID_NAME_USER:
++		type = ID_TYPE_UID;
++		break;
++	case SID_NAME_DOM_GRP:
++	case SID_NAME_ALIAS:
++	case SID_NAME_WKN_GRP:
++		type = ID_TYPE_GID;
++		break;
++	default:
++		type = ID_TYPE_BOTH;
++		break;
++	}
++
++	return type;
++}
++
+ /****************************************************************************
+  Unpack a struct security_descriptor into two canonical ace lists.
+ ****************************************************************************/
+@@ -1973,6 +1995,14 @@ static bool create_canon_ace_lists(files_struct *fsp,
+ 				return false;
+ 			}
+ 
++			if (unixid.type == ID_TYPE_BOTH) {
++				enum lsa_SidType type;
++
++				if (lookup_sid(NULL, &current_ace->trustee, NULL, NULL, &type)) {
++					unixid.type = lsa_SidType_to_id_type(type);
++				}
++			}
++
+ 			if (unixid.type == ID_TYPE_BOTH) {
+ 				/*
+ 				 * We must add both a user and group
+-- 
+2.15.0
+

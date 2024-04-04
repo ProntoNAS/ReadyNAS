@@ -1,0 +1,108 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Updating the Store: Tracker SPARQL Library Reference Manual</title>
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Tracker SPARQL Library Reference Manual">
+<link rel="up" href="tracker-examples.html" title="Part III. Examples">
+<link rel="prev" href="tracker-examples-readonly.html" title="Querying the Store">
+<link rel="next" href="tracker-examples-writeonly-with-blank-nodes.html" title="Updating the Store with Blank Nodes">
+<meta name="generator" content="GTK-Doc V1.25 (XML mode)">
+<link rel="stylesheet" href="style.css" type="text/css">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<table class="navigation" id="top" width="100%" summary="Navigation header" cellpadding="2" cellspacing="5"><tr valign="middle">
+<td width="100%" align="left" class="shortcuts"></td>
+<td><a accesskey="h" href="index.html"><img src="home.png" width="16" height="16" border="0" alt="Home"></a></td>
+<td><a accesskey="u" href="tracker-examples.html"><img src="up.png" width="16" height="16" border="0" alt="Up"></a></td>
+<td><a accesskey="p" href="tracker-examples-readonly.html"><img src="left.png" width="16" height="16" border="0" alt="Prev"></a></td>
+<td><a accesskey="n" href="tracker-examples-writeonly-with-blank-nodes.html"><img src="right.png" width="16" height="16" border="0" alt="Next"></a></td>
+</tr></table>
+<div class="chapter">
+<div class="titlepage"><div><div><h2 class="title">
+<a name="tracker-examples-writeonly"></a>Updating the Store</h2></div></div></div>
+<p>
+      In order to perform updates in the store, a new
+      <span class="type"><a class="link" href="TrackerSparqlConnection.html#TrackerSparqlConnection-struct" title="struct TrackerSparqlConnection">TrackerSparqlConnection</a></span>
+      object must be acquired with
+      <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-get" title="tracker_sparql_connection_get ()">tracker_sparql_connection_get</a></code>.
+      Note that you MUST NOT use a specific direct-access connection obtained with
+      <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-get-direct" title="tracker_sparql_connection_get_direct ()">tracker_sparql_connection_get_direct</a></code>, as the direct-access method only supports read-only queries.
+    </p>
+<p>
+      Once a proper connection object has been acquired, the update can be launched either
+      synchronously (<code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-update" title="tracker_sparql_connection_update ()">tracker_sparql_connection_update</a></code>)
+      or asynchronously (<code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-update-async" title="tracker_sparql_connection_update_async ()">tracker_sparql_connection_update_async</a></code>).
+      If launched asynchronously, the result of the operation can be obtained with
+      <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-update-finish" title="tracker_sparql_connection_update_finish ()">tracker_sparql_connection_update_finish</a></code>.
+    </p>
+<p>
+      Once you no longer need the connection, remember to call <code class="function"><a href="/usr/share/gtk-doc/html/gobjectgobject-The-Base-Object-Type.html#g-object-unref">g_object_unref</a></code>
+      for the <span class="type"><a class="link" href="TrackerSparqlConnection.html#TrackerSparqlConnection-struct" title="struct TrackerSparqlConnection">TrackerSparqlConnection</a></span>.
+    </p>
+<p>
+      The following program shows how a synchronous update can be done to the store:
+
+</p>
+<pre class="programlisting">
+#include &lt;tracker-sparql.h&gt;
+
+int main (int argc, const char **argv)
+{
+  GError *error = NULL;
+  <span class="type"><a class="link" href="TrackerSparqlConnection.html#TrackerSparqlConnection-struct" title="struct TrackerSparqlConnection">TrackerSparqlConnection</a></span> *connection;
+  const gchar *query =
+    "INSERT { "
+    "  _:tag a nao:Tag ; "
+    "        nao:prefLabel 'mylabel' . "
+    "} WHERE { "
+    "  OPTIONAL { "
+    "    ?tag a nao:Tag ; "
+    "    nao:prefLabel 'mylabel' "
+    "  } . "
+    "FILTER (!bound(?tag)) "
+    "}";
+
+  /* Do NOT get a direct connection if you're going to do some write
+   * operation in the Store. The NULL represents a possible
+   * GCancellable.
+   */
+  connection = <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-get" title="tracker_sparql_connection_get ()">tracker_sparql_connection_get</a></code> (NULL, &amp;error);
+  if (!connection) {
+    g_printerr ("Couldn't obtain a connection to the Tracker store: %s",
+                error ? error-&gt;message : "unknown error");
+    g_clear_error (&amp;error);
+
+    return 1;
+  }
+
+  /* Run a synchronous update query */
+  <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-update" title="tracker_sparql_connection_update ()">tracker_sparql_connection_update</a></code> (connection,
+                                            query,
+                                            G_PRIORITY_DEFAULT,
+                                            NULL,
+                                            &amp;error);
+  if (error) {
+    /* Some error happened performing the query, not good */
+    g_printerr ("Couldn't update the Tracker store: %s",
+                error ? error-&gt;message : "unknown error");
+
+    g_clear_error (&amp;error);
+    g_object_unref (connection);
+
+    return 1;
+  }
+
+  g_object_unref (connection);
+
+  return 0;
+}
+</pre>
+<p>
+    </p>
+</div>
+<div class="footer">
+<hr>Generated by GTK-Doc V1.25</div>
+</body>
+</html>

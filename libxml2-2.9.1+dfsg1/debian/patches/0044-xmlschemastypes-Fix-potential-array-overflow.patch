@@ -1,0 +1,28 @@
+From: Philip Withnall <philip.withnall@collabora.co.uk>
+Date: Fri, 20 Jun 2014 21:37:21 +0100
+Subject: xmlschemastypes: Fix potential array overflow
+
+The year and month need validating before being put into the
+MAX_DAYINMONTH macro.
+
+Coverity issue: #60436
+
+https://bugzilla.gnome.org/show_bug.cgi?id=731990
+---
+ xmlschemastypes.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/xmlschemastypes.c b/xmlschemastypes.c
+index 7e1d54a..6e8bb70 100644
+--- a/xmlschemastypes.c
++++ b/xmlschemastypes.c
+@@ -3854,7 +3854,8 @@ _xmlSchemaDateAdd (xmlSchemaValPtr dt, xmlSchemaValPtr dur)
+ 	        tmon = 12;
+             tempdays += MAX_DAYINMONTH(tyr, tmon);
+             carry = -1;
+-        } else if (tempdays > (long) MAX_DAYINMONTH(r->year, r->mon)) {
++        } else if (VALID_YEAR(r->year) && VALID_MONTH(r->mon) &&
++                   tempdays > (long) MAX_DAYINMONTH(r->year, r->mon)) {
+             tempdays = tempdays - MAX_DAYINMONTH(r->year, r->mon);
+             carry = 1;
+         } else

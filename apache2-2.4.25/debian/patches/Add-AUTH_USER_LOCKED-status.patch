@@ -1,0 +1,66 @@
+diff --git a/include/mod_auth.h b/include/mod_auth.h
+index 9b9561e..1c328d0 100644
+--- a/include/mod_auth.h
++++ b/include/mod_auth.h
+@@ -66,7 +66,8 @@ typedef enum {
+     AUTH_GRANTED,
+     AUTH_USER_FOUND,
+     AUTH_USER_NOT_FOUND,
+-    AUTH_GENERAL_ERROR
++    AUTH_GENERAL_ERROR,
++    AUTH_USER_LOCKED
+ } authn_status;
+ 
+ typedef enum {
+diff --git a/modules/aaa/mod_auth_basic.c b/modules/aaa/mod_auth_basic.c
+index 62d7f0c..9c262f3 100644
+--- a/modules/aaa/mod_auth_basic.c
++++ b/modules/aaa/mod_auth_basic.c
+@@ -415,6 +415,11 @@ static int authenticate_basic_user(request_rec *r)
+                       "user %s not found: %s", sent_user, r->uri);
+             return_code = HTTP_UNAUTHORIZED;
+             break;
++        case AUTH_USER_LOCKED:
++            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(04000)
++                      "user %s locked: %s", sent_user, r->uri);
++            return_code = HTTP_LOCKED;
++            break;
+         case AUTH_GENERAL_ERROR:
+         default:
+             /* We'll assume that the module has already said what its error
+diff --git a/modules/privsep/mod_privsep.c b/modules/privsep/mod_privsep.c
+index 2648ad1..43509a1 100644
+--- a/modules/privsep/mod_privsep.c
++++ b/modules/privsep/mod_privsep.c
+@@ -11,7 +11,7 @@
+  * limitations under the License.
+  */
+ 
+-#include <sys/types.h>    
++#include <sys/types.h>
+ #include <sys/socket.h>
+ #include <sys/un.h>
+ #include <netinet/in.h>
+@@ -212,6 +212,8 @@ static int privsep_authenticate(const char **errormsg,
+ 	    return PRIVSEP_AUTH_DENIED;
+ 	case PAM_USER_UNKNOWN:
+ 	    return PRIVSEP_AUTH_USER_NOT_FOUND;
++	case PAM_MAXTRIES:
++		return PRIVSEP_AUTH_USER_LOCKED;
+ 	default:
+ 	    return PRIVSEP_AUTH_GENERAL_ERROR;
+ 	}
+diff --git a/modules/privsep/mod_privsep.h b/modules/privsep/mod_privsep.h
+index e179c41..0efc0ae 100644
+--- a/modules/privsep/mod_privsep.h
++++ b/modules/privsep/mod_privsep.h
+@@ -71,7 +71,8 @@ typedef enum {
+     PRIVSEP_AUTH_GRANTED,
+     PRIVSEP_AUTH_USER_FOUND,
+     PRIVSEP_AUTH_USER_NOT_FOUND,
+-    PRIVSEP_AUTH_GENERAL_ERROR
++    PRIVSEP_AUTH_GENERAL_ERROR,
++    PRIVSEP_AUTH_USER_LOCKED
+ } privsep_authn_status;
+ 
+ /* authinfo for PAM */

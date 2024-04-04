@@ -1,0 +1,49 @@
+From eff07059d1e42379a965e9231b82a5ea87e24b1b Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 10 Aug 2016 14:44:26 -0700
+Subject: [PATCH 5/7] add boot menu read only mount support
+
+---
+ src/core/mount.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/src/core/mount.c b/src/core/mount.c
+index de1075d..2fc9709 100644
+--- a/src/core/mount.c
++++ b/src/core/mount.c
+@@ -862,6 +862,23 @@ static int mount_get_opts(Mount *m, char **ret) {
+                                     "nofail\0" "noauto\0" "auto\0", NULL, NULL, ret);
+ }
+ 
++static int mount_ro(void) {
++       FILE *fp;
++       char buf[16];
++       int ret = 0;
++
++       fp = fopen("/dev/boot_reason", "r");
++       if (!fp)
++               return 0;
++       if (fgets(buf, sizeof(buf), fp) != NULL) {
++               if (strcmp(buf, "read_only") == 0)
++                       ret = 1;
++       }
++       fclose(fp);
++
++       return ret;
++}
++
+ static void mount_enter_mounting(Mount *m) {
+         int r;
+         MountParameters *p;
+@@ -897,6 +914,8 @@ static void mount_enter_mounting(Mount *m) {
+                         r = exec_command_append(m->control_command, "-s", NULL);
+                 if (r >= 0 && m->parameters_fragment.fstype)
+                         r = exec_command_append(m->control_command, "-t", m->parameters_fragment.fstype, NULL);
++                if (r >= 0 && mount_ro())
++                        r = exec_command_append(m->control_command, "-o", "ro", NULL);
+                 if (r >= 0 && !isempty(opts))
+                         r = exec_command_append(m->control_command, "-o", opts, NULL);
+         } else
+-- 
+2.9.2
+

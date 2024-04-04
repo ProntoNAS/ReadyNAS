@@ -1,0 +1,154 @@
+#!/usr/bin/make -f
+
+include /usr/share/dpkg/architecture.mk
+include /usr/share/dpkg/pkg-info.mk
+
+CONFOPTS = --with-slang
+CONFOPTS += --enable-line
+CONFOPTS += --libdir=/lib/$(DEB_HOST_MULTIARCH)
+CONFOPTS += --libexecdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH)
+
+ifeq ($(DEB_HOST_ARCH_OS),linux)
+CONFOPTS += --enable-raw
+CONFOPTS += --with-selinux
+CONFOPTS += --enable-partx
+CONFOPTS += --with-systemd
+CONFOPTS += --enable-tunelp
+endif
+
+CONFOPTS += --localstatedir=/run
+CONFOPTS += --disable-silent-rules
+CONFOPTS += --without-python
+
+# disable utilities shipped by other packages
+# => login
+CONFOPTS += --disable-login
+CONFOPTS += --disable-nologin
+CONFOPTS += --disable-su
+# => sysvinit-utils
+CONFOPTS += --disable-sulogin
+CONFOPTS += --disable-last
+CONFOPTS += --disable-mesg
+# => initscripts
+CONFOPTS += --disable-mountpoint
+# => procps
+CONFOPTS += --disable-kill
+# => eject
+CONFOPTS += --disable-eject
+# => passwd
+CONFOPTS += --disable-chfn-chsh
+
+ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+	CROSS :=
+else
+	CROSS := CC="$(DEB_HOST_GNU_TYPE)-gcc -std=gnu99"
+endif
+
+%:
+	dh $@ --with autoreconf,systemd
+
+override_dh_autoreconf:
+	AM_OPTS=--copy LT_OPTS=--copy dh_autoreconf ./autogen.sh
+
+override_dh_auto_configure:
+	dh_auto_configure -- $(CONFOPTS) $(CROSS)
+
+override_dh_auto_build:
+	dh_auto_build -- $(CROSS)
+
+override_dh_auto_install:
+	dh_auto_install
+	#
+	# the version in bsdmainutils seems newer.
+	rm -f debian/tmp/usr/bin/look debian/tmp/usr/share/man/man1/look.1
+	rm -f debian/tmp/usr/bin/hexdump debian/tmp/usr/share/man/man1/hexdump.1
+	# and it's less pain to just let bsmainutils deliver col for now.
+	rm -f debian/tmp/usr/bin/col* debian/tmp/usr/share/man/man1/col*.1
+	rm -f debian/tmp/usr/bin/ul debian/tmp/usr/share/man/man1/ul*.1
+	rm -f debian/tmp/usr/bin/cal debian/tmp/usr/share/man/man1/cal.1
+	# remove *.la files
+	rm -f debian/tmp/usr/lib/*/*.la
+
+override_dh_auto_clean:
+	dh_auto_clean
+	# drop arch-overrides, generated in dh_install by dh-exec usage.
+	rm -f debian/uuid-runtime.install.$(DEB_HOST_ARCH) \
+		debian/util-linux.install.$(DEB_HOST_ARCH)
+
+override_dh_install:
+	# generate arch-override, as dh-exec install-rename can only run once.
+	[ -f debian/util-linux.install.$(DEB_HOST_ARCH) ] || \
+		debian/util-linux.install > \
+		debian/util-linux.install.$(DEB_HOST_ARCH)
+	[ -f debian/uuid-runtime.install.$(DEB_HOST_ARCH) ] || \
+		debian/uuid-runtime.install > \
+		debian/uuid-runtime.install.$(DEB_HOST_ARCH)
+	#
+	dh_install \
+		-Nfdisk-udeb -Ncfdisk-udeb -Nlibblkid1-udeb \
+		-Nlibsmartcols1-udeb -Nlibuuid1-udeb -Nutil-linux-udeb
+	dh_install --remaining-packages
+	#
+	# Install bash-completions only for binaries we ship
+	for PACKAGE in util-linux uuid-runtime bsdutils mount; do \
+	for BINARY in debian/$$PACKAGE/bin/* debian/$$PACKAGE/sbin/* \
+			debian/$$PACKAGE/usr/bin/* \
+			debian/$$PACKAGE/usr/sbin/* ; \
+	do \
+		BASENAME=$$(basename $$BINARY); \
+		BCDIR=usr/share/bash-completion/completions/; \
+		BCNAME=$$BCDIR/$$BASENAME ; \
+		if [ "$$BASENAME" != '*' ] && [ -e "debian/tmp/$$BCNAME" ]; \
+		then \
+			echo "$$PACKAGE: Installing $$BCNAME"; \
+			[ -d debian/$$PACKAGE/$$BCDIR ] || \
+				mkdir -p debian/$$PACKAGE/$$BCDIR; \
+			mv debian/tmp/$$BCNAME debian/$$PACKAGE/$$BCNAME; \
+		fi; \
+	done; \
+	done
+	# Removed these conflicting ones for now, see Bug#755986
+	rm -f debian/util-linux/usr/share/bash-completion/completions/dmesg
+	rm -f debian/bsdutils/usr/share/bash-completion/completions/renice
+	#
+	rm -rf debian/*-udeb/usr/share/doc
+
+override_dh_installman:
+	dh_installman --language=C
+
+override_dh_gencontrol:
+	dh_gencontrol --package=bsdutils -- -v1:$(DEB_VERSION_UPSTREAM_REVISION)
+	dh_gencontrol --remaining-packages
+
+override_dh_installinit:
+	# install /etc/init.d/hwclock.sh
+	# - update-rc.d manually handled in maintainers scripts as there
+	#   is special per-arch considerations.
+	dh_installinit --name=hwclock.sh --noscripts
+	# install /etc/default/hwclock
+	dh_installinit --name=hwclock
+	# install uuidd sysvinit script
+	make misc-utils/uuidd.rc
+	ln -s ../misc-utils/uuidd.rc debian/uuid-runtime.uuidd.init
+	dh_installinit --name=uuidd --restart-after-upgrade
+	rm -f debian/uuid-runtime.uuidd.init
+
+override_dh_installpam:
+	dh_installpam --package=util-linux --name=runuser
+	dh_installpam --package=util-linux --name=runuser-l
+
+override_dh_makeshlibs:
+	dh_makeshlibs -N libsmartcols1 -N libblkid1 -N libuuid1
+	dh_makeshlibs -plibsmartcols1 -V \
+		--add-udeb=libsmartcols1-udeb
+	dh_makeshlibs -plibblkid1 -V \
+		--add-udeb=libblkid1-udeb
+	dh_makeshlibs -plibuuid1 -V \
+		--add-udeb=libuuid1-udeb
+
+override_dh_fixperms:
+	dh_fixperms -i -s -Xusr/bin/wall -Xbin/mount -Xbin/umount
+
+override_dh_auto_test:
+	TERM=xterm dh_auto_test || true
+

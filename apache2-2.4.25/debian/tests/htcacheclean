@@ -1,0 +1,64 @@
+#!/bin/sh
+set -exu
+
+fatal () {
+	echo "ERROR: $@" >&2
+	exit 1
+}
+
+htc_enabled () {
+	if ls /etc/rc[2345].d/S*apache-htcacheclean > /dev/null 2>&1 ; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+if htc_enabled ; then
+	fatal "apache-htcacheclean should not be enabled"
+fi
+
+a2enmod cache_disk
+
+if ! htc_enabled ; then
+	fatal "apache-htcacheclean should be enabled"
+fi
+
+service apache-htcacheclean start
+
+# for debugging
+ps -ef|grep /usr/bin/htcacheclean || true
+
+PGREP="pgrep -P 1 -u www-data -G www-data htcacheclean"
+
+if ! $PGREP ; then
+	fatal "htcacheclean is not running or running as wrong user/group"
+fi
+
+if ! service apache-htcacheclean status ; then
+	fatal "status did not return 'running'"
+fi
+
+service apache-htcacheclean stop
+
+if $PGREP ; then
+	fatal "htcacheclean did not stop"
+fi
+
+if service apache-htcacheclean status ; then
+	fatal "status did not return 'stopped'"
+fi
+
+a2dismod cache_disk
+
+if htc_enabled ; then
+	fatal "apache-htcacheclean should not be enabled"
+fi
+
+a2enmod cache_socache
+
+if htc_enabled ; then
+	fatal "apache-htcacheclean has been enabled for cache_socache"
+fi
+
+exit 0

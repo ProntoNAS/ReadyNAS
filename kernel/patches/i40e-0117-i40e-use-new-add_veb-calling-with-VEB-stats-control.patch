@@ -1,0 +1,74 @@
+From abac44dfacc56380d11e54e7f91ca4e8c716e9f0 Mon Sep 17 00:00:00 2001
+From: Shannon Nelson <shannon.nelson@intel.com>
+Date: Wed, 13 Jan 2016 16:51:42 -0800
+Subject: [PATCH 117/224] i40e: use new add_veb calling with VEB stats control
+
+The new parameters for add_veb allow us to enable and disable VEB stats,
+so let's use them.
+
+Update copyright year.
+
+Change-ID: Ie6e68c68e2d1d459e42168eda661051b56bf0a65
+Signed-off-by: Shannon Nelson <shannon.nelson@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_ethtool.c | 11 ++++++++---
+ drivers/net/ethernet/intel/i40e/i40e_main.c    |  4 ++--
+ 2 files changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_ethtool.c b/drivers/net/ethernet/intel/i40e/i40e_ethtool.c
+index 89ad2f7..230fa40 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_ethtool.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_ethtool.c
+@@ -1,7 +1,7 @@
+ /*******************************************************************************
+  *
+  * Intel Ethernet Controller XL710 Family Linux Driver
+- * Copyright(c) 2013 - 2015 Intel Corporation.
++ * Copyright(c) 2013 - 2016 Intel Corporation.
+  *
+  * This program is free software; you can redistribute it and/or modify it
+  * under the terms and conditions of the GNU General Public License,
+@@ -2785,10 +2785,15 @@ static int i40e_set_priv_flags(struct net_device *dev, u32 flags)
+ 		pf->auto_disable_flags |= I40E_FLAG_FD_ATR_ENABLED;
+ 	}
+ 
+-	if (flags & I40E_PRIV_FLAGS_VEB_STATS)
++	if ((flags & I40E_PRIV_FLAGS_VEB_STATS) &&
++	    !(pf->flags & I40E_FLAG_VEB_STATS_ENABLED)) {
+ 		pf->flags |= I40E_FLAG_VEB_STATS_ENABLED;
+-	else
++		reset_required = true;
++	} else if (!(flags & I40E_PRIV_FLAGS_VEB_STATS) &&
++		   (pf->flags & I40E_FLAG_VEB_STATS_ENABLED)) {
+ 		pf->flags &= ~I40E_FLAG_VEB_STATS_ENABLED;
++		reset_required = true;
++	}
+ 
+ 	if ((flags & I40E_PRIV_FLAGS_HW_ATR_EVICT) &&
+ 	    (pf->flags & I40E_FLAG_HW_ATR_EVICT_CAPABLE))
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_main.c b/drivers/net/ethernet/intel/i40e/i40e_main.c
+index 037774f..1c6480b 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_main.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_main.c
+@@ -10069,13 +10069,13 @@ static int i40e_add_veb(struct i40e_veb *veb, struct i40e_vsi *vsi)
+ {
+ 	struct i40e_pf *pf = veb->pf;
+ 	bool is_default = veb->pf->cur_promisc;
+-	bool is_cloud = false;
++	bool enable_stats = !!(pf->flags & I40E_FLAG_VEB_STATS_ENABLED);
+ 	int ret;
+ 
+ 	/* get a VEB from the hardware */
+ 	ret = i40e_aq_add_veb(&pf->hw, veb->uplink_seid, vsi->seid,
+ 			      veb->enabled_tc, is_default,
+-			      &veb->seid, is_cloud, NULL);
++			      &veb->seid, enable_stats, NULL);
+ 	if (ret) {
+ 		dev_info(&pf->pdev->dev,
+ 			 "couldn't add VEB, err %s aq_err %s\n",
+-- 
+1.9.1
+

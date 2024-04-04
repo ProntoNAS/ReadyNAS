@@ -1,0 +1,39 @@
+From af8c14e65c7d020ac02d059b54f394602f24ab2c Mon Sep 17 00:00:00 2001
+From: Jeff Mahoney <jeffm@suse.com>
+Date: Fri, 2 Dec 2016 12:21:24 -0800
+Subject: [PATCH 66/90] btrfs: advertise which crc32c implementation is being
+ used on mount
+
+Since several architectures support hardware-accelerated crc32c
+calculation, it would be nice to confirm that btrfs is actually using it.
+
+We can see an elevated use count for the module, but it doesn't actually
+show who the users are.  This patch simply prints the name of the driver
+after successfully initializing the shash.
+
+Signed-off-by: Jeff Mahoney <jeffm@suse.com>
+---
+ fs/btrfs/hash.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/fs/btrfs/hash.c b/fs/btrfs/hash.c
+index aae520b..d42311c 100644
+--- a/fs/btrfs/hash.c
++++ b/fs/btrfs/hash.c
+@@ -20,8 +20,12 @@ static struct crypto_shash *tfm;
+ int __init btrfs_hash_init(void)
+ {
+ 	tfm = crypto_alloc_shash("crc32c", 0, 0);
++	if (IS_ERR(tfm))
++		return PTR_ERR(tfm);
+ 
+-	return PTR_ERR_OR_ZERO(tfm);
++	printk("BTRFS: using %s for crc32c\n",
++	       crypto_tfm_alg_driver_name(crypto_shash_tfm(tfm)));
++	return 0;
+ }
+ 
+ void btrfs_hash_exit(void)
+-- 
+1.9.1
+

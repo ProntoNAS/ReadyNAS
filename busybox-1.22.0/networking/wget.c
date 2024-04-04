@@ -431,7 +431,7 @@ static FILE* prepare_ftp_session(FILE **dfpp, struct host_info *target, len_and_
 	if (ftpcmd("SIZE ", target->path, sfp) == 213) {
 		G.content_len = BB_STRTOOFF(G.wget_buf + 4, NULL, 10);
 		if (G.content_len < 0 || errno) {
-			bb_error_msg_and_die("SIZE value is garbage");
+			bb_error_msg_and_die("bad SIZE value '%s'", G.wget_buf + 4);
 		}
 		G.got_clen = 1;
 	}
@@ -591,8 +591,11 @@ static void NOINLINE retrieve_file_data(FILE *dfp)
 		fgets_and_trim(dfp); /* Eat empty line */
  get_clen:
 		fgets_and_trim(dfp);
+		errno = 0;
 		G.content_len = STRTOOFF(G.wget_buf, NULL, 16);
 		/* FIXME: error check? */
+		if (G.content_len < 0 || errno)
+			bb_error_msg_and_die("bad chunk length '%s'", G.wget_buf);
 		if (G.content_len == 0)
 			break; /* all done! */
 		G.got_clen = 1;

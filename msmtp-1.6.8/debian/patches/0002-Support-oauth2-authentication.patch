@@ -1,0 +1,342 @@
+From: Bryan Liang <bliang@netgear.com>
+Date: Tue, 27 Mar 2018 10:39:21 -0700
+Subject: Support oauth2 authentication
+
+Signed-off-by: Bryan Liang <bliang@netgear.com>
+---
+ configure.ac       |  4 +--
+ src/Makefile.am    |  2 +-
+ src/conf.c         |  1 +
+ src/msmtp_oauth2.c | 95 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/oauth2.c       | 69 +++++++++++++++++++++++++++++++++++++++
+ src/oauth2.h       |  6 ++++
+ src/smtp.c         | 22 ++++++++++++-
+ src/smtp.h         |  1 +
+ 8 files changed, 196 insertions(+), 4 deletions(-)
+ create mode 100644 src/msmtp_oauth2.c
+ create mode 100644 src/oauth2.c
+ create mode 100644 src/oauth2.h
+
+diff --git a/configure.ac b/configure.ac
+index dadc24a..17f2340 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -113,7 +113,7 @@ if test "$want_gnutls" = "yes"; then
+ 	have_tls="yes"
+ 	tls_lib="GnuTLS"
+ 	tls_CFLAGS="$libgnutls_CFLAGS"
+-	tls_LIBS="$libgnutls_LIBS -lhogweed -lnettle -lgmp"
++	tls_LIBS="$libgnutls_LIBS -lhogweed -lnettle -lgmp -lsystemd"
+ 	AC_DEFINE([HAVE_LIBGNUTLS], [1], [Define to 1 if libgnutls is available])
+     fi
+ fi
+@@ -127,7 +127,7 @@ if test "$want_openssl" = "yes" -a "$have_tls" = "no"; then
+ 	have_tls="yes"
+ 	tls_lib="OpenSSL"
+ 	tls_CFLAGS="$libssl_CFLAGS"
+-	tls_LIBS="$libssl_LIBS"
++	tls_LIBS="$libssl_LIBS -lsystemd"
+ 	AC_DEFINE([HAVE_LIBSSL], [1], [Define to 1 if libssl is available])
+     fi
+ fi
+diff --git a/src/Makefile.am b/src/Makefile.am
+index 15d7540..29bb60b 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -13,7 +13,7 @@ msmtp_SOURCES = \
+ 	xalloc.c xalloc.h \
+ 	gettext.h \
+ 	aliases.c aliases.h \
+-	cipher_utils.c cipher_utils.h
++	cipher_utils.c cipher_utils.h msmtp_oauth2.c oauth2.c oauth2.h
+ 
+ if HAVE_TLS
+ msmtp_SOURCES += tls.c tls.h
+diff --git a/src/conf.c b/src/conf.c
+index 45280f7..a38a866 100644
+--- a/src/conf.c
++++ b/src/conf.c
+@@ -396,6 +396,7 @@ int check_auth_arg(char *arg)
+             || strcmp(arg, "gssapi") == 0
+             || strcmp(arg, "external") == 0
+             || strcmp(arg, "login") == 0
++            || strcmp(arg, "oauth2") == 0
+             || strcmp(arg, "ntlm") == 0)
+     {
+         l = strlen(arg);
+diff --git a/src/msmtp_oauth2.c b/src/msmtp_oauth2.c
+new file mode 100644
+index 0000000..17bdefd
+--- /dev/null
++++ b/src/msmtp_oauth2.c
+@@ -0,0 +1,95 @@
++/*
++ * OAUTH2 authentication module for MSMTP
++ *
++ * This overrides SASL.
++ *
++ * Copyright 2017 Hiro Sugawara <hiro.sugawara@netgear.com>
++ */
++
++#ifdef HAVE_CONFIG_H
++# include "config.h"
++#endif
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <limits.h>
++#include <stdarg.h>
++#include <string.h>
++#include <strings.h>
++#include <ctype.h>
++#include <errno.h>
++#include <unistd.h>
++
++# include "base64.h"
++
++#include "gettext.h"
++#define _(string) gettext(string)
++
++#include "xalloc.h"
++#include "list.h"
++#include "readbuf.h"
++#include "net.h"
++#include "smtp.h"
++#include "stream.h"
++
++#include "base64.c"
++
++#include "oauth2.h"
++
++extern
++int smtp_send_cmd(smtp_server_t *srv, char **errstr, const char *format, ...);
++extern
++int smtp_get_msg(smtp_server_t *srv, list_t **msg, char **errstr);
++
++int smtp_auth_oauth2(smtp_server_t *srv, const char *user,
++        const char *password,
++        list_t **error_msg, char **errstr)
++{
++    char *ubuf = NULL;
++    list_t *msg = NULL;
++    int e = SMTP_EOK;
++
++    char *token = oauth2_access_token(password, errstr);
++    if (!token)
++    {
++	   return SMTP_EUNAVAIL;
++    }
++
++    int u_len = asprintf(&ubuf, "user=%s%cauth=Bearer %s%c%c",
++			user, 01, token, 01, 01);
++    free(token);
++    if (u_len <= 0)
++        return SMTP_ELIBFAILED;
++
++    size_t b64_len = BASE64_LENGTH(u_len);
++    char *b64 = xmalloc(strlen("AUTH XOAUTH2 ") + b64_len + 1);
++    if (!b64)
++        return SMTP_ELIBFAILED;
++
++    strcpy(b64, "AUTH XOAUTH2 ");
++    base64_encode(ubuf, u_len, b64 + strlen(b64), b64_len + 1);
++
++    *error_msg = NULL;
++    e = smtp_send_cmd(srv, errstr, b64);
++    free(b64);
++    free(ubuf);
++
++    if (e != SMTP_EOK)
++    {
++        return e;
++    }
++
++    if ((e = smtp_get_msg(srv, &msg, errstr)) != SMTP_EOK)
++    {
++        return e;
++    }
++
++    if (smtp_msg_status(msg) != 235) {
++        *error_msg = msg;
++        *errstr = xasprintf(_("authentication failed (method %s)"), "XOAUTH2");
++        return SMTP_EAUTHFAIL;
++    }
++    list_xfree(msg, free);
++
++    return SMTP_EOK;
++}
+diff --git a/src/oauth2.c b/src/oauth2.c
+new file mode 100644
+index 0000000..46a807c
+--- /dev/null
++++ b/src/oauth2.c
+@@ -0,0 +1,69 @@
++/*
++ * oauth2.c
++ */
++#define _GNU_SOURCE
++
++#include "oauth2.h"
++
++#include <string.h>
++
++#include <systemd/sd-bus.h>
++
++#include "xalloc.h"
++
++#include "gettext.h"
++#define _(string) gettext(string)
++
++#define OAUTH2_VAULT_SERVICE                 "com.readynas.OAuth2Vault"
++#define OAUTH2_VAULT_INTERFACE               "com.readynas.OAuth2Vault.Email"
++#define OAUTH2_VAULT_INTERFACE_PATH          "/"
++
++char *oauth2_access_token(const char *pass, char **errstr)
++{
++	if (!pass || !errstr)
++		return NULL;
++
++	sd_bus_error sd_error = SD_BUS_ERROR_NULL;
++	sd_bus_message *message = NULL;
++	sd_bus *bus = NULL;
++	char *access_token = NULL;
++	*errstr = NULL;
++	int r = sd_bus_open_system(&bus);
++	if (r < 0)
++	{
++		*errstr = xasprintf(_("Failed to connect to system bus: %s"), strerror(-r));
++		return NULL;
++	}
++
++	r = sd_bus_call_method(bus,
++		OAUTH2_VAULT_SERVICE,
++		OAUTH2_VAULT_INTERFACE_PATH,
++		OAUTH2_VAULT_INTERFACE,
++		"GetAccessToken",
++		&sd_error, &message, "s", pass);
++	if (r < 0)
++	{
++		*errstr = xasprintf(_("Failed to issue method call: %s"), sd_error.message);
++		goto finish;
++	}
++
++	char *p = NULL;
++	r = sd_bus_message_read(message, "s", &p);
++	if (r < 0)
++	{
++		*errstr = xasprintf(_("Failed to parse respose message: %s"), strerror(-r));
++		goto finish;
++	}
++
++	if (p)
++	{
++		access_token = strdup(p);
++	}
++
++finish:
++	sd_bus_error_free(&sd_error);
++	sd_bus_message_unref(message);
++	sd_bus_flush_close_unref(bus);
++
++	return access_token;
++}
+diff --git a/src/oauth2.h b/src/oauth2.h
+new file mode 100644
+index 0000000..04a9330
+--- /dev/null
++++ b/src/oauth2.h
+@@ -0,0 +1,6 @@
++#ifndef OAUTH2_H
++#define OAUTH2_H
++
++char *oauth2_access_token(const char *pass, char **errstr);
++
++#endif
+diff --git a/src/smtp.c b/src/smtp.c
+index 7310fe6..80ebdea 100644
+--- a/src/smtp.c
++++ b/src/smtp.c
+@@ -517,6 +517,10 @@ int smtp_init(smtp_server_t *srv, const char *ehlo_domain, list_t **errmsg,
+             {
+                 srv->cap.flags |= SMTP_CAP_AUTH_NTLM;
+             }
++            if (strstr(s + 9, "OAUTH2"))
++            {
++                srv->cap.flags |= SMTP_CAP_AUTH_OAUTH2;
++            }
+         }
+         else if (strncmp(s + 4, "ETRN", 4) == 0)
+         {
+@@ -914,6 +918,10 @@ int smtp_auth_external(smtp_server_t *srv, const char *user,
+ }
+ #endif /* !HAVE_LIBGSASL */
+ 
++extern
++int smtp_auth_oauth2(smtp_server_t *srv, const char *user,
++	const char *password,
++	list_t **error_msg, char **errstr);
+ 
+ /*
+  * smtp_server_supports_authmech()
+@@ -937,6 +945,8 @@ int smtp_server_supports_authmech(smtp_server_t *srv, const char *mech)
+                 && strcmp(mech, "GSSAPI") == 0)
+             || ((srv->cap.flags & SMTP_CAP_AUTH_LOGIN)
+                 && strcmp(mech, "LOGIN") == 0)
++            || ((srv->cap.flags & SMTP_CAP_AUTH_OAUTH2)
++                && strcmp(mech, "OAUTH2") == 0)
+             || ((srv->cap.flags & SMTP_CAP_AUTH_NTLM)
+                 && strcmp(mech, "NTLM") == 0));
+ }
+@@ -955,6 +965,8 @@ int smtp_client_supports_authmech(const char *mech)
+     int supported = 0;
+     Gsasl *ctx;
+ 
++    if (!strcmp(mech, "OAUTH2"))
++        return 1;
+     if (gsasl_init(&ctx) != GSASL_OK)
+     {
+         return 0;
+@@ -1002,8 +1014,10 @@ int smtp_auth(smtp_server_t *srv,
+     int auth_plain_special;
+     char *callback_password = NULL;
+ 
+-
+     *error_msg = NULL;
++  if (!strcmp(auth_mech,"OAUTH2"))
++         e = smtp_auth_oauth2(srv, user, password, error_msg, errstr);
++  else {
+     if (strcmp(auth_mech, "") != 0
+             && !smtp_server_supports_authmech(srv, auth_mech))
+     {
+@@ -1269,6 +1283,8 @@ int smtp_auth(smtp_server_t *srv,
+     }
+     gsasl_finish(sctx);
+     gsasl_done(ctx);
++  }
++
+     /* For DIGEST-MD5, we need to send an empty answer to the last 334
+      * response before we get 235. */
+     if (strcmp(auth_mech, "DIGEST-MD5") == 0 && strncmp(inbuf, "235 ", 4) != 0)
+@@ -1371,6 +1387,10 @@ int smtp_auth(smtp_server_t *srv,
+         }
+     }
+ 
++    if (strcmp(auth_mech, "OAUTH2") == 0)
++    {
++        e = smtp_auth_oauth2(srv, user, password, error_msg, errstr);
++    } else
+     if (strcmp(auth_mech, "CRAM-MD5") == 0)
+     {
+         e = smtp_auth_cram_md5(srv, user, password, error_msg, errstr);
+diff --git a/src/smtp.h b/src/smtp.h
+index 3612da7..1d20bd2 100644
+--- a/src/smtp.h
++++ b/src/smtp.h
+@@ -72,6 +72,7 @@
+ #define SMTP_CAP_AUTH_EXTERNAL          (1 << 11)
+ #define SMTP_CAP_AUTH_NTLM              (1 << 12)
+ #define SMTP_CAP_ETRN                   (1 << 13)
++#define SMTP_CAP_AUTH_OAUTH2            (1 << 14)
+ 
+ 
+ /*

@@ -1,0 +1,29 @@
+From 720cada06e6769bcc267978d742d6a92a9986831 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 30 Nov 2017 16:54:18 -0800
+Subject: [PATCH] Don't extend the I/O timeout for sent keep-alives
+
+If I/O is stuck, but the periodic keep-alive packets from the generator
+process are succeeding, we shouldn't keep refeshing the I/O timout,
+because this makes the iotimeout ineffective after a network outage. So
+ignore successfully sent keep-alive packets when resetting the timer.
+---
+ io.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/io.c b/io.c
+index ef70d677..6e39f577 100644
+--- a/io.c
++++ b/io.c
+@@ -825,7 +825,7 @@ static char *perform_io(size_t needed, int flags)
+ 					who_am_i(), out == &iobuf.out ? "out" : "msg", (long)n);
+ 			}
+ 
+-			if (io_timeout)
++			if (io_timeout && !(am_generator && n == 4))
+ 				last_io_out = time(NULL);
+ 			stats.total_written += n;
+ 
+-- 
+2.15.0
+

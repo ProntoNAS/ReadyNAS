@@ -1,0 +1,41 @@
+From be07711644372b791211e184a2cc43ebc17873f1 Mon Sep 17 00:00:00 2001
+From: James McCoy <vega.james@gmail.com>
+Date: Thu, 19 Mar 2015 22:55:18 -0400
+Subject: lib/perl5db.pl: Restore noop lock prototype
+
+cde405a6b9b86bd8110f63531b42d89590a4c56e removed the lock prototype
+"because it's already a do-nothing weak keyword without threads".
+However, that causes "perl -d threaded-script.pl" to complain
+
+    lock can only be used on shared values at /usr/share/perl/5.20/perl5db.pl line 4101.
+    BEGIN failed--compilation aborted at threaded-script.pl line 2.
+    lock can only be used on shared values at /usr/share/perl/5.20/perl5db.pl line 2514.
+    END failed--call queue aborted at threaded-script.pl line 2.
+    Unbalanced scopes: 3 more ENTERs than LEAVEs
+
+because threaded-script.pl's importing of threads::shared enable's
+lock()'s non-noop behavior.  Restoring the lock() prototype fixes the
+inconsistency between lock() and share() usage.
+
+Signed-off-by: James McCoy <vega.james@gmail.com>
+
+Origin: upstream, http://perl5.git.perl.org/perl.git/commit/41ef2c66e0da6dfb04ded81b979f7081007a1add
+Bug: https://rt.perl.org/Public/Bug/Display.html?id=124127
+Bug-Debian: https://bugs.debian.org/779357
+Patch-Name: fixes/perldb-threads.diff
+---
+ lib/perl5db.pl | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/lib/perl5db.pl b/lib/perl5db.pl
+index 6ac4d36f3..f962fb8e0 100644
+--- a/lib/perl5db.pl
++++ b/lib/perl5db.pl
+@@ -866,6 +866,7 @@ BEGIN {
+         lock($DBGR);
+         print "Threads support enabled\n";
+     } else {
++        *lock = sub(*) {};
+         *share = sub(\[$@%]) {};
+     }
+ }

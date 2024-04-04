@@ -1,0 +1,15 @@
+language: cpp
+sudo: required
+services:
+  - docker
+env:
+ - USER=travis
+ - USER=root
+install:
+ - sed -i -e "s#1000#$(id -u)#g" Dockerfile
+ - docker build --tag=apt-ci .
+before_script:
+ - docker run --rm -w $PWD -v $HOME/.ccache:$HOME/.ccache -v $PWD:$PWD --user=travis apt-ci make
+script:
+ - docker run --rm -w $PWD -v $PWD:$PWD --user=travis apt-ci env make test
+ - docker run --rm -w $PWD -v $PWD:$PWD --user=$USER --tmpfs /tmp:suid,exec apt-ci unbuffer ./test/integration/run-tests -q -j 4

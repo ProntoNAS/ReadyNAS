@@ -1,0 +1,52 @@
+From c00b4faec821b4a57cd2e0e1e05fcb8a74f32176 Mon Sep 17 00:00:00 2001
+From: David Sterba <dsterba@suse.com>
+Date: Thu, 3 Dec 2015 13:08:59 +0100
+Subject: [PATCH 12/90] btrfs: make extent_range_redirty_for_io return void
+
+Does not return any errors, nor anything from the callgraph. There's a
+BUG_ON but it's a sanity check and not an error condition we could
+recover from.
+
+Signed-off-by: David Sterba <dsterba@suse.com>
+---
+ fs/btrfs/extent_io.c | 3 +--
+ fs/btrfs/extent_io.h | 2 +-
+ 2 files changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/fs/btrfs/extent_io.c b/fs/btrfs/extent_io.c
+index ab1b489..2425c85 100644
+--- a/fs/btrfs/extent_io.c
++++ b/fs/btrfs/extent_io.c
+@@ -1466,7 +1466,7 @@ void extent_range_clear_dirty_for_io(struct inode *inode, u64 start, u64 end)
+ 	}
+ }
+ 
+-int extent_range_redirty_for_io(struct inode *inode, u64 start, u64 end)
++void extent_range_redirty_for_io(struct inode *inode, u64 start, u64 end)
+ {
+ 	unsigned long index = start >> PAGE_CACHE_SHIFT;
+ 	unsigned long end_index = end >> PAGE_CACHE_SHIFT;
+@@ -1480,7 +1480,6 @@ int extent_range_redirty_for_io(struct inode *inode, u64 start, u64 end)
+ 		page_cache_release(page);
+ 		index++;
+ 	}
+-	return 0;
+ }
+ 
+ /*
+diff --git a/fs/btrfs/extent_io.h b/fs/btrfs/extent_io.h
+index b0b2d20..fbc6448 100644
+--- a/fs/btrfs/extent_io.h
++++ b/fs/btrfs/extent_io.h
+@@ -339,7 +339,7 @@ int map_private_extent_buffer(struct extent_buffer *eb, unsigned long offset,
+ 		      unsigned long *map_start,
+ 		      unsigned long *map_len);
+ void extent_range_clear_dirty_for_io(struct inode *inode, u64 start, u64 end);
+-int extent_range_redirty_for_io(struct inode *inode, u64 start, u64 end);
++void extent_range_redirty_for_io(struct inode *inode, u64 start, u64 end);
+ void extent_clear_unlock_delalloc(struct inode *inode, u64 start, u64 end,
+ 				 struct page *locked_page,
+ 				 unsigned bits_to_clear,
+-- 
+1.9.1
+

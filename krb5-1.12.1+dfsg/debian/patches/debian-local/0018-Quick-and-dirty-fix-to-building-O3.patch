@@ -1,0 +1,65 @@
+From 040564466ac6d04295ebb625a68ef1ef7bd85148 Mon Sep 17 00:00:00 2001
+From: Sam Hartman <hartmans@debian.org>
+Date: Fri, 1 Aug 2014 17:47:59 -0400
+Subject: Quick and dirty fix to building -O3
+
+This is a quick and dirty fix to pacify gcc which is over-concerned
+about uninitialized variables at -O3.
+
+This should allow Ubuntu to sync krb5 without  need for any ubuntu changes.
+
+Patch-Category: debian-local
+---
+ src/kadmin/dbutil/dump.c     | 2 +-
+ src/lib/krb5/os/sendto_kdc.c | 4 ++--
+ src/tests/asn.1/trval.c      | 2 +-
+ 3 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/kadmin/dbutil/dump.c b/src/kadmin/dbutil/dump.c
+index d4e8090..e31dd65 100644
+--- a/src/kadmin/dbutil/dump.c
++++ b/src/kadmin/dbutil/dump.c
+@@ -1487,7 +1487,7 @@ load_db(int argc, char **argv)
+     kdb_log_context *log_ctx;
+     krb5_boolean db_locked = FALSE, temp_db_created = FALSE;
+     krb5_boolean verbose = FALSE, update = FALSE, iprop_load = FALSE;
+-    uint32_t caller = FKCOMMAND, last_sno, last_seconds, last_useconds;
++    uint32_t caller = FKCOMMAND, last_sno = 0, last_seconds = 0, last_useconds = 0;
+ 
+     /* Parse the arguments. */
+     dbname = global_params.dbname;
+diff --git a/src/lib/krb5/os/sendto_kdc.c b/src/lib/krb5/os/sendto_kdc.c
+index e0f360a..1fb0770 100644
+--- a/src/lib/krb5/os/sendto_kdc.c
++++ b/src/lib/krb5/os/sendto_kdc.c
+@@ -372,7 +372,7 @@ cm_select_or_poll(const struct select_state *in, time_ms endtime,
+     struct timeval tv;
+ #endif
+     krb5_error_code retval;
+-    time_ms curtime, interval;
++    time_ms curtime = 0, interval;
+ 
+     retval = get_curtime_ms(&curtime);
+     if (retval != 0)
+@@ -913,7 +913,7 @@ service_fds(krb5_context context, struct select_state *selstate,
+             void *msg_handler_data, struct conn_state **winner_out)
+ {
+     int e, selret = 0;
+-    time_ms endtime;
++    time_ms endtime = 0;
+     struct conn_state *state;
+ 
+     *winner_out = NULL;
+diff --git a/src/tests/asn.1/trval.c b/src/tests/asn.1/trval.c
+index e924fd8..3ea1edc 100644
+--- a/src/tests/asn.1/trval.c
++++ b/src/tests/asn.1/trval.c
+@@ -404,7 +404,7 @@ int do_cons(fp, enc, len, lev, rlen)
+ {
+     int n;
+     int r = 0;
+-    int rlen2;
++    int rlen2 = 0;
+     int rlent;
+     int save_appl;
+ 

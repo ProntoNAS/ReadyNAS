@@ -1,0 +1,55 @@
+From 4fca92179431b5432d3d5a5623dabb9d579763f3 Mon Sep 17 00:00:00 2001
+From: Jeff Mahoney <jeffm@suse.com>
+Date: Fri, 2 Dec 2016 12:21:29 -0800
+Subject: [PATCH 87/90] btrfs: provide super_operations->inode_get_dev
+
+In order to ensure that the per-subvolume anonymous dev_t gets published
+to userspace, we need to provide the super_operations->get_inode_dev
+operation.
+
+Signed-off-by: Jeff Mahoney <jeffm@suse.com>
+---
+ fs/btrfs/btrfs_inode.h | 2 +-
+ fs/btrfs/super.c       | 6 ++++++
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/fs/btrfs/btrfs_inode.h b/fs/btrfs/btrfs_inode.h
+index 61205e3..9617ee4 100644
+--- a/fs/btrfs/btrfs_inode.h
++++ b/fs/btrfs/btrfs_inode.h
+@@ -201,7 +201,7 @@ struct btrfs_inode {
+ 
+ extern unsigned char btrfs_filetype_table[];
+ 
+-static inline struct btrfs_inode *BTRFS_I(struct inode *inode)
++static inline struct btrfs_inode *BTRFS_I(const struct inode *inode)
+ {
+ 	return container_of(inode, struct btrfs_inode, vfs_inode);
+ }
+diff --git a/fs/btrfs/super.c b/fs/btrfs/super.c
+index d22d8f6..90b0206 100644
+--- a/fs/btrfs/super.c
++++ b/fs/btrfs/super.c
+@@ -2186,6 +2186,11 @@ static int btrfs_show_devname(struct seq_file *m, struct dentry *root)
+ 	return 0;
+ }
+ 
++static dev_t btrfs_get_inode_dev(const struct inode *inode)
++{
++	return BTRFS_I(inode)->root->anon_dev;
++}
++
+ static const struct super_operations btrfs_super_ops = {
+ 	.drop_inode	= btrfs_drop_inode,
+ 	.evict_inode	= btrfs_evict_inode,
+@@ -2199,6 +2204,7 @@ static const struct super_operations btrfs_super_ops = {
+ 	.statfs		= btrfs_statfs,
+ 	.remount_fs	= btrfs_remount,
+ 	.freeze_fs	= btrfs_freeze,
++	.get_inode_dev	= btrfs_get_inode_dev,
+ };
+ 
+ static const struct file_operations btrfs_ctl_fops = {
+-- 
+1.9.1
+

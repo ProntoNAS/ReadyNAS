@@ -1,0 +1,90 @@
+#!/bin/sh
+
+set -e
+
+if [ "$(whoami)" = root ]; then
+  if [ -n "$SUDO_USER" ] && getent passwd "$SUDO_USER" > /dev/null; then
+    su_user="$SUDO_USER"
+  else
+    su_user=nobody
+  fi
+
+  if [ -e /etc/default/apport ]; then
+    # stop apport
+    stop apport 2>/dev/null || true
+    sed -i '/^enabled=/s/=.*/=0/' /etc/default/apport 2>/dev/null
+
+    if status apport | grep -q start; then
+      echo >&2 "apport is running. needs to be disabled before running the tests"
+      exit 1
+    fi
+  fi
+fi
+
+tmphome=$ADTTMP/home
+mkdir -p $tmphome
+if [ -n "$su_user" ]; then
+  chmod go+rx $ADTTMP
+  chown $su_user:nogroup $tmphome
+fi
+ls -la $ADTTMP
+
+# no root access needed after this point
+
+debian_dir=$(dirname $(dirname $0))
+
+export LOCPATH=$(pwd)/locales
+sh $debian_dir/locale-gen
+
+export LANG=C
+
+arch=$(dpkg --print-architecture)
+vendor=$(dpkg-vendor --query Vendor)
+
+TESTPYTHON="python2.7-dbg -E -Wd -3 -tt /usr/lib/python2.7/test/regrtest.py"
+TESTOPTS="-w -uall,-network,-urlfetch,-gui,-xpickle"
+TESTEXCLUSIONS="-x"
+
+# test_curses: error: copywin() returned ERR
+TESTEXCLUSIONS="$TESTEXCLUSIONS test_curses"
+
+# test_distutils: failing tests test_parse_makefile_base, test_parse_makefile_literal_dollar
+TESTEXCLUSIONS="$TESTEXCLUSIONS test_distutils"
+
+# test_ensurepip: module disabled in Debian
+TESTEXCLUSIONS="$TESTEXCLUSIONS test_ensurepip"
+
+# test_threading_local: fails in the Debian CI environment, but even
+# succeeds there when re-run. See
+# http://ci.debian.net/data/packages/unstable/amd64/p/python2.7/20141121_061940.autopkgtest.log.gz
+case "$vendor" in Debian)
+  TESTEXCLUSIONS="$TESTEXCLUSIONS test_threading_local"
+esac
+
+# test_zipfile: Issue 17753, requires write access to test and email.test
+TESTEXCLUSIONS="$TESTEXCLUSIONS test_zipfile"
+
+if [ "$su_user" = nobody ]; then
+  log=/dev/null
+else
+  log=testsuite-dbg.log
+fi
+
+# several tests fail with configured proxy; we don't need internet access, so
+# unset proxy variables
+EXTRAENV="env -u https_proxy -u http_proxy -u no_proxy HOME=$tmphome"
+
+script=$debian_dir/script.py
+if [ -f "$script" ]; then
+  cmd="$EXTRAENV python2.7 $script \"$log\" \"$TESTPYTHON $TESTOPTS $TESTEXCLUSIONS\""
+else
+  cmd="$EXTRAENV $TESTPYTHON $TESTOPTS $TESTEXCLUSIONS"
+fi
+echo "Running the python testsuite with the debug enabled interpreter:"
+if [ "$(whoami)" = root ]; then
+  echo "su -s /bin/sh -c $cmd $su_user"
+  su -s /bin/sh -c "$cmd" $su_user
+else
+  echo "$cmd"
+  eval $cmd
+fi

@@ -1,0 +1,89 @@
+From b69c6a16586b18b32a850ee08bdd01a518a01aa5 Mon Sep 17 00:00:00 2001
+From: Alexander Duyck <aduyck@mirantis.com>
+Date: Mon, 7 Mar 2016 09:29:57 -0800
+Subject: [PATCH 203/224] i40e/i40evf: Fix handling of boolean logic in polling
+ routines
+
+In the polling routines for i40e and i40evf we were using bitwise operators
+to avoid the side effects of the logical operators, specifically the fact
+that if the first case is true with "||" we skip the second case, or if it
+is false with "&&" we skip the second case.  This fixes an earlier patch
+that converted the bitwise operators over to the logical operators and
+instead replaces the entire thing with just an if statement since it should
+be more readable what we are trying to do this way.
+
+Fixes: 1a36d7fadd14 ("i40e/i40evf: use logical operators, not bitwise")
+Signed-off-by: Alexander Duyck <aduyck@mirantis.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_txrx.c   | 13 ++++++++-----
+ drivers/net/ethernet/intel/i40evf/i40e_txrx.c | 13 ++++++++-----
+ 2 files changed, 16 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_txrx.c b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+index da485d2..d876f4e 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+@@ -1976,9 +1976,11 @@ int i40e_napi_poll(struct napi_struct *napi, int budget)
+ 	 * budget and be more aggressive about cleaning up the Tx descriptors.
+ 	 */
+ 	i40e_for_each_ring(ring, q_vector->tx) {
+-		clean_complete = clean_complete &&
+-				 i40e_clean_tx_irq(ring, vsi->work_limit);
+-		arm_wb = arm_wb || ring->arm_wb;
++		if (!i40e_clean_tx_irq(ring, vsi->work_limit)) {
++			clean_complete = false;
++			continue;
++		}
++		arm_wb |= ring->arm_wb;
+ 		ring->arm_wb = false;
+ 	}
+ 
+@@ -2000,8 +2002,9 @@ int i40e_napi_poll(struct napi_struct *napi, int budget)
+ 			cleaned = i40e_clean_rx_irq_1buf(ring, budget_per_ring);
+ 
+ 		work_done += cleaned;
+-		/* if we didn't clean as many as budgeted, we must be done */
+-		clean_complete = clean_complete && (budget_per_ring > cleaned);
++		/* if we clean as many as budgeted, we must not be done */
++		if (cleaned >= budget_per_ring)
++			clean_complete = false;
+ 	}
+ 
+ 	/* If work not completed, return budget and polling will return */
+diff --git a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+index 75ce1bb..0c6d2fd 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+@@ -1412,9 +1412,11 @@ int i40evf_napi_poll(struct napi_struct *napi, int budget)
+ 	 * budget and be more aggressive about cleaning up the Tx descriptors.
+ 	 */
+ 	i40e_for_each_ring(ring, q_vector->tx) {
+-		clean_complete = clean_complete &&
+-				 i40e_clean_tx_irq(ring, vsi->work_limit);
+-		arm_wb = arm_wb || ring->arm_wb;
++		if (!i40e_clean_tx_irq(ring, vsi->work_limit)) {
++			clean_complete = false;
++			continue;
++		}
++		arm_wb |= ring->arm_wb;
+ 		ring->arm_wb = false;
+ 	}
+ 
+@@ -1436,8 +1438,9 @@ int i40evf_napi_poll(struct napi_struct *napi, int budget)
+ 			cleaned = i40e_clean_rx_irq_1buf(ring, budget_per_ring);
+ 
+ 		work_done += cleaned;
+-		/* if we didn't clean as many as budgeted, we must be done */
+-		clean_complete = clean_complete && (budget_per_ring > cleaned);
++		/* if we clean as many as budgeted, we must not be done */
++		if (cleaned >= budget_per_ring)
++			clean_complete = false;
+ 	}
+ 
+ 	/* If work not completed, return budget and polling will return */
+-- 
+1.9.1
+

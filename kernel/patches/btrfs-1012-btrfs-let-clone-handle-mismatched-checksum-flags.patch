@@ -1,0 +1,37 @@
+From 75245209542277d0c76bb66053b5564c83bb7405 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Tue, 20 Jan 2015 15:54:27 -0800
+Subject: [PATCH 1012/1075] btrfs: let clone handle mismatched checksum flags
+
+If the destination file of a clone operation inherits flags
+from it's parent directory that are different from the
+source file of the clone, the operation will fail with
+EINVAL.  This seems a little heavy-handed in the case where
+the destination is a new file.  So, if the destination is a
+new file, let's just copy the flags from the source file.
+---
+ fs/btrfs/ioctl.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/fs/btrfs/ioctl.c b/fs/btrfs/ioctl.c
+index 3fa6b96..e4d7431 100644
+--- a/fs/btrfs/ioctl.c
++++ b/fs/btrfs/ioctl.c
+@@ -3930,8 +3930,12 @@ static noinline long btrfs_ioctl_clone(struct file *file, unsigned long srcfd,
+ 
+ 	/* don't make the dst file partly checksummed */
+ 	if ((BTRFS_I(src)->flags & BTRFS_INODE_NODATASUM) !=
+-	    (BTRFS_I(inode)->flags & BTRFS_INODE_NODATASUM))
+-		goto out_fput;
++	    (BTRFS_I(inode)->flags & BTRFS_INODE_NODATASUM)) {
++		if (inode->i_size != 0)
++			goto out_fput;
++		BTRFS_I(inode)->flags = BTRFS_I(src)->flags;
++		btrfs_update_iflags(inode);
++	}
+ 
+ 	ret = -EISDIR;
+ 	if (S_ISDIR(src->i_mode) || S_ISDIR(inode->i_mode))
+-- 
+1.9.1
+

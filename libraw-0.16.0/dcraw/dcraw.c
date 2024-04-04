@@ -768,7 +768,8 @@ struct jhead {
 
 int CLASS ljpeg_start (struct jhead *jh, int info_only)
 {
-  int c, tag, len;
+  int c, tag;
+  ushort len;
   uchar data[0x10000];
   const uchar *dp;
 
@@ -2558,6 +2559,10 @@ void CLASS smal_decode_segment (unsigned seg[2][2], int holes)
       diff = diff ? -diff : 0x80;
     if (ftell(ifp) + 12 >= seg[1][1])
       diff = 0;
+#ifdef LIBRAW_LIBRARY_BUILD
+    if(pix>=raw_width*raw_height)
+      throw LIBRAW_EXCEPTION_IO_CORRUPT;
+#endif
     raw_image[pix] = pred[pix & 1] += diff;
     if (!(pix & 1) && HOLE(pix / raw_width)) pix += 2;
   }
@@ -5452,7 +5457,12 @@ int CLASS parse_tiff_ifd (int base)
 	if (!strcmp(model,"DSLR-A100") && tiff_ifd[ifd].width == 3872) {
 	  load_raw = &CLASS sony_arw_load_raw;
 	  data_offset = get4()+base;
-	  ifd++;  break;
+	  ifd++;
+#ifdef LIBRAW_LIBRARY_BUILD
+	if (ifd >= sizeof tiff_ifd / sizeof tiff_ifd[0])
+	  throw LIBRAW_EXCEPTION_IO_CORRUPT;
+#endif
+	  break;
 	}
 	while (len--) {
 	  i = ftell(ifp);
@@ -5604,7 +5614,7 @@ int CLASS parse_tiff_ifd (int base)
 	break;
       case 50454:			/* Sinar tag */
       case 50455:
-	if (!(cbuf = (char *) malloc(len))) break;
+	if (len < 1 || len > 2560000 || !(cbuf = (char *) malloc(len))) break;
 	fread (cbuf, 1, len, ifp);
 	for (cp = cbuf-1; cp && cp < cbuf+len; cp = strchr(cp,'\n'))
 	  if (!strncmp (++cp,"Neutral ",8))
@@ -6333,7 +6343,19 @@ int CLASS parse_jpeg (int offset)
     }
     order = get2();
     hlen  = get4();
-    if (get4() == 0x48454150)		/* "HEAP" */
+
+#ifdef LIBRAW_LIBRARY_BUILD
+    struct stat st;
+    off_t fsize = 0;
+    if(!stat(ifp->fname(),&st))
+	fsize = st.st_size;
+#endif
+
+    if (get4() == 0x48454150
+#ifdef LIBRAW_LIBRARY_BUILD
+	&& (save+hlen) >= 0 && (save+hlen)<=ifp->size()
+#endif
+	) /* "HEAP" */
       parse_ciff (save+hlen, len-hlen, 0);
     if (parse_tiff (save+6)) apply_tiff();
     fseek (ifp, save+len, SEEK_SET);

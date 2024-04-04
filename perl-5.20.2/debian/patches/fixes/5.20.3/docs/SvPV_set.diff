@@ -1,0 +1,43 @@
+From 41596d6312f801eecb38c50e3f6f713bc66c1ca2 Mon Sep 17 00:00:00 2001
+From: Daniel Dragan <bulk88@hotmail.com>
+Date: Thu, 15 Jan 2015 22:30:25 -0500
+Subject: improve SvPV_set's docs, it really shouldn't be public API
+
+Someone else in the perl community wrote XS code using SvPV_set instead
+of sv_setpvn and couldn't figure out why he was getting
+heap corruption/failed asserts/SEGVs/etc. Improve the docs to basically say
+never use this.
+(cherry picked from commit f2979eac0a03fcba1cd431ef3d46f697176ebcc8)
+
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/docs/SvPV_set.diff
+---
+ sv.h | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/sv.h b/sv.h
+index b129225bd..15163e439 100644
+--- a/sv.h
++++ b/sv.h
+@@ -792,13 +792,18 @@ C<SvIV_set> instead of the lvalue assignment to C<SvIVX>.
+ Set the value of the NV pointer in sv to val.  See C<SvIV_set>.
+ 
+ =for apidoc Am|void|SvPV_set|SV* sv|char* val
+-Set the value of the PV pointer in C<sv> to the C<NUL>-terminated string
+-C<val>.  See also C<SvIV_set>.
++This is probably not what you want to use, you probably wanted
++L</sv_usepvn_flags> or L</sv_setpvn> or L</sv_setpvs>.
+ 
++Set the value of the PV pointer in C<sv> to the Perl allocated
++C<NUL>-terminated string C<val>.  See also C<SvIV_set>.
++
++Remember to free the previous PV buffer. There are many things to check.
+ Beware that the existing pointer may be involved in copy-on-write or other
+ mischief, so do C<SvOOK_off(sv)> and use C<sv_force_normal> or
+ C<SvPV_force> (or check the SvIsCOW flag) first to make sure this
+-modification is safe.
++modification is safe. Then finally, if it is not a COW, call C<SvPV_free> to
++free the previous PV buffer.
+ 
+ =for apidoc Am|void|SvUV_set|SV* sv|UV val
+ Set the value of the UV pointer in sv to val.  See C<SvIV_set>.

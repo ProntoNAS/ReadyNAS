@@ -1,0 +1,55 @@
+From 3e3436af6010ac245d7a390c6798e2b81ce09191 Mon Sep 17 00:00:00 2001
+From: Stuart Caie <kyzer@4u.net>
+Date: Sun, 10 May 2015 21:04:12 +0000
+Subject: [PATCH] Correct rejection of empty strings
+
+---
+ ChangeLog     |    9 +++++++--
+ mspack/cabd.c |    7 +++++--
+ 2 files changed, 12 insertions(+), 4 deletions(-)
+
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,3 +1,8 @@
++2015-05-10  Stuart Caie <kyzer@4u.net>
++
++	* cabd_read_string(): correct rejection of empty strings. Thanks to
++	Hanno BÃ¶ck for finding the issue and providing a sample file.
++
+ 2015-01-18  Stuart Caie <kyzer@4u.net>
+ 
+ 	* lzxd_decompress(): the byte-alignment code for reading uncompressed
+@@ -37,7 +42,7 @@
+ 	null and thus segfault. Thanks to Jakub Wilk again.
+ 
+ 	* cabd_read_string: reject empty strings. They are not found in any
+-	valid CAB files. Thanks to Hanno Böck for sending me an example.
++	valid CAB files. Thanks to Hanno BÃ¶ck for sending me an example.
+ 
+ 2015-01-05  Stuart Caie <kyzer@4u.net>
+ 
+@@ -459,7 +464,7 @@
+ 2005-03-22:  Stuart Caie   <kyzer@4u.net>
+ 
+ 	* system.h: now undefs "read", as the latest glibc defines read()
+-	as a macro which messes everything up. Thanks to Ville Skyttä for
++	as a macro which messes everything up. Thanks to Ville SkyttÃ¤ for
+ 	the update.
+ 
+ 2005-03-14:  Stuart Caie   <kyzer@4u.net>
+--- a/mspack/cabd.c
++++ b/mspack/cabd.c
+@@ -526,8 +526,11 @@ static char *cabd_read_string(struct msp
+   /* read up to 256 bytes */
+   len = sys->read(fh, &buf[0], 256);
+ 
+-  /* search for a null terminator in the buffer. reject empty strings */
+-  for (i = 1, ok = 0; i < len; i++) if (!buf[i]) { ok = 1; break; }
++  /* search for a null terminator in the buffer */
++  for (i = 0, ok = 0; i < len; i++) if (!buf[i]) { ok = 1; break; }
++  /* reject empty strings */
++  if (i == 0) ok = 0;
++
+   if (!ok) {
+     *error = MSPACK_ERR_DATAFORMAT;
+     return NULL;

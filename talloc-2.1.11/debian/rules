@@ -1,0 +1,71 @@
+#!/usr/bin/make -f
+
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+
+CPPFLAGS:=$(shell dpkg-buildflags --get CPPFLAGS)
+CFLAGS:=$(shell dpkg-buildflags --get CFLAGS)
+CXXFLAGS:=$(shell dpkg-buildflags --get CXXFLAGS)
+LDFLAGS:=$(shell dpkg-buildflags --get LDFLAGS)
+
+CFLAGS += -g -Wall
+
+DESTDIR=$(CURDIR)/debian/tmp
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+conf_args = --prefix=/usr --disable-rpath-install --disable-rpath --bundled-libraries=NONE
+conf_args += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+conf_args += --libdir=/usr/lib/$(DEB_HOST_MULTIARCH)
+conf_args += -v
+
+export PYTHON="$(shell which `pyversions -d`)"
+
+%:
+	dh $* --parallel --with python2
+
+override_dh_python2:
+	dh_python2 --no-guessing-versions
+
+override_dh_auto_configure:
+	LDFLAGS="$(LDFLAGS)" PYTHON="$(PYTHON)" CFLAGS="$(CFLAGS)" CPPFLAGS="$(CPPFLAGS)" ./configure $(conf_args)
+
+override_dh_auto_build:
+	$(MAKE) all V=1
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	LD_LIBRARY_PATH=bin/shared ./bin/talloc_testsuite
+endif
+
+override_dh_install:
+	DEB_PY2_INCDIR=$(shell python-config --includes | sed 's,^-I\([^ ]*\).*,\1,') \
+		dh_install --list-missing
+
+get-packaged-orig-source:
+	./debian/build-orig.sh
+
+override_dh_auto_clean:
+	[ ! -f Makefile ] || $(MAKE) distclean
+	# Waf should be doing this; see
+	# https://bugzilla.samba.org/show_bug.cgi?id=8854
+	rm -f .lock-wscript
+	# Waf should be doing this; see
+	# https://bugzilla.samba.org/show_bug.cgi?id=8855
+	rm -f buildtools/wafsamba/*.pyc \
+		third_party/waf/wafadmin/*.pyc \
+		third_party/waf/wafadmin/Tools/*.pyc \
+		third_party/waf/wafadmin/3rdparty/*.pyc \
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=$(DESTDIR)
+	# Waf really should be doing this:
+	ar -rc libtalloc.a bin/default/talloc_*.o
+	mv libtalloc.a $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)
+
+override_dh_strip:
+	dh_strip -plibtalloc2 --dbg-package=libtalloc2-dbg
+	dh_strip -ppython-talloc --dbg-package=python-talloc-dbg
+
+override_dh_makeshlibs:
+	dh_makeshlibs -plibtalloc2 -- -c4
+	dh_makeshlibs -ppython-talloc -Xtalloc. -- -c3

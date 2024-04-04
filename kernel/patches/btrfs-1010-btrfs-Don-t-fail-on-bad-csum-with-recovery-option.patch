@@ -1,0 +1,41 @@
+From 30e1b7cfef30ea5640e4ad6e5f5314f335f0aca5 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 13:48:36 -0800
+Subject: [PATCH 1010/1016] btrfs: Don't fail on bad csum with recovery option
+
+---
+ fs/btrfs/disk-io.c | 2 +-
+ fs/btrfs/inode.c   | 4 ++++
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/fs/btrfs/disk-io.c b/fs/btrfs/disk-io.c
+index 6133913..c94e67a 100644
+--- a/fs/btrfs/disk-io.c
++++ b/fs/btrfs/disk-io.c
+@@ -338,7 +338,7 @@ static int csum_tree_block(struct btrfs_fs_info *fs_info,
+ 				val, found, btrfs_header_level(buf));
+ 			if (result != (char *)&inline_result)
+ 				kfree(result);
+-			return 1;
++			return !btrfs_test_opt(fs_info->tree_root, RECOVERY);
+ 		}
+ 	} else {
+ 		write_extent_buffer(buf, result, 0, csum_size);
+diff --git a/fs/btrfs/inode.c b/fs/btrfs/inode.c
+index 66d8daf..f3becd7 100644
+--- a/fs/btrfs/inode.c
++++ b/fs/btrfs/inode.c
+@@ -3174,6 +3174,10 @@ zeroit:
+ 	btrfs_warn_rl(BTRFS_I(inode)->root->fs_info,
+ 		"csum failed ino %llu off %llu csum %u expected csum %u",
+ 			   btrfs_ino(inode), start, csum, csum_expected);
++	if (btrfs_test_opt(BTRFS_I(inode)->root, RECOVERY)) {
++		kunmap_atomic(kaddr);
++		return 0;
++	}
+ 	memset(kaddr + pgoff, 1, len);
+ 	flush_dcache_page(page);
+ 	kunmap_atomic(kaddr);
+-- 
+1.9.1
+

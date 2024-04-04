@@ -1,0 +1,216 @@
+# DP: Set base version to 4.9, introduce full version 4.9.x.
+
+Index: b/src/gcc/BASE-VER
+===================================================================
+--- a/src/gcc/BASE-VER
++++ b/src/gcc/BASE-VER
+@@ -1 +1 @@
+-4.9.2
++4.9
+Index: b/src/gcc/FULL-VER
+===================================================================
+--- /dev/null
++++ b/src/gcc/FULL-VER
+@@ -0,0 +1 @@
++4.9.2
+Index: b/src/gcc/Makefile.in
+===================================================================
+--- a/src/gcc/Makefile.in
++++ b/src/gcc/Makefile.in
+@@ -810,11 +810,13 @@
+ TM_H      = $(GTM_H) insn-flags.h $(OPTIONS_H)
+ 
+ # Variables for version information.
+-BASEVER     := $(srcdir)/BASE-VER  # 4.x.y
++FULLVER     := $(srcdir)/FULL-VER  # 4.x.y
++BASEVER     := $(srcdir)/BASE-VER  # 4.x
+ DEVPHASE    := $(srcdir)/DEV-PHASE # experimental, prerelease, ""
+ DATESTAMP   := $(srcdir)/DATESTAMP # YYYYMMDD or empty
+ REVISION    := $(srcdir)/REVISION  # [BRANCH revision XXXXXX]
+ 
++FULLVER_c   := $(shell cat $(FULLVER))
+ BASEVER_c   := $(shell cat $(BASEVER))
+ DEVPHASE_c  := $(shell cat $(DEVPHASE))
+ DATESTAMP_c := $(shell cat $(DATESTAMP))
+@@ -833,7 +835,7 @@
+ # development phase collapsed to the empty string in release mode
+ # (i.e. if DEVPHASE_c is empty).  The space immediately after the
+ # comma in the $(if ...) constructs is significant - do not remove it.
+-BASEVER_s   := "\"$(BASEVER_c)\""
++FULLVER_s   := "\"$(FULLVER_c)\""
+ DEVPHASE_s  := "\"$(if $(DEVPHASE_c), ($(DEVPHASE_c)))\""
+ DATESTAMP_s := "\"$(if $(DEVPHASE_c), $(DATESTAMP_c))\""
+ PKGVERSION_s:= "\"@PKGVERSION@\""
+@@ -1924,8 +1926,8 @@
+ 
+ # Files used by all variants of C and some other languages.
+ 
+-CFLAGS-prefix.o += -DPREFIX=\"$(prefix)\" -DBASEVER=$(BASEVER_s)
+-prefix.o: $(BASEVER)
++CFLAGS-prefix.o += -DPREFIX=\"$(prefix)\" -DBASEVER=$(FULLVER_s)
++prefix.o: $(FULLVER)
+ 
+ # Language-independent files.
+ 
+@@ -1933,7 +1935,8 @@
+   -DSTANDARD_STARTFILE_PREFIX=\"$(unlibsubdir)/\" \
+   -DSTANDARD_EXEC_PREFIX=\"$(libdir)/gcc/\" \
+   -DSTANDARD_LIBEXEC_PREFIX=\"$(libexecdir)/gcc/\" \
+-  -DDEFAULT_TARGET_VERSION=\"$(version)\" \
++  -DDEFAULT_TARGET_VERSION=\"$(BASEVER_c)\" \
++  -DDEFAULT_TARGET_FULL_VERSION=\"$(FULLVER_c)\" \
+   -DDEFAULT_TARGET_MACHINE=\"$(target_noncanonical)\" \
+   -DSTANDARD_BINDIR_PREFIX=\"$(bindir)/\" \
+   -DTOOLDIR_BASE_PREFIX=\"$(libsubdir_to_prefix)$(prefix_to_exec_prefix)\" \
+@@ -1981,20 +1984,20 @@
+ 
+ dumpvers: dumpvers.c
+ 
+-CFLAGS-version.o += -DBASEVER=$(BASEVER_s) -DDATESTAMP=$(DATESTAMP_s) \
++CFLAGS-version.o += -DBASEVER=$(FULLVER_s) -DDATESTAMP=$(DATESTAMP_s) \
+ 	-DREVISION=$(REVISION_s) \
+ 	-DDEVPHASE=$(DEVPHASE_s) -DPKGVERSION=$(PKGVERSION_s) \
+ 	-DBUGURL=$(BUGURL_s)
+-version.o: $(REVISION) $(DATESTAMP) $(BASEVER) $(DEVPHASE)
++version.o: $(REVISION) $(DATESTAMP) $(FULLVER) $(DEVPHASE)
+ 
+ # lto-compress.o needs $(ZLIBINC) added to the include flags.
+ CFLAGS-lto-compress.o += $(ZLIBINC)
+ 
+ bversion.h: s-bversion; @true
+-s-bversion: BASE-VER
+-	echo "#define BUILDING_GCC_MAJOR `echo $(BASEVER_c) | sed -e 's/^\([0-9]*\).*$$/\1/'`" > bversion.h
+-	echo "#define BUILDING_GCC_MINOR `echo $(BASEVER_c) | sed -e 's/^[0-9]*\.\([0-9]*\).*$$/\1/'`" >> bversion.h
+-	echo "#define BUILDING_GCC_PATCHLEVEL `echo $(BASEVER_c) | sed -e 's/^[0-9]*\.[0-9]*\.\([0-9]*\)$$/\1/'`" >> bversion.h
++s-bversion: FULL-VER
++	echo "#define BUILDING_GCC_MAJOR `echo $(FULLVER_c) | sed -e 's/^\([0-9]*\).*$$/\1/'`" > bversion.h
++	echo "#define BUILDING_GCC_MINOR `echo $(FULLVER_c) | sed -e 's/^[0-9]*\.\([0-9]*\).*$$/\1/'`" >> bversion.h
++	echo "#define BUILDING_GCC_PATCHLEVEL `echo $(FULLVER_c) | sed -e 's/^[0-9]*\.[0-9]*\.\([0-9]*\)$$/\1/'`" >> bversion.h
+ 	echo "#define BUILDING_GCC_VERSION (BUILDING_GCC_MAJOR * 1000 + BUILDING_GCC_MINOR)" >> bversion.h
+ 	$(STAMP) s-bversion
+ 
+@@ -2323,9 +2326,9 @@
+ ## build/version.o is compiled by the $(COMPILER_FOR_BUILD) but needs
+ ## several C macro definitions, just like version.o
+ build/version.o:  version.c version.h \
+-                  $(REVISION) $(DATESTAMP) $(BASEVER) $(DEVPHASE)
++                  $(REVISION) $(DATESTAMP) $(FULLVER) $(DEVPHASE)
+ 	$(COMPILER_FOR_BUILD) -c $(BUILD_COMPILERFLAGS) $(BUILD_CPPFLAGS) \
+-	-DBASEVER=$(BASEVER_s) -DDATESTAMP=$(DATESTAMP_s) \
++	-DBASEVER=$(FULLVER_s) -DDATESTAMP=$(DATESTAMP_s) \
+ 	-DREVISION=$(REVISION_s) \
+ 	-DDEVPHASE=$(DEVPHASE_s) -DPKGVERSION=$(PKGVERSION_s) \
+ 	-DBUGURL=$(BUGURL_s) -o $@ $<
+@@ -2518,8 +2521,8 @@
+   -DSTANDARD_EXEC_PREFIX=\"$(libdir)/gcc/\" \
+   @TARGET_SYSTEM_ROOT_DEFINE@
+ 
+-CFLAGS-cppbuiltin.o += $(PREPROCESSOR_DEFINES) -DBASEVER=$(BASEVER_s)
+-cppbuiltin.o: $(BASEVER)
++CFLAGS-cppbuiltin.o += $(PREPROCESSOR_DEFINES) -DBASEVER=$(FULLVER_s)
++cppbuiltin.o: $(FULLVER)
+ 
+ CFLAGS-cppdefault.o += $(PREPROCESSOR_DEFINES)
+ 
+@@ -2535,8 +2538,8 @@
+ 		build/gcov-iov.o -o $@
+ 
+ gcov-iov.h: s-iov
+-s-iov: build/gcov-iov$(build_exeext) $(BASEVER) $(DEVPHASE)
+-	build/gcov-iov$(build_exeext) '$(BASEVER_c)' '$(DEVPHASE_c)' \
++s-iov: build/gcov-iov$(build_exeext) $(FULLVER) $(DEVPHASE)
++	build/gcov-iov$(build_exeext) '$(FULLVER_c)' '$(DEVPHASE_c)' \
+ 	    > tmp-gcov-iov.h
+ 	$(SHELL) $(srcdir)/../move-if-change tmp-gcov-iov.h gcov-iov.h
+ 	$(STAMP) s-iov
+@@ -2797,8 +2800,8 @@
+ TEXI_CPPINT_FILES = cppinternals.texi gcc-common.texi gcc-vers.texi
+ 
+ # gcc-vers.texi is generated from the version files.
+-gcc-vers.texi: $(BASEVER) $(DEVPHASE)
+-	(echo "@set version-GCC $(BASEVER_c)"; \
++gcc-vers.texi: $(FULLVER) $(DEVPHASE)
++	(echo "@set version-GCC $(FULLVER_c)"; \
+ 	 if [ "$(DEVPHASE_c)" = "experimental" ]; \
+ 	 then echo "@set DEVELOPMENT"; \
+ 	 else echo "@clear DEVELOPMENT"; \
+Index: b/src/libjava/Makefile.am
+===================================================================
+--- a/src/libjava/Makefile.am
++++ b/src/libjava/Makefile.am
+@@ -780,7 +780,7 @@
+ install-data-local:
+ 	$(PRE_INSTALL)
+ ## Install the .pc file.
+-	@pc_version=`echo $(GCJVERSION) | sed -e 's/[.][^.]*$$//'`; \
++	@pc_version=$(GCJVERSION); \
+ 	file="libgcj-$${pc_version}.pc"; \
+ 	$(mkinstalldirs) $(DESTDIR)$(pkgconfigdir); \
+ 	echo "  $(INSTALL_DATA) libgcj.pc $(DESTDIR)$(pkgconfigdir)/$$file"; \
+Index: b/src/libjava/Makefile.in
+===================================================================
+--- a/src/libjava/Makefile.in
++++ b/src/libjava/Makefile.in
+@@ -12457,7 +12457,7 @@
+ @BUILD_ECJ1_TRUE@	mv $(DESTDIR)$(libexecsubdir)/`echo ecjx | sed 's,^.*/,,;$(transform);s/$$/$(EXEEXT)/'` $(DESTDIR)$(libexecsubdir)/ecj1$(host_exeext)
+ install-data-local:
+ 	$(PRE_INSTALL)
+-	@pc_version=`echo $(GCJVERSION) | sed -e 's/[.][^.]*$$//'`; \
++	@pc_version=$(GCJVERSION); \
+ 	file="libgcj-$${pc_version}.pc"; \
+ 	$(mkinstalldirs) $(DESTDIR)$(pkgconfigdir); \
+ 	echo "  $(INSTALL_DATA) libgcj.pc $(DESTDIR)$(pkgconfigdir)/$$file"; \
+Index: b/src/libjava/testsuite/lib/libjava.exp
+===================================================================
+--- a/src/libjava/testsuite/lib/libjava.exp
++++ b/src/libjava/testsuite/lib/libjava.exp
+@@ -177,7 +177,7 @@
+ 
+     set text [eval exec "$GCJ_UNDER_TEST -B$specdir -v 2>@ stdout"]
+     regexp " version \[^\n\r\]*" $text version
+-    set libjava_version [lindex $version 1]
++    set libjava_version 4.9
+ 
+     verbose "version: $libjava_version"
+ 
+Index: b/src/gcc/gcc.c
+===================================================================
+--- a/src/gcc/gcc.c
++++ b/src/gcc/gcc.c
+@@ -152,7 +152,8 @@
+ 
+ /* The target version.  */
+ 
+-static const char *const spec_version = DEFAULT_TARGET_VERSION;
++static const char *const base_version = DEFAULT_TARGET_VERSION;
++static const char *const spec_version = DEFAULT_TARGET_FULL_VERSION;
+ 
+ /* The target machine.  */
+ 
+@@ -4058,7 +4059,7 @@
+   tooldir_prefix
+     = concat (gcc_exec_prefix ? gcc_exec_prefix : standard_exec_prefix,
+ 	      spec_machine, dir_separator_str,
+-	      spec_version, dir_separator_str, tooldir_prefix2, NULL);
++	      base_version, dir_separator_str, tooldir_prefix2, NULL);
+   free (tooldir_prefix2);
+ 
+   add_prefix (&exec_prefixes,
+@@ -6465,7 +6466,7 @@
+   /* Read specs from a file if there is one.  */
+ 
+   machine_suffix = concat (spec_machine, dir_separator_str,
+-			   spec_version, dir_separator_str, NULL);
++			   base_version, dir_separator_str, NULL);
+   just_machine_suffix = concat (spec_machine, dir_separator_str, NULL);
+ 
+   specs_file = find_a_file (&startfile_prefixes, "specs", R_OK, true);
+@@ -6664,7 +6665,7 @@
+   /* If we have a GCC_EXEC_PREFIX envvar, modify it for cpp's sake.  */
+   if (gcc_exec_prefix)
+     gcc_exec_prefix = concat (gcc_exec_prefix, spec_machine, dir_separator_str,
+-			      spec_version, dir_separator_str, NULL);
++			      base_version, dir_separator_str, NULL);
+ 
+   /* Now we have the specs.
+      Set the `valid' bits for switches that match anything in any spec.  */

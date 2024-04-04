@@ -1,0 +1,437 @@
+Description: Disable SSLv3 and RC4; implement SSLOptions.
+  This disables SSLv3 in cups. It also provides 2 configuration
+  options to reenable by specifying SSLOptions in the cupsd.conf
+  file. AllowSSL3 turns SSLv3 back on and AllowRC4 turns on just
+  the RC4 cypers.
+ .
+---
+Origin: vendor, https://bugzilla.redhat.com/show_bug.cgi?id=1161172
+Bug: https://www.cups.org/str.php?L4476
+Bug-Ubuntu: https://launchpad.net/bugs/1505328
+Bug-Debian: https://bugs.debian.org/839226
+
+--- a/cups/http-private.h
++++ b/cups/http-private.h
+@@ -147,6 +147,10 @@
+ #define _HTTP_RESOLVE_FQDN	2	/* Resolve to a FQDN */
+ #define _HTTP_RESOLVE_FAXOUT	4	/* Resolve FaxOut service? */
+ 
++/* care - these should be the same values as the CUPSD_SSL_* equivalents */
++#define _HTTP_TLS_ALLOW_RC4	2
++#define _HTTP_TLS_ALLOW_SSL3	4
++
+ 
+ /*
+  * Types and functions for SSL support...
+@@ -425,6 +429,8 @@
+ extern int		_httpUpdate(http_t *http, http_status_t *status);
+ extern int		_httpWait(http_t *http, int msec, int usessl);
+ 
++extern void		_httpTLSSetOptions(int options);
++
+ 
+ /*
+  * C++ magic...
+--- a/cups/http.c
++++ b/cups/http.c
+@@ -87,6 +87,8 @@
+  * Local globals...
+  */
+ 
++static int		tls_options = 0; /* Options for TLS connections */
++
+ static const char * const http_fields[] =
+ 			{
+ 			  "Accept-Language",
+@@ -5094,6 +5096,10 @@
+   context = SSL_CTX_new(SSLv23_client_method());
+ 
+   SSL_CTX_set_options(context, SSL_OP_NO_SSLv2); /* Only use SSLv3 or TLS */
++  if (!(tls_options & _HTTP_TLS_ALLOW_SSL3))
++    SSL_CTX_set_options(context, SSL_OP_NO_SSLv3); /* Don't use SSLv3 */
++  if (!(tls_options & _HTTP_TLS_ALLOW_RC4))
++    SSL_CTX_set_cipher_list(context, "DEFAULT:-RC4");
+ 
+   bio = BIO_new(_httpBIOMethods());
+   BIO_ctrl(bio, BIO_C_SET_FILE_PTR, 0, (char *)http);
+@@ -5151,7 +5157,16 @@
+   gnutls_certificate_allocate_credentials(credentials);
+ 
+   gnutls_init(&http->tls, GNUTLS_CLIENT);
+-  gnutls_set_default_priority(http->tls);
++  if (!tls_options)
++    gnutls_priority_set_direct(http->tls, "NORMAL:-ARCFOUR-128:-VERS-SSL3.0", NULL);
++  else if ((tls_options & _HTTP_TLS_ALLOW_SSL3) &&
++	   (tls_options & _HTTP_TLS_ALLOW_RC4))
++    gnutls_priority_set_direct(http->tls, "NORMAL", NULL);
++  else if (tls_options & _HTTP_TLS_ALLOW_SSL3)
++    gnutls_priority_set_direct(http->tls, "NORMAL:-ARCFOUR-128", NULL);
++  else
++    gnutls_priority_set_direct(http->tls, "NORMAL:-VERS-SSL3.0", NULL);
++
+   gnutls_server_name_set(http->tls, GNUTLS_NAME_DNS, hostname,
+                          strlen(hostname));
+   gnutls_credentials_set(http->tls, GNUTLS_CRD_CERTIFICATE, *credentials);
+@@ -5904,6 +5919,16 @@
+ }
+ #endif /* HAVE_SSL */
+ 
++/*
++ * '_httpTLSSetOptions()' - Set TLS/SSL options.
++ */
++
++void
++_httpTLSSetOptions(int options)
++{
++  tls_options = options;
++}
++
+ 
+ /*
+  * End of "$Id: http.c 11761 2014-03-28 13:04:33Z msweet $".
+--- a/cups/usersys.c
++++ b/cups/usersys.c
+@@ -52,7 +52,8 @@
+ #endif /* HAVE_GSSAPI */
+ 				      const char *cups_anyroot,
+ 				      const char *cups_expiredroot,
+-				      const char *cups_expiredcerts);
++				      const char *cups_expiredcerts,
++				      int ssl_options);
+ 
+ 
+ /*
+@@ -237,6 +238,9 @@
+   _cups_globals_t *cg = _cupsGlobals();	/* Pointer to library globals */
+ 
+ 
++  if (cg->encryption == (http_encryption_t)-1)
++    _cupsSetDefaults();
++
+   cg->encryption = e;
+ 
+   if (cg->http)
+@@ -861,6 +865,29 @@
+   if (cg->encryption == (http_encryption_t)-1 || !cg->server[0] ||
+       !cg->user[0] || !cg->ipp_port)
+   {
++   /*
++    * Look for CUPS_SERVERROOT/client.conf...
++    */
++
++    snprintf(filename, sizeof(filename), "%s/client.conf",
++	     cg->cups_serverroot);
++    fp = cupsFileOpen(filename, "r");
++   /*
++    * Read the configuration file and apply any environment variables; both
++    * functions handle NULL cups_file_t pointers...
++    */
++
++    cups_read_client_conf(fp, cg, cups_encryption, cups_server, cups_user,
++#ifdef HAVE_GSSAPI
++		  cups_gssservicename,
++#endif /* HAVE_GSSAPI */
++			  cups_anyroot, cups_expiredroot,
++			  cups_expiredcerts, 1);
++
++   /*
++    * Then user defaults, if it is safe to do so...
++    */
++
+ #  ifdef HAVE_GETEUID
+     if ((geteuid() == getuid() || !getuid()) && getegid() == getgid() && (home = getenv("HOME")) != NULL)
+ #  elif !defined(WIN32)
+@@ -875,19 +902,7 @@
+ 
+       snprintf(filename, sizeof(filename), "%s/.cups/client.conf", home);
+       fp = cupsFileOpen(filename, "r");
+-    }
+-    else
+-      fp = NULL;
+ 
+-    if (!fp)
+-    {
+-     /*
+-      * Look for CUPS_SERVERROOT/client.conf...
+-      */
+-
+-      snprintf(filename, sizeof(filename), "%s/client.conf",
+-               cg->cups_serverroot);
+-      fp = cupsFileOpen(filename, "r");
+     }
+ 
+    /*
+@@ -895,12 +910,12 @@
+     * functions handle NULL cups_file_t pointers...
+     */
+ 
+-    cups_read_client_conf(fp, cg, cups_encryption, cups_server, cups_user,
++      cups_read_client_conf(fp, cg, cups_encryption, cups_server, cups_user,
+ #ifdef HAVE_GSSAPI
+ 			  cups_gssservicename,
+ #endif /* HAVE_GSSAPI */
+ 			  cups_anyroot, cups_expiredroot,
+-			  cups_expiredcerts);
++			  cups_expiredcerts, 0);
+     cupsFileClose(fp);
+   }
+ }
+@@ -923,7 +938,8 @@
+ #endif /* HAVE_GSSAPI */
+     const char	    *cups_anyroot,	/* I - CUPS_ANYROOT env var */
+     const char	    *cups_expiredroot,	/* I - CUPS_EXPIREDROOT env var */
+-    const char	    *cups_expiredcerts)	/* I - CUPS_EXPIREDCERTS env var */
++    const char	    *cups_expiredcerts,	/* I - CUPS_EXPIREDCERTS env var */
++    int		     ssl_options)	/* I - Allow setting of SSLOptions? */
+ {
+   int	linenum;			/* Current line number */
+   char	line[1024],			/* Line from file */
+@@ -996,6 +1012,43 @@
+       cups_gssservicename = gss_service_name;
+     }
+ #endif /* HAVE_GSSAPI */
++    else if (ssl_options && !_cups_strcasecmp(line, "SSLOptions") && value)
++    {
++     /*
++      * SSLOptions [AllowRC4] [AllowSSL3] [None]
++      */
++
++      int	options = 0;		/* SSL/TLS options */
++      char	*start,			/* Start of option */
++		*end;			/* End of option */
++
++      for (start = value; *start; start = end)
++      {
++       /*
++	* Find end of keyword...
++	*/
++
++	end = start;
++	while (*end && !_cups_isspace(*end))
++	  end++;
++
++	if (*end)
++	  *end++ = '\0';
++
++       /*
++	* Compare...
++	*/
++
++	if (!_cups_strcasecmp(start, "AllowRC4"))
++	  options |= _HTTP_TLS_ALLOW_RC4;
++	else if (!_cups_strcasecmp(start, "AllowSSL3"))
++	  options |= _HTTP_TLS_ALLOW_SSL3;
++	else if (!_cups_strcasecmp(start, "None"))
++	  options = 0;
++      }
++
++      _httpTLSSetOptions(options);
++    }
+   }
+ 
+  /*
+--- a/doc/help/ref-client-conf.html
++++ b/doc/help/ref-client-conf.html
+@@ -76,6 +76,26 @@
+ </BLOCKQUOTE>
+ 
+ 
++<H2 CLASS="title"><A NAME="SSLOptions">SSLOptions</A></H2>
++
++<H3>Examples</H3>
++
++<PRE CLASS="command">
++SSLOptions None
++SSLOptions AllowSSL3
++SSLOptions AllowRC4
++</PRE>
++
++<H3>Description</H3>
++
++<P>Sets encryption options (only in /etc/cups/client.conf). By
++default, CUPS only supports encryption using TLS v1.0 or higher using
++known secure cipher suites. The <i>AllowRC4</i> option enables the
++128-bit RC4 cipher suites, which are required for some older clients
++that do not implement newer ones. The <i>AllowSSL3</i> option enables
++SSL v3.0, which is required for some older clients that do not support
++TLS v1.0.</P>
++
+ <H2 CLASS="title"><SPAN CLASS="info">CUPS 1.6/OS X 10.8</SPAN><A NAME="User">User</A></H2>
+ 
+ <H3>Examples</H3>
+--- a/doc/help/ref-cupsd-conf.html.in
++++ b/doc/help/ref-cupsd-conf.html.in
+@@ -2032,15 +2032,22 @@
+ <PRE CLASS="command">
+ SSLOptions None
+ SSLOptions NoEmptyFragments
++SSLOptions AllowSSL3
++SSLOptions AllowRC4
+ </PRE>
+ 
+ <H3>Description</H3>
+ 
+ <P>The <CODE>SSLOptions</CODE> directive specifies additional SSL/TLS
+-protocol options to use for encrypted connected. Currently only two
+-options are supported - <code>None</code> (the default) for the most
+-secure mode and <code>NoEmptyFragments</code> to allow CUPS to work with
+-Microsoft Windows with the FIPS conformance mode enabled.</p>
++protocol options to use for encrypted connected. By default, CUPS only
++supports encryption using TLS v1.0 or higher using known secure cipher
++suites. The <code>NoEmptyFragments</code> option allows CUPS to work
++with Microsoft Windows with the FIPS conformance mode
++enabled. The <code>AllowRC4</code> option enables the 128-bit RC4
++cipher suites, which are required for some older clients that do not
++implement newer ones. The <code>AllowSSL3</code> option enables SSL
++v3.0, which is required for some older clients that do not support TLS
++v1.0.</p>
+ 
+ 
+ <H2 CLASS="title"><A NAME="SSLPort">SSLPort</A></H2>
+--- a/man/client.conf.man.in
++++ b/man/client.conf.man.in
+@@ -53,6 +53,15 @@
+ server running CUPS 1.3.12 and earlier. \fBNote: Not supported on OS X 10.7 or
+ later.\fR
+ .TP 5
++SSLOptions \fR[\fIAllowRC4\fR] [\fIAllow SSL3\fR]
++.br
++Sets SSL/TLS protocol options for encrypted connections. By default,
++CUPS only supports encryption using TLS v1.0 or higher using known
++secure cipher suites. The \fIAllowRC4\fR option enables the 128-bit
++RC4 cipher suites, which are required for some older clients that do
++not implement newer ones. The \fIAllowSSL3\fR option enables SSL v3.0,
++which is required for some older clients that do not support TLS v1.0.
++.TP 5
+ User name
+ .br
+ Specifies the default user name to use for requests.
+--- a/man/cupsd.conf.man.in
++++ b/man/cupsd.conf.man.in
+@@ -480,9 +480,16 @@
+ .TP 5
+ SSLOptions None
+ .TP 5
+-SSLOptions NoEmptyFragments
++SSLOptions \fR[\fINoEmptyFragments\fR] [\fIAllowRC4\fR] [\fIAllow SSL3\fR]
+ .br
+-Sets SSL/TLS protocol options for encrypted connections.
++Sets SSL/TLS protocol options for encrypted connections. By default,
++CUPS only supports encryption using TLS v1.0 or higher using known
++secure cipher suites. The \fINoEmptyFragments\fR option allows CUPS to
++work with Microsoft Windows with the FIPS conformance mode
++enabled. The \fIAllowRC4\fR option enables the 128-bit RC4 cipher
++suites, which are required for some older clients that do not
++implement newer ones. The \fIAllowSSL3\fR option enables SSL v3.0,
++which is required for some older clients that do not support TLS v1.0.
+ .TP 5
+ SSLPort
+ .br
+--- a/scheduler/conf.c
++++ b/scheduler/conf.c
+@@ -3292,17 +3292,54 @@
+     else if (!_cups_strcasecmp(line, "SSLOptions"))
+     {
+      /*
++      * SSLOptions [AllowRC4] [AllowSSL3] [NoEmptyFragments] [None]
++      */
++
++      int	options = 0;	/* SSL/TLS options */
++
++     /*
+       * SSLOptions options
+       */
+ 
+-      if (!value || !_cups_strcasecmp(value, "none"))
+-        SSLOptions = CUPSD_SSL_NONE;
+-      else if (!_cups_strcasecmp(value, "noemptyfragments"))
+-        SSLOptions = CUPSD_SSL_NOEMPTY;
+-      else
+-        cupsdLogMessage(CUPSD_LOG_ERROR,
+-	                "Unknown value \"%s\" for SSLOptions directive on "
+-			"line %d.", value, linenum);
++      if (value)
++      {
++	char	*start,		/* Start of option */
++		*end;		/* End of option */
++
++	for (start = value; *start; start = end)
++	{
++	 /*
++	  * Find end of keyword...
++	  */
++
++	  end = start;
++	  while (*end && !_cups_isspace(*end))
++	    end++;
++
++	  if (*end)
++	    *end++ = '\0';
++
++	 /*
++	  * Compare...
++	  */
++
++	  if (!_cups_strcasecmp(start, "NoEmptyFragments"))
++	    options |= CUPSD_SSL_NOEMPTY;
++	  else if (!_cups_strcasecmp(start, "AllowRC4"))
++	    options |= CUPSD_SSL_ALLOW_RC4;
++	  else if (!_cups_strcasecmp(start, "AllowSSL3"))
++	    options |= CUPSD_SSL_ALLOW_SSL3;
++	  else if (!_cups_strcasecmp(start, "None"))
++	    options = 0;
++	  else
++	    cupsdLogMessage(CUPSD_LOG_ERROR,
++			    "Unknown value \"%s\" for SSLOptions directive on "
++			    "line %d.", start, linenum);
++	}
++      }
++
++      SSLOptions = options;
++      _httpTLSSetOptions (SSLOptions & ~CUPSD_SSL_NOEMPTY);
+     }
+ #endif /* HAVE_SSL */
+     else if (!_cups_strcasecmp(line, "AccessLog") ||
+--- a/scheduler/conf.h
++++ b/scheduler/conf.h
+@@ -79,6 +79,8 @@
+ 
+ #define CUPSD_SSL_NONE		0	/* No special options */
+ #define CUPSD_SSL_NOEMPTY	1	/* Do not insert empty fragments */
++#define CUPSD_SSL_ALLOW_RC4	2	/* Allow RC4 cipher suites */
++#define CUPSD_SSL_ALLOW_SSL3	4	/* Allow SSL 3.0 */
+ 
+ 
+ /*
+--- a/scheduler/tls-gnutls.c
++++ b/scheduler/tls-gnutls.c
+@@ -114,7 +114,15 @@
+ 				       ServerKey, GNUTLS_X509_FMT_PEM);
+ 
+   gnutls_init(&con->http.tls, GNUTLS_SERVER);
+-  gnutls_set_default_priority(con->http.tls);
++  if (!SSLOptions)
++    gnutls_priority_set_direct(con->http.tls, "NORMAL:-ARCFOUR-128:-VERS-SSL3.0", NULL);
++  else if ((SSLOptions & CUPSD_SSL_ALLOW_SSL3) &&
++	   (SSLOptions & CUPSD_SSL_ALLOW_RC4))
++    gnutls_priority_set_direct(con->http.tls, "NORMAL", NULL);
++  else if (SSLOptions & CUPSD_SSL_ALLOW_SSL3)
++    gnutls_priority_set_direct(con->http.tls, "NORMAL:-ARCFOUR-128", NULL);
++  else
++    gnutls_priority_set_direct(con->http.tls, "NORMAL:-VERS-SSL3.0", NULL);
+ 
+   gnutls_credentials_set(con->http.tls, GNUTLS_CRD_CERTIFICATE, *credentials);
+   gnutls_transport_set_ptr(con->http.tls, (gnutls_transport_ptr_t)HTTP(con));
+--- a/scheduler/tls-openssl.c
++++ b/scheduler/tls-openssl.c
+@@ -107,6 +107,10 @@
+   SSL_CTX_set_options(context, SSL_OP_NO_SSLv2); /* Only use SSLv3 or TLS */
+   if (SSLOptions & CUPSD_SSL_NOEMPTY)
+     SSL_CTX_set_options(context, SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS);
++  if (!(SSLOptions & CUPSD_SSL_ALLOW_SSL3))
++    SSL_CTX_set_options(context, SSL_OP_NO_SSLv3); /* Don't use SSLv3 */
++  if (!(SSLOptions & CUPSD_SSL_ALLOW_RC4))
++    SSL_CTX_set_cipher_list(context, "DEFAULT:-RC4");
+   SSL_CTX_use_PrivateKey_file(context, ServerKey, SSL_FILETYPE_PEM);
+   SSL_CTX_use_certificate_chain_file(context, ServerCertificate);
+ 

@@ -1,0 +1,41 @@
+From c6d0eccff415f763534e1a73eb1df5904381ce23 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 7 Dec 2016 00:33:47 -0800
+Subject: [PATCH 82/85] hwmon: (it87) Add RN3130 fixup hacks
+
+---
+ drivers/hwmon/it87.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/hwmon/it87.c b/drivers/hwmon/it87.c
+index 6ac2249..297a58d 100644
+--- a/drivers/hwmon/it87.c
++++ b/drivers/hwmon/it87.c
+@@ -2815,6 +2815,15 @@ static int __init it87_find(int sioaddr, unsigned short *address,
+ 			superio_outb(sioaddr, IT87_SIO_PINX2_REG, reg);
+ 			pr_notice("Routing internal VCCH to in7\n");
+ 		}
++		if (dmi_match(DMI_PRODUCT_NAME, "ReadyNAS 3130") ||
++		    dmi_match(DMI_PRODUCT_NAME, "ReadyNAS 3138")) {
++			if (reg & BIT(0)) {
++				reg &= ~BIT(0);
++				pr_notice("Configuring VIN3 for external sensor\n");
++				superio_outb(sioaddr, IT87_SIO_PINX2_REG, reg);
++			}
++			fix_pwm_polarity = true;
++		}
+ 		if (reg & BIT(0))
+ 			sio_data->internal |= BIT(0);
+ 		if (reg & BIT(1))
+@@ -2986,7 +2995,7 @@ static int it87_check_pwm(struct device *dev)
+ 	 */
+ 	int tmp = it87_read_value(data, IT87_REG_FAN_CTL);
+ 
+-	if ((tmp & 0x87) == 0) {
++	if ((tmp & 0x80) == 0) {
+ 		if (fix_pwm_polarity) {
+ 			/*
+ 			 * The user asks us to attempt a chip reconfiguration.
+-- 
+1.9.1
+

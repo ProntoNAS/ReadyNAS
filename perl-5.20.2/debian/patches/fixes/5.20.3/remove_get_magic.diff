@@ -1,0 +1,52 @@
+From ec09e1c72b54622e624ef008841aea04e9cf259c Mon Sep 17 00:00:00 2001
+From: Father Chrysostomos <sprout@cpan.org>
+Date: Sun, 8 Feb 2015 12:45:12 -0800
+Subject: Remove get-magic from $/
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+and use a different approach to prevent $/ from being set to a bad
+value.
+
+This should fix ticket #123739.  Commit v5.21.8-197-g5fe499a made
+$/’s get-magic read PL_rs, so that the croak when setting $/ to a
+bad value would not leave $/ with that bad value, in order to fix
+bug #123218.
+
+Some CPAN modules do not like $/ reading PL_rs that way.  So we
+have to change this back.  I am not actually removing the get-
+magic, but just making it a no-op, as it was before.  The set-
+magic now sets $/ back to its previous value before croaking.
+
+(cherry picked from commit ddce084af02764d4f30ef6089ae67a7983fcc690)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=123739
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/remove_get_magic.diff
+---
+ mg.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/mg.c b/mg.c
+index 79aa81acf..01b3cdc63 100644
+--- a/mg.c
++++ b/mg.c
+@@ -1077,9 +1077,7 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
+ 	    sv_setiv(sv, (IV)IoPAGE(GvIOp(PL_defoutgv)));
+ 	break;
+     case ':':
+-	break;
+     case '/':
+-        sv_setsv(sv, PL_rs);
+ 	break;
+     case '[':
+ 	sv_setiv(sv, 0);
+@@ -2776,6 +2774,7 @@ Perl_magic_set(pTHX_ SV *sv, MAGIC *mg)
+                         );
+                     }
+                 } else {
++                    sv_setsv(sv, PL_rs);
+               /* diag_listed_as: Setting $/ to %s reference is forbidden */
+                     Perl_croak(aTHX_ "Setting $/ to a%s %s reference is forbidden",
+                                       *reftype == 'A' ? "n" : "", reftype);

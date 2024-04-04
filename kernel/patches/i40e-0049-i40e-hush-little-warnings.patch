@@ -1,0 +1,73 @@
+From f13b7e1e5ff5a7644b702d6a325097e6b3ce67b6 Mon Sep 17 00:00:00 2001
+From: Mitch Williams <mitch.a.williams@intel.com>
+Date: Thu, 19 Nov 2015 11:34:21 -0800
+Subject: [PATCH 049/224] i40e: hush little warnings
+
+These messages seem big and scary, but they're really not. The driver
+can fully recover from any of these. The overflow error in particular
+can happen when enabling a bunch of VFs and the VF driver is not
+blacklisted.
+
+Since these messages are really for debugging purposes, reclassify
+them as such.
+
+Change-ID: I628d0f5e135e7063450ba05393a50b7af23aa6d7
+Signed-off-by: Mitch Williams <mitch.a.williams@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_main.c | 18 ++++++++++++------
+ 1 file changed, 12 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_main.c b/drivers/net/ethernet/intel/i40e/i40e_main.c
+index 272dbe0..9807de3 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_main.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_main.c
+@@ -6231,15 +6231,18 @@ static void i40e_clean_adminq_subtask(struct i40e_pf *pf)
+ 	val = rd32(&pf->hw, pf->hw.aq.arq.len);
+ 	oldval = val;
+ 	if (val & I40E_PF_ARQLEN_ARQVFE_MASK) {
+-		dev_info(&pf->pdev->dev, "ARQ VF Error detected\n");
++		if (hw->debug_mask & I40E_DEBUG_AQ)
++			dev_info(&pf->pdev->dev, "ARQ VF Error detected\n");
+ 		val &= ~I40E_PF_ARQLEN_ARQVFE_MASK;
+ 	}
+ 	if (val & I40E_PF_ARQLEN_ARQOVFL_MASK) {
+-		dev_info(&pf->pdev->dev, "ARQ Overflow Error detected\n");
++		if (hw->debug_mask & I40E_DEBUG_AQ)
++			dev_info(&pf->pdev->dev, "ARQ Overflow Error detected\n");
+ 		val &= ~I40E_PF_ARQLEN_ARQOVFL_MASK;
+ 	}
+ 	if (val & I40E_PF_ARQLEN_ARQCRIT_MASK) {
+-		dev_info(&pf->pdev->dev, "ARQ Critical Error detected\n");
++		if (hw->debug_mask & I40E_DEBUG_AQ)
++			dev_info(&pf->pdev->dev, "ARQ Critical Error detected\n");
+ 		val &= ~I40E_PF_ARQLEN_ARQCRIT_MASK;
+ 	}
+ 	if (oldval != val)
+@@ -6248,15 +6251,18 @@ static void i40e_clean_adminq_subtask(struct i40e_pf *pf)
+ 	val = rd32(&pf->hw, pf->hw.aq.asq.len);
+ 	oldval = val;
+ 	if (val & I40E_PF_ATQLEN_ATQVFE_MASK) {
+-		dev_info(&pf->pdev->dev, "ASQ VF Error detected\n");
++		if (pf->hw.debug_mask & I40E_DEBUG_AQ)
++			dev_info(&pf->pdev->dev, "ASQ VF Error detected\n");
+ 		val &= ~I40E_PF_ATQLEN_ATQVFE_MASK;
+ 	}
+ 	if (val & I40E_PF_ATQLEN_ATQOVFL_MASK) {
+-		dev_info(&pf->pdev->dev, "ASQ Overflow Error detected\n");
++		if (pf->hw.debug_mask & I40E_DEBUG_AQ)
++			dev_info(&pf->pdev->dev, "ASQ Overflow Error detected\n");
+ 		val &= ~I40E_PF_ATQLEN_ATQOVFL_MASK;
+ 	}
+ 	if (val & I40E_PF_ATQLEN_ATQCRIT_MASK) {
+-		dev_info(&pf->pdev->dev, "ASQ Critical Error detected\n");
++		if (pf->hw.debug_mask & I40E_DEBUG_AQ)
++			dev_info(&pf->pdev->dev, "ASQ Critical Error detected\n");
+ 		val &= ~I40E_PF_ATQLEN_ATQCRIT_MASK;
+ 	}
+ 	if (oldval != val)
+-- 
+1.9.1
+

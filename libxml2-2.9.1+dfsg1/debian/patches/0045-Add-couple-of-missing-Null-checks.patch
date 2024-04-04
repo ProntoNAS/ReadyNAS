@@ -1,0 +1,49 @@
+From: Daniel Veillard <veillard@redhat.com>
+Date: Sat, 26 Jul 2014 21:04:54 +0800
+Subject: Add couple of missing Null checks
+
+For https://bugzilla.gnome.org/show_bug.cgi?id=733710
+Reported by Gaurav but with slightly different fixes
+---
+ relaxng.c | 7 ++++++-
+ tree.c    | 4 ++++
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/relaxng.c b/relaxng.c
+index 33fc71a..936f657 100644
+--- a/relaxng.c
++++ b/relaxng.c
+@@ -6655,12 +6655,17 @@ xmlRelaxNGParseDocument(xmlRelaxNGParserCtxtPtr ctxt, xmlNodePtr node)
+     ctxt->define = NULL;
+     if (IS_RELAXNG(node, "grammar")) {
+         schema->topgrammar = xmlRelaxNGParseGrammar(ctxt, node->children);
++        if (schema->topgrammar == NULL) {
++            xmlRelaxNGFree(schema);
++            return (NULL);
++        }
+     } else {
+         xmlRelaxNGGrammarPtr tmp, ret;
+ 
+         schema->topgrammar = ret = xmlRelaxNGNewGrammar(ctxt);
+         if (schema->topgrammar == NULL) {
+-            return (schema);
++            xmlRelaxNGFree(schema);
++            return (NULL);
+         }
+         /*
+          * Link the new grammar in the tree
+diff --git a/tree.c b/tree.c
+index 43c3c57..967c6a4 100644
+--- a/tree.c
++++ b/tree.c
+@@ -4509,6 +4509,10 @@ xmlCopyDoc(xmlDocPtr doc, int recursive) {
+ #ifdef LIBXML_TREE_ENABLED
+     if (doc->intSubset != NULL) {
+         ret->intSubset = xmlCopyDtd(doc->intSubset);
++	if (ret->intSubset == NULL) {
++	    xmlFreeDoc(ret);
++	    return(NULL);
++	}
+ 	xmlSetTreeDoc((xmlNodePtr)ret->intSubset, ret);
+ 	ret->intSubset->parent = ret;
+     }

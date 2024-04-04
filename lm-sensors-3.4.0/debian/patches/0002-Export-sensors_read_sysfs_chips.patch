@@ -1,0 +1,71 @@
+From c128b0c18c4ab98ecbc69f35886f6b7e4f9e116f Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Fri, 2 Jun 2017 11:14:32 -0700
+Subject: [PATCH 2/2] Export sensors_read_sysfs_chips()
+
+Export sensors_read_sysfs_chips(), and make it skip duplicate chips.
+
+This facilitates rescanning chips after sensors_init(), which allows us
+to support a hot-plugged I2C UPS, without a sensors_cleanup() and
+sensors_init() pair.
+---
+ lib/libsensors.map | 1 +
+ lib/sensors.h      | 2 ++
+ lib/sysfs.c        | 9 ++++++++-
+ 3 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/lib/libsensors.map b/lib/libsensors.map
+index 5e2dac03..2bd678ff 100644
+--- a/lib/libsensors.map
++++ b/lib/libsensors.map
+@@ -13,6 +13,7 @@ global:
+   sensors_get_value;
+   sensors_init;
+   sensors_parse_chip_name;
++  sensors_read_sysfs_chips;
+   sensors_set_value;
+   sensors_snprintf_chip_name;
+   sensors_strerror;
+diff --git a/lib/sensors.h b/lib/sensors.h
+index ed2d9a80..ae17b2c8 100644
+--- a/lib/sensors.h
++++ b/lib/sensors.h
+@@ -73,6 +73,8 @@ typedef struct sensors_chip_name {
+    calling sensors_init() again. */
+ int sensors_init(FILE *input);
+ 
++int sensors_read_sysfs_chips(void);
++
+ /* Clean-up function: You can't access anything after
+    this, until the next sensors_init() call! */
+ void sensors_cleanup(void);
+diff --git a/lib/sysfs.c b/lib/sysfs.c
+index f44a88de..479174c8 100644
+--- a/lib/sysfs.c
++++ b/lib/sysfs.c
+@@ -622,7 +622,7 @@ static int sensors_read_one_sysfs_chip(const char *dev_path,
+ 	char bus_path[NAME_MAX];
+ 	char linkpath[NAME_MAX];
+ 	char subsys_path[NAME_MAX], *subsys;
+-	int sub_len;
++	int sub_len, i;
+ 	sensors_chip_features entry;
+ 
+ 	/* ignore any device without name attribute */
+@@ -730,6 +730,13 @@ done:
+ 		err = 0;
+ 		goto exit_free;
+ 	}
++	for (i = 0; i < sensors_proc_chips_count; i++) {
++		if (!strcmp(entry.chip.path, sensors_proc_chips[i].chip.path)) {
++			/* Ignore duplicate device */
++			err = 0;
++			goto exit_free;
++		}
++	}
+ 	sensors_add_proc_chips(&entry);
+ 
+ 	return 1;
+-- 
+2.13.0
+

@@ -1,0 +1,130 @@
+Author: Bastian Blank <waldi@debian.org>
+
+---
+--- a/udev/10-dm.rules.in
++++ b/udev/10-dm.rules.in
+@@ -12,13 +12,18 @@
+ #   DM_NAME - actual DM device's name
+ #   DM_UUID - UUID set for DM device (blank if not specified)
+ #   DM_SUSPENDED - suspended state of DM device (0 or 1)
+-#   DM_UDEV_RULES_VSN - DM udev rules version
+ 
+ KERNEL=="device-mapper", NAME="(DM_DIR)/control"
+ 
++# Decode udev control flags and set environment variables appropriately.
++# These flags are encoded in DM_COOKIE variable that was introduced in
++# kernel version 2.6.31. Therefore, we can use this feature with
++# kernels >= 2.6.31 only.
++ENV{DM_COOKIE}=="?*", IMPORT{program}="/sbin/dmsetup udevflags $env{DM_COOKIE}"
++ENV{DM_COOKIE}=="?*", RUN+="/sbin/dmsetup udevcomplete $env{DM_COOKIE}"
++
+ SUBSYSTEM!="block", GOTO="dm_end"
+ KERNEL!="dm-[0-9]*", GOTO="dm_end"
+-(DM_EXEC_RULE)
+ 
+ # Device created, major and minor number assigned - "add" event generated.
+ # Table loaded - no event generated.
+@@ -32,12 +37,6 @@
+ # is not recommended.
+ ACTION!="add|change", GOTO="dm_end"
+ 
+-# Decode udev control flags and set environment variables appropriately.
+-# These flags are encoded in DM_COOKIE variable that was introduced in
+-# kernel version 2.6.31. Therefore, we can use this feature with
+-# kernels >= 2.6.31 only. Cookie is not decoded for remove event.
+-ENV{DM_COOKIE}=="?*", IMPORT{program}="(DM_EXEC)/dmsetup udevflags $env{DM_COOKIE}"
+-
+ # Rule out easy-to-detect inappropriate events first.
+ ENV{DISK_RO}=="1", GOTO="dm_disable"
+ 
+@@ -54,7 +53,7 @@
+ IMPORT{db}="DM_UDEV_DISABLE_LIBRARY_FALLBACK_FLAG"
+ IMPORT{db}="DM_UDEV_PRIMARY_SOURCE_FLAG"
+ IMPORT{db}="DM_UDEV_FLAG7"
+-IMPORT{db}="DM_UDEV_RULES_VSN"
++IMPORT{db}="DM_UDEV_RULES"
+ LABEL="dm_flags_done"
+ 
+ # Normally, we operate on "change" events. But when coldplugging, there's an
+@@ -70,7 +69,7 @@
+ # script to not remove the existing udev database so we can reuse the information
+ # stored at the time of device activation in the initrd.
+ ACTION!="add", GOTO="dm_no_coldplug"
+-ENV{DM_UDEV_RULES_VSN}!="1", ENV{DM_UDEV_PRIMARY_SOURCE_FLAG}!="1", GOTO="dm_disable"
++ENV{DM_UDEV_PRIMARY_SOURCE_FLAG}!="1", GOTO="dm_disable"
+ ENV{DM_ACTIVATION}="1"
+ LABEL="dm_no_coldplug"
+ 
+@@ -110,13 +109,8 @@
+ # This variable provides a reliable way to check that device-mapper
+ # rules were installed. It means that all needed variables are set
+ # by these rules directly so there's no need to acquire them again
+-# later. Other rules can alternate the functionality based on this
+-# fact (e.g. fallback to rules that behave correctly even without
+-# these rules installed). It also provides versioning for any
+-# possible future changes.
+-# VSN 1 - original rules
+-# VSN 2 - add support for synthesized events
+-ENV{DM_UDEV_RULES_VSN}="2"
++# later.
++ENV{DM_UDEV_RULES}="1"
+ 
+ ENV{DM_UDEV_DISABLE_DM_RULES_FLAG}!="1", ENV{DM_NAME}=="?*", SYMLINK+="(DM_DIR)/$env{DM_NAME}"
+ 
+--- a/udev/Makefile.in
++++ b/udev/Makefile.in
+@@ -18,10 +18,10 @@
+ include $(top_builddir)/make.tmpl
+ vpath %.rules $(srcdir)
+ 
+-DM_RULES=10-dm.rules 13-dm-disk.rules 95-dm-notify.rules
+-LVM_RULES=11-dm-lvm.rules
++DM_RULES=55-dm.rules 60-persistent-storage-dm.rules
++LVM_RULES=56-lvm.rules
+ ifeq ("@BUILD_LVMETAD@", "yes")
+-LVM_RULES+=69-dm-lvm-metad.rules
++LVM_RULES+=69-lvm-metad.rules
+ endif
+ 
+ DM_DIR=$(shell grep "\#define DM_DIR" $(top_srcdir)/libdm/misc/dm-ioctl.h | awk '{print $$3}')
+@@ -55,6 +55,18 @@
+ %.rules: %.rules.in
+ 	$(SED) -e "s+(DM_DIR)+$(DM_DIR)+;s+(BLKID_RULE)+$(BLKID_RULE)+;s+(PVSCAN_RULE)+$(PVSCAN_RULE)+;s+(DM_EXEC_RULE)+$(DM_EXEC_RULE)+;s+(DM_EXEC)+$(DM_EXEC)+;s+(LVM_EXEC_RULE)+$(LVM_EXEC_RULE)+;s+(LVM_EXEC)+$(LVM_EXEC)+;" $< >$@
+ 
++55-dm.rules: 10-dm.rules
++	ln -s $< $@
++
++56-lvm.rules: 11-dm-lvm.rules
++	ln -s $< $@
++
++60-persistent-storage-dm.rules: 13-dm-disk.rules
++	ln -s $< $@
++
++69-lvm-metad.rules: 69-dm-lvm-metad.rules
++	ln -s $< $@
++
+ %_install: %.rules
+ 	$(INSTALL_DATA) -D $< $(udevdir)/$(<F)
+ 
+--- a/udev/11-dm-lvm.rules.in
++++ b/udev/11-dm-lvm.rules.in
+@@ -14,7 +14,7 @@
+ 
+ # "add" event is processed on coldplug only!
+ ACTION!="add|change", GOTO="lvm_end"
+-ENV{DM_UDEV_RULES_VSN}!="?*", GOTO="lvm_end"
++ENV{DM_UDEV_RULES}!="?*", GOTO="lvm_end"
+ ENV{DM_UUID}!="LVM-?*", GOTO="lvm_end"
+ 
+ # Use DM name and split it up into its VG/LV/layer constituents.
+--- a/udev/13-dm-disk.rules.in
++++ b/udev/13-dm-disk.rules.in
+@@ -11,7 +11,7 @@
+ 
+ # "add" event is processed on coldplug only!
+ ACTION!="add|change", GOTO="dm_end"
+-ENV{DM_UDEV_RULES_VSN}!="?*", GOTO="dm_end"
++ENV{DM_UDEV_RULES}!="?*", GOTO="dm_end"
+ ENV{DM_UDEV_DISABLE_DISK_RULES_FLAG}=="1", GOTO="dm_end"
+ 
+ SYMLINK+="disk/by-id/dm-name-$env{DM_NAME}"

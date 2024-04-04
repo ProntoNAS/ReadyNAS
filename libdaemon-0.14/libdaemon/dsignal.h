@@ -34,7 +34,7 @@ extern "C" {
  * wish to handle with select() in your main loop with
  * daemon_signal_init() or daemon_signal_install(). After that you
  * should sleep on the file descriptor returned by daemon_signal_fd()
- * and get the next signal recieved with daemon_signal_next(). You
+ * and get the next signal received with daemon_signal_next(). You
  * should call daemon_signal_done() before exiting.
  */
 
@@ -54,7 +54,7 @@ int daemon_signal_install(int s);
  */
 void daemon_signal_done(void);
 
-/** Return the next signal recieved. This function will not
+/** Return the next signal received. This function will not
  * block. Instead it returns 0 if no signal is queued.
  * @return The next queued signal if one is queued, zero if none is
  * queued, negative on failure.

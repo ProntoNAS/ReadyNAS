@@ -110,6 +110,10 @@ test_read_format_mtree1(void)
 	assertEqualString(archive_entry_pathname(ae), "dir2/dir3b/indir3b");
 
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &ae));
+	assertEqualString(archive_entry_pathname(ae), "dir2/dir3b/filename\\with_esc\b\t\fapes");
+	assertEqualInt(archive_entry_filetype(ae), AE_IFREG);
+
+	assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &ae));
 	assertEqualString(archive_entry_pathname(ae), "notindir");
 
 	assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &ae));
@@ -151,7 +155,7 @@ test_read_format_mtree1(void)
 	assertEqualInt(archive_entry_mtime(ae), min_time);
 
 	assertEqualIntA(a, ARCHIVE_EOF, archive_read_next_header(a, &ae));
-	assertEqualInt(19, archive_file_count(a));
+	assertEqualInt(20, archive_file_count(a));
 	assertEqualInt(ARCHIVE_OK, archive_read_close(a));
 	assertEqualInt(ARCHIVE_OK, archive_read_free(a));
 }

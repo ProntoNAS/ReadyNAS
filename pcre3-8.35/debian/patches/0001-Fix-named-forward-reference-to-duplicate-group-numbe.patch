@@ -1,0 +1,55 @@
+Description: Fix named forward reference to duplicate group number
+ overflow bug.
+ .
+ Addresses CVE-2015-8385.
+Origin: upstream, http://vcs.pcre.org/pcre?view=revision&revision=1559
+Forwarded: not-needed
+Author: Salvatore Bonaccorso <carnil@debian.org>
+Last-Update: 2015-12-28
+Applied-Upstream: 3.38
+
+---
+ pcre_compile.c       | 26 +++++++++++++++++---------
+ testdata/testinput1  |  3 +++
+ testdata/testoutput1 |  5 +++++
+ 4 files changed, 30 insertions(+), 9 deletions(-)
+
+--- a/pcre_compile.c
++++ b/pcre_compile.c
+@@ -7107,6 +7107,14 @@ for (;; ptr++)
+           /* Count named back references. */
+ 
+           if (!is_recurse) cd->namedrefcount++;
++
++          /* If this is a forward reference and we are within a (?|...) group,
++          the reference may end up as the number of a group which we are
++          currently inside, that is, it could be a recursive reference. In the
++          real compile this will be picked up and the reference wrapped with
++          OP_ONCE to make it atomic, so we must space in case this occurs. */
++
++          if (recno == 0) *lengthptr += 2 + 2*LINK_SIZE;
+           }
+ 
+         /* In the real compile, search the name table. We check the name
+--- a/testdata/testinput1
++++ b/testdata/testinput1
+@@ -5672,4 +5672,7 @@ AbcdCBefgBhiBqz
+ /(a\Kb)*/+
+     ababc
+ 
++"(?|(\k'Pm')|(?'Pm'))"
++    abcd
++
+ /-- End of testinput1 --/
+--- a/testdata/testoutput1
++++ b/testdata/testoutput1
+@@ -9323,4 +9323,9 @@ No match
+  0+ c
+  1: ab
+ 
++"(?|(\k'Pm')|(?'Pm'))"
++    abcd
++ 0: 
++ 1: 
++
+ /-- End of testinput1 --/

@@ -1,0 +1,137 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Updating the Store with Blank Nodes: Tracker SPARQL Library Reference Manual</title>
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Tracker SPARQL Library Reference Manual">
+<link rel="up" href="tracker-examples.html" title="Part III. Examples">
+<link rel="prev" href="tracker-examples-writeonly.html" title="Updating the Store">
+<link rel="next" href="annotation-glossary.html" title="Annotation Glossary">
+<meta name="generator" content="GTK-Doc V1.25 (XML mode)">
+<link rel="stylesheet" href="style.css" type="text/css">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<table class="navigation" id="top" width="100%" summary="Navigation header" cellpadding="2" cellspacing="5"><tr valign="middle">
+<td width="100%" align="left" class="shortcuts"></td>
+<td><a accesskey="h" href="index.html"><img src="home.png" width="16" height="16" border="0" alt="Home"></a></td>
+<td><a accesskey="u" href="tracker-examples.html"><img src="up.png" width="16" height="16" border="0" alt="Up"></a></td>
+<td><a accesskey="p" href="tracker-examples-writeonly.html"><img src="left.png" width="16" height="16" border="0" alt="Prev"></a></td>
+<td><a accesskey="n" href="annotation-glossary.html"><img src="right.png" width="16" height="16" border="0" alt="Next"></a></td>
+</tr></table>
+<div class="chapter">
+<div class="titlepage"><div><div><h2 class="title">
+<a name="tracker-examples-writeonly-with-blank-nodes"></a>Updating the Store with Blank Nodes</h2></div></div></div>
+<p>
+      The majority of the work here is already described in the
+      previous example where we talk about how to write the store.
+    </p>
+<p>
+      The difference with this example is that sometimes you want to
+      insert data and have the URNs returned which were created to
+      avoid re-querying for them. This is done using
+      the <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-update-blank" title="tracker_sparql_connection_update_blank ()">tracker_sparql_connection_update_blank</a></code> function (or asynchronously <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-update-blank-async" title="tracker_sparql_connection_update_blank_async ()">tracker_sparql_connection_update_blank_async</a></code>).
+      If launched asynchronously, the result of the operation can be obtained with
+      <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-update-blank-finish" title="tracker_sparql_connection_update_blank_finish ()">tracker_sparql_connection_update_blank_finish</a></code>.
+    </p>
+<p>
+      The <span class="emphasis"><em>_:foo</em></span> in the example is how a blank node is
+      represented in SPARQL. The <span class="emphasis"><em>foo</em></span> part is used to generate the
+      unique ID that is used for the new URN. It is also used in the
+      <code class="function"><a href="/usr/share/gtk-doc/html/glibglib-GVariant.html#GVariant">GVariant</a></code>
+      that is returned. In the example below, we are creating a new
+      blank node called <span class="emphasis"><em>foo</em></span> for every class that
+      exists.
+    </p>
+<p>
+      The format of the GVariant (in D-Bus terms) is an aaa{ss} (an
+      array of an array of dictionaries). This is rather complex but
+      for a good reason. The first array represents each INSERT that
+      may exist in the SPARQL. The second array represents each new
+      node for a given WHERE clause (the example below illustrates
+      this), you need this to differentiate between two INSERT
+      statments like the one below in the same SPARQL sent to the
+      store. Last, we have a final array to represent each new node's
+      name (in this case <span class="emphasis"><em>foo</em></span>) and the actual URN which was
+      created. For most updates the first two outer arrays will only
+      have one item in them.
+    </p>
+<p>
+      The following program shows how a synchronous blank node update can be done to the store:
+
+</p>
+<pre class="programlisting">
+#include &lt;tracker-sparql.h&gt;
+
+int main (int argc, const char **argv)
+{
+  GError *error = NULL;
+  GVariant *v;
+  <span class="type"><a class="link" href="TrackerSparqlConnection.html#TrackerSparqlConnection-struct" title="struct TrackerSparqlConnection">TrackerSparqlConnection</a></span> *connection;
+  const gchar *query =
+    "INSERT { _:foo a nie:InformationElement } WHERE { ?x a rdfs:Class }";
+
+  /* Do NOT get a direct connection if you're going to do some write
+   * operation in the Store. The NULL represents a possible
+   * GCancellable.
+   */
+  connection = <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-get" title="tracker_sparql_connection_get ()">tracker_sparql_connection_get</a></code> (NULL, &amp;error);
+  if (!connection) {
+    g_printerr ("Couldn't obtain a connection to the Tracker store: %s",
+                error ? error-&gt;message : "unknown error");
+    g_clear_error (&amp;error);
+
+    return 1;
+  }
+
+  /* Run a synchronous blank node update query */
+  v = <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-update-blank" title="tracker_sparql_connection_update_blank ()">tracker_sparql_connection_update_blank</a></code> (connection,
+  				              query,
+  				              G_PRIORITY_DEFAULT,
+  				              NULL,
+  				              &amp;error);
+
+  if (error) {
+    /* Some error happened performing the query, not good */
+    g_printerr ("Couldn't update the Tracker store: %s",
+                error ? error-&gt;message : "unknown error");
+
+    g_clear_error (&amp;error);
+    g_object_unref (connection);
+
+    return 1;
+  }
+
+  if (!v) {
+    g_print ("No results were returned\n");
+  } else {
+    GVariantIter iter1, *iter2, *iter3;
+    const gchar *node;
+    const gchar *urn;
+
+    g_print ("Results:\n");
+
+    g_variant_iter_init (&amp;iter1, v);
+    while (g_variant_iter_loop (&amp;iter1, "aa{ss}", &amp;iter2)) { /* aa{ss} */
+      while (g_variant_iter_loop (iter2, "a{ss}", &amp;iter3)) { /* a{ss} */
+        while (g_variant_iter_loop (iter3, "{ss}", &amp;node, &amp;urn)) { /* {ss} */
+	  g_print ("  Node:'%s', URN:'%s'\n", node, urn);
+	}
+      }
+    }
+
+    g_variant_unref (v);
+  }
+
+  g_object_unref (connection);
+
+  return 0;
+}
+</pre>
+<p>
+    </p>
+</div>
+<div class="footer">
+<hr>Generated by GTK-Doc V1.25</div>
+</body>
+</html>

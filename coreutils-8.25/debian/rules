@@ -1,0 +1,78 @@
+#!/usr/bin/make -f
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+#export DH_OPTIONS=-v
+
+DPKG_EXPORT_BUILDFLAGS = 1
+include /usr/share/dpkg/default.mk
+
+DEB_CFLAGS_MAINT_APPEND = -DSYSLOG_SUCCESS -DSYSLOG_FAILURE -DSYSLOG_NON_ROOT
+
+# Renesas SH(sh4) need -mieee option.
+ifeq ($(DEB_HOST_ARCH_CPU),sh4)
+  DEB_CFLAGS_MAINT_APPEND += -mieee
+endif
+
+BIN_PROGS = cat chgrp chmod chown cp date dd df dir echo false ln ls mkdir \
+	mknod mv pwd readlink rm rmdir vdir sleep stty sync touch true uname \
+	mktemp
+d=debian/coreutils
+
+override_dh_auto_configure:
+	dh_auto_configure -- --enable-install-program=arch 
+
+%:
+	dh  $@ 
+
+override_dh_auto_clean:
+	make distclean || true
+
+override_dh_auto_test:
+	# tests fail a lot on the buildds
+
+override_dh_auto_install:
+	dh_auto_install --destdir=$(d)
+
+override_dh_install-arch: 
+	dh_install -a
+
+	# some things go in root rather than usr
+	for f in $(BIN_PROGS); do \
+		mv $(d)/usr/bin/$$f $(d)/bin/$$f; \
+	done
+	
+	# backward compatability
+	ln -s /usr/bin/md5sum $(d)/usr/bin/md5sum.textutils
+	ln -s /usr/share/man/man1/md5sum.1 $(d)/usr/share/man/man1/md5sum.textutils.1
+
+	# remove stuff provided by other packages
+ifeq ($(DEB_HOST_ARCH_OS),linux)
+	# kill from procps is linux-specific
+	rm -f $(d)/usr/bin/kill $(d)/usr/share/man/man1/kill.1
+else
+	mv $(d)/usr/bin/kill $(d)/bin
+endif
+	rm -f $(d)/usr/bin/hostname $(d)/usr/share/man/man1/hostname.1
+	rm -f $(d)/usr/bin/uptime $(d)/usr/share/man/man1/uptime.1
+
+	# the [ program doesn't have its own man page yet
+	ln -s test.1 $(d)/usr/share/man/man1/[.1
+
+	# gnu thinks chroot is in bin, debian thinks it's in sbin
+	install -d $(d)/usr/sbin $(d)/usr/share/man/man8
+	mv $(d)/usr/bin/chroot $(d)/usr/sbin/chroot
+	sed s/\"1\"/\"8\"/1 $(d)/usr/share/man/man1/chroot.1 > $(d)/usr/share/man/man8/chroot.8
+	rm $(d)/usr/share/man/man1/chroot.1
+
+	# some build environments will leave a dangling info dir
+	rm -f $(d)/usr/share/info/dir
+
+	# unneeded entries
+	rm -rf $(d)/usr/share/locale/*/LC_TIME
+
+	cp AUTHORS \
+ 		NEWS README \
+ 		THANKS \
+ 		TODO \
+ 		$(d)/usr/share/doc/coreutils
+

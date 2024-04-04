@@ -1,0 +1,57 @@
+From c70fd0674f4024c03386ff9557f2c7a334287c69 Mon Sep 17 00:00:00 2001
+From: Tony Cook <tony@develop-help.com>
+Date: Mon, 10 Aug 2015 08:46:53 +0100
+Subject: "preserve" $/ if set to a bad value
+
+and base/rs.t tests $/ not $!
+
+(cherry picked from commit 5fe499a8e26270679c0c6d48431f3a328a8ffeba)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=123218
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/preserve_record_separator.diff
+---
+ mg.c        |  1 +
+ t/base/rs.t | 11 +++++++++--
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/mg.c b/mg.c
+index 4158f1a25..79aa81acf 100644
+--- a/mg.c
++++ b/mg.c
+@@ -1079,6 +1079,7 @@ Perl_magic_get(pTHX_ SV *sv, MAGIC *mg)
+     case ':':
+ 	break;
+     case '/':
++        sv_setsv(sv, PL_rs);
+ 	break;
+     case '[':
+ 	sv_setiv(sv, 0);
+diff --git a/t/base/rs.t b/t/base/rs.t
+index 416696e9f..0035cc528 100644
+--- a/t/base/rs.t
++++ b/t/base/rs.t
+@@ -1,7 +1,7 @@
+ #!./perl
+-# Test $!
++# Test $/
+ 
+-print "1..48\n";
++print "1..49\n";
+ 
+ $test_count = 1;
+ $teststring = "1\n12\n123\n1234\n1234\n12345\n\n123456\n1234567\n";
+@@ -35,6 +35,13 @@ close TESTFILE;
+ test_bad_setting();
+ $test_count_end = $test_count;  # Needed to know how many tests to skip
+ 
++$/ = "\n";
++my $note = "\$/ preserved when set to bad value";
++# none of the setting of $/ to bad values should modify its value
++test_bad_setting();
++print +($/ ne "\n" ? "not " : "") .
++  "ok $test_count # \$/ preserved when set to bad value\n";
++++$test_count;
+ 
+ # Now for the tricky bit--full record reading
+ if ($^O eq 'VMS') {

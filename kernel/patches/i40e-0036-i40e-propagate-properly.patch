@@ -1,0 +1,299 @@
+From e0adb65bea8338357910cbaf294cf0bce95243a5 Mon Sep 17 00:00:00 2001
+From: Mitch Williams <mitch.a.williams@intel.com>
+Date: Mon, 9 Nov 2015 15:35:50 -0800
+Subject: [PATCH 036/224] i40e: propagate properly
+
+i40e_sync_vsi_filters() is the surly teenager of this driver. It says
+it's going to report errors, but it doesn't actually do that most of the
+time. And when it does, it leaves a mess.
+
+Change this function to have a common exit point so it will properly
+release the busy lock on the VSI. Propagate errors to the callers.
+Finally, adjust a few callers to check for and deal with errors from
+this function.
+
+Change-ID: Ic6af4956491e72402ebb3c538a3c31a0ad7f8667
+Signed-off-by: Mitch Williams <mitch.a.williams@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_main.c        | 113 +++++++++++++--------
+ drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c |  14 +--
+ 2 files changed, 76 insertions(+), 51 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_main.c b/drivers/net/ethernet/intel/i40e/i40e_main.c
+index 1cf296a..663ff89 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_main.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_main.c
+@@ -1589,11 +1589,8 @@ static int i40e_set_mac(struct net_device *netdev, void *p)
+ 	}
+ 
+ 	ether_addr_copy(netdev->dev_addr, addr->sa_data);
+-	/* schedule our worker thread which will take care of
+-	 * applying the new filter changes
+-	 */
+-	i40e_service_event_schedule(vsi->back);
+-	return 0;
++
++	return i40e_sync_vsi_filters(vsi);
+ }
+ 
+ /**
+@@ -1908,8 +1905,9 @@ int i40e_sync_vsi_filters(struct i40e_vsi *vsi)
+ 	bool add_happened = false;
+ 	int filter_list_len = 0;
+ 	u32 changed_flags = 0;
++	i40e_status aq_ret = 0;
+ 	bool err_cond = false;
+-	i40e_status ret = 0;
++	int retval = 0;
+ 	struct i40e_pf *pf;
+ 	int num_add = 0;
+ 	int num_del = 0;
+@@ -1972,8 +1970,11 @@ int i40e_sync_vsi_filters(struct i40e_vsi *vsi)
+ 		}
+ 		spin_unlock_bh(&vsi->mac_filter_list_lock);
+ 
+-		if (err_cond)
++		if (err_cond) {
+ 			i40e_cleanup_add_list(&tmp_add_list);
++			retval = -ENOMEM;
++			goto out;
++		}
+ 	}
+ 
+ 	/* Now process 'del_list' outside the lock */
+@@ -1993,7 +1994,8 @@ int i40e_sync_vsi_filters(struct i40e_vsi *vsi)
+ 			i40e_undo_del_filter_entries(vsi, &tmp_del_list);
+ 			i40e_undo_add_filter_entries(vsi);
+ 			spin_unlock_bh(&vsi->mac_filter_list_lock);
+-			return -ENOMEM;
++			retval = -ENOMEM;
++			goto out;
+ 		}
+ 
+ 		list_for_each_entry_safe(f, ftmp, &tmp_del_list, list) {
+@@ -2011,18 +2013,22 @@ int i40e_sync_vsi_filters(struct i40e_vsi *vsi)
+ 
+ 			/* flush a full buffer */
+ 			if (num_del == filter_list_len) {
+-				ret = i40e_aq_remove_macvlan(&pf->hw,
+-						  vsi->seid, del_list, num_del,
+-						  NULL);
++				aq_ret = i40e_aq_remove_macvlan(&pf->hw,
++								vsi->seid,
++								del_list,
++								num_del,
++								NULL);
+ 				aq_err = pf->hw.aq.asq_last_status;
+ 				num_del = 0;
+ 				memset(del_list, 0, del_list_size);
+ 
+-				if (ret && aq_err != I40E_AQ_RC_ENOENT)
++				if (aq_ret && aq_err != I40E_AQ_RC_ENOENT) {
++					retval = -EIO;
+ 					dev_err(&pf->pdev->dev,
+ 						"ignoring delete macvlan error, err %s, aq_err %s while flushing a full buffer\n",
+-						i40e_stat_str(&pf->hw, ret),
++						i40e_stat_str(&pf->hw, aq_ret),
+ 						i40e_aq_str(&pf->hw, aq_err));
++				}
+ 			}
+ 			/* Release memory for MAC filter entries which were
+ 			 * synced up with HW.
+@@ -2032,15 +2038,16 @@ int i40e_sync_vsi_filters(struct i40e_vsi *vsi)
+ 		}
+ 
+ 		if (num_del) {
+-			ret = i40e_aq_remove_macvlan(&pf->hw, vsi->seid,
+-						     del_list, num_del, NULL);
++			aq_ret = i40e_aq_remove_macvlan(&pf->hw, vsi->seid,
++							del_list, num_del,
++							NULL);
+ 			aq_err = pf->hw.aq.asq_last_status;
+ 			num_del = 0;
+ 
+-			if (ret && aq_err != I40E_AQ_RC_ENOENT)
++			if (aq_ret && aq_err != I40E_AQ_RC_ENOENT)
+ 				dev_info(&pf->pdev->dev,
+ 					 "ignoring delete macvlan error, err %s aq_err %s\n",
+-					 i40e_stat_str(&pf->hw, ret),
++					 i40e_stat_str(&pf->hw, aq_ret),
+ 					 i40e_aq_str(&pf->hw, aq_err));
+ 		}
+ 
+@@ -2065,7 +2072,8 @@ int i40e_sync_vsi_filters(struct i40e_vsi *vsi)
+ 			spin_lock_bh(&vsi->mac_filter_list_lock);
+ 			i40e_undo_add_filter_entries(vsi);
+ 			spin_unlock_bh(&vsi->mac_filter_list_lock);
+-			return -ENOMEM;
++			retval = -ENOMEM;
++			goto out;
+ 		}
+ 
+ 		list_for_each_entry_safe(f, ftmp, &tmp_add_list, list) {
+@@ -2086,13 +2094,13 @@ int i40e_sync_vsi_filters(struct i40e_vsi *vsi)
+ 
+ 			/* flush a full buffer */
+ 			if (num_add == filter_list_len) {
+-				ret = i40e_aq_add_macvlan(&pf->hw, vsi->seid,
+-							  add_list, num_add,
+-							  NULL);
++				aq_ret = i40e_aq_add_macvlan(&pf->hw, vsi->seid,
++							     add_list, num_add,
++							     NULL);
+ 				aq_err = pf->hw.aq.asq_last_status;
+ 				num_add = 0;
+ 
+-				if (ret)
++				if (aq_ret)
+ 					break;
+ 				memset(add_list, 0, add_list_size);
+ 			}
+@@ -2104,18 +2112,19 @@ int i40e_sync_vsi_filters(struct i40e_vsi *vsi)
+ 		}
+ 
+ 		if (num_add) {
+-			ret = i40e_aq_add_macvlan(&pf->hw, vsi->seid,
+-						  add_list, num_add, NULL);
++			aq_ret = i40e_aq_add_macvlan(&pf->hw, vsi->seid,
++						     add_list, num_add, NULL);
+ 			aq_err = pf->hw.aq.asq_last_status;
+ 			num_add = 0;
+ 		}
+ 		kfree(add_list);
+ 		add_list = NULL;
+ 
+-		if (add_happened && ret && aq_err != I40E_AQ_RC_EINVAL) {
++		if (add_happened && aq_ret && aq_err != I40E_AQ_RC_EINVAL) {
++			retval = i40e_aq_rc_to_posix(aq_ret, aq_err);
+ 			dev_info(&pf->pdev->dev,
+ 				 "add filter failed, err %s aq_err %s\n",
+-				 i40e_stat_str(&pf->hw, ret),
++				 i40e_stat_str(&pf->hw, aq_ret),
+ 				 i40e_aq_str(&pf->hw, aq_err));
+ 			if ((pf->hw.aq.asq_last_status == I40E_AQ_RC_ENOSPC) &&
+ 			    !test_bit(__I40E_FILTER_OVERFLOW_PROMISC,
+@@ -2133,16 +2142,19 @@ int i40e_sync_vsi_filters(struct i40e_vsi *vsi)
+ 		bool cur_multipromisc;
+ 
+ 		cur_multipromisc = !!(vsi->current_netdev_flags & IFF_ALLMULTI);
+-		ret = i40e_aq_set_vsi_multicast_promiscuous(&vsi->back->hw,
+-							    vsi->seid,
+-							    cur_multipromisc,
+-							    NULL);
+-		if (ret)
++		aq_ret = i40e_aq_set_vsi_multicast_promiscuous(&vsi->back->hw,
++							       vsi->seid,
++							       cur_multipromisc,
++							       NULL);
++		if (aq_ret) {
++			retval = i40e_aq_rc_to_posix(aq_ret,
++						     pf->hw.aq.asq_last_status);
+ 			dev_info(&pf->pdev->dev,
+ 				 "set multi promisc failed, err %s aq_err %s\n",
+-				 i40e_stat_str(&pf->hw, ret),
++				 i40e_stat_str(&pf->hw, aq_ret),
+ 				 i40e_aq_str(&pf->hw,
+ 					     pf->hw.aq.asq_last_status));
++		}
+ 	}
+ 	if ((changed_flags & IFF_PROMISC) || promisc_forced_on) {
+ 		bool cur_promisc;
+@@ -2161,36 +2173,47 @@ int i40e_sync_vsi_filters(struct i40e_vsi *vsi)
+ 				set_bit(__I40E_PF_RESET_REQUESTED, &pf->state);
+ 			}
+ 		} else {
+-			ret = i40e_aq_set_vsi_unicast_promiscuous(
++			aq_ret = i40e_aq_set_vsi_unicast_promiscuous(
+ 							  &vsi->back->hw,
+ 							  vsi->seid,
+ 							  cur_promisc, NULL);
+-			if (ret)
++			if (aq_ret) {
++				retval =
++				i40e_aq_rc_to_posix(aq_ret,
++						    pf->hw.aq.asq_last_status);
+ 				dev_info(&pf->pdev->dev,
+ 					 "set unicast promisc failed, err %d, aq_err %d\n",
+-					 ret, pf->hw.aq.asq_last_status);
+-			ret = i40e_aq_set_vsi_multicast_promiscuous(
++					 aq_ret, pf->hw.aq.asq_last_status);
++			}
++			aq_ret = i40e_aq_set_vsi_multicast_promiscuous(
+ 							  &vsi->back->hw,
+ 							  vsi->seid,
+ 							  cur_promisc, NULL);
+-			if (ret)
++			if (aq_ret) {
++				retval =
++				i40e_aq_rc_to_posix(aq_ret,
++						    pf->hw.aq.asq_last_status);
+ 				dev_info(&pf->pdev->dev,
+ 					 "set multicast promisc failed, err %d, aq_err %d\n",
+-					 ret, pf->hw.aq.asq_last_status);
++					 aq_ret, pf->hw.aq.asq_last_status);
++			}
+ 		}
+-		ret = i40e_aq_set_vsi_broadcast(&vsi->back->hw,
+-						vsi->seid,
+-						cur_promisc, NULL);
+-		if (ret)
++		aq_ret = i40e_aq_set_vsi_broadcast(&vsi->back->hw,
++						   vsi->seid,
++						   cur_promisc, NULL);
++		if (aq_ret) {
++			retval = i40e_aq_rc_to_posix(aq_ret,
++						     pf->hw.aq.asq_last_status);
+ 			dev_info(&pf->pdev->dev,
+ 				 "set brdcast promisc failed, err %s, aq_err %s\n",
+-				 i40e_stat_str(&pf->hw, ret),
++				 i40e_stat_str(&pf->hw, aq_ret),
+ 				 i40e_aq_str(&pf->hw,
+ 					     pf->hw.aq.asq_last_status));
++		}
+ 	}
+-
++out:
+ 	clear_bit(__I40E_CONFIG_BUSY, &vsi->state);
+-	return 0;
++	return retval;
+ }
+ 
+ /**
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c b/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
+index e55624b..8ee65a6 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
+@@ -1636,9 +1636,10 @@ static int i40e_vc_add_mac_addr_msg(struct i40e_vf *vf, u8 *msg, u16 msglen)
+ 	spin_unlock_bh(&vsi->mac_filter_list_lock);
+ 
+ 	/* program the updated filter list */
+-	if (i40e_sync_vsi_filters(vsi))
+-		dev_err(&pf->pdev->dev, "Unable to program VF %d MAC filters\n",
+-			vf->vf_id);
++	ret = i40e_sync_vsi_filters(vsi);
++	if (ret)
++		dev_err(&pf->pdev->dev, "Unable to program VF %d MAC filters, error %d\n",
++			vf->vf_id, ret);
+ 
+ error_param:
+ 	/* send the response to the VF */
+@@ -1694,9 +1695,10 @@ static int i40e_vc_del_mac_addr_msg(struct i40e_vf *vf, u8 *msg, u16 msglen)
+ 	spin_unlock_bh(&vsi->mac_filter_list_lock);
+ 
+ 	/* program the updated filter list */
+-	if (i40e_sync_vsi_filters(vsi))
+-		dev_err(&pf->pdev->dev, "Unable to program VF %d MAC filters\n",
+-			vf->vf_id);
++	ret = i40e_sync_vsi_filters(vsi);
++	if (ret)
++		dev_err(&pf->pdev->dev, "Unable to program VF %d MAC filters, error %d\n",
++			vf->vf_id, ret);
+ 
+ error_param:
+ 	/* send the response to the VF */
+-- 
+1.9.1
+

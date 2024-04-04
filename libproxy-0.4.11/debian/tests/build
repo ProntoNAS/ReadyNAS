@@ -1,0 +1,24 @@
+#!/bin/sh
+# autopkgtest check: Builds a small application against libproxy, checking
+# if it compiles, links and runs successfully.
+# Author: Rafał Cieślak <rafalcieslak256@ubuntu.com> 
+
+set -e
+
+WORKDIR=$(mktemp -d)
+trap "rm -rf $WORKDIR" 0 INT QUIT ABRT PIPE TERM
+cd $WORKDIR
+cat <<EOF > build_test.c
+#include <proxy.h>
+int main(int argc, char** argv) {
+  pxProxyFactory *pf = px_proxy_factory_new();
+  if (!pf) return 1;
+  return 0;
+}
+EOF
+
+gcc -o build_test build_test.c -lproxy
+echo "build: OK"
+[ -x build_test ]
+./build_test
+echo "run: OK"

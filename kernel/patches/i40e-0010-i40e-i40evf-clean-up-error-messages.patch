@@ -1,0 +1,129 @@
+From 05181aa5389371fdf611d9f0d40f4ffeb274d6d4 Mon Sep 17 00:00:00 2001
+From: Mitch Williams <mitch.a.williams@intel.com>
+Date: Wed, 21 Oct 2015 19:47:11 -0400
+Subject: [PATCH 010/224] i40e/i40evf: clean up error messages
+
+Clean up and enhance error messages related to VF MAC/VLAN filters.
+Indicate which VF is having issues, and if possible indicate the MAC
+address or VLAN involved.
+
+Also, when an error is returned from the PF driver, print useful
+information about what went wrong, for the most likely cases.
+
+Change-ID: Ib3d15eef9e3369a78fd142948671e5fa26d921b8
+Signed-off-by: Mitch Williams <mitch.a.williams@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c | 21 +++++++++--------
+ .../net/ethernet/intel/i40evf/i40evf_virtchnl.c    | 26 +++++++++++++++++++---
+ 2 files changed, 35 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c b/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
+index e116d9a..1922b38 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
+@@ -1626,7 +1626,8 @@ static int i40e_vc_add_mac_addr_msg(struct i40e_vf *vf, u8 *msg, u16 msglen)
+ 
+ 		if (!f) {
+ 			dev_err(&pf->pdev->dev,
+-				"Unable to add VF MAC filter\n");
++				"Unable to add MAC filter %pM for VF %d\n",
++				 al->list[i].addr, vf->vf_id);
+ 			ret = I40E_ERR_PARAM;
+ 			spin_unlock_bh(&vsi->mac_filter_list_lock);
+ 			goto error_param;
+@@ -1636,7 +1637,8 @@ static int i40e_vc_add_mac_addr_msg(struct i40e_vf *vf, u8 *msg, u16 msglen)
+ 
+ 	/* program the updated filter list */
+ 	if (i40e_sync_vsi_filters(vsi, false))
+-		dev_err(&pf->pdev->dev, "Unable to program VF MAC filters\n");
++		dev_err(&pf->pdev->dev, "Unable to program VF %d MAC filters\n",
++			vf->vf_id);
+ 
+ error_param:
+ 	/* send the response to the VF */
+@@ -1672,8 +1674,8 @@ static int i40e_vc_del_mac_addr_msg(struct i40e_vf *vf, u8 *msg, u16 msglen)
+ 	for (i = 0; i < al->num_elements; i++) {
+ 		if (is_broadcast_ether_addr(al->list[i].addr) ||
+ 		    is_zero_ether_addr(al->list[i].addr)) {
+-			dev_err(&pf->pdev->dev, "invalid VF MAC addr %pM\n",
+-				al->list[i].addr);
++			dev_err(&pf->pdev->dev, "Invalid MAC addr %pM for VF %d\n",
++				al->list[i].addr, vf->vf_id);
+ 			ret = I40E_ERR_INVALID_MAC_ADDR;
+ 			goto error_param;
+ 		}
+@@ -1693,7 +1695,8 @@ static int i40e_vc_del_mac_addr_msg(struct i40e_vf *vf, u8 *msg, u16 msglen)
+ 
+ 	/* program the updated filter list */
+ 	if (i40e_sync_vsi_filters(vsi, false))
+-		dev_err(&pf->pdev->dev, "Unable to program VF MAC filters\n");
++		dev_err(&pf->pdev->dev, "Unable to program VF %d MAC filters\n",
++			vf->vf_id);
+ 
+ error_param:
+ 	/* send the response to the VF */
+@@ -1747,8 +1750,8 @@ static int i40e_vc_add_vlan_msg(struct i40e_vf *vf, u8 *msg, u16 msglen)
+ 
+ 		if (ret)
+ 			dev_err(&pf->pdev->dev,
+-				"Unable to add VF vlan filter %d, error %d\n",
+-				vfl->vlan_id[i], ret);
++				"Unable to add VLAN filter %d for VF %d, error %d\n",
++				vfl->vlan_id[i], vf->vf_id, ret);
+ 	}
+ 
+ error_param:
+@@ -1799,8 +1802,8 @@ static int i40e_vc_remove_vlan_msg(struct i40e_vf *vf, u8 *msg, u16 msglen)
+ 
+ 		if (ret)
+ 			dev_err(&pf->pdev->dev,
+-				"Unable to delete VF vlan filter %d, error %d\n",
+-				vfl->vlan_id[i], ret);
++				"Unable to delete VLAN filter %d for VF %d, error %d\n",
++				vfl->vlan_id[i], vf->vf_id, ret);
+ 	}
+ 
+ error_param:
+diff --git a/drivers/net/ethernet/intel/i40evf/i40evf_virtchnl.c b/drivers/net/ethernet/intel/i40evf/i40evf_virtchnl.c
+index 5de3f52..46b0516 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40evf_virtchnl.c
++++ b/drivers/net/ethernet/intel/i40evf/i40evf_virtchnl.c
+@@ -740,9 +740,29 @@ void i40evf_virtchnl_completion(struct i40evf_adapter *adapter,
+ 		return;
+ 	}
+ 	if (v_retval) {
+-		dev_err(&adapter->pdev->dev, "PF returned error %d (%s) to our request %d\n",
+-			v_retval, i40evf_stat_str(&adapter->hw, v_retval),
+-			v_opcode);
++		switch (v_opcode) {
++		case I40E_VIRTCHNL_OP_ADD_VLAN:
++			dev_err(&adapter->pdev->dev, "Failed to add VLAN filter, error %s\n",
++				i40evf_stat_str(&adapter->hw, v_retval));
++			break;
++		case I40E_VIRTCHNL_OP_ADD_ETHER_ADDRESS:
++			dev_err(&adapter->pdev->dev, "Failed to add MAC filter, error %s\n",
++				i40evf_stat_str(&adapter->hw, v_retval));
++			break;
++		case I40E_VIRTCHNL_OP_DEL_VLAN:
++			dev_err(&adapter->pdev->dev, "Failed to delete VLAN filter, error %s\n",
++				i40evf_stat_str(&adapter->hw, v_retval));
++			break;
++		case I40E_VIRTCHNL_OP_DEL_ETHER_ADDRESS:
++			dev_err(&adapter->pdev->dev, "Failed to delete MAC filter, error %s\n",
++				i40evf_stat_str(&adapter->hw, v_retval));
++			break;
++		default:
++			dev_err(&adapter->pdev->dev, "PF returned error %d (%s) to our request %d\n",
++				v_retval,
++				i40evf_stat_str(&adapter->hw, v_retval),
++				v_opcode);
++		}
+ 	}
+ 	switch (v_opcode) {
+ 	case I40E_VIRTCHNL_OP_GET_STATS: {
+-- 
+1.9.1
+

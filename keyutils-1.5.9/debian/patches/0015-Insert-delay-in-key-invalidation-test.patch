@@ -1,0 +1,40 @@
+From 7a99ec2be6642ce8d669dbb31e363c6702afc3ca Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Thu, 6 Mar 2014 17:35:50 +0000
+Subject: [PATCH] TEST: Insert a delay in the key invalidation test to allow
+ for gc delays
+
+The key invalidation test may fail because the check for a key having been
+invalidated may occur too quickly after the call to invalidate the key.
+
+The problem is that whilst the key is marked invalidated immediately, the
+subsequent process of garbage collecting the invalidated key isn't synchronous
+and may be delayed as the keyrings gc is merely scheduled to be run at some
+later time.
+
+Stick a small delay in there to give the gc a chance to run.
+
+Bug-Redhat: illa-entry: https://bugzilla.redhat.com/show_bug.cgi?id=1072798
+Origin: upstream, commit:2c8f6c0b35aece330356717907a26bd45fb2e354
+Last-Update: 2015-05-29
+---
+ tests/keyctl/invalidate/valid/runtest.sh | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/tests/keyctl/invalidate/valid/runtest.sh b/tests/keyctl/invalidate/valid/runtest.sh
+index 58d79cd..af19dbc 100644
+--- a/tests/keyctl/invalidate/valid/runtest.sh
++++ b/tests/keyctl/invalidate/valid/runtest.sh
+@@ -42,6 +42,9 @@ expect_keyring_rlist rlist $keyid
+ marker "INVALIDATE KEY"
+ invalidate_key $keyid
+ 
++# need to wait for the gc
++sleep 1
++
+ # check that it's now empty again
+ marker "LIST KEYRING 3"
+ list_keyring $keyringid
+-- 
+2.0.0.rc4
+

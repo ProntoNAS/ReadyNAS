@@ -1,0 +1,32 @@
+From f83808c3ff356992386495f387e1091452d0fffb Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Mon, 7 Mar 2016 18:23:54 -0800
+Subject: [PATCH 11/12] Revert "libata: disable forced PORTS_IMPL for >= AHCI
+ 1.3"
+
+Annapurna's built-in SATA controller is AHCI 1.3, but depends on this
+hack being in place.
+
+This reverts commit c77c01982668678a5fafe3036be4e757b7eddbaf.
+---
+ drivers/ata/libahci.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/ata/libahci.c b/drivers/ata/libahci.c
+index 620540b..135b683 100644
+--- a/drivers/ata/libahci.c
++++ b/drivers/ata/libahci.c
+@@ -500,8 +500,8 @@ void ahci_save_initial_config(struct device *dev, struct ahci_host_priv *hpriv)
+ 		}
+ 	}
+ 
+-	/* fabricate port_map from cap.nr_ports for < AHCI 1.3 */
+-	if (!port_map && vers < 0x10300) {
++	/* fabricate port_map from cap.nr_ports */
++	if (!port_map) {
+ 		port_map = (1 << ahci_nr_ports(cap)) - 1;
+ 		dev_warn(dev, "forcing PORTS_IMPL to 0x%x\n", port_map);
+ 
+-- 
+1.9.1
+

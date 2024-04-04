@@ -1,0 +1,333 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html><head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<link href="sqlite.css" rel="stylesheet">
+<title>Architecture of SQLite</title>
+<!-- path= -->
+</head>
+<body>
+<div class=nosearch>
+<a href="index.html">
+<img class="logo" src="images/sqlite370_banner.gif" alt="SQLite" border="0">
+</a>
+<div><!-- IE hack to prevent disappearing logo --></div>
+<div class="tagline desktoponly">
+Small. Fast. Reliable.<br>Choose any three.
+</div>
+<div class="menu mainmenu">
+<ul>
+<li><a href="index.html">Home</a>
+<li class='mobileonly'><a href="javascript:void(0)" onclick='toggle_div("submenu")'>Menu</a>
+<li class='wideonly'><a href='about.html'>About</a>
+<li class='desktoponly'><a href="docs.html">Documentation</a>
+<li class='desktoponly'><a href="download.html">Download</a>
+<li class='wideonly'><a href='copyright.html'>License</a>
+<li class='desktoponly'><a href="support.html">Support</a>
+<li class='desktoponly'><a href="prosupport.html">Purchase</a>
+<li class='search' id='search_menubutton'>
+<a href="javascript:void(0)" onclick='toggle_search()'>Search</a>
+</ul>
+</div>
+<div class="menu submenu" id="submenu">
+<ul>
+<li><a href='about.html'>About</a>
+<li><a href='docs.html'>Documentation</a>
+<li><a href='download.html'>Download</a>
+<li><a href='support.html'>Support</a>
+<li><a href='prosupport.html'>Purchase</a>
+</ul>
+</div>
+<div class="searchmenu" id="searchmenu">
+<form method="GET" action="search">
+<select name="s" id="searchtype">
+<option value="d">Search Documentation</option>
+<option value="c">Search Changelog</option>
+</select>
+<input type="text" name="q" id="searchbox" value="">
+<input type="submit" value="Go">
+</form>
+</div>
+</div>
+<script>
+function toggle_div(nm) {
+var w = document.getElementById(nm);
+if( w.style.display=="block" ){
+w.style.display = "none";
+}else{
+w.style.display = "block";
+}
+}
+function toggle_search() {
+var w = document.getElementById("searchmenu");
+if( w.style.display=="block" ){
+w.style.display = "none";
+} else {
+w.style.display = "block";
+setTimeout(function(){
+document.getElementById("searchbox").focus()
+}, 30);
+}
+}
+function div_off(nm){document.getElementById(nm).style.display="none";}
+window.onbeforeunload = function(e){div_off("submenu");}
+/* Disable the Search feature if we are not operating from CGI, since */
+/* Search is accomplished using CGI and will not work without it. */
+if( !location.origin.match || !location.origin.match(/http/) ){
+document.getElementById("search_menubutton").style.display = "none";
+}
+/* Used by the Hide/Show button beside syntax diagrams, to toggle the */
+function hideorshow(btn,obj){
+var x = document.getElementById(obj);
+var b = document.getElementById(btn);
+if( x.style.display!='none' ){
+x.style.display = 'none';
+b.innerHTML='show';
+}else{
+x.style.display = '';
+b.innerHTML='hide';
+}
+return false;
+}
+</script>
+</div>
+<div class=fancy>
+<div class=nosearch>
+<div class="fancy_title">
+Architecture of SQLite
+</div>
+</div>
+
+
+
+
+<h1>Introduction</h1>
+
+
+<p>This document describes the architecture of the SQLite library.
+The information here is useful to those who want to understand or
+modify the inner workings of SQLite.
+</p>
+
+<div class="rightsidebar border2px imgcontainer">
+<img src="images/arch2.gif"></img>
+</div>
+
+<p>
+A nearby diagram shows the main components of SQLite
+and how they interoperate.  The text below
+explains the roles of the various components.
+</p>
+
+<h1>Overview</h1>
+
+<p>SQLite works by compiling SQL text into <a href="opcode.html">bytecode</a>, then running
+that bytecode using a virtual machine.
+
+<p>The <a href="c3ref/prepare.html">sqlite3_prepare_v2()</a> and related interfaces act as a compiler
+for converting SQL text into bytecode.  The <a href="c3ref/stmt.html">sqlite3_stmt</a> object is
+a container for a single bytecode program using to implement a single
+SQL statement.  The <a href="c3ref/step.html">sqlite3_step()</a> interface passes a bytecode program
+into the virtual machine, and runs the program until it either completes,
+or forms a row of result to be returned, or hits a fatal error, or is
+<a href="c3ref/interrupt.html">interrupted</a>.
+
+<h1>Interface</h1>
+
+<p>Much of the <a href="c3ref/intro.html">C-language Interface</a> is found in source
+files <b>main.c</b>, <b>legacy.c</b>, and
+<b>vdbeapi.c</b>
+though some routines are
+scattered about in other files where they can have access to data 
+structures with file scope.  
+The <a href="c3ref/free_table.html">sqlite3_get_table()</a> routine is implemented in <b>table.c</b>.
+The <a href="c3ref/mprintf.html">sqlite3_mprintf()</a> routine is found in <b>printf.c</b>.
+The <a href="c3ref/complete.html">sqlite3_complete()</a> interface is in <b>tokenize.c</b>.
+The <a href="tclsqlite.html">TCL Interface</a> is implemented by <b>tclsqlite.c</b>.
+
+<p>To avoid name collisions, all external
+symbols in the SQLite library begin with the prefix <b>sqlite3</b>.
+Those symbols that are intended for external use (in other words,
+those symbols which form the API for SQLite) add an underscore, and
+thus begin with <b>sqlite3_</b>.  Extension APIs sometimes add the
+extension name prior to the underscore; for example:
+<b>sqlite3rbu_</b> or <b>sqlite3session_</b>.</p>
+
+<h1>Tokenizer</h1>
+
+<p>When a string containing SQL statements is to be evaluated it is
+first sent to the tokenizer.
+The tokenizer breaks
+the SQL text into tokens and hands those tokens
+one by one to the parser.  The tokenizer is hand-coded in 
+the file <b>tokenize.c</b>.
+
+<p>Note that in this design, the tokenizer calls the parser.  People
+who are familiar with YACC and BISON may be accustomed to doing things the
+other way around &mdash; having the parser call the tokenizer.  Having
+the tokenizer call the parser is better, though, because it can be made
+threadsafe and it runs faster.</p>
+
+<h1>Parser</h1>
+
+<p>The parser assigns meaning to tokens based on
+their context.  The parser for SQLite is generated using the
+<a href="https://www.sqlite.org/src/doc/trunk/doc/lemon.html">Lemon</a>
+LALR(1) parser generator.
+Lemon does the same job as YACC/BISON, but it uses
+a different input syntax which is less error-prone.
+Lemon also generates a parser which is reentrant and thread-safe.
+And Lemon defines the concept of a non-terminal destructor so
+that it does not leak memory when syntax errors are encountered.
+The grammar file that drives Lemon and that defines the SQL language
+that SQLite understands is found in <b>parse.y</b>.
+
+<p>Because
+Lemon is a program not normally found on development machines, the
+complete source code to Lemon (just one C file) is included in the
+SQLite distribution in the "tool" subdirectory.
+</p>
+
+<h1>Code Generator</h1>
+
+<p>After the parser assembles tokens into a parse tree,
+the code generator runs to analyze the parser tree and generate
+<a href="opcode.html">bytecode</a> that performs the work of the SQL statement.
+The <a href="c3ref/stmt.html">prepared statement</a> object is a container for this bytecode.
+There are many files in the code generator, including:
+<b>attach.c</b>,
+<b>auth.c</b>,
+<b>build.c</b>,
+<b>delete.c</b>,
+<b>expr.c</b>,
+<b>insert.c</b>,
+<b>pragma.c</b>,
+<b>select.c</b>,
+<b>trigger.c</b>,
+<b>update.c</b>,
+<b>vacuum.c</b>,
+<b>where.c</b>,
+<b>wherecode.c</b>, and
+<b>whereexpr.c</b>.
+In these files is where most of the serious magic happens.
+<b>expr.c</b> handles code generation for expressions.
+<b>where*.c</b> handles code generation for WHERE clauses on
+SELECT, UPDATE and DELETE statements.  The files <b>attach.c</b>,
+<b>delete.c</b>, <b>insert.c</b>, <b>select.c</b>, 
+<b>trigger.c</b>
+<b>update.c</b>, and <b>vacuum.c</b> handle the code generation
+for SQL statements with the same names.  (Each of these files calls routines
+in <b>expr.c</b> and <b>where.c</b> as necessary.)  All other
+SQL statements are coded out of <b>build.c</b>.
+The <b>auth.c</b> file implements the functionality of
+<a href="c3ref/set_authorizer.html">sqlite3_set_authorizer()</a>.</p>
+
+<p>The code generator, and especially the logic in <b>where*.c</b>
+and in <b>select.c</b>, is sometimes called the
+<a href="optoverview.html">query planner</a>.  For any particular SQL statement, there might be
+hundreds, thousands, or millions of different algorithms to compute
+the answer.  The query planner is an AI that strives to select the
+best algorithm from these millions of choices.
+
+<h1>Bytecode Engine</h1>
+
+<p>The <a href="opcode.html">bytecode</a> program created by the code generator is run by
+a virtual machine.
+
+<p>The virtual machine itself is entirely contained in a single
+source file <b>vdbe.c</b>.  The
+<b>vdbe.h</b> header file defines an interface
+between the virtual machine and the rest of the SQLite library and
+<b>vdbeInt.h</b> which defines structures and interfaces that
+are private the virtual machine itself.
+Various other <b>vdbe*.c</b> files are helpers to the virtual machine.
+The <b>vdbeaux.c</b> file contains utilities used by the virtual
+machine and interface modules used by the rest of the library to
+construct VM programs.  The <b>vdbeapi.c</b> file contains external
+interfaces to the virtual machine such as the 
+<a href="c3ref/bind_blob.html">sqlite3_bind_int()</a> and <a href="c3ref/step.html">sqlite3_step()</a>.  Individual values
+(strings, integer, floating point numbers, and BLOBs) are stored
+in an internal object named "Mem" which is implemented by
+<b>vdbemem.c</b>.</p>
+
+<p>
+SQLite implements SQL functions using callbacks to C-language routines.
+Even the built-in SQL functions are implemented this way.  Most of
+the built-in SQL functions (ex: <a href="lang_corefunc.html#abs">abs()</a>, <a href="lang_aggfunc.html#count">count()</a>,
+<a href="lang_corefunc.html#substr">substr()</a>, and so forth) can be found in <b>func.c</b> source
+file.
+Date and time conversion functions are found in <b>date.c</b>.
+Some functions such as <a href="lang_corefunc.html#coalesce">coalesce()</a> and <a href="lang_corefunc.html#typeof">typeof()</a> are implemented
+as bytecode directly by the code generator.
+</p>
+
+<h1>B-Tree</h1>
+
+<p>An SQLite database is maintained on disk using a B-tree implementation
+found in the <b>btree.c</b> source file.  A separate B-tree is used for
+each table and index in the database.  All B-trees are stored in the
+same disk file.  The <a href="fileformat2.html">file format</a> details are stable and well-defined and
+are guaranteed to be compatible moving forward.</p>
+
+<p>The interface to the B-tree subsystem and the rest of the SQLite library
+is defined by the header file <b>btree.h</b>.
+</p>
+
+<h1>Page Cache</h1>
+
+<p>The B-tree module requests information from the disk in fixed-size
+pages.  The default <a href="pragma.html#pragma_page_size">page_size</a> is 4096 bytes but can be any power of
+two between 512 and 65536 bytes.
+The page cache is responsible for reading, writing, and
+caching these pages.
+The page cache also provides the rollback and atomic commit abstraction
+and takes care of locking of the database file.  The
+B-tree driver requests particular pages from the page cache and notifies
+the page cache when it wants to modify pages or commit or rollback
+changes. The page cache handles all the messy details of making sure
+the requests are handled quickly, safely, and efficiently.</p>
+
+<p>The primary page cache implementation is in the
+<b>pager.c</b> file.  <a href="wal.html">WAL mode</a> logic is in the separate
+<b>wal.c</b>.  In-memory caching is implemented by the
+<b>pcache.c</b> and <b>pcache1.c</b> files.
+The interface between page cache subsystem
+and the rest of SQLite is defined by the header file <b>pager.h</b>.
+</p>
+
+<h1>OS Interface</h1>
+
+<p>
+In order to provide portability between across operating systems,
+SQLite uses abstract object called the <a href="vfs.html">VFS</a>.  Each VFS provides methods
+for opening, read, writing, and closing files on disk, and for other
+OS-specific task such as finding the current time, or obtaining randomness
+to initialize the built-in pseudo-random number generator.
+SQLite currently provides VFSes for unix (in the <b>os_unix.c</b>
+file) and Windows (in the <b>os_win.c</b> file).
+</p>
+
+<h1>Utilities</h1>
+
+<p>
+Memory allocation, caseless string comparison routines, 
+portable text-to-number conversion routines, and other utilities
+are located in <b>util.c</b>.
+Symbol tables used by the parser are maintained by hash tables found
+in <b>hash.c</b>.  The <b>utf.c</b> source file contains Unicode
+conversion subroutines.
+SQLite has its own private implementation of 
+<a href="c3ref/mprintf.html">printf()</a> (with
+some extensions) in <b>printf.c</b> and its own
+pseudo-random number generator (PRNG) in <b>random.c</b>.
+</p>
+
+<h1>Test Code</h1>
+
+<p>
+Files in the "src/" folder of the source tree whose names begin with
+<b>test</b> are for testing only and are not included in a standard
+build of the library.
+</p>
+
+

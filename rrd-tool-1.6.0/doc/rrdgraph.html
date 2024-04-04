@@ -1,0 +1,446 @@
+<?xml version="1.0" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>rrdgraph</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link rev="made" href="mailto:root@localhost" />
+</head>
+
+<body style="background-color: white">
+
+
+
+<h1 id="NAME">NAME</h1>
+
+<p>rrdgraph - Round Robin Database tool graphing functions</p>
+
+<h1 id="SYNOPSIS">SYNOPSIS</h1>
+
+<p><b>rrdtool graph|graphv</b> <i>filename</i> [<i><a href="./rrdgraph.html#OPTIONS">option</a></i> ...] [<i><a href="./rrdgraph_data.html#DEF">data definition</a></i> ...] [<i><a href="./rrdgraph_data.html#CDEF">data calculation</a></i> ...] [<i><a href="./rrdgraph_data.html#VDEF">variable definition</a></i> ...] [<i><a href="./rrdgraph_graph.html#GRAPH">graph element</a></i> ...] [<i><a href="./rrdgraph_graph.html#PRINT">print element</a></i> ...]</p>
+
+<h1 id="DESCRIPTION">DESCRIPTION</h1>
+
+<p>The <b>graph</b> function of <b>RRDtool</b> is used to present the data from an <b>RRD</b> to a human viewer. Its main purpose is to create a nice graphical representation, but it can also generate a numerical report.</p>
+
+<h1 id="OVERVIEW">OVERVIEW</h1>
+
+<p><b>rrdtool graph</b> needs data to work with, so you must use one or more <b><a href="./rrdgraph_data.html#DEF">data definition</a></b> statements to collect this data. You are not limited to one database, it&#39;s perfectly legal to collect data from two or more databases (one per statement, though).</p>
+
+<p>If you want to display averages, maxima, percentiles, etcetera it is best to collect them now using the <b><a href="./rrdgraph_data.html#VDEF">variable definition</a></b> statement. Currently this makes no difference, but in a future version of RRDtool you may want to collect these values before consolidation.</p>
+
+<p>The data fetched from the <b>RRA</b> is then <b>consolidated</b> so that there is exactly one data point per pixel in the graph. If you do not take care yourself, <b>RRDtool</b> will expand the range slightly if necessary. Note, in that case the first and/or last pixel may very well become unknown!</p>
+
+<p>Sometimes data is not exactly in the format you would like to display it. For instance, you might be collecting <b>bytes</b> per second, but want to display <b>bits</b> per second. This is what the <b><a href="./rrdgraph_data.html#CDEF">data calculation</a></b> command is designed for. After <b>consolidating</b> the data, a copy is made and this copy is modified using a rather powerful <b><a href="./rrdgraph_rpn.html">RPN</a></b> command set.</p>
+
+<p>When you are done fetching and processing the data, it is time to graph it (or print it). This ends the <b>rrdtool graph</b> sequence.</p>
+
+<p>Use <b>graphv</b> instead of <b>graph</b> to get detailed information about the graph geometry and data once it is drawn. See the bottom of the document for more information.</p>
+
+<h1 id="OPTIONS">OPTIONS</h1>
+
+<h2 id="filename"><i>filename</i></h2>
+
+<p>The name and path of the graph to generate. It is recommended to end this in <code>.png</code>, <code>.svg</code> or <code>.eps</code>, but <b>RRDtool</b> does not enforce this.</p>
+
+<p><i>filename</i> can be &#39;<code>-</code>&#39; to send the image to <code>stdout</code>. In this case, no other output is generated.</p>
+
+<h2 id="Time-range">Time range</h2>
+
+<p>[<b>-s</b>|<b>--start</b> <i>time</i>] [<b>-e</b>|<b>--end</b> <i>time</i>] [<b>-S</b>|<b>--step</b> <i>seconds</i>]</p>
+
+<p>The start and end of the time series you would like to display, and which <b>RRA</b> the data should come from. Defaults are: 1 day ago until now, with the best possible resolution. <b>Start</b> and <b>end</b> can be specified in several formats, see <a href="./rrdfetch.html">AT-STYLE TIME SPECIFICATION</a> and <a href="./rrdgraph_examples.html">rrdgraph_examples</a>. By default, <b>rrdtool graph</b> calculates the width of one pixel in the time domain and tries to get data from an <b>RRA</b> with that resolution. With the <b>step</b> option you can alter this behavior. If you want <b>rrdtool graph</b> to get data at a one-hour resolution from the <b>RRD</b>, set <b>step</b> to 3&#39;600. Note: a step smaller than one pixel will silently be ignored.</p>
+
+<h2 id="Labels">Labels</h2>
+
+<p>[<b>-t</b>|<b>--title</b> <i>string</i>] [<b>-v</b>|<b>--vertical-label</b> <i>string</i>]</p>
+
+<p>A horizontal string at the top of the graph and/or a vertically placed string at the left hand side of the graph.</p>
+
+<h2 id="Size">Size</h2>
+
+<p>[<b>-w</b>|<b>--width</b> <i>pixels</i>] [<b>-h</b>|<b>--height</b> <i>pixels</i>] [<b>-j</b>|<b>--only-graph</b>] [<b>-D</b>|<b>--full-size-mode</b>]</p>
+
+<p>By default, the width and height of the <b>canvas</b> (the part with the actual data and such). This defaults to 400 pixels by 100 pixels.</p>
+
+<p>If you specify the <b>--full-size-mode</b> option, the width and height specify the final dimensions of the output image and the canvas is automatically resized to fit.</p>
+
+<p>If you specify the <b>--only-graph</b> option and set the height &lt; 32 pixels you will get a tiny graph image (thumbnail) to use as an icon for use in an overview, for example. All labeling will be stripped off the graph.</p>
+
+<h2 id="Limits">Limits</h2>
+
+<p>[<b>-u</b>|<b>--upper-limit</b> <i>value</i>] [<b>-l</b>|<b>--lower-limit</b> <i>value</i>] [<b>-r</b>|<b>--rigid</b>]</p>
+
+<p>By default the graph will be autoscaling so that it will adjust the y-axis to the range of the data. You can change this behavior by explicitly setting the limits. The displayed y-axis will then range at least from <b>lower-limit</b> to <b>upper-limit</b>. Autoscaling will still permit those boundaries to be stretched unless the <b>rigid</b> option is set.</p>
+
+<p>[<b>-A</b>|<b>--alt-autoscale</b>]</p>
+
+<p>Sometimes the default algorithm for selecting the y-axis scale is not satisfactory. Normally the scale is selected from a predefined set of ranges and this fails miserably when you need to graph something like <code>260 + 0.001 * sin(x)</code>. This option calculates the minimum and maximum y-axis from the actual minimum and maximum data values. Our example would display slightly less than <code>260-0.001</code> to slightly more than <code>260+0.001</code> (this feature was contributed by Sasha Mikheev).</p>
+
+<p>[<b>-J</b>|<b>--alt-autoscale-min</b>]</p>
+
+<p>Where <code>--alt-autoscale</code> will modify both the absolute maximum AND minimum values, this option will only affect the minimum value. The maximum value, if not defined on the command line, will be 0. This option can be useful when graphing router traffic when the WAN line uses compression, and thus the throughput may be higher than the WAN line speed.</p>
+
+<p>[<b>-M</b>|<b>--alt-autoscale-max</b>]</p>
+
+<p>Where <code>--alt-autoscale</code> will modify both the absolute maximum AND minimum values, this option will only affect the maximum value. The minimum value, if not defined on the command line, will be 0. This option can be useful when graphing router traffic when the WAN line uses compression, and thus the throughput may be higher than the WAN line speed.</p>
+
+<p>[<b>-N</b>|<b>--no-gridfit</b>]</p>
+
+<p>In order to avoid anti-aliasing blurring effects RRDtool snaps points to device resolution pixels, this results in a crisper appearance. If this is not to your liking, you can use this switch to turn this behavior off.</p>
+
+<p>Grid-fitting is turned off for PDF, EPS, SVG output by default.</p>
+
+<h2 id="X-Axis">X-Axis</h2>
+
+<p>[<b>-x</b>|<b>--x-grid</b> <i>GTM</i><b>:</b><i>GST</i><b>:</b><i>MTM</i><b>:</b><i>MST</i><b>:</b><i>LTM</i><b>:</b><i>LST</i><b>:</b><i>LPR</i><b>:</b><i>LFM</i>]</p>
+
+<p>[<b>-x</b>|<b>--x-grid</b> <b>none</b>]</p>
+
+<p>The x-axis label is quite complex to configure. If you don&#39;t have very special needs it is probably best to rely on the auto configuration to get this right. You can specify the string <code>none</code> to suppress the grid and labels altogether.</p>
+
+<p>The grid is defined by specifying a certain amount of time in the <i>?TM</i> positions. You can choose from <code>SECOND</code>, <code>MINUTE</code>, <code>HOUR</code>, <code>DAY</code>, <code>WEEK</code>, <code>MONTH</code> or <code>YEAR</code>. Then you define how many of these should pass between each line or label. This pair (<i>?TM:?ST</i>) needs to be specified for the base grid (<i>G??</i>), the major grid (<i>M??</i>) and the labels (<i>L??</i>). For the labels you also must define a precision in <i>LPR</i> and a <i>strftime</i> format string in <i>LFM</i>. <i>LPR</i> defines where each label will be placed. If it is zero, the label will be placed right under the corresponding line (useful for hours, dates etcetera). If you specify a number of seconds here the label is centered on this interval (useful for Monday, January etcetera).</p>
+
+<pre><code> --x-grid MINUTE:10:HOUR:1:HOUR:4:0:%X</code></pre>
+
+<p>This places grid lines every 10 minutes, major grid lines every hour, and labels every 4 hours. The labels are placed under the major grid lines as they specify exactly that time.</p>
+
+<pre><code> --x-grid HOUR:8:DAY:1:DAY:1:86400:%A</code></pre>
+
+<p>This places grid lines every 8 hours, major grid lines and labels each day. The labels are placed exactly between two major grid lines as they specify the complete day and not just midnight.</p>
+
+<p>[<b>--week-fmt</b> <i>strftime format string</i>]</p>
+
+<p>By default rrdtool uses &quot;Week %V&quot; to render the week number. With this option you can define your own format, without completely overriding the xaxis format.</p>
+
+<h2 id="Y-Axis">Y-Axis</h2>
+
+<p>[<b>-y</b>|<b>--y-grid</b> <i>grid step</i><b>:</b><i>label factor</i>]</p>
+
+<p>[<b>-y</b>|<b>--y-grid</b> <b>none</b>]</p>
+
+<p>Y-axis grid lines appear at each <i>grid step</i> interval. Labels are placed every <i>label factor</i> lines. You can specify <code>-y none</code> to suppress the grid and labels altogether. The default for this option is to automatically select sensible values.</p>
+
+<p>If you have set --y-grid to &#39;none&#39; not only the labels get suppressed, also the space reserved for the labels is removed. You can still add space manually if you use the --units-length command to explicitly reserve space.</p>
+
+<p>[<b>--left-axis-formatter</b> <i>formatter-name</i>]</p>
+
+<p>Specify what formatter to use to render axis values.</p>
+
+<dl>
+
+<dt id="numeric"><b>numeric</b></dt>
+<dd>
+
+<p>The default, values are expressed as numeric quantities.</p>
+
+</dd>
+<dt id="timestamp"><b>timestamp</b></dt>
+<dd>
+
+<p>Values are interpreted as unix timestamps (number of seconds since 1970-01-01 00:00:00 UTC) and expressed using strftime format (default is &#39;%Y-%m-%d %H:%M:%S&#39;). See also <b>--units-length</b> and <b>--left-axis-format</b>.</p>
+
+</dd>
+<dt id="duration"><b>duration</b></dt>
+<dd>
+
+<p>Values are interpreted as duration in milliseconds. Formatting follows the rules of valstrfduration qualified PRINT/GPRINT. See <a href="./rrdgraph_graph.html">rrdgraph_graph</a>.</p>
+
+</dd>
+</dl>
+
+<p>[<b>--left-axis-format</b> <i>format-string</i>]</p>
+
+<p>By default the format of the axis labels gets determined automatically. If you want to do this your self, use this option with the same %lf arguments you know from the PRINT and GPRINT commands, or others if using different formatter.</p>
+
+<p>[<b>-Y</b>|<b>--alt-y-grid</b>]</p>
+
+<p>Place the Y grid dynamically based on the graph&#39;s Y range. The algorithm ensures that you always have a grid, that there are enough but not too many grid lines, and that the grid is metric. That is the grid lines are placed every 1, 2, 5 or 10 units. This parameter will also ensure that you get enough decimals displayed even if your graph goes from 69.998 to 70.001. (contributed by Sasha Mikheev).</p>
+
+<p>[<b>-o</b>|<b>--logarithmic</b>]</p>
+
+<p>Logarithmic y-axis scaling.</p>
+
+<p>[<b>-X</b>|<b>--units-exponent</b> <i>value</i>]</p>
+
+<p>This sets the 10**exponent scaling of the y-axis values. Normally, values will be scaled to the appropriate units (k, M, etc.). However, you may wish to display units always in k (Kilo, 10e3) even if the data is in the M (Mega, 10e6) range, for instance. Value should be an integer which is a multiple of 3 between -18 and 18 inclusively. It is the exponent on the units you wish to use. For example, use 3 to display the y-axis values in k (Kilo, 10e3, thousands), use -6 to display the y-axis values in u (Micro, 10e-6, millionths). Use a value of 0 to prevent any scaling of the y-axis values.</p>
+
+<p>This option is very effective at confusing the heck out of the default RRDtool autoscaling function and grid painter. If RRDtool detects that it is not successful in labeling the graph under the given circumstances, it will switch to the more robust <b>--alt-y-grid</b> mode.</p>
+
+<p>[<b>-L</b>|<b>--units-length</b> <i>value</i>]</p>
+
+<p>How many digits should RRDtool assume the y-axis labels to be? You may have to use this option to make enough space once you start fiddling with the y-axis labeling.</p>
+
+<p>[<b>--units=si</b>]</p>
+
+<p>With this option y-axis values on logarithmic graphs will be scaled to the appropriate units (k, M, etc.) instead of using exponential notation. Note that for linear graphs, SI notation is used by default.</p>
+
+<h2 id="Right-Y-Axis">Right Y Axis</h2>
+
+<p>[<b>--right-axis</b> <i>scale</i><b>:</b><i>shift</i>] [<b>--right-axis-label</b> <i>label</i>]</p>
+
+<p>A second axis will be drawn to the right of the graph. It is tied to the left axis via the scale and shift parameters. You can also define a label for the right axis.</p>
+
+<p>[<b>--right-axis-formatter</b> <i>formatter-name</i>]</p>
+
+<p>Specify what formatter to use to render axis values.</p>
+
+<dl>
+
+<dt id="numeric1"><b>numeric</b></dt>
+<dd>
+
+<p>The default, values are expressed as numeric quantities.</p>
+
+</dd>
+<dt id="timestamp1"><b>timestamp</b></dt>
+<dd>
+
+<p>Values are interpreted as unix timestamps (number of seconds since 1970-01-01 00:00:00 UTC) and expressed using strftime format (default is &#39;%Y-%m-%d %H:%M:%S&#39;). See also <b>--units-length</b> and <b>--right-axis-format</b>.</p>
+
+</dd>
+<dt id="duration1"><b>duration</b></dt>
+<dd>
+
+<p>Values are interpreted as duration in milliseconds. Formatting follows the rules of valstrfduration qualified PRINT/GPRINT. See <a href="./rrdgraph_graph.html">rrdgraph_graph</a>.</p>
+
+</dd>
+</dl>
+
+<p>[<b>--right-axis-format</b> <i>format-string</i>]</p>
+
+<p>By default the format of the axis labels gets determined automatically. If you want to do this your self, use this option with the same %lf arguments you know from the PRINT and GPRINT commands, or others if using different formatter.</p>
+
+<h2 id="Legend">Legend</h2>
+
+<p>[<b>-g</b>|<b>--no-legend</b>]</p>
+
+<p>Suppress generation of the legend; only render the graph.</p>
+
+<p>[<b>-F</b>|<b>--force-rules-legend</b>]</p>
+
+<p>Force the generation of HRULE and VRULE legends even if those HRULE or VRULE will not be drawn because out of graph boundaries (mimics behavior of pre 1.0.42 versions).</p>
+
+<p>[<b>--legend-position</b>=(north|south|west|east)]</p>
+
+<p>Place the legend at the given side of the graph. The default is south. In west or east position it is necessary to add line breaks manually.</p>
+
+<p>[<b>--legend-direction</b>=(topdown|bottomup|bottomup2)]</p>
+
+<p>Place the legend items in the given vertical order. The default is topdown. Using bottomup the legend items appear in the same vertical order as a stack of lines or areas. Using bottomup2 will keep leading and trailing COMMENT lines in order, this might be useful for generators that use them for table headers and the like.</p>
+
+<h2 id="Miscellaneous">Miscellaneous</h2>
+
+<p>[<b>-z</b>|<b>--lazy</b>]</p>
+
+<p>Only generate the graph if the current graph is out of date or not existent. Note, that all the calculations will happen regardless so that the output of PRINT and graphv will be complete regardless. Note that the behavior of lazy in this regard has seen several changes over time. The only thing you can really rely on before RRDtool 1.3.7 is that lazy will not generate the graph when it is already there and up to date, and also that it will output the size of the graph.</p>
+
+<p>[<b>-d</b>|<b>--daemon</b> <i>address</i>]</p>
+
+<p>Address of the <a href="./rrdcached.html">rrdcached</a> daemon. If specified, a <code>flush</code> command is sent to the server before reading the RRD files. This allows the graph to contain fresh data even if the daemon is configured to cache values for a long time. For a list of accepted formats, see the <b>-l</b> option in the <a href="./rrdcached.html">rrdcached</a> manual.</p>
+
+<pre><code> rrdtool graph [...] --daemon unix:/var/run/rrdcached.sock [...]</code></pre>
+
+<p>[<b>-f</b>|<b>--imginfo</b> <i>printfstr</i>]</p>
+
+<p>After the image has been created, the graph function uses printf together with this format string to create output similar to the PRINT function, only that the printf function is supplied with the parameters <i>filename</i>, <i>xsize</i> and <i>ysize</i>. In order to generate an <b>IMG</b> tag suitable for including the graph into a web page, the command line would look like this:</p>
+
+<pre><code> --imginfo &#39;&lt;IMG SRC=&quot;/img/%s&quot; WIDTH=&quot;%lu&quot; HEIGHT=&quot;%lu&quot; ALT=&quot;Demo&quot;&gt;&#39;</code></pre>
+
+<p>[<b>-c</b>|<b>--color</b> <i>COLORTAG</i>#<i>rrggbb</i>[<i>aa</i>]]</p>
+
+<p>Override the default colors for the standard elements of the graph. The <i>COLORTAG</i> is one of <code>BACK</code> background, <code>CANVAS</code> for the background of the actual graph, <code>SHADEA</code> for the left and top border, <code>SHADEB</code> for the right and bottom border, <code>GRID</code>, <code>MGRID</code> for the major grid, <code>FONT</code> for the color of the font, <code>AXIS</code> for the axis of the graph, <code>FRAME</code> for the line around the color spots, and finally <code>ARROW</code> for the arrow head pointing up and forward. Each color is composed out of three hexadecimal numbers specifying its rgb color component (00 is off, FF is maximum) of red, green and blue. Optionally you may add another hexadecimal number specifying the transparency (FF is solid). You may set this option several times to alter multiple defaults.</p>
+
+<p>A green arrow is made by: <code>--color ARROW#00FF00</code></p>
+
+<p>[<b>--grid-dash</b> <i>on</i><b>:</b><i>off</i>]</p>
+
+<p>by default the grid is drawn in a 1 on, 1 off pattern. With this option you can set this yourself</p>
+
+<pre><code> --grid-dash 1:3    for a dot grid
+ 
+ --grid-dash 1:0    for uninterrupted grid lines</code></pre>
+
+<p>[<b>--border</b> <i>width</i>]</p>
+
+<p>Width in pixels for the 3d border drawn around the image. Default 2, 0 disables the border. See <code>SHADEA</code> and <code>SHADEB</code> above for setting the border color.</p>
+
+<p>[<b>--dynamic-labels</b>]</p>
+
+<p>Pick the shape of the color marker next to the label according to the element drawn on the graph.</p>
+
+<p>[<b>-m</b>|<b>--zoom</b> <i>factor</i>]</p>
+
+<p>Zoom the graphics by the given amount. The factor must be &gt; 0</p>
+
+<p>[<b>-n</b>|<b>--font</b> <i>FONTTAG</i><b>:</b><i>size</i>[<b>:</b><i>font</i>]]</p>
+
+<p>This lets you customize which font to use for the various text elements on the RRD graphs. <code>DEFAULT</code> sets the default value for all elements, <code>TITLE</code> for the title, <code>AXIS</code> for the axis labels, <code>UNIT</code> for the vertical unit label, <code>LEGEND</code> for the graph legend, <code>WATERMARK</code> for the watermark on the edge of the graph.</p>
+
+<p>Use Times for the title: <code>--font TITLE:13:Times</code></p>
+
+<p>Note that you need to quote the argument to <b>--font</b> if the font-name contains whitespace: --font &quot;TITLE:13:Some Font&quot;</p>
+
+<p>If you do not give a font string you can modify just the size of the default font: <code>--font TITLE:13:</code>.</p>
+
+<p>If you specify the size 0 then you can modify just the font without touching the size. This is especially useful for altering the default font without resetting the default fontsizes: <code>--font DEFAULT:0:Courier</code>.</p>
+
+<p>RRDtool comes with a preset default font. You can set the environment variable <code>RRD_DEFAULT_FONT</code> if you want to change this.</p>
+
+<p>RRDtool uses Pango for its font handling. This means you can to use the full Pango syntax when selecting your font:</p>
+
+<p>The font name has the form &quot;[<i>FAMILY-LIST</i>] [<i>STYLE-OPTIONS</i>] [<i>SIZE</i>]&quot;, where <i>FAMILY-LIST</i> is a comma separated list of families optionally terminated by a comma, <i>STYLE_OPTIONS</i> is a whitespace separated list of words where each WORD describes one of style, variant, weight, stretch, or gravity, and <i>SIZE</i> is a decimal number (size in points) or optionally followed by the unit modifier &quot;px&quot; for absolute size. Any one of the options may be absent.</p>
+
+<p>[<b>-R</b>|<b>--font-render-mode</b> {<b>normal</b>,<b>light</b>,<b>mono</b>}]</p>
+
+<p>There are 3 font render modes:</p>
+
+<p><b>normal</b>: Full Hinting and Anti-aliasing (default)</p>
+
+<p><b>light</b>: Slight Hinting and Anti-aliasing</p>
+
+<p><b>mono</b>: Full Hinting and NO Anti-aliasing</p>
+
+<p>[<b>-B</b>|<b>--font-smoothing-threshold</b> <i>size</i>]</p>
+
+<p>(this gets ignored in 1.3 for now!)</p>
+
+<p>This specifies the largest font size which will be rendered bitmapped, that is, without any font smoothing. By default, no text is rendered bitmapped.</p>
+
+<p>[<b>-P</b>|<b>--pango-markup</b>]</p>
+
+<p>All text in RRDtool is rendered using Pango. With the <b>--pango-markup</b> option, all text will be processed by pango markup. This allows one to embed some simple html like markup tags using</p>
+
+<pre><code> &lt;span key=&quot;value&quot;&gt;text&lt;/span&gt;</code></pre>
+
+<p>Apart from the verbose syntax, there are also the following short tags available.</p>
+
+<pre><code> b     Bold
+ big   Makes font relatively larger, equivalent to &lt;span size=&quot;larger&quot;&gt;
+ i     Italic
+ s     Strikethrough
+ sub   Subscript
+ sup   Superscript
+ small Makes font relatively smaller, equivalent to &lt;span size=&quot;smaller&quot;&gt;
+ tt    Monospace font
+ u     Underline </code></pre>
+
+<p>More details on <a href="http://developer.gnome.org/pango/stable/PangoMarkupFormat.html">http://developer.gnome.org/pango/stable/PangoMarkupFormat.html</a>.</p>
+
+<p>[<b>-G</b>|<b>--graph-render-mode</b> {<b>normal</b>,<b>mono</b>}]</p>
+
+<p>There are 2 render modes:</p>
+
+<p><b>normal</b>: Graphs are fully Anti-aliased (default)</p>
+
+<p><b>mono</b>: No Anti-aliasing</p>
+
+<p>[<b>-E</b>|<b>--slope-mode</b>]</p>
+
+<p>RRDtool graphs are composed of stair case curves by default. This is in line with the way RRDtool calculates its data. Some people favor a more &#39;organic&#39; look for their graphs even though it is not all that true.</p>
+
+<p>[<b>-a</b>|<b>--imgformat</b> <b>PNG</b>|<b>SVG</b>|<b>EPS</b>|<b>PDF</b>|<b>XML</b>|<b>XMLENUM</b>|<b>JSON</b>|<b>JSONTIME</b>|<b>CSV</b>|<b>TSV</b>|<b>SSV</b>]</p>
+
+<p>Image format for the generated graph. For the vector formats you can choose among the standard Postscript fonts Courier-Bold, Courier-BoldOblique, Courier-Oblique, Courier, Helvetica-Bold, Helvetica-BoldOblique, Helvetica-Oblique, Helvetica, Symbol, Times-Bold, Times-BoldItalic, Times-Italic, Times-Roman, and ZapfDingbats.</p>
+
+<p>For Export type you can define XML, XMLENUM (enummerates the value tags &lt;v0&gt;,&lt;v1&gt;,&lt;v2&gt;,...), JSON, JSONTIME (adds a timestamp to each data row), CSV (=comma separated values), TSV (=tab separated values), SSV (=semicolon separated values), (for comma/tab/semicolon separated values the time format by default is in the form of unix time. to change it to something else use: --x-grid MINUTE:10:HOUR:1:HOUR:4:0:&quot;%Y-%m-%d %H:%M:%S&quot;)</p>
+
+<p>[<b>-i</b>|<b>--interlaced</b>]</p>
+
+<p>(this gets ignored in 1.3 for now!)</p>
+
+<p>If images are interlaced they become visible on browsers more quickly.</p>
+
+<p>[<b>-T</b>|<b>--tabwidth</b> <i>value</i>]</p>
+
+<p>By default the tab-width is 40 pixels, use this option to change it.</p>
+
+<p>[<b>-b</b>|<b>--base</b> <i>value</i>]</p>
+
+<p>If you are graphing memory (and NOT network traffic) this switch should be set to 1024 so that one Kb is 1024 byte. For traffic measurement, 1 kb/s is 1000 b/s.</p>
+
+<p>[<b>-W</b>|<b>--watermark</b> <i>string</i>]</p>
+
+<p>Adds the given string as a watermark, horizontally centered, at the bottom of the graph.</p>
+
+<p>[<b>-Z</b>|<b>--use-nan-for-all-missing-data</b>]</p>
+
+<p>If one DS is missing, either because the RRD is not available or because it does not contain the requested DS name, just assume that we got empty values instead of raising a fatal error.</p>
+
+<h2 id="Data-and-variables">Data and variables</h2>
+
+<p><b>DEF:</b><i>vname</i><b>=</b><i>rrdfile</i><b>:</b><i>ds-name</i><b>:</b><i>CF</i>[<b>:step=</b><i>step</i>][<b>:start=</b><i>time</i>][<b>:end=</b><i>time</i>]</p>
+
+<p><b>CDEF:</b><i>vname</i><b>=</b><i>RPN expression</i></p>
+
+<p><b>VDEF:</b><i>vname</i><b>=</b><i>RPN expression</i></p>
+
+<p>You need at least one <b>DEF</b> and one <b>LINE</b>, <b>AREA</b>, <b>GPRINT</b>, <b>PRINT</b> statement to generate anything useful.</p>
+
+<p>See <a href="./rrdgraph_data.html">rrdgraph_data</a> and <a href="./rrdgraph_rpn.html">rrdgraph_rpn</a> for the exact format.</p>
+
+<p>NOTE: <b>Graph and print elements</b></p>
+
+<p>You need at least one graph element to generate an image and/or at least one print statement to generate a report. See <a href="./rrdgraph_graph.html">rrdgraph_graph</a> for the exact format.</p>
+
+<h2 id="graphv">graphv</h2>
+
+<p>Calling RRDtool with the graphv option will return information in the RRDtool info format. On the command line this means that all output will be in key=value format. When used from the Perl and Ruby bindings a hash pointer will be returned from the call.</p>
+
+<p>When the filename &#39;-&#39; is given, the contents of the graph itself will also be returned through this interface (hash key &#39;image&#39;). On the command line the output will look like this:</p>
+
+<pre><code> print[0] = &quot;0.020833&quot;
+ print[1] = &quot;0.0440833&quot;
+ graph_left = 51
+ graph_top = 22
+ graph_width = 400
+ graph_height = 100
+ graph_start = 1232908800
+ graph_end = 1232914200
+ image_width = 481
+ image_height = 154
+ value_min = 0.0000000000e+00
+ value_max = 4.0000000000e-02
+ image = BLOB_SIZE:8196
+ [... 8196 bytes of image data ...]</code></pre>
+
+<p>There is more information returned than in the standard interface. Especially the &#39;graph_*&#39; keys are new. They help applications that want to know what is where on the graph.</p>
+
+<h1 id="ENVIRONMENT-VARIABLES">ENVIRONMENT VARIABLES</h1>
+
+<p>The following environment variables may be used to change the behavior of <code>rrdtool&nbsp;graph</code>:</p>
+
+<dl>
+
+<dt id="RRDCACHED_ADDRESS"><b>RRDCACHED_ADDRESS</b></dt>
+<dd>
+
+<p>If this environment variable is set it will have the same effect as specifying the <code>--daemon</code> option on the command line. If both are present, the command line argument takes precedence.</p>
+
+</dd>
+<dt id="RRD_DEFAULT_FONT"><b>RRD_DEFAULT_FONT</b></dt>
+<dd>
+
+<p>RRDtool comes with a preset default font. You can set the environment variable RRD_DEFAULT_FONT if you want to change this.</p>
+
+</dd>
+</dl>
+
+<h1 id="SEE-ALSO">SEE ALSO</h1>
+
+<p><a href="./rrdgraph.html">rrdgraph</a> gives an overview of how <b>rrdtool graph</b> works. <a href="./rrdgraph_data.html">rrdgraph_data</a> describes <b>DEF</b>,<b>CDEF</b> and <b>VDEF</b> in detail. <a href="./rrdgraph_rpn.html">rrdgraph_rpn</a> describes the <b>RPN</b> language used in the <b>?DEF</b> statements. <a href="./rrdgraph_graph.html">rrdgraph_graph</a> page describes all of the graph and print functions.</p>
+
+<p>Make sure to read <a href="./rrdgraph_examples.html">rrdgraph_examples</a> for tips&amp;tricks.</p>
+
+<h1 id="AUTHOR">AUTHOR</h1>
+
+<p>Program by Tobias Oetiker &lt;tobi@oetiker.ch&gt;</p>
+
+<p>This manual page by Alex van den Bogaerdt &lt;alex@vandenbogaerdt.nl&gt; with corrections and/or additions by several people</p>
+
+
+</body>
+
+</html>
+
+

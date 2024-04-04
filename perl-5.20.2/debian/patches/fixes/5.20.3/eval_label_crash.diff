@@ -1,0 +1,68 @@
+From 4c88d9ce534557842013fe791a7634aae3f78756 Mon Sep 17 00:00:00 2001
+From: Father Chrysostomos <sprout@cpan.org>
+Date: Sat, 24 Jan 2015 17:14:58 -0800
+Subject: eval {label:} crash
+
+As of v5.13.6-130-geae48c8, the block consists solely of a
+nextstate op.
+
+The code in ck_eval that distinguished between eval-block and eval-
+string was checking the type of the kid op (looking for lineseq or
+stub) instead of simply checking the type of the op itself (entertry/
+entereval).
+
+The lexer was already making the distinction between the two but op.c
+was ignoring the information provided by the lexer.
+
+Usually
+
+  entertry(unop)
+    kid
+
+gets converted into
+
+  leavetry
+    entertry(logop)
+    kid
+
+with the entertry reallocated as a larger-sized op, but that was not
+happening.  The peephole optimiser assumed it had happened, and fol-
+lowed the cLOGOPo->op_other pointer, which is unrelated junk beyond
+the end of the unop struct.  Hence the crash.
+(cherry picked from commit 2f465e08eb39981706429873d24e3bcc18015bfb)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=123652
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/eval_label_crash.diff
+---
+ op.c            | 2 +-
+ t/comp/parser.t | 3 +++
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/op.c b/op.c
+index 7337f23c8..703852621 100644
+--- a/op.c
++++ b/op.c
+@@ -8865,7 +8865,7 @@ Perl_ck_eval(pTHX_ OP *o)
+ 	SVOP * const kid = (SVOP*)cUNOPo->op_first;
+ 	assert(kid);
+ 
+-	if (kid->op_type == OP_LINESEQ || kid->op_type == OP_STUB) {
++	if (o->op_type == OP_ENTERTRY) {
+ 	    LOGOP *enter;
+ #ifdef PERL_MAD
+ 	    OP* const oldo = o;
+diff --git a/t/comp/parser.t b/t/comp/parser.t
+index 584a473f6..755b5c527 100644
+--- a/t/comp/parser.t
++++ b/t/comp/parser.t
+@@ -502,6 +502,9 @@ like $@, "^No such class a1b at ", 'TYPE of my of for statement';
+ # Used to crash [perl #123542]
+ eval 's /${<>{}) //';
+ 
++# Also used to crash [perl #123652]
++eval{$1=eval{a:}};
++
+ # Add new tests HERE (above this line)
+ 
+ # bug #74022: Loop on characters in \p{OtherIDContinue}

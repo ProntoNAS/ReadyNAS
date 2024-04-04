@@ -1,0 +1,112 @@
+From c7bb90205d36599640330f7a27f970785aed34b1 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 14:39:14 -0800
+Subject: [PATCH 02/12] alpine: enable rn20x act led
+
+---
+ drivers/ata/ahci.c    |  2 +-
+ drivers/ata/libahci.c | 46 ++++++++++------------------------------------
+ 2 files changed, 11 insertions(+), 37 deletions(-)
+
+diff --git a/drivers/ata/ahci.c b/drivers/ata/ahci.c
+index 0a83c33..b525b4a 100644
+--- a/drivers/ata/ahci.c
++++ b/drivers/ata/ahci.c
+@@ -164,7 +164,7 @@ static const struct ata_port_info ahci_port_info[] = {
+ 	/* by chipsets */
+ 	[board_ahci_alpine] = {
+ 		AHCI_HFLAGS	(AHCI_HFLAG_NO_PMP | AHCI_HFLAG_AL_MSIX | AHCI_HFLAG_MULTI_MSI),
+-		.flags		= AHCI_FLAG_COMMON,
++		.flags		= AHCI_FLAG_COMMON | ATA_FLAG_SW_ACTIVITY,
+ 		.pio_mask	= ATA_PIO4,
+ 		.udma_mask	= ATA_UDMA6,
+ 		.port_ops	= &ahci_ops,
+diff --git a/drivers/ata/libahci.c b/drivers/ata/libahci.c
+index 1181d75..3781f95 100644
+--- a/drivers/ata/libahci.c
++++ b/drivers/ata/libahci.c
+@@ -43,10 +43,13 @@
+ #include <scsi/scsi_host.h>
+ #include <scsi/scsi_cmnd.h>
+ #include <linux/libata.h>
++#include <linux/gpio.h>
+ #include "ahci.h"
+ #include "ahci_alpine.h"
+ #include "libata.h"
+ 
++#define RN20X_ACT_LED_GPIO 474
++
+ static int ahci_skip_host_reset;
+ int ahci_ignore_sss;
+ EXPORT_SYMBOL_GPL(ahci_ignore_sss);
+@@ -951,9 +954,8 @@ static void ahci_init_sw_activity(struct ata_link *link)
+ 	emp->saved_activity = emp->activity = 0;
+ 	setup_timer(&emp->timer, ahci_sw_activity_blink, (unsigned long)link);
+ 
+-	/* check our blink policy and set flag for link if it's enabled */
+-	if (emp->blink_policy)
+-		link->flags |= ATA_LFLAG_SW_ACTIVITY;
++	/* our default blink policy is to enable */
++	link->flags |= ATA_LFLAG_SW_ACTIVITY;
+ }
+ 
+ int ahci_reset_em(struct ata_host *host)
+@@ -974,12 +976,9 @@ EXPORT_SYMBOL_GPL(ahci_reset_em);
+ static ssize_t ahci_transmit_led_message(struct ata_port *ap, u32 state,
+ 					ssize_t size)
+ {
+-	struct ahci_host_priv *hpriv = ap->host->private_data;
+ 	struct ahci_port_priv *pp = ap->private_data;
+-	void __iomem *mmio = hpriv->mmio;
+-	u32 em_ctl;
+-	u32 message[] = {0, 0};
+ 	unsigned long flags;
++	int led_val = 0;
+ 	int pmp;
+ 	struct ahci_em_priv *emp;
+ 
+@@ -992,37 +991,12 @@ static ssize_t ahci_transmit_led_message(struct ata_port *ap, u32 state,
+ 
+ 	spin_lock_irqsave(ap->lock, flags);
+ 
+-	/*
+-	 * if we are still busy transmitting a previous message,
+-	 * do not allow
+-	 */
+-	em_ctl = readl(mmio + HOST_EM_CTL);
+-	if (em_ctl & EM_CTL_TM) {
+-		spin_unlock_irqrestore(ap->lock, flags);
+-		return -EBUSY;
+-	}
+-
+-	if (hpriv->em_msg_type & EM_MSG_TYPE_LED) {
+-		/*
+-		 * create message header - this is all zero except for
+-		 * the message size, which is 4 bytes.
+-		 */
+-		message[0] |= (4 << 8);
++	if (state & EM_MSG_LED_VALUE_ON)
++		led_val = 1;
+ 
+-		/* ignore 0:4 of byte zero, fill in port info yourself */
+-		message[1] = ((state & ~EM_MSG_LED_HBA_PORT) | ap->port_no);
+-
+-		/* write message to EM_LOC */
+-		writel(message[0], mmio + hpriv->em_loc);
+-		writel(message[1], mmio + hpriv->em_loc+4);
+-
+-		/*
+-		 * tell hardware to transmit the message
+-		 */
+-		writel(em_ctl | EM_CTL_TM, mmio + HOST_EM_CTL);
+-	}
++	gpio_set_value(RN20X_ACT_LED_GPIO, led_val);
+ 
+-	/* save off new led state for port/slot */
++	/* save new led state */
+ 	emp->led_state = state;
+ 
+ 	spin_unlock_irqrestore(ap->lock, flags);
+-- 
+1.9.1
+

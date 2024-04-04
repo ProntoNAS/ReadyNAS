@@ -1,0 +1,439 @@
+From 2ab952596a6d10989e416a2977c6235f716d3a87 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <justing.maggard@netgear.com>
+Date: Wed, 27 Apr 2016 20:56:41 +0000
+Subject: [PATCH 3/6] hpn14v5: openssh6.6-none_switch.diff
+
+https://sourceforge.net/projects/hpnssh/files/HPN-SSH%2014.5%206.6p1/
+
+This patch provides the post authentication switch to the NONE cipher.
+This is useful for the transfer of bulk data via SCP. The NONE switch
+is not allowed during interactive sessions. Both sides of the connection
+*must* support the NONE switch.
+---
+ cipher.c      |  5 ++++-
+ kex.c         | 15 ++++++++++++++-
+ kex.h         |  1 +
+ myproposal.h  |  2 ++
+ packet.c      | 19 +++++++++++++++++++
+ packet.h      |  4 ++++
+ readconf.c    | 27 +++++++++++++++++++++++++++
+ readconf.h    |  3 +++
+ servconf.c    |  9 +++++++++
+ servconf.h    |  2 ++
+ ssh.c         |  4 ++++
+ sshconnect2.c | 34 +++++++++++++++++++++++++++++++++-
+ sshd.c        |  4 ++++
+ sshd_config   |  3 +++
+ 14 files changed, 129 insertions(+), 3 deletions(-)
+
+diff --git a/cipher.c b/cipher.c
+index 638ca2d..dc74f00 100644
+--- a/cipher.c
++++ b/cipher.c
+@@ -244,7 +244,8 @@ ciphers_valid(const char *names)
+ 	for ((p = strsep(&cp, CIPHER_SEP)); p && *p != '\0';
+ 	    (p = strsep(&cp, CIPHER_SEP))) {
+ 		c = cipher_by_name(p);
+-		if (c == NULL || c->number != SSH_CIPHER_SSH2) {
++		if (c == NULL || (c->number != SSH_CIPHER_SSH2 &&
++				  c->number != SSH_CIPHER_NONE)) {
+ 			free(cipher_list);
+ 			return 0;
+ 		}
+@@ -537,6 +538,7 @@ cipher_get_keyiv(struct sshcipher_ctx *cc, u_char *iv, u_int len)
+ 
+ 	switch (c->number) {
+ #ifdef WITH_OPENSSL
++	case SSH_CIPHER_NONE:
+ 	case SSH_CIPHER_SSH2:
+ 	case SSH_CIPHER_DES:
+ 	case SSH_CIPHER_BLOWFISH:
+@@ -585,6 +587,7 @@ cipher_set_keyiv(struct sshcipher_ctx *cc, const u_char *iv)
+ 
+ 	switch (c->number) {
+ #ifdef WITH_OPENSSL
++	case SSH_CIPHER_NONE:
+ 	case SSH_CIPHER_SSH2:
+ 	case SSH_CIPHER_DES:
+ 	case SSH_CIPHER_BLOWFISH:
+diff --git a/kex.c b/kex.c
+index 086bd40..11171b1 100644
+--- a/kex.c
++++ b/kex.c
+@@ -167,7 +167,7 @@ kex_names_valid(const char *names)
+ }
+ 
+ /* put algorithm proposal into buffer */
+-static void
++void
+ kex_prop2buf(Buffer *b, char *proposal[PROPOSAL_MAX])
+ {
+ 	u_int i;
+@@ -482,6 +482,10 @@ kex_choose_conf(Kex *kex)
+ 	u_int mode, ctos, need, dh_need, authlen;
+ 	int first_kex_follows, type;
+ 	int log_flag = 0;
++	int auth_flag;
++
++	auth_flag = packet_authentication_state();
++	debug ("AUTH STATE IS %d", auth_flag);
+ 
+ 	my   = kex_buf2prop(&kex->my, NULL);
+ 	peer = kex_buf2prop(&kex->peer, &first_kex_follows);
+@@ -519,6 +523,15 @@ kex_choose_conf(Kex *kex)
+ 		if (authlen == 0)
+ 			choose_mac(&newkeys->mac, cprop[nmac], sprop[nmac]);
+ 		choose_comp(&newkeys->comp, cprop[ncomp], sprop[ncomp]);
++                debug("REQUESTED ENC.NAME is '%s'", newkeys->enc.name);
++                if (strcmp(newkeys->enc.name, "none") == 0) {
++                        debug("Requesting NONE. Authflag is %d", auth_flag);
++                        if (auth_flag == 1) {
++                                debug("None requested post authentication.");
++                        } else {
++                                fatal("Pre-authentication none cipher requests are not allowed.");
++                        }
++                }
+ 		debug("kex: %s %s %s %s",
+ 		    ctos ? "client->server" : "server->client",
+ 		    newkeys->enc.name,
+diff --git a/kex.h b/kex.h
+index c179a4d..b3e142c 100644
+--- a/kex.h
++++ b/kex.h
+@@ -155,6 +155,7 @@ struct Kex {
+ };
+ 
+ int	 kex_names_valid(const char *);
++void	 kex_prop2buf(Buffer *, char *proposal[PROPOSAL_MAX]);
+ char	*kex_alg_list(char);
+ 
+ Kex	*kex_setup(char *[PROPOSAL_MAX]);
+diff --git a/myproposal.h b/myproposal.h
+index b35b2b8..dbf0a37 100644
+--- a/myproposal.h
++++ b/myproposal.h
+@@ -171,6 +171,8 @@
+ #define	KEX_DEFAULT_COMP	"none,zlib@openssh.com"
+ #define	KEX_DEFAULT_LANG	""
+ 
++#define KEX_ENCRYPT_INCLUDE_NONE KEX_SERVER_ENCRYPT ",none"
++
+ #define KEX_CLIENT \
+ 	KEX_CLIENT_KEX, \
+ 	KEX_DEFAULT_PK_ALG, \
+diff --git a/packet.c b/packet.c
+index 997504f..2d608ca 100644
+--- a/packet.c
++++ b/packet.c
+@@ -1962,12 +1962,25 @@ packet_send_ignore(int nbytes)
+ 	}
+ }
+ 
++/* this supports the forced rekeying required for the NONE cipher */
++int rekey_requested = 0;
++void
++packet_request_rekeying(void)
++{
++	rekey_requested = 1;
++}
++
+ #define MAX_PACKETS	(1U<<31)
+ int
+ packet_need_rekeying(void)
+ {
+ 	if (datafellows & SSH_BUG_NOREKEY)
+ 		return 0;
++        if (rekey_requested == 1)
++	{
++               rekey_requested = 0;
++               return 1;
++        }
+ 	return
+ 	    (active_state->p_send.packets > MAX_PACKETS) ||
+ 	    (active_state->p_read.packets > MAX_PACKETS) ||
+@@ -1979,6 +1992,12 @@ packet_need_rekeying(void)
+ 		 active_state->rekey_interval <= monotime());
+ }
+ 
++int
++packet_authentication_state(void)
++{
++	return(active_state->after_authentication);
++}
++
+ void
+ packet_set_rekey_limits(u_int32_t bytes, time_t seconds)
+ {
+diff --git a/packet.h b/packet.h
+index 52f94fc..c8466ba 100644
+--- a/packet.h
++++ b/packet.h
+@@ -103,6 +103,10 @@ int	 packet_inc_alive_timeouts(void);
+ int	 packet_set_maxsize(u_int);
+ u_int	 packet_get_maxsize(void);
+ 
++/* for forced packet rekeying post auth */
++void	packet_request_rekeying(void);
++int	packet_authentication_state(void);
++
+ /* don't allow remaining bytes after the end of the message */
+ #define packet_check_eom() \
+ do { \
+diff --git a/readconf.c b/readconf.c
+index 337d914..9706825 100644
+--- a/readconf.c
++++ b/readconf.c
+@@ -150,6 +150,7 @@ typedef enum {
+ 	oSendEnv, oControlPath, oControlMaster, oControlPersist,
+ 	oHashKnownHosts,
+ 	oTunnel, oTunnelDevice, oLocalCommand, oPermitLocalCommand,
++	oNoneEnabled, oNoneSwitch,
+ 	oVisualHostKey, oUseRoaming,
+ 	oKexAlgorithms, oIPQoS, oRequestTTY, oIgnoreUnknown, oProxyUseFdpass,
+ 	oCanonicalDomains, oCanonicalizeHostname, oCanonicalizeMaxDots,
+@@ -272,6 +273,8 @@ static struct {
+ 	{ "kexalgorithms", oKexAlgorithms },
+ 	{ "ipqos", oIPQoS },
+ 	{ "requesttty", oRequestTTY },
++	{ "noneenabled", oNoneEnabled },
++        { "noneswitch", oNoneSwitch },
+ 	{ "proxyusefdpass", oProxyUseFdpass },
+ 	{ "canonicaldomains", oCanonicalDomains },
+ 	{ "canonicalizefallbacklocal", oCanonicalizeFallbackLocal },
+@@ -914,6 +917,24 @@ parse_time:
+ 		intptr = &options->check_host_ip;
+ 		goto parse_flag;
+ 
++        case oNoneEnabled:
++               	intptr = &options->none_enabled;
++               	goto parse_flag;
++ 
++       	/* we check to see if the command comes from the */
++       	/* command line or not. If it does then enable it */
++       	/* otherwise fail. NONE should never be a default configuration */
++       	case oNoneSwitch:
++               	if(strcmp(filename,"command-line") == 0) {
++                       	intptr = &options->none_switch;
++                       	goto parse_flag;
++               	} else {
++                       	error("NoneSwitch is found in %.200s.\nYou may only use this configuration option from the command line", filename);
++                       	error("Continuing...");
++                       	debug("NoneSwitch directive found in %.200s.", filename);
++                       	return 0;
++               	}
++
+ 	case oVerifyHostKeyDNS:
+ 		intptr = &options->verify_host_key_dns;
+ 		multistate_ptr = multistate_yesnoask;
+@@ -1645,6 +1666,8 @@ initialize_options(Options * options)
+ 	options->ip_qos_interactive = -1;
+ 	options->ip_qos_bulk = -1;
+ 	options->request_tty = -1;
++	options->none_switch = -1;
++	options->none_enabled = -1;
+ 	options->proxy_use_fdpass = -1;
+ 	options->ignored_unknown = NULL;
+ 	options->num_canonical_domains = 0;
+@@ -1806,6 +1829,10 @@ fill_default_options(Options * options)
+ 	}
+ 	if (options->server_alive_count_max == -1)
+ 		options->server_alive_count_max = 3;
++        if (options->none_switch == -1)
++               options->none_switch = 0;
++        if (options->none_enabled == -1)
++               options->none_enabled = 0;
+ 	if (options->control_master == -1)
+ 		options->control_master = 0;
+ 	if (options->control_persist == -1) {
+diff --git a/readconf.h b/readconf.h
+index 0e29889..d20fbfe 100644
+--- a/readconf.h
++++ b/readconf.h
+@@ -111,7 +111,10 @@ typedef struct {
+ 
+ 	int	enable_ssh_keysign;
+ 	int64_t rekey_limit;
++	int     none_switch;    /* Use none cipher */
++       	int     none_enabled;   /* Allow none to be used */
+ 	int	rekey_interval;
++
+ 	int	no_host_authentication_for_localhost;
+ 	int	identities_only;
+ 	int	server_alive_interval;
+diff --git a/servconf.c b/servconf.c
+index 6c7741a..75e2fa6 100644
+--- a/servconf.c
++++ b/servconf.c
+@@ -157,6 +157,7 @@ initialize_server_options(ServerOptions *options)
+ 	options->revoked_keys_file = NULL;
+ 	options->trusted_user_ca_keys = NULL;
+ 	options->authorized_principals_file = NULL;
++	options->none_enabled = -1;
+ 	options->ip_qos_interactive = -1;
+ 	options->ip_qos_bulk = -1;
+ 	options->version_addendum = NULL;
+@@ -312,6 +313,8 @@ fill_default_server_options(ServerOptions *options)
+ 	}
+ 	if (options->permit_tun == -1)
+ 		options->permit_tun = SSH_TUNMODE_NO;
++	if (options->none_enabled == -1) 
++		options->none_enabled = 0;
+ 	if (options->ip_qos_interactive == -1)
+ 		options->ip_qos_interactive = IPTOS_LOWDELAY;
+ 	if (options->ip_qos_bulk == -1)
+@@ -354,6 +357,7 @@ typedef enum {
+ 	sPasswordAuthentication, sKbdInteractiveAuthentication,
+ 	sListenAddress, sAddressFamily,
+ 	sPrintMotd, sPrintLastLog, sIgnoreRhosts,
++	sNoneEnabled,
+ 	sX11Forwarding, sX11DisplayOffset, sX11UseLocalhost,
+ 	sPermitTTY, sStrictModes, sEmptyPasswd, sTCPKeepAlive,
+ 	sPermitUserEnvironment, sUseLogin, sAllowTcpForwarding, sCompression,
+@@ -509,6 +513,7 @@ static struct {
+ 	{ "revokedkeys", sRevokedKeys, SSHCFG_ALL },
+ 	{ "trustedusercakeys", sTrustedUserCAKeys, SSHCFG_ALL },
+ 	{ "authorizedprincipalsfile", sAuthorizedPrincipalsFile, SSHCFG_ALL },
++	{ "noneenabled", sNoneEnabled, SSHCFG_ALL },
+ 	{ "kexalgorithms", sKexAlgorithms, SSHCFG_GLOBAL },
+ 	{ "ipqos", sIPQoS, SSHCFG_ALL },
+ 	{ "authorizedkeyscommand", sAuthorizedKeysCommand, SSHCFG_ALL },
+@@ -1091,6 +1096,10 @@ process_server_config_line(ServerOptions *options, char *line,
+ 		intptr = &options->ignore_user_known_hosts;
+ 		goto parse_flag;
+ 
++	case sNoneEnabled:
++		intptr = &options->none_enabled;
++		goto parse_flag;
++
+ 	case sRhostsRSAAuthentication:
+ 		intptr = &options->rhosts_rsa_authentication;
+ 		goto parse_flag;
+diff --git a/servconf.h b/servconf.h
+index fa48804..c8b8b81 100644
+--- a/servconf.h
++++ b/servconf.h
+@@ -170,6 +170,8 @@ typedef struct {
+ 
+ 	int	use_pam;		/* Enable auth via PAM */
+ 
++	int	none_enabled;		/* enable NONE cipher switch */	
++
+ 	int	permit_tun;
+ 
+ 	int	num_permitted_opens;
+diff --git a/ssh.c b/ssh.c
+index 5bce695..5f7f1b4 100644
+--- a/ssh.c
++++ b/ssh.c
+@@ -785,6 +785,10 @@ main(int ac, char **av)
+ 			break;
+ 		case 'T':
+ 			options.request_tty = REQUEST_TTY_NO;
++			/* ensure that the user doesn't try to backdoor a */
++                        /* null cipher switch on an interactive session */
++                        /* so explicitly disable it no matter what */
++			options.none_switch=0;
+ 			break;
+ 		case 'o':
+ 			line = xstrdup(optarg);
+diff --git a/sshconnect2.c b/sshconnect2.c
+index 7b478f1..5fcf0d1 100644
+--- a/sshconnect2.c
++++ b/sshconnect2.c
+@@ -79,6 +79,12 @@
+ extern char *client_version_string;
+ extern char *server_version_string;
+ extern Options options;
++extern Kex *xxx_kex;
++
++/* tty_flag is set in ssh.c. use this in ssh_userauth2 */
++/* if it is set then prevent the switch to the null cipher */
++
++extern int tty_flag;
+ 
+ /*
+  * SSH2 key exchange
+@@ -153,10 +159,11 @@ order_hostkeyalgs(char *host, struct sockaddr *hostaddr, u_short port)
+ 	return ret;
+ }
+ 
++static char *myproposal[PROPOSAL_MAX];
++static const char *myproposal_default[PROPOSAL_MAX] = { KEX_CLIENT };
+ void
+ ssh_kex2(char *host, struct sockaddr *hostaddr, u_short port)
+ {
+-	char *myproposal[PROPOSAL_MAX] = { KEX_CLIENT };
+ 	Kex *kex;
+ 
+ #ifdef GSSAPI
+@@ -164,6 +171,8 @@ ssh_kex2(char *host, struct sockaddr *hostaddr, u_short port)
+ 	char *gss_host = NULL;
+ #endif
+ 
++	memcpy(&myproposal, &myproposal_default, sizeof(myproposal));
++
+ 	xxx_host = host;
+ 	xxx_hostaddr = hostaddr;
+ 
+@@ -476,6 +485,29 @@ ssh_userauth2(const char *local_user, const char *server_user, char *host,
+ 	pubkey_cleanup(&authctxt);
+ 	dispatch_range(SSH2_MSG_USERAUTH_MIN, SSH2_MSG_USERAUTH_MAX, NULL);
+ 
++        /* if the user wants to use the none cipher do it */
++        /* post authentication and only if the right conditions are met */
++        /* both of the NONE commands must be true and there must be no */
++        /* tty allocated */
++        if ((options.none_switch == 1) && (options.none_enabled == 1))
++        {
++                if (!tty_flag) /* no null on tty sessions */
++                {
++                        debug("Requesting none rekeying...");
++                        myproposal[PROPOSAL_ENC_ALGS_STOC] = "none";
++                        myproposal[PROPOSAL_ENC_ALGS_CTOS] = "none";
++                        kex_prop2buf(&xxx_kex->my,myproposal);
++                        packet_request_rekeying();
++                        debug("WARNING: ENABLED NONE CIPHER\n");
++                }
++                else
++                {
++                        /* requested NONE cipher when in a tty */
++                        debug("Cannot switch to NONE cipher with tty allocated");
++                        fprintf(stderr, "NONE cipher switch disabled when a TTY is allocated\n");
++                }
++        }
++
+ 	debug("Authentication succeeded (%s).", authctxt.method->name);
+ }
+ 
+diff --git a/sshd.c b/sshd.c
+index 492fda4..7ccb024 100644
+--- a/sshd.c
++++ b/sshd.c
+@@ -2552,6 +2552,10 @@ do_ssh2_kex(void)
+ 	if (options.ciphers != NULL) {
+ 		myproposal[PROPOSAL_ENC_ALGS_CTOS] =
+ 		myproposal[PROPOSAL_ENC_ALGS_STOC] = options.ciphers;
++        } else if (options.none_enabled == 1) {
++                debug ("WARNING: None cipher enabled");
++                myproposal[PROPOSAL_ENC_ALGS_CTOS] =
++                myproposal[PROPOSAL_ENC_ALGS_STOC] = KEX_ENCRYPT_INCLUDE_NONE;
+ 	}
+ 	myproposal[PROPOSAL_ENC_ALGS_CTOS] =
+ 	    compat_cipher_proposal(myproposal[PROPOSAL_ENC_ALGS_CTOS]);
+diff --git a/sshd_config b/sshd_config
+index 4db32f5..437f0bc 100644
+--- a/sshd_config
++++ b/sshd_config
+@@ -128,6 +128,9 @@ UsePrivilegeSeparation sandbox		# Default for new installations.
+ # override default of no subsystems
+ Subsystem	sftp	/usr/libexec/sftp-server
+ 
++# allow the use of the none cipher
++#NoneEnabled no
++
+ # Example of overriding settings on a per-user basis
+ #Match User anoncvs
+ #	X11Forwarding no
+-- 
+2.1.4
+

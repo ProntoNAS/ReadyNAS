@@ -1,0 +1,69 @@
+Subject: Make use of libtool
+Author: Michael van der Kolff <mvanderkolff@gmail.com>
+Forwarded: no
+
+diff --git a/libjbig/Makefile b/libjbig/Makefile
+index f2898f5..24b6de4 100644
+--- a/libjbig/Makefile
++++ b/libjbig/Makefile
+@@ -4,31 +4,32 @@
+ CC = gcc
+ 
+ # Options for the compiler: A high optimization level is suggested
+-CFLAGS = -g -O -W -Wall -ansi -pedantic # --coverage
++CFLAGS ?= -g -O -W -Wall -ansi -pedantic # --coverage
+ 
+-all: libjbig.a libjbig85.a tstcodec tstcodec85
++.PHONY: all clean test
+ 
+-tstcodec: tstcodec.o jbig.o jbig_ar.o
+-	$(CC) $(CFLAGS) -o tstcodec tstcodec.o jbig.o jbig_ar.o
++%.lo %.o: %.c
++	libtool --mode=compile $(CC) $(CFLAGS) $(CPPFLAGS) -c $<
+ 
+-tstcodec85: tstcodec85.o jbig85.o jbig_ar.o
+-	$(CC) $(CFLAGS) -o tstcodec85 tstcodec85.o jbig85.o jbig_ar.o
++all: libjbig.la
+ 
+-libjbig.a: jbig.o jbig_ar.o
+-	rm -f libjbig.a
+-	ar rc libjbig.a jbig.o jbig_ar.o
+-	-ranlib libjbig.a
++tstcodec: tstcodec.o libjbig.a
++	$(CC) $(LDFLAGS) $(CFLAGS) -o tstcodec $+
+ 
+-libjbig85.a: jbig85.o jbig_ar.o
+-	rm -f libjbig85.a
+-	ar rc libjbig85.a jbig85.o jbig_ar.o
+-	-ranlib libjbig85.a
++tstcodec85: tstcodec85.o libjbig.a
++	$(CC) $(LDFLAGS) $(CFLAGS) -o tstcodec85 $+
+ 
+-jbig.o: jbig.c jbig.h jbig_ar.h
+-jbig85.o: jbig85.c jbig85.h jbig_ar.h
+-jbig_ar.o: jbig_ar.c jbig_ar.h
+-tstcodec.o: tstcodec.c jbig.h
+-tstcodec85.o: tstcodec85.c jbig85.h
++libjbig.a: libjbig.la
++	cp .libs/libjbig.a .
++
++libjbig.la: jbig.lo jbig_ar.lo jbig85.lo
++	libtool --mode=link $(CC) $(LDFLAGS) -o libjbig.la $+ -rpath /usr/lib
++
++jbig.lo: jbig.c jbig.h jbig_ar.h
++jbig85.lo: jbig85.c jbig85.h jbig_ar.h
++jbig_ar.lo: jbig_ar.c jbig_ar.h
++tstcodec.o: tstcodec.c libjbig.a jbig.h
++tstcodec85.o: tstcodec85.c libjbig.a jbig85.h
+ 
+ update-po: jbig.c jbig85.c Makefile
+ 	xgettext -ojbig.pot -k_ \
+@@ -50,6 +51,7 @@ t82test.pbm: tstcodec
+ 	./tstcodec $@
+ 
+ clean:
+-	rm -f *.o *.gcda *.gcno *.gcov *.plist *~ core gmon.out dbg_d\=??.pbm
++	rm -rf .libs
++	rm -f *.gcda *.gcno *.gcov *.a *.la *.o *.lo *~ core gmon.out dbg_d\=??.pbm t82test.pbm
+ 	rm -f t82test.pbm
+ 	rm -f tstcodec tstcodec85

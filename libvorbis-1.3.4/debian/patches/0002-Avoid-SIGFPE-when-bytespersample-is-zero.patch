@@ -1,0 +1,26 @@
+From: Daniel Exner <dex@dragonslave.de>
+Date: Mon, 18 Jun 2012 22:05:48 +0200
+Subject: Avoid SIGFPE when bytespersample is zero
+
+Origin: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=635906#15
+Forwarded: no
+Reviewed-By: Petter Reinholdtsen <pere@hungry.com>
+Last-Update: 2014-10-14
+---
+ lib/vorbisfile.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/lib/vorbisfile.c b/lib/vorbisfile.c
+index 84bf8c3..47c58e1 100644
+--- a/lib/vorbisfile.c
++++ b/lib/vorbisfile.c
+@@ -1906,7 +1906,8 @@ long ov_read_filter(OggVorbis_File *vf,char *buffer,int length,
+     long channels=ov_info(vf,-1)->channels;
+     long bytespersample=word * channels;
+     vorbis_fpu_control fpu;
+-    if(samples>length/bytespersample)samples=length/bytespersample;
++    if(bytespersample && samples>length/bytespersample)
++     samples=length/bytespersample;
+ 
+     if(samples <= 0)
+       return OV_EINVAL;

@@ -1,0 +1,43 @@
+Description: Adapt TIOCCONS call to kfreebsd.
+ Isolate Linux-only forms of ioctl call with TIOCCONS. The BSD form of
+ this needs a pointer to an integer, and its fails with a NULL pointer.
+Author: Mats Erik Andersson <debian@gisladisker.se>
+Last-Update: 2012-04-03
+Fixes:   #576443
+Status:  applied upstream
+
+--- sysvinit-2.88dsf.debian/src/bootlogd.c
++++ sysvinit-2.88dsf/src/bootlogd.c
+@@ -482,6 +482,9 @@
+ 	int		realfd;
+ 	int		n, m, i;
+ 	int		todo;
++#ifndef __linux__	/* BSD-style ioctl needs an argument. */
++	int		on = 1;
++#endif
+ 
+ 	fp = NULL;
+ 	logfile = LOGFILE;
+@@ -554,15 +557,20 @@
+ 		return 1;
+ 	}
+ 
++#ifdef __linux__
+ 	(void)ioctl(0, TIOCCONS, NULL);
+-#if 1
+ 	/* Work around bug in 2.1/2.2 kernels. Fixed in 2.2.13 and 2.3.18 */
+ 	if ((n = open("/dev/tty0", O_RDWR)) >= 0) {
+ 		(void)ioctl(n, TIOCCONS, NULL);
+ 		close(n);
+ 	}
+ #endif
+-	if (ioctl(pts, TIOCCONS, NULL) < 0) {
++#ifdef __linux__
++	if (ioctl(pts, TIOCCONS, NULL) < 0)
++#else	/* BSD usage of ioctl TIOCCONS. */
++	if (ioctl(pts, TIOCCONS, &on) < 0)
++#endif
++	{
+ 		fprintf(stderr, "bootlogd: ioctl(%s, TIOCCONS): %s\n",
+ 			buf, strerror(errno));
+ 		return 1;

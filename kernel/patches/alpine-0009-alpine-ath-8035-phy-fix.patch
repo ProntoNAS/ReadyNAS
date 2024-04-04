@@ -1,0 +1,44 @@
+From f03650ea9516fac02c15d78a560616d99864ce88 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 14:50:00 -0800
+Subject: [PATCH 09/12] alpine: ath 8035 phy fix
+
+This patch works around an issue discovered on RN20x, where the network
+interface would no longer function after an ifconfig down/ifconfig up.
+
+Comments from Stanislav (Slave) Samsonov @ Annapurna:
+Regarding the ifconfig up/down issue - this is clearly caused by kernel driver
+for Atheros PHY. The recent driver versions have new suspend/resume functions
+and calling suspend on ifdown and resume on ifup somehow causes PHY to stop
+functioning.
+
+As a quick workaround, you may use an attached patch until we come up with more
+solid solution - I just disabled suspend/resume (they are not mandatory anyway,
+e.g, kernel 3.10 does not have them) and also "link change" callback which only
+relevant for 8030 PHY anyway and just wastes CPU time in our case.
+---
+ drivers/net/phy/at803x.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/net/phy/at803x.c b/drivers/net/phy/at803x.c
+index 443d6a2..41568d0 100644
+--- a/drivers/net/phy/at803x.c
++++ b/drivers/net/phy/at803x.c
+@@ -318,11 +318,11 @@ static struct phy_driver at803x_driver[] = {
+ 	.phy_id_mask		= 0xffffffef,
+ 	.probe			= at803x_probe,
+ 	.config_init		= at803x_config_init,
+-	.link_change_notify	= at803x_link_change_notify,
++	/*.link_change_notify	= at803x_link_change_notify,*/
+ 	.set_wol		= at803x_set_wol,
+ 	.get_wol		= at803x_get_wol,
+-	.suspend		= at803x_suspend,
+-	.resume			= at803x_resume,
++	/*.suspend		= at803x_suspend,
++	.resume			= at803x_resume,*/
+ 	.features		= PHY_GBIT_FEATURES,
+ 	.flags			= PHY_HAS_INTERRUPT,
+ 	.config_aneg		= genphy_config_aneg,
+-- 
+1.9.1
+

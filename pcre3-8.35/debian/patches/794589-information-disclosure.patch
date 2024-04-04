@@ -1,0 +1,30 @@
+Description: CVE-2015-8382: pcre_exec does not fill offsets for certain regexps
+Origin: upstream, http://vcs.pcre.org/pcre/code/trunk/pcre_exec.c?r1=1502&r2=1510
+Bug: https://bugs.exim.org/show_bug.cgi?id=1537
+Bug-Debian: https://bugs.debian.org/794589
+Forwarded: not-needed
+Last-Update: 2015-09-10
+Applied-Upstream: 8.37
+
+--- a/pcre_exec.c
++++ b/pcre_exec.c
+@@ -1467,7 +1467,18 @@ for (;;)
+       md->offset_vector[offset] =
+         md->offset_vector[md->offset_end - number];
+       md->offset_vector[offset+1] = (int)(eptr - md->start_subject);
+-      if (offset_top <= offset) offset_top = offset + 2;
++
++      /* If this group is at or above the current highwater mark, ensure that
++      any groups between the current high water mark and this group are marked
++      unset and then update the high water mark. */
++
++      if (offset >= offset_top)
++        {
++        register int *iptr = md->offset_vector + offset_top;
++        register int *iend = md->offset_vector + offset;
++        while (iptr < iend) *iptr++ = -1;
++        offset_top = offset + 2;
++        }
+       }
+     ecode += 1 + IMM2_SIZE;
+     break;

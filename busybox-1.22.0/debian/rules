@@ -6,11 +6,20 @@ DEB_HOST_GNU_TYPE := $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 DEB_BUILD_GNU_TYPE := $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 PKGVERSION := $(shell dpkg-parsechangelog | sed -ne 's,^Version: *\(.*\)$$,\1,p')
 VENDOR := $(shell dpkg-vendor --query vendor)
+
+ifneq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 RUN_TESTSUITE = y
+endif
 TESTSUITE_ENV = SKIP_KNOWN_BUGS=y VERBOSE=y
 # always run tests in UTF8 mode to verify unicode support
 TESTSUITE_ENV += LANG=C.UTF8
 #TESTSUITE_ENV += SKIP_INTERNET_TESTS=y
+
+# support parallel build using DEB_BUILD_OPTIONS=parallel=N
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+  MAKEFLAGS += \
+    -j$(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+endif
 
 # build directory
 b = build
@@ -145,8 +154,8 @@ binary-arch: ${b}/stamp-build
 	dh_install -pbusybox-udeb ${b}/udeb/_install/* /
 
 # busybox-syslogd
-	dh_installinit -pbusybox-syslogd -u"defaults 10 90"
-	dh_installinit -pbusybox-syslogd -u"defaults 11 89" --name=busybox-klogd
+	dh_installinit -pbusybox-syslogd 
+	dh_installinit -pbusybox-syslogd --name=busybox-klogd
 
 ifeq (linux,$(DEB_HOST_ARCH_OS))
 # udhcpc

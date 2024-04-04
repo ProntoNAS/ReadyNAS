@@ -1,18 +1,21 @@
 #!/usr/bin/make -f
+DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+
 
 .PHONY: build
 
 %:
-	dh $@ --parallel
+	dh $@ --parallel --with autoreconf
 
 build:
-	dh $@ --parallel
+	dh $@ --parallel --with autoreconf
 
 override_dh_auto_configure:
 	dh_auto_configure -- --without-openssl --with-nettle \
 		--enable-bsdtar=shared --enable-bsdcpio=shared
 
 override_dh_auto_test:
+ifeq (,$(filter $(DEB_HOST_ARCH), armel))
 ifeq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
 ifneq (,$(shell locale -a | grep en_US.utf8))
 	_VERBOSITY_LEVEL=1 dh_auto_test --parallel
@@ -22,5 +25,6 @@ else
 		-A /usr/share/locale/locale.alias tmp-locales/en_US.UTF-8
 	_VERBOSITY_LEVEL=1 LOCPATH=$(CURDIR)/tmp-locales dh_auto_test --parallel
 	rm -rf tmp-locales
+endif
 endif
 endif

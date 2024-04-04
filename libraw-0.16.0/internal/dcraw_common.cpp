@@ -21,6 +21,7 @@ it under the terms of the one of three licenses as you choose:
    for more information
 */
 
+#line 261 "dcraw/dcraw.c"
 #include <math.h>
 #define CLASS LibRaw::
 #include "libraw/libraw_types.h"
@@ -29,6 +30,7 @@ it under the terms of the one of three licenses as you choose:
 #include "libraw/libraw.h"
 #include "internal/defines.h"
 #include "internal/var_defines.h"
+#line 272 "dcraw/dcraw.c"
 int CLASS fcol (int row, int col)
 {
   static const char filter[16][16] =
@@ -54,6 +56,10 @@ int CLASS fcol (int row, int col)
   return FC(row,col);
 }
 
+#ifdef LIBRAW_LIBRARY_BUILD
+#include <sys/stat.h>
+#endif
+
 #ifndef __GLIBC__
 char *my_memmem (char *haystack, size_t haystacklen,
 	      char *needle, size_t needlelen)
@@ -75,6 +81,7 @@ char *my_strcasestr (char *haystack, const char *needle)
 }
 #define strcasestr my_strcasestr
 #endif
+#line 340 "dcraw/dcraw.c"
 ushort CLASS sget2 (uchar *s)
 {
   if (order == 0x4949)		/* "II" means little-endian */
@@ -564,10 +571,12 @@ void CLASS canon_load_raw()
 #endif
   FORC(2) free (huff[c]);
 }
+#line 841 "dcraw/dcraw.c"
 
 int CLASS ljpeg_start (struct jhead *jh, int info_only)
 {
-  int c, tag, len;
+  int c, tag;
+  ushort len;
   uchar data[0x10000];
   const uchar *dp;
 
@@ -1153,6 +1162,7 @@ int CLASS minolta_z2()
     if (tail[i]) nz++;
   return nz > 20;
 }
+#line 1436 "dcraw/dcraw.c"
 void CLASS ppm_thumb()
 {
   char *thumb;
@@ -2810,6 +2820,10 @@ void CLASS smal_decode_segment (unsigned seg[2][2], int holes)
       diff = diff ? -diff : 0x80;
     if (ftell(ifp) + 12 >= seg[1][1])
       diff = 0;
+#ifdef LIBRAW_LIBRARY_BUILD
+    if(pix>=raw_width*raw_height)
+      throw LIBRAW_EXCEPTION_IO_CORRUPT;
+#endif
     raw_image[pix] = pred[pix & 1] += diff;
     if (!(pix & 1) && HOLE(pix / raw_width)) pix += 2;
   }
@@ -2976,6 +2990,7 @@ void CLASS redcine_load_raw()
 #endif
 #endif
 }
+#line 3983 "dcraw/dcraw.c"
 void CLASS crop_masked_pixels()
 {
   int row, col;
@@ -3081,6 +3096,7 @@ void CLASS remove_zeroes()
   RUN_CALLBACK(LIBRAW_PROGRESS_REMOVE_ZEROES,1,2);
 #endif
 }
+#line 4254 "dcraw/dcraw.c"
 void CLASS gamma_curve (double pwr, double ts, int mode, int imax)
 {
   int i;
@@ -4790,6 +4806,7 @@ void CLASS parse_thumb_note (int base, unsigned toff, unsigned tlen)
     fseek (ifp, save, SEEK_SET);
   }
 }
+#line 5968 "dcraw/dcraw.c"
 void CLASS parse_makernote (int base, int uptag)
 {
   static const uchar xlat[2][256] = {
@@ -5349,6 +5366,7 @@ void CLASS parse_kodak_ifd (int base)
     fseek (ifp, save, SEEK_SET);
   }
 }
+#line 6533 "dcraw/dcraw.c"
 int CLASS parse_tiff_ifd (int base)
 {
   unsigned entries, tag, type, len, plen=16, save;
@@ -5516,7 +5534,12 @@ int CLASS parse_tiff_ifd (int base)
 	if (!strcmp(model,"DSLR-A100") && tiff_ifd[ifd].t_width == 3872) {
 	  load_raw = &CLASS sony_arw_load_raw;
 	  data_offset = get4()+base;
-	  ifd++;  break;
+	  ifd++;
+#ifdef LIBRAW_LIBRARY_BUILD
+	if (ifd >= sizeof tiff_ifd / sizeof tiff_ifd[0])
+	  throw LIBRAW_EXCEPTION_IO_CORRUPT;
+#endif
+	  break;
 	}
         if(len > 1000) len=1000; /* 1000 SubIFDs is enough */
 	while (len--) {
@@ -5691,7 +5714,7 @@ int CLASS parse_tiff_ifd (int base)
 	break;
       case 50454:			/* Sinar tag */
       case 50455:
-	if (!(cbuf = (char *) malloc(len))) break;
+	if (len < 1 || len > 2560000 || !(cbuf = (char *) malloc(len))) break;
 	fread (cbuf, 1, len, ifp);
 	for (cp = cbuf-1; cp && cp < cbuf+len; cp = strchr(cp,'\n'))
 	  if (!strncmp (++cp,"Neutral ",8))
@@ -6498,7 +6521,19 @@ int CLASS parse_jpeg (int offset)
     }
     order = get2();
     hlen  = get4();
-    if (get4() == 0x48454150)		/* "HEAP" */
+
+#ifdef LIBRAW_LIBRARY_BUILD
+    struct stat st;
+    off_t fsize = 0;
+    if(!stat(ifp->fname(),&st))
+	fsize = st.st_size;
+#endif
+
+    if (get4() == 0x48454150
+#ifdef LIBRAW_LIBRARY_BUILD
+	&& (save+hlen) >= 0 && (save+hlen)<=fsize
+#endif
+	) /* "HEAP" */
       parse_ciff (save+hlen, len-hlen, 0);
     if (parse_tiff (save+6)) apply_tiff();
     fseek (ifp, save+len, SEEK_SET);
@@ -6644,6 +6679,7 @@ void CLASS parse_redcine()
     data_offset = get4();
   }
 }
+#line 7936 "dcraw/dcraw.c"
 
 /*
    All matrices are from Adobe DNG Converter unless otherwise noted.
@@ -8919,6 +8955,7 @@ notraw:
 }
 
 
+#line 10303 "dcraw/dcraw.c"
 void CLASS convert_to_rgb()
 {
 #ifndef LIBRAW_LIBRARY_BUILD
@@ -9149,6 +9186,7 @@ int CLASS flip_index (int row, int col)
   if (flip & 1) col = iwidth  - 1 - col;
   return row * iwidth + col;
 }
+#line 10559 "dcraw/dcraw.c"
 void CLASS tiff_set (ushort *ntag,
 	ushort tag, ushort type, int count, int val)
 {

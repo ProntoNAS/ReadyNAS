@@ -43,23 +43,33 @@ CPPFLAGS = `dpkg-buildflags --get CPPFLAGS`
 
 UPACKAGE = $(shell dh_listpackages | grep -- -udeb$$)
 
-build/config.status: configure
+COMMA = ,
+ifneq (,$(filter parallel=%,$(subst $(COMMA), ,$(DEB_BUILD_OPTIONS))))
+  NJOBS := -j $(subst parallel=,,$(filter parallel=%,$(subst $(COMMA), ,$(DEB_BUILD_OPTIONS))))
+endif
+
+config-common-stamp:
+	dh_testdir
+	dh_autoreconf
+	touch $@
+
+build/config.status: config-common-stamp
 	dh_testdir
 	(mkdir -p $(@D); cd $(@D); CFLAGS="$(CFLAGS)" CPPFLAGS="$(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" \
 	 ../configure $(CONFFLAGS) --prefix=/usr --mandir=\$${prefix}/share/man --libdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH))
 
-buildw/config.status: configure
+buildw/config.status: config-common-stamp
 	dh_testdir
 	(mkdir -p $(@D); cd $(@D); CFLAGS="$(CFLAGS) -DXML_UNICODE" CPPFLAGS="$(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" \
 	 ../configure $(CONFFLAGS) --prefix=/usr --mandir=\$${prefix}/share/man --libdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH))
 
-build64/config.status: configure
+build64/config.status: config-common-stamp
 	dh_testdir
 	(mkdir -p $(@D); cd $(@D); CFLAGS="-m64 $(CFLAGS)" CPPFLAGS="$(CPPFLAGS)"  LDFLAGS="$(LDFLAGS)" \
 	 ../configure $(CONFFLAGS) $(HOST64FLAG) --prefix=/usr --mandir=\$${prefix}/share/man \
 	 --libdir=\$${prefix}/lib64)
 
-buildw64/config.status: configure
+buildw64/config.status: config-common-stamp
 	dh_testdir
 	(mkdir -p $(@D); cd $(@D); CFLAGS="-m64 $(CFLAGS) -DXML_UNICODE" CPPFLAGS="$(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" \
 	 ../configure $(CONFFLAGS) $(HOST64FLAG) --prefix=/usr --mandir=\$${prefix}/share/man \
@@ -70,18 +80,19 @@ clean:
 	dh_testroot
 	rm -rf build/ build64/ buildw/ buildw64/
 	rm -rf debian/tmp/
-	dh_clean build-stamp debian/xmlwf.1
+	dh_autoreconf_clean
+	dh_clean config-common-stamp build-stamp debian/xmlwf.1
 
 build: build-stamp
 build-arch: build-stamp
 build-indep: build-stamp
 build-stamp: build/config.status buildw/config.status $(if $(BUILD64), build64/config.status buildw64/config.status)
 	dh_testdir
-	$(MAKE) -C build/
-	$(MAKE) -C buildw/ buildlib LIBRARY=libexpatw.la
+	$(MAKE) $(NJOBS) -C build/
+	$(MAKE) $(NJOBS) -C buildw/ buildlib LIBRARY=libexpatw.la
 ifneq ($(BUILD64),)
-	$(MAKE) -C build64/ buildlib
-	$(MAKE) -C buildw64/ buildlib LIBRARY=libexpatw.la
+	$(MAKE) $(NJOBS) -C build64/ buildlib
+	$(MAKE) $(NJOBS) -C buildw64/ buildlib LIBRARY=libexpatw.la
 endif
 	docbook-to-man doc/xmlwf.sgml > debian/xmlwf.1
 	touch $@
@@ -89,7 +100,7 @@ endif
 install: build
 	dh_testdir
 	dh_testroot
-	dh_clean -k
+	dh_prep
 	dh_installdirs
 	$(MAKE) -C build/ install DESTDIR=$(CURDIR)/debian/tmp
 	$(MAKE) -C buildw/ installlib LIBRARY=libexpatw.la DESTDIR=$(CURDIR)/debian/tmp APIHEADER=
@@ -106,6 +117,8 @@ endif
 		rm -f $$i ; \
 		ln -s /lib/$(DEB_HOST_MULTIARCH)/$$dest $$i ; \
 	done
+	mkdir -p debian/tmp/usr/include/$(DEB_HOST_MULTIARCH)
+	mv debian/tmp/usr/include/expat_config.h debian/tmp/usr/include/$(DEB_HOST_MULTIARCH)/.
 
 binary-indep: build install
 binary-arch: build install

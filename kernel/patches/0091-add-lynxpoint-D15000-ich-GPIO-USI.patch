@@ -1,0 +1,127 @@
+From bf1eb2ac0ee44e722e4e782d5fe85b695027e1fc Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 17:02:13 -0800
+Subject: [PATCH 91/93] add lynxpoint D15000 ich GPIO (USI)
+
+---
+ drivers/gpio/gpio-ich.c     | 31 ++++++++++++++++++++++++++++++-
+ drivers/mfd/lpc_ich.c       |  6 +++++-
+ include/linux/mfd/lpc_ich.h |  1 +
+ 3 files changed, 36 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpio/gpio-ich.c b/drivers/gpio/gpio-ich.c
+index 4ba7ed5..e048124 100644
+--- a/drivers/gpio/gpio-ich.c
++++ b/drivers/gpio/gpio-ich.c
+@@ -65,6 +65,17 @@ static const u8 avoton_reglen[3] = {
+ 	0x10, 0x10, 0x00,
+ };
+ 
++static const u8 lpt_regs[4][3] = {
++	{0x00, 0x30, 0x40},
++	{0x04, 0x34, 0x44},
++	{0x0c, 0x38, 0x48},
++};
++
++static const u8 lpt_reglen[3] = {
++	0x10, 0x10, 0x10,
++};
++
++
+ #define ICHX_WRITE(val, reg, base_res)	outl(val, (reg) + (base_res)->start)
+ #define ICHX_READ(reg, base_res)	inl((reg) + (base_res)->start)
+ 
+@@ -384,6 +395,14 @@ static struct ichx_desc avoton_desc = {
+ 	.use_outlvl_cache = true,
+ };
+ 
++/* Lynx Point */
++static struct ichx_desc lpt_desc = {
++	.ngpio = 76,
++	.regs = lpt_regs,
++	.reglen = lpt_reglen,
++	.use_outlvl_cache = true,
++};
++
+ static int ichx_gpio_request_regions(struct resource *res_base,
+ 						const char *name, u8 use_gpio)
+ {
+@@ -428,7 +447,7 @@ static void ichx_gpio_release_regions(struct resource *res_base, u8 use_gpio)
+ static int ichx_gpio_probe(struct platform_device *pdev)
+ {
+ 	struct resource *res_base, *res_pm;
+-	int err;
++	int err, i;
+ 	struct lpc_ich_info *ich_info = dev_get_platdata(&pdev->dev);
+ 
+ 	if (!ich_info)
+@@ -461,6 +480,10 @@ static int ichx_gpio_probe(struct platform_device *pdev)
+ 	case AVOTON_GPIO:
+ 		ichx_priv.desc = &avoton_desc;
+ 		break;
++	case LPT_GPIO:
++		ichx_priv.desc = &lpt_desc;
++		break;
++
+ 	default:
+ 		return -ENODEV;
+ 	}
+@@ -508,6 +531,12 @@ init:
+ 	pr_info("GPIO from %d to %d on %s\n", ichx_priv.chip.base,
+ 	       ichx_priv.chip.base + ichx_priv.chip.ngpio - 1, DRV_NAME);
+ 
++	for (i = 0; i < ARRAY_SIZE(ichx_priv.desc->regs[0]); i++) {
++		ichx_priv.outlvl_cache[i] =
++			ICHX_READ(ichx_priv.desc->regs[GPIO_LVL][i],
++					ichx_priv.gpio_base);
++	}
++
+ 	return 0;
+ 
+ add_err:
+diff --git a/drivers/mfd/lpc_ich.c b/drivers/mfd/lpc_ich.c
+index 2b5f4b4..29201a4 100644
+--- a/drivers/mfd/lpc_ich.c
++++ b/drivers/mfd/lpc_ich.c
+@@ -491,6 +491,7 @@ static struct lpc_ich_info lpc_chipset_info[] = {
+ 	[LPC_LPT] = {
+ 		.name = "Lynx Point",
+ 		.iTCO_version = 2,
++		.gpio_version = LPT_GPIO,
+ 	},
+ 	[LPC_LPT_LP] = {
+ 		.name = "Lynx Point_LP",
+@@ -877,7 +878,7 @@ static int lpc_ich_check_conflict_gpio(struct resource *res)
+ 	if (!acpi_check_region(res->start + 0x30, 0x10, "LPC ICH GPIO2"))
+ 		use_gpio |= 1 << 1;
+ 
+-	ret = acpi_check_region(res->start + 0x00, 0x30, "LPC ICH GPIO1");
++	ret = acpi_check_region(res->start + 0x00, 0x10, "LPC ICH GPIO1");
+ 	if (!ret)
+ 		use_gpio |= 1 << 0;
+ 
+@@ -936,6 +937,9 @@ gpe0_done:
+ 	case ICH_V10CORP_GPIO:
+ 		res->end = res->start + 128 - 1;
+ 		break;
++	case LPT_GPIO:
++		res->end = res->start + 0x50 - 1;
++		break;
+ 	default:
+ 		res->end = res->start + 64 - 1;
+ 		break;
+diff --git a/include/linux/mfd/lpc_ich.h b/include/linux/mfd/lpc_ich.h
+index 2b300b4..477f1e4 100644
+--- a/include/linux/mfd/lpc_ich.h
++++ b/include/linux/mfd/lpc_ich.h
+@@ -34,6 +34,7 @@ enum {
+ 	ICH_V10CORP_GPIO,
+ 	ICH_V10CONS_GPIO,
+ 	AVOTON_GPIO,
++	LPT_GPIO,
+ };
+ 
+ struct lpc_ich_info {
+-- 
+1.9.1
+

@@ -1,0 +1,69 @@
+From: Wenbo <Wenbo.Guo@netgear.com>
+Date: Thu, 6 Dec 2018 15:55:23 +0000
+Subject: CESMB-107: Avoid incorrect CNID requests to tear down the connection
+
+When fetching metadata attribute values for a CNID(inode) fails,
+simply add nill values for all attributes to avoid the connection being
+teared down.
+
+Signed-off-by: Wenbo <Wenbo.Guo@netgear.com>
+---
+ source3/rpc_server/mdssvc/mdssvc.c | 41 ++++++++++++++++++++++----------------
+ 1 file changed, 24 insertions(+), 17 deletions(-)
+
+diff --git a/source3/rpc_server/mdssvc/mdssvc.c b/source3/rpc_server/mdssvc/mdssvc.c
+index 1c75a0c..d521512 100644
+--- a/source3/rpc_server/mdssvc/mdssvc.c
++++ b/source3/rpc_server/mdssvc/mdssvc.c
+@@ -1646,27 +1646,34 @@ static bool slrpc_fetch_attributes(struct mds_ctx *mds_ctx,
+ 	status = dbwrap_fetch(mds_ctx->ino_path_map, reply,
+ 			      make_tdb_data((void*)&ino, sizeof(uint64_t)),
+ 			      &val);
+-	if (!NT_STATUS_IS_OK(status)) {
+-		DEBUG(1, ("Failed to fetch inode: %s\n", nt_errstr(status)));
+-		goto error;
+-	}
+-	if (val.dsize != sizeof(p)) {
+-		DEBUG(1, ("invalid record pointer size: %zd\n", val.dsize));
+-		TALLOC_FREE(val.dptr);
+-		goto error;
+-	}
++	if (NT_STATUS_IS_OK(status)) {
++		if (val.dsize != sizeof(p)) {
++			DEBUG(1, ("invalid record pointer size: %zd\n", val.dsize));
++			TALLOC_FREE(val.dptr);
++			goto error;
++		}
+ 
+-	memcpy(&p, val.dptr, sizeof(p));
+-	elem = talloc_get_type_abort(p, struct sl_inode_path_map);
++		memcpy(&p, val.dptr, sizeof(p));
++		elem = talloc_get_type_abort(p, struct sl_inode_path_map);
+ 
+-	result = sys_stat(elem->path, &sb, false);
+-	if (result != 0) {
+-		goto error;
++		result = sys_stat(elem->path, &sb, false);
++		if (result != 0) {
++			goto error;
++		}
++
++		ok = add_filemeta(reqinfo, fm_array, elem->path, &sb);
++		if (!ok) {
++			goto error;
++		}
+ 	}
++	else {
++		DEBUG(1, ("Failed to fetch inode: %s\n", nt_errstr(status)));
+ 
+-	ok = add_filemeta(reqinfo, fm_array, elem->path, &sb);
+-	if (!ok) {
+-		goto error;
++		//In this case, simply add nil values for all attributes to avoid connections being teared down
++		ok = add_filemeta(reqinfo, fm_array, NULL, NULL);
++		if (!ok) {
++			goto error;
++		}
+ 	}
+ 
+ 	sl_result = 0;

@@ -1,0 +1,76 @@
+From e20856acfb77581aea588afdc72870d586b5a3ac Mon Sep 17 00:00:00 2001
+From: Alex Vandiver <alex@chmrr.net>
+Date: Sun, 22 Mar 2015 22:45:54 -0400
+Subject: Allow unquoted UTF-8 HERE-document terminators
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When not explicitly quoted, tokenization of the HERE-document terminator
+dealt improperly with multi-byte characters, advancing one byte at a
+time instead of one character at a time.  This lead to
+incomprehensible-to-the-user errors of the form:
+
+    Passing malformed UTF-8 to "XPosixWord" is deprecated
+    Malformed UTF-8 character (unexpected continuation byte 0xa7, with
+      no preceding start byte)
+    Can't find string terminator "EnFra�" anywhere before EOF
+
+If enclosed in single or double quotes, parsing was correctly effected,
+as delimcpy advances byte-by-byte, but looks only for the single-byte
+ending character.
+
+When doing a \w+ match looking for the end of the word, advance
+character-by-character instead of byte-by-byte, ensuring that the size
+does not extend past the available size in PL_tokenbuf.
+
+(cherry picked from commit 6e59c8626d31f697a2b7b36cf8a200b36d93eac2)
+
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/unquoted_utf8_heredoc_terminators.diff
+---
+ t/lib/warnings/toke | 11 +++++++++++
+ toke.c              | 10 +++++++---
+ 2 files changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/t/lib/warnings/toke b/t/lib/warnings/toke
+index 6764ae619..aabdda0ed 100644
+--- a/t/lib/warnings/toke
++++ b/t/lib/warnings/toke
+@@ -1520,3 +1520,14 @@ my @array = (0);
+ my $v = $array[ 0 + $𝛃 ];
+    $v = $array[ $𝛃 + 0 ];
+ EXPECT
++########
++# toke.c
++# Allow Unicode here doc boundaries
++use warnings;
++use utf8;
++my $v = <<EnFraçais;
++Comme ca!
++EnFraçais
++print $v;
++EXPECT
++Comme ca!
+diff --git a/toke.c b/toke.c
+index b112cde5b..c4657ebb5 100644
+--- a/toke.c
++++ b/toke.c
+@@ -10060,10 +10060,14 @@ S_scan_heredoc(pTHX_ char *s)
+ 	    term = '"';
+ 	if (!isWORDCHAR_lazy_if(s,UTF))
+ 	    deprecate("bare << to mean <<\"\"");
+-	for (; isWORDCHAR_lazy_if(s,UTF); s++) {
+-	    if (d < e)
+-		*d++ = *s;
++	peek = s;
++	while (isWORDCHAR_lazy_if(peek,UTF)) {
++	    peek += UTF ? UTF8SKIP(peek) : 1;
+ 	}
++	len = (peek - s >= e - d) ? (e - d) : (peek - s);
++	Copy(s, d, len, char);
++	s += len;
++	d += len;
+     }
+     if (d >= PL_tokenbuf + sizeof PL_tokenbuf - 1)
+ 	Perl_croak(aTHX_ "Delimiter for here document is too long");

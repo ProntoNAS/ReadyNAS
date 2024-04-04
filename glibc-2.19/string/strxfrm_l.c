@@ -100,9 +100,11 @@ static __always_inline size_t
 find_idx (const USTRING_TYPE **us, int32_t *weight_idx,
 	  unsigned char *rule_idx, const locale_data_t *l_data, const int pass)
 {
-  const int32_t *table = l_data->table;
-  const int32_t *indirect = l_data->indirect;
-  const USTRING_TYPE *extra = l_data->extra;
+  /* Prepare variables required by findidx().  */
+  int32_t *table = l_data->table;
+  int32_t *indirect = l_data->indirect;
+  USTRING_TYPE *extra = l_data->extra;
+
 #include WEIGHT_H
   int32_t tmp = findidx (us, -1);
   *rule_idx = tmp >> 24;
@@ -672,10 +674,6 @@ STRXFRM (STRING_TYPE *dest, const STRING_TYPE *src, size_t n, __locale_t l)
 {
   locale_data_t l_data;
   struct __locale_data *current = l->__locales[LC_COLLATE];
-  const int32_t *table;
-  const int32_t *indirect;
-  const USTRING_TYPE *extra;
-#include WEIGHT_H
   l_data.nrules = current->values[_NL_ITEM_INDEX (_NL_COLLATE_NRULES)].word;
 
   /* Handle byte comparison case.  */
@@ -708,9 +706,6 @@ STRXFRM (STRING_TYPE *dest, const STRING_TYPE *src, size_t n, __locale_t l)
     current->values[_NL_ITEM_INDEX (CONCAT(_NL_COLLATE_EXTRA,SUFFIX))].string;
   l_data.indirect = (int32_t *)
     current->values[_NL_ITEM_INDEX (CONCAT(_NL_COLLATE_INDIRECT,SUFFIX))].string;
-  table = l_data.table;
-  indirect = l_data.indirect;
-  extra = l_data.extra;
 
   assert (((uintptr_t) l_data.table) % __alignof__ (l_data.table[0]) == 0);
   assert (((uintptr_t) l_data.weights) % __alignof__ (l_data.weights[0]) == 0);
@@ -728,6 +723,11 @@ STRXFRM (STRING_TYPE *dest, const STRING_TYPE *src, size_t n, __locale_t l)
   const USTRING_TYPE *cur = usrc;
   int32_t *idxarr = alloca (SMALL_STR_SIZE * sizeof (int32_t));
   unsigned char *rulearr = alloca (SMALL_STR_SIZE + 1);
+  /* Prepare variables required by findidx().  */
+  int32_t *table = l_data.table;
+  int32_t *indirect = l_data.indirect;
+  USTRING_TYPE *extra = l_data.extra;
+#include WEIGHT_H
 
   do
     {

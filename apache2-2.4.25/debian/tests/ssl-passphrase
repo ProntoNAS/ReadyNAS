@@ -1,0 +1,54 @@
+#!/bin/sh
+set -ex
+
+# Check that the init script correctly prompts for the passphrase on startup,
+# then starts and responds correctly to https queries.
+#
+# Author: Robie Basak <robie.basak@ubuntu.com>
+
+cd /etc/ssl/private
+[ -f ssl-cert-snakeoil.key.nopassphrase ] || mv ssl-cert-snakeoil.key ssl-cert-snakeoil.key.nopassphrase
+openssl rsa -des3 -in ssl-cert-snakeoil.key.nopassphrase -out ssl-cert-snakeoil.key -passout pass:test
+a2enmod ssl
+a2ensite default-ssl
+
+# respond to systemd-ask-passphrase
+password_responder() {
+    while [ ! -e /run/systemd/ask-password/sck.* ]; do sleep 1; done
+    echo "ssl-passphrase test password responder: found prompt, sending password"
+    echo test | /lib/systemd/systemd-reply-password 1 /run/systemd/ask-password/sck.*
+}
+password_responder &
+
+# run expect for running under sysvinit/upstart
+expect <<EOT
+spawn service apache2 restart
+set timeout 600
+expect {
+	"assphrase:" {send "test\r"}
+
+	# Failure cases
+	"failed" {exit 1}
+	eof {exit 0}
+}
+
+# wait for eof and return exit code from spawned process back to the caller
+expect eof
+catch wait result
+exit [lindex \$result 3]
+EOT
+
+echo "Hello, world!" > /var/www/html/hello.txt
+
+# Use curl here. wget doesn't work on Debian, even with --no-check-certificate
+# wget on Debian gives me:
+#    GnuTLS: A TLS warning alert has been received.
+#    Unable to establish SSL connection.
+# Presumably this is due to the self-signed certificate, but I'm not sure how
+# to skip the warning with wget. curl will do for now.
+result=`curl -k https://localhost/hello.txt`
+
+if [ "$result" != "Hello, world!" ]; then
+    echo "Unexpected result from wget" >&2
+    exit 1
+fi

@@ -560,6 +560,11 @@ zip_read_mac_metadata(struct archive_read *a, struct archive_entry *entry,
 
 	switch(rsrc->compression) {
 	case 0:  /* No compression. */
+		if (rsrc->uncompressed_size != rsrc->compressed_size) {
+			archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
+			    "Malformed OS X metadata entry: inconsistent size");
+			return (ARCHIVE_FATAL);
+		}
 #ifdef HAVE_ZLIB_H
 	case 8: /* Deflate compression. */
 #endif
@@ -578,6 +583,12 @@ zip_read_mac_metadata(struct archive_read *a, struct archive_entry *entry,
 		archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
 		    "Mac metadata is too large: %jd > 128K bytes",
 		    (intmax_t)rsrc->uncompressed_size);
+		return (ARCHIVE_WARN);
+	}
+	if (rsrc->compressed_size > (4 * 1024 * 1024)) {
+		archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
+		    "Mac metadata is too large: %jd > 4M bytes",
+		    (intmax_t)rsrc->compressed_size);
 		return (ARCHIVE_WARN);
 	}
 
@@ -619,6 +630,8 @@ zip_read_mac_metadata(struct archive_read *a, struct archive_entry *entry,
 			bytes_avail = remaining_bytes;
 		switch(rsrc->compression) {
 		case 0:  /* No compression. */
+			if ((size_t)bytes_avail > metadata_bytes)
+				bytes_avail = metadata_bytes;
 			memcpy(mp, p, bytes_avail);
 			bytes_used = (size_t)bytes_avail;
 			metadata_bytes -= bytes_used;
@@ -1619,10 +1632,12 @@ process_extra(const char *p, size_t extra_length, struct zip_entry* zip_entry)
 		switch (headerid) {
 		case 0x0001:
 			/* Zip64 extended information extra field. */
-			if (datasize >= 8)
+			if (datasize >= 8 &&
+			    zip_entry->uncompressed_size == 0xffffffff)
 				zip_entry->uncompressed_size =
 				    archive_le64dec(p + offset);
-			if (datasize >= 16)
+			if (datasize >= 16 &&
+			    zip_entry->compressed_size == 0xffffffff)
 				zip_entry->compressed_size =
 				    archive_le64dec(p + offset + 8);
 			break;
@@ -1701,7 +1716,7 @@ process_extra(const char *p, size_t extra_length, struct zip_entry* zip_entry)
 			if (datasize >= 1 && p[offset] == 1) {/* version=1 */
 				if (datasize >= 4) {
 					/* get a uid size. */
-					uidsize = p[offset+1];
+					uidsize = 0xff & (int)p[offset+1];
 					if (uidsize == 2)
 						zip_entry->uid =
 						    archive_le16dec(
@@ -1713,7 +1728,7 @@ process_extra(const char *p, size_t extra_length, struct zip_entry* zip_entry)
 				}
 				if (datasize >= (2 + uidsize + 3)) {
 					/* get a gid size. */
-					gidsize = p[offset+2+uidsize];
+					gidsize = 0xff & (int)p[offset+2+uidsize];
 					if (gidsize == 2)
 						zip_entry->gid =
 						    archive_le16dec(

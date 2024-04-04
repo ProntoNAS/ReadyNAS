@@ -19,7 +19,7 @@ PATH=/sbin:/bin
 . /lib/init/mount-functions.sh
 
 # May be run several times, so must be idempotent.
-# $1: Mount mode, to allow for remounting and mtab updating
+# $1: Mount mode, to allow for remounting
 mount_filesystems () {
 	MNTMODE="$1"
 
@@ -42,6 +42,16 @@ mount_filesystems () {
 	then
 		domount "$MNTMODE" sysfs "" /sys sysfs "-onodev,noexec,nosuid"
 	fi
+
+	if [ -d /sys/fs/pstore ]
+	then
+		domount "$MNTMODE" pstore "" /sys/fs/pstore pstore ""
+	fi
+
+	if [ -d /sys/kernel/config ]
+	then
+		domount "$MNTMODE" configfs "" /sys/kernel/config configfs ""
+	fi
 }
 
 case "$1" in
@@ -52,13 +62,10 @@ case "$1" in
   start)
 	mount_filesystems mount_noupdate
 	;;
-  mtab)
-	mount_filesystems mtab
-	;;
   restart|reload|force-reload)
 	mount_filesystems remount
 	;;
-  stop)
+  stop|status)
 	# No-op
 	;;
   *)

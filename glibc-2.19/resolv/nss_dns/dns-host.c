@@ -1270,8 +1270,8 @@ gaih_getanswer (const querybuf *answer1, int anslen1, const querybuf *answer2,
      expected application behaviour.  Some of the synthesized responses
      aren't very well thought out and sometimes appear to imply that
      IPv4 responses are always answer 1, and IPv6 responses are always
-     answer 2, but that's not true (see the implemetnation of send_dg
-     and send_vc to see response can arrive in any order, particlarly
+     answer 2, but that's not true (see the implementation of send_dg
+     and send_vc to see response can arrive in any order, particularly
      for UDP). However, we expect it holds roughly enough of the time
      that this code works, but certainly needs to be fixed to make this
      a more robust implementation.
@@ -1308,12 +1308,12 @@ gaih_getanswer (const querybuf *answer1, int anslen1, const querybuf *answer2,
      ----------------------------------------------
 
      [1] If the first response is a success we return success.
-         This ignores the state of the second answer and in fact
-         incorrectly sets errno and h_errno to that of the second
+	 This ignores the state of the second answer and in fact
+	 incorrectly sets errno and h_errno to that of the second
 	 answer.  However because the response is a success we ignore
 	 *errnop and *h_errnop (though that means you touched errno on
-         success).  We are being conservative here and returning the
-         likely IPv4 response in the first answer as a success.
+	 success).  We are being conservative here and returning the
+	 likely IPv4 response in the first answer as a success.
 
      [2] If the first response is a recoverable TRYAGAIN we return
 	 that instead of looking at the second response.  The
@@ -1367,7 +1367,7 @@ gaih_getanswer (const querybuf *answer1, int anslen1, const querybuf *answer2,
       if (status != NSS_STATUS_SUCCESS && status2 != NSS_STATUS_NOTFOUND)
 	status = status2;
       /* Do not return a truncated second response (unless it was
-         unavoidable e.g. unrecoverable TRYAGAIN).  */
+	 unavoidable e.g. unrecoverable TRYAGAIN).  */
       if (status == NSS_STATUS_SUCCESS
 	  && (status2 == NSS_STATUS_TRYAGAIN
 	      && *errnop == ERANGE && *h_errnop != NO_RECOVERY))

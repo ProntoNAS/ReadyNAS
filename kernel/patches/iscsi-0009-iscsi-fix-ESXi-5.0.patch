@@ -1,0 +1,29 @@
+From d47c7c2af7ac52f935ca2989ef7a6cd3f75b5d52 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 14:59:44 -0800
+Subject: [PATCH 09/10] iscsi: fix ESXi 5.0
+
+Correct a wrong data length sent by VMWare ESXi 5.0.
+---
+ drivers/target/target_core_spc.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/target/target_core_spc.c b/drivers/target/target_core_spc.c
+index 3e5aa78..0404c12 100644
+--- a/drivers/target/target_core_spc.c
++++ b/drivers/target/target_core_spc.c
+@@ -1333,6 +1333,11 @@ spc_parse_cdb(struct se_cmd *cmd, unsigned int *size)
+ 	case INQUIRY:
+ 		*size = (cdb[3] << 8) + cdb[4];
+ 
++		/* Correct the wrong data length from VMWare ESXi 5.0
++		   - JASON QIAN @ NETGEAR */
++		if (cmd->data_length > *size)
++			cmd->data_length = *size;
++
+ 		/*
+ 		 * Do implicit HEAD_OF_QUEUE processing for INQUIRY.
+ 		 * See spc4r17 section 5.3
+-- 
+1.9.1
+

@@ -87,7 +87,7 @@ int main(int argc, char *argv[]) {
 
         /* Wait for 20 seconds for the return value passed from the daemon process */
         if ((ret = daemon_retval_wait(20)) < 0) {
-            daemon_log(LOG_ERR, "Could not recieve return value from daemon process: %s", strerror(errno));
+            daemon_log(LOG_ERR, "Could not receive return value from daemon process: %s", strerror(errno));
             return 255;
         }
 

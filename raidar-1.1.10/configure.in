@@ -1,0 +1,264 @@
+dnl Process this file with autoconf to produce a configure script.
+AC_INIT(raidard.h)
+AM_CONFIG_HEADER(config.h)
+
+dnl Checks for programs.
+AC_PROG_CC
+AC_PROG_INSTALL
+
+dnl Check if C compiler understands -c and -o at the same time
+AC_PROG_CC_C_O
+if eval "test \"`echo '$ac_cv_prog_cc_'${ac_cc}_c_o`\" = no"; then
+      BROKEN_CC=
+else
+      BROKEN_CC=#
+fi
+AC_SUBST(BROKEN_CC)
+
+dnl Check if the C compiler understands volatile (it should, being ANSI).
+AC_CACHE_CHECK([that the C compiler understands volatile],raidard_cv_volatile, [
+    AC_TRY_COMPILE([#include <sys/types.h>],[volatile int i = 0],
+	raidard_cv_volatile=yes,raidard_cv_volatile=no)])
+if test x"$raidard_cv_volatile" = x"yes"; then
+   AC_DEFINE(HAVE_VOLATILE)
+fi
+
+AM_INIT_AUTOMAKE(raidard, 0.0.0)
+
+AC_INLINE
+AC_HEADER_STDC
+AC_HEADER_TIME
+AC_HEADER_SYS_WAIT
+AC_CHECK_HEADERS(arpa/inet.h fcntl.h)
+AC_CHECK_HEADERS(sys/time.h)
+AC_CHECK_HEADERS(unistd.h net/if.h)
+AC_CHECK_HEADERS(ctype.h sys/wait.h)
+AC_CHECK_HEADERS(sys/resource.h sys/ioctl.h)
+AC_CHECK_HEADERS(string.h strings.h stdlib.h sys/socket.h)
+AC_CHECK_HEADERS(sys/sockio.h)
+
+#
+# HPUX has a bug in that including shadow.h causes a re-definition of MAXINT.
+# This causes configure to fail to detect it. Check for shadow separately on HPUX.
+#
+case "$host_os" in
+    *hpux*)
+		AC_TRY_COMPILE([#include <shadow.h>],[struct spwd testme],
+			ac_cv_header_shadow_h=yes,ac_cv_header_shadow_h=no)
+		if test x"$ac_cv_header_shadow_h" = x"yes"; then
+		   AC_DEFINE(HAVE_SHADOW_H)
+		fi
+	;;
+esac
+
+AC_CHECK_SIZEOF(char,cross)
+AC_CHECK_SIZEOF(int,cross)
+AC_CHECK_SIZEOF(long,cross)
+AC_CHECK_SIZEOF(short,cross)
+
+AC_C_CONST
+AC_C_INLINE
+AC_C_BIGENDIAN
+AC_C_CHAR_UNSIGNED
+
+AC_TYPE_SIGNAL
+AC_TYPE_UID_T
+AC_TYPE_MODE_T
+AC_TYPE_OFF_T
+AC_TYPE_SIZE_T
+AC_TYPE_PID_T
+AC_STRUCT_ST_RDEV
+AC_CHECK_TYPE(offset_t,loff_t)
+AC_CHECK_TYPE(ssize_t, int)
+
+AC_FUNC_MEMCMP
+
+# The following test taken from the cvs sources
+# If we can't find connect, try looking in -lsocket, -lnsl, and -linet.
+# The Irix 5 libc.so has connect and gethostbyname, but Irix 5 also has
+# libsocket.so which has a bad implementation of gethostbyname (it
+# only looks in /etc/hosts), so we only look for -lsocket if we need
+# it.
+AC_CHECK_FUNCS(connect)
+if test x"$ac_cv_func_connect" = x"no"; then
+    case "$LIBS" in
+    *-lnsl*) ;;
+    *) AC_CHECK_LIB(nsl_s, printf) ;;
+    esac
+    case "$LIBS" in
+    *-lnsl*) ;;
+    *) AC_CHECK_LIB(nsl, printf) ;;
+    esac
+    case "$LIBS" in
+    *-lsocket*) ;;
+    *) AC_CHECK_LIB(socket, connect) ;;
+    esac
+    case "$LIBS" in
+    *-linet*) ;;
+    *) AC_CHECK_LIB(inet, connect) ;;
+    esac
+    dnl We can't just call AC_CHECK_FUNCS(connect) here, because the value
+    dnl has been cached.
+    if test x"$ac_cv_lib_socket_connect" = x"yes" || 
+       test x"$ac_cv_lib_inet_connect" = x"yes"; then
+        # ac_cv_func_connect=yes
+        # don't!  it would cause AC_CHECK_FUNC to succeed next time configure is run
+        AC_DEFINE(HAVE_CONNECT)
+    fi
+fi
+
+AC_CHECK_FUNCS(waitpid strtoul)
+AC_CHECK_FUNCS(strchr bzero memset)
+AC_CHECK_FUNCS(memmove snprintf asprintf)
+AC_CHECK_FUNCS(select)
+
+AC_CACHE_CHECK([for unsigned char],raidard_cv_HAVE_UNSIGNED_CHAR,[
+AC_TRY_RUN([#include <stdio.h>
+main() { char c; c=250; exit((c > 0)?0:1); }],
+raidard_cv_HAVE_UNSIGNED_CHAR=yes,raidard_cv_HAVE_UNSIGNED_CHAR=no,raidard_cv_HAVE_UNSIGNED_CHAR=cross)])
+if test x"$raidard_cv_HAVE_UNSIGNED_CHAR" = x"yes"; then
+    AC_DEFINE(HAVE_UNSIGNED_CHAR)
+fi
+
+AC_CACHE_CHECK([for __FUNCTION__ macro],raidard_cv_HAVE_FUNCTION_MACRO,[
+AC_TRY_COMPILE([#include <stdio.h>], [printf("%s\n", __FUNCTION__);],
+raidard_cv_HAVE_FUNCTION_MACRO=yes,raidard_cv_HAVE_FUNCTION_MACRO=no)])
+if test x"$raidard_cv_HAVE_FUNCTION_MACRO" = x"yes"; then
+    AC_DEFINE(HAVE_FUNCTION_MACRO)
+fi
+
+AC_CACHE_CHECK([if gettimeofday takes tz argument],raidard_cv_HAVE_GETTIMEOFDAY_TZ,[
+AC_TRY_RUN([
+#include <sys/time.h>
+#include <unistd.h>
+main() { struct timeval tv; exit(gettimeofday(&tv, NULL));}],
+           raidard_cv_HAVE_GETTIMEOFDAY_TZ=yes,raidard_cv_HAVE_GETTIMEOFDAY_TZ=no,raidard_cv_HAVE_GETTIMEOFDAY_TZ=cross)])
+if test x"$raidard_cv_HAVE_GETTIMEOFDAY_TZ" = x"yes"; then
+    AC_DEFINE(HAVE_GETTIMEOFDAY_TZ)
+fi
+
+AC_CACHE_CHECK([for C99 vsnprintf],raidard_cv_HAVE_C99_VSNPRINTF,[
+AC_TRY_RUN([
+#include <sys/types.h>
+#include <stdarg.h>
+void foo(const char *format, ...) { 
+       va_list ap;
+       int len;
+       char buf[5];
+
+       va_start(ap, format);
+       len = vsnprintf(0, 0, format, ap);
+       va_end(ap);
+       if (len != 5) exit(1);
+
+       if (snprintf(buf, 3, "hello") != 5 || strcmp(buf, "he") != 0) exit(1);
+
+       exit(0);
+}
+main() { foo("hello"); }
+],
+raidard_cv_HAVE_C99_VSNPRINTF=yes,raidard_cv_HAVE_C99_VSNPRINTF=no,raidard_cv_HAVE_C99_VSNPRINTF=cross)])
+if test x"$raidard_cv_HAVE_C99_VSNPRINTF" = x"yes"; then
+    AC_DEFINE(HAVE_C99_VSNPRINTF)
+fi
+
+AC_CACHE_CHECK([for broken inet_ntoa],raidard_cv_REPLACE_INET_NTOA,[
+AC_TRY_RUN([
+#include <stdio.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#ifdef HAVE_ARPA_INET_H
+#include <arpa/inet.h>
+#endif
+main() { struct in_addr ip; ip.s_addr = 0x12345678;
+if (strcmp(inet_ntoa(ip),"18.52.86.120") &&
+    strcmp(inet_ntoa(ip),"120.86.52.18")) { exit(0); } 
+exit(1);}],
+           raidard_cv_REPLACE_INET_NTOA=yes,raidard_cv_REPLACE_INET_NTOA=no,raidard_cv_REPLACE_INET_NTOA=cross)])
+if test x"$raidard_cv_REPLACE_INET_NTOA" = x"yes"; then
+    AC_DEFINE(REPLACE_INET_NTOA)
+fi
+
+##################
+# look for a method of finding the list of network interfaces
+iface=no;
+AC_CACHE_CHECK([for iface AIX],raidard_cv_HAVE_IFACE_AIX,[
+AC_TRY_RUN([
+#define HAVE_IFACE_AIX 1
+#define AUTOCONF_TEST 1
+#include "confdefs.h"
+#include "${srcdir-.}/interfaces.c"],
+           raidard_cv_HAVE_IFACE_AIX=yes,raidard_cv_HAVE_IFACE_AIX=no,raidard_cv_HAVE_IFACE_AIX=cross)])
+if test x"$raidard_cv_HAVE_IFACE_AIX" = x"yes"; then
+    iface=yes;AC_DEFINE(HAVE_IFACE_AIX)
+fi
+
+if test $iface = no; then
+AC_CACHE_CHECK([for iface ifconf],raidard_cv_HAVE_IFACE_IFCONF,[
+AC_TRY_RUN([
+#define HAVE_IFACE_IFCONF 1
+#define AUTOCONF_TEST 1
+#include "confdefs.h"
+#include "${srcdir-.}/interfaces.c"],
+           raidard_cv_HAVE_IFACE_IFCONF=yes,raidard_cv_HAVE_IFACE_IFCONF=no,raidard_cv_HAVE_IFACE_IFCONF=cross)])
+if test x"$raidard_cv_HAVE_IFACE_IFCONF" = x"yes"; then
+    iface=yes;AC_DEFINE(HAVE_IFACE_IFCONF)
+fi
+fi
+
+if test $iface = no; then
+AC_CACHE_CHECK([for iface ifreq],raidard_cv_HAVE_IFACE_IFREQ,[
+AC_TRY_RUN([
+#define HAVE_IFACE_IFREQ 1
+#define AUTOCONF_TEST 1
+#include "confdefs.h"
+#include "${srcdir-.}/interfaces.c"],
+           raidard_cv_HAVE_IFACE_IFREQ=yes,raidard_cv_HAVE_IFACE_IFREQ=no,raidard_cv_HAVE_IFACE_IFREQ=cross)])
+if test x"$raidard_cv_HAVE_IFACE_IFREQ" = x"yes"; then
+    iface=yes;AC_DEFINE(HAVE_IFACE_IFREQ)
+fi
+fi
+
+
+
+#################################################
+# check for syslog logging
+AC_MSG_CHECKING(whether to use syslog logging)
+AC_ARG_WITH(syslog,
+[  --with-syslog     Include experimental SYSLOG support
+  --without-syslog  Don't include SYSLOG support (default)],
+[ case "$withval" in
+  yes)
+    AC_MSG_RESULT(yes)
+    AC_DEFINE(WITH_SYSLOG)
+    ;;
+  *)
+    AC_MSG_RESULT(no)
+    ;;
+  esac ],
+  AC_MSG_RESULT(no)
+)
+
+#################################################
+# check for a shared memory profiling support
+AC_MSG_CHECKING(whether to use profiling)
+AC_ARG_WITH(profile,
+[  --with-profile     Include profile support
+  --without-profile  Don't include profile support (default)],
+[ case "$withval" in
+  yes)
+    AC_MSG_RESULT(yes)
+    AC_DEFINE(WITH_PROFILE)
+    ;;
+  *)
+    AC_MSG_RESULT(no)
+    ;;
+  esac ],
+  AC_MSG_RESULT(no)
+)
+
+
+builddir=`pwd`
+AC_SUBST(builddir)
+
+AC_OUTPUT(Makefile)

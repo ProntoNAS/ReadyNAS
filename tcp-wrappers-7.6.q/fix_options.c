@@ -32,14 +32,15 @@ static char sccsid[] = "@(#) fix_options.c 1.6 97/04/08 02:29:19";
 
 /* fix_options - get rid of IP-level socket options */
 
-fix_options(request)
+void fix_options(request)
 struct request_info *request;
 {
 #ifdef IP_OPTIONS
     unsigned char optbuf[BUFFER_SIZE / 3], *cp;
     char    lbuf[BUFFER_SIZE], *lp;
 #ifdef __GLIBC__
-    size_t  optsize = sizeof(optbuf), ipproto;
+    socklen_t optsize = sizeof(optbuf);
+    int     ipproto;
 #else
     int     optsize = sizeof(optbuf), ipproto;
 #endif

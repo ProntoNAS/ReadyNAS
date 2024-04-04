@@ -1,8 +1,13 @@
-Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
-===================================================================
---- openssl-1.0.1g.orig/crypto/aes/asm/aes-ppc.pl	2014-03-17 16:14:20.000000000 +0000
-+++ openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl	2014-04-23 19:22:08.000000000 +0000
-@@ -45,6 +45,8 @@
+---
+ crypto/aes/asm/aes-ppc.pl    |  113 ++++++++++++++++++++++++++++++++++++++-----
+ crypto/perlasm/ppc-xlate.pl  |   45 ++++++++++++++---
+ crypto/sha/asm/sha1-ppc.pl   |   30 +++++++++--
+ crypto/sha/asm/sha512-ppc.pl |  107 ++++++++++++++++++++++++----------------
+ 4 files changed, 229 insertions(+), 66 deletions(-)
+
+--- a/crypto/aes/asm/aes-ppc.pl
++++ b/crypto/aes/asm/aes-ppc.pl
+@@ -45,6 +45,8 @@ if ($flavour =~ /64/) {
  	$PUSH	="stw";
  } else { die "nonsense $flavour"; }
  
@@ -11,7 +16,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  $0 =~ m/(.*[\/\\])[^\/\\]+$/; $dir=$1;
  ( $xlate="${dir}ppc-xlate.pl" and -f $xlate ) or
  ( $xlate="${dir}../../perlasm/ppc-xlate.pl" and -f $xlate) or
-@@ -68,7 +70,7 @@
+@@ -68,7 +70,7 @@ sub _data_word()
  $Tbl0="r3";
  $Tbl1="r6";
  $Tbl2="r7";
@@ -20,7 +25,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  
  $s0="r8";
  $s1="r9";
-@@ -76,7 +78,7 @@
+@@ -76,7 +78,7 @@ sub _data_word()
  $s3="r11";
  
  $t0="r12";
@@ -29,7 +34,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  $t2="r14";
  $t3="r15";
  
-@@ -100,9 +102,6 @@
+@@ -100,9 +102,6 @@ sub _data_word()
  $acc14="r30";
  $acc15="r31";
  
@@ -39,7 +44,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  $mask80=$Tbl2;
  $mask1b=$Tbl3;
  
-@@ -337,8 +336,7 @@
+@@ -337,8 +336,7 @@ else		{ die if ($Tbl3 ne "r2"); $Tbl3=$t
  	$STU	$sp,-$FRAME($sp)
  	mflr	r0
  
@@ -49,7 +54,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  	$PUSH	r14,`$FRAME-$SIZE_T*18`($sp)
  	$PUSH	r15,`$FRAME-$SIZE_T*17`($sp)
  	$PUSH	r16,`$FRAME-$SIZE_T*16`($sp)
-@@ -365,16 +363,61 @@
+@@ -365,16 +363,61 @@ else		{ die if ($Tbl3 ne "r2"); $Tbl3=$t
  	bne	Lenc_unaligned
  
  Lenc_unaligned_ok:
@@ -111,7 +116,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  	b	Lenc_done
  
  Lenc_unaligned:
-@@ -417,6 +460,7 @@
+@@ -417,6 +460,7 @@ else		{ die if ($Tbl3 ne "r2"); $Tbl3=$t
  
  	bl	LAES_Te
  	bl	Lppc_AES_encrypt_compact
@@ -119,7 +124,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  
  	extrwi	$acc00,$s0,8,0
  	extrwi	$acc01,$s0,8,8
-@@ -449,8 +493,6 @@
+@@ -449,8 +493,6 @@ else		{ die if ($Tbl3 ne "r2"); $Tbl3=$t
  
  Lenc_done:
  	$POP	r0,`$FRAME+$LRSAVE`($sp)
@@ -128,7 +133,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  	$POP	r14,`$FRAME-$SIZE_T*18`($sp)
  	$POP	r15,`$FRAME-$SIZE_T*17`($sp)
  	$POP	r16,`$FRAME-$SIZE_T*16`($sp)
-@@ -764,6 +806,7 @@
+@@ -764,6 +806,7 @@ else		{ die if ($Tbl3 ne "r2"); $Tbl3=$t
  	blr
  	.long	0
  	.byte	0,12,0x14,0,0,0,0,0
@@ -136,7 +141,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  
  .globl	.AES_decrypt
  .align	7
-@@ -771,8 +814,7 @@
+@@ -771,8 +814,7 @@ else		{ die if ($Tbl3 ne "r2"); $Tbl3=$t
  	$STU	$sp,-$FRAME($sp)
  	mflr	r0
  
@@ -146,7 +151,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  	$PUSH	r14,`$FRAME-$SIZE_T*18`($sp)
  	$PUSH	r15,`$FRAME-$SIZE_T*17`($sp)
  	$PUSH	r16,`$FRAME-$SIZE_T*16`($sp)
-@@ -799,16 +841,61 @@
+@@ -799,16 +841,61 @@ else		{ die if ($Tbl3 ne "r2"); $Tbl3=$t
  	bne	Ldec_unaligned
  
  Ldec_unaligned_ok:
@@ -208,7 +213,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  	b	Ldec_done
  
  Ldec_unaligned:
-@@ -851,6 +938,7 @@
+@@ -851,6 +938,7 @@ else		{ die if ($Tbl3 ne "r2"); $Tbl3=$t
  
  	bl	LAES_Td
  	bl	Lppc_AES_decrypt_compact
@@ -216,7 +221,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  
  	extrwi	$acc00,$s0,8,0
  	extrwi	$acc01,$s0,8,8
-@@ -883,8 +971,6 @@
+@@ -883,8 +971,6 @@ else		{ die if ($Tbl3 ne "r2"); $Tbl3=$t
  
  Ldec_done:
  	$POP	r0,`$FRAME+$LRSAVE`($sp)
@@ -225,7 +230,7 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  	$POP	r14,`$FRAME-$SIZE_T*18`($sp)
  	$POP	r15,`$FRAME-$SIZE_T*17`($sp)
  	$POP	r16,`$FRAME-$SIZE_T*16`($sp)
-@@ -1355,6 +1441,7 @@
+@@ -1355,6 +1441,7 @@ else		{ die if ($Tbl3 ne "r2"); $Tbl3=$t
  	blr
  	.long	0
  	.byte	0,12,0x14,0,0,0,0,0
@@ -233,11 +238,9 @@ Index: openssl-1.0.1g/crypto/aes/asm/aes-ppc.pl
  
  .asciz	"AES for PPC, CRYPTOGAMS by <appro\@openssl.org>"
  .align	7
-Index: openssl-1.0.1g/crypto/perlasm/ppc-xlate.pl
-===================================================================
---- openssl-1.0.1g.orig/crypto/perlasm/ppc-xlate.pl	2014-03-17 16:14:20.000000000 +0000
-+++ openssl-1.0.1g/crypto/perlasm/ppc-xlate.pl	2014-04-23 19:14:44.000000000 +0000
-@@ -27,7 +27,8 @@
+--- a/crypto/perlasm/ppc-xlate.pl
++++ b/crypto/perlasm/ppc-xlate.pl
+@@ -27,7 +27,8 @@ my $globl = sub {
  	/osx/		&& do { $name = "_$name";
  				last;
  			      };
@@ -247,7 +250,7 @@ Index: openssl-1.0.1g/crypto/perlasm/ppc-xlate.pl
  				$ret .= ".type	$name,\@function";
  				last;
  			      };
-@@ -37,7 +38,6 @@
+@@ -37,7 +38,6 @@ my $globl = sub {
  				$ret .= ".align	3\n";
  				$ret .= "$name:\n";
  				$ret .= ".quad	.$name,.TOC.\@tocbase,0\n";
@@ -255,7 +258,7 @@ Index: openssl-1.0.1g/crypto/perlasm/ppc-xlate.pl
  				$ret .= ".previous\n";
  
  				$name = ".$name";
-@@ -50,7 +50,9 @@
+@@ -50,7 +50,9 @@ my $globl = sub {
      $ret;
  };
  my $text = sub {
@@ -266,7 +269,7 @@ Index: openssl-1.0.1g/crypto/perlasm/ppc-xlate.pl
  };
  my $machine = sub {
      my $junk = shift;
-@@ -62,9 +64,12 @@
+@@ -62,9 +64,12 @@ my $machine = sub {
      ".machine	$arch";
  };
  my $size = sub {
@@ -281,7 +284,7 @@ Index: openssl-1.0.1g/crypto/perlasm/ppc-xlate.pl
      }
      else
      {	"";	}
-@@ -77,6 +82,25 @@
+@@ -77,6 +82,25 @@ my $asciz = sub {
      else
      {	"";	}
  };
@@ -307,7 +310,7 @@ Index: openssl-1.0.1g/crypto/perlasm/ppc-xlate.pl
  
  ################################################################
  # simplified mnemonics not handled by at least one assembler
-@@ -122,6 +146,10 @@
+@@ -122,6 +146,10 @@ my $extrdi = sub {
      $b = ($b+$n)&63; $n = 64-$n;
      "	rldicl	$ra,$rs,$b,$n";
  };
@@ -318,7 +321,7 @@ Index: openssl-1.0.1g/crypto/perlasm/ppc-xlate.pl
  
  while($line=<>) {
  
-@@ -138,7 +166,10 @@
+@@ -138,7 +166,10 @@ while($line=<>) {
      {
  	$line =~ s|(^[\.\w]+)\:\s*||;
  	my $label = $1;
@@ -330,7 +333,7 @@ Index: openssl-1.0.1g/crypto/perlasm/ppc-xlate.pl
      }
  
      {
-@@ -147,7 +178,7 @@
+@@ -147,7 +178,7 @@ while($line=<>) {
  	my $mnemonic = $2;
  	my $f = $3;
  	my $opcode = eval("\$$mnemonic");
@@ -339,11 +342,9 @@ Index: openssl-1.0.1g/crypto/perlasm/ppc-xlate.pl
  	if (ref($opcode) eq 'CODE') { $line = &$opcode($f,split(',',$line)); }
  	elsif ($mnemonic)           { $line = $c.$mnemonic.$f."\t".$line; }
      }
-Index: openssl-1.0.1g/crypto/sha/asm/sha1-ppc.pl
-===================================================================
---- openssl-1.0.1g.orig/crypto/sha/asm/sha1-ppc.pl	2014-03-17 16:14:20.000000000 +0000
-+++ openssl-1.0.1g/crypto/sha/asm/sha1-ppc.pl	2014-04-23 19:01:35.000000000 +0000
-@@ -38,6 +38,14 @@
+--- a/crypto/sha/asm/sha1-ppc.pl
++++ b/crypto/sha/asm/sha1-ppc.pl
+@@ -38,6 +38,14 @@ if ($flavour =~ /64/) {
  	$PUSH	="stw";
  } else { die "nonsense $flavour"; }
  
@@ -358,7 +359,7 @@ Index: openssl-1.0.1g/crypto/sha/asm/sha1-ppc.pl
  $0 =~ m/(.*[\/\\])[^\/\\]+$/; $dir=$1;
  ( $xlate="${dir}ppc-xlate.pl" and -f $xlate ) or
  ( $xlate="${dir}../../perlasm/ppc-xlate.pl" and -f $xlate) or
-@@ -68,14 +76,28 @@
+@@ -68,14 +76,28 @@ open STDOUT,"| $^X $xlate $flavour ".shi
  @X=("r16","r17","r18","r19","r20","r21","r22","r23",
      "r24","r25","r26","r27","r28","r29","r30","r31");
  
@@ -391,11 +392,9 @@ Index: openssl-1.0.1g/crypto/sha/asm/sha1-ppc.pl
  	add	$f,$K,$e
  	rotlwi	$e,$a,5
  	add	$f,$f,@X[$i]
-Index: openssl-1.0.1g/crypto/sha/asm/sha512-ppc.pl
-===================================================================
---- openssl-1.0.1g.orig/crypto/sha/asm/sha512-ppc.pl	2014-03-17 16:14:20.000000000 +0000
-+++ openssl-1.0.1g/crypto/sha/asm/sha512-ppc.pl	2014-04-23 19:12:46.000000000 +0000
-@@ -56,6 +56,12 @@
+--- a/crypto/sha/asm/sha512-ppc.pl
++++ b/crypto/sha/asm/sha512-ppc.pl
+@@ -56,6 +56,12 @@ if ($flavour =~ /64/) {
  	$PUSH="stw";
  } else { die "nonsense $flavour"; }
  
@@ -408,7 +407,7 @@ Index: openssl-1.0.1g/crypto/sha/asm/sha512-ppc.pl
  $0 =~ m/(.*[\/\\])[^\/\\]+$/; $dir=$1;
  ( $xlate="${dir}ppc-xlate.pl" and -f $xlate ) or
  ( $xlate="${dir}../../perlasm/ppc-xlate.pl" and -f $xlate) or
-@@ -314,16 +320,33 @@
+@@ -314,16 +320,33 @@ my ($i,$a,$b,$c,$d,$e,$f,$g,$h)=@_;
  Lsha2_block_private:
  ___
  for($i=0;$i<16;$i++) {
@@ -444,7 +443,7 @@ Index: openssl-1.0.1g/crypto/sha/asm/sha512-ppc.pl
  	&ROUND_00_15($i,@V);
  	unshift(@V,pop(@V));
  }
-@@ -395,46 +418,46 @@
+@@ -395,46 +418,46 @@ for(;$i<32;$i++) {
  	.space	`64-9*4`
  ___
  $code.=<<___ if ($SZ==8);

@@ -1,0 +1,49 @@
+#!/usr/bin/make -f
+
+DPKG_EXPORT_BUILDFLAGS = 1
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+include /usr/share/dpkg/buildflags.mk
+
+CONFFLAGS = --prefix=/usr --no-samples --no-tests --unbundled --everything --odbc-lib=/usr/lib/$(DEB_HOST_MULTIARCH)/ --library-path=/usr/lib/$(DEB_HOST_MULTIARCH)/
+
+# Disable parallel build on armel and mipsel
+ifeq (,$(filter $(DEB_BUILD_ARCH),armel mipsel))
+	EXTRA_DH_OPTS += --parallel
+else
+	EXTRA_DH_OPTS += --no-parallel
+endif
+
+# Disable fpenvironment on armel (fixes #843225)
+ifneq (,$(filter $(DEB_BUILD_ARCH),armel))
+	CONFFLAGS += --no-fpenvironment
+endif
+
+ifeq ($(DEB_HOST_ARCH_OS),linux)
+	CONFFLAGS += --config=Linux
+else ifeq ($(DEB_HOST_ARCH_OS),kfreebsd)
+	CONFFLAGS += --config=FreeBSD
+endif
+
+CONFFLAGS_TESTS = $(filter-out --no-tests, $(CONFFLAGS))
+
+%:
+	dh $@ $(EXTRA_DH_OPTS)
+
+override_dh_auto_configure:
+	./configure $(CONFFLAGS_TESTS)
+	# save config file with tests enabled for later use
+	mv config.build config.build.tests
+	./configure $(CONFFLAGS)
+
+override_dh_auto_build:
+	dh_auto_build
+	# build tests with hardening flags disabled
+	mv config.build.tests config.build
+	dh_auto_build -- CFLAGS= CPPFLAGS= CXXFLAGS= LDFLAGS=
+
+override_dh_auto_test:
+	./debian/testrunner.sh
+
+override_dh_clean:
+	rm -rf config.build config.make
+	dh_clean

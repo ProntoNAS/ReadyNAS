@@ -1,0 +1,77 @@
+#!/usr/bin/make -f
+#export DH_VERBOSE=1
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+ifeq ($(DEB_STAGE),stage1)
+export DH_OPTIONS += -Nruby-semanage -Npython-semanage
+else
+PYVERSIONS = $(shell pyversions -rv)
+RUBY_VERSIONS := $(shell dh_ruby --print-supported)
+endif
+
+# The build system doesn't use CPPFLAGS, pass them to CFLAGS to enable the
+# missing (hardening) flags.
+export DEB_CFLAGS_MAINT_APPEND = $(shell dpkg-buildflags --get CPPFLAGS)
+
+%:
+ifeq ($(DEB_STAGE),stage1)
+	dh $@
+else
+	dh $@ --with python2 --with ruby
+endif
+
+override_dh_auto_build:
+	$(MAKE) all LIBBASE="lib/${DEB_HOST_MULTIARCH}"
+
+ifneq ($(DEB_STAGE),stage1)
+	for version in $(PYVERSIONS); do              \
+	  $(MAKE) pywrap PYTHON=python$$version  \
+	    PYPREFIX=python-$$version;  \
+	done;
+
+	for version in $(RUBY_VERSIONS); do              \
+	  RUBY_HDRDIR=$$($$version -e 'print RbConfig::CONFIG["rubyhdrdir"]'); \
+	  RUBY_ARCH_HDRDIR=$$($$version -e 'print RbConfig::CONFIG["rubyarchhdrdir"]'); \
+	  RUBY_VERSION=$$($$version -e 'print RbConfig::CONFIG["ruby_version"]'); \
+	  $(MAKE) -C src rubywrap RUBY=$$version RUBYLIBVER=$$RUBY_VERSION \
+	    RUBYINC="-I$$RUBY_HDRDIR -I$$RUBY_ARCH_HDRDIR"; \
+	done;
+endif
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR="${CURDIR}/debian/tmp" \
+	  LIBDIR="${CURDIR}/debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}" \
+	  SHLIBDIR="${CURDIR}/debian/tmp/usr/lib/${DEB_HOST_MULTIARCH}"
+
+ifneq ($(DEB_STAGE),stage1)
+	for version in $(PYVERSIONS); do              \
+	  $(MAKE) install-pywrap PYTHON=python$$version  \
+	    DESTDIR="${CURDIR}/debian/tmp" \
+	    PYPREFIX=python-$$version;  \
+	done;
+
+	for version in $(RUBY_VERSIONS); do              \
+	  RUBY_VENDOR_ARCHLIB=$$($$version -e 'print RbConfig::CONFIG["vendorarchdir"]'); \
+	  RUBY_VERSION=$$($$version -e 'print RbConfig::CONFIG["ruby_version"]'); \
+	  $(MAKE) -C src install-rubywrap RUBY=$$version RUBYLIBVER=$$RUBY_VERSION DESTDIR="${CURDIR}/debian/tmp" \
+	      RUBYINSTALL="${CURDIR}/debian/tmp/$$RUBY_VENDOR_ARCHLIB"; \
+	done;
+endif
+
+override_dh_auto_clean:
+ifneq ($(DEB_STAGE),stage1)
+	for version in $(PYVERSIONS); do              \
+	  $(MAKE) clean PYTHON=python$$version;  \
+	done;
+endif
+
+override_dh_install:
+	dh_install --list-missing
+
+override_dh_fixperms:
+	dh_fixperms
+	-chmod -x ${CURDIR}/debian/python-semanage/usr/lib/python*/*-packages/semanage.py
+
+override_dh_auto_test:
+	$(MAKE) test || true

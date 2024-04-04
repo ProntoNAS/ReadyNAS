@@ -1,0 +1,177 @@
+ .
+ samba (2:4.8.0-5.netgear2) unstable; urgency=medium
+ .
+   * Fix Spotlight's compatibility with umlauts and
+     UTF-8 character sets.
+   * Change Spotlight's name search mode from the
+     default prefix match to the contained match.
+Author: Wenbo Guo <wenbo.guo@netgear.com>
+
+---
+
+--- samba-4.8.0.orig/source3/rpc_server/mdssvc/mdssvc.c
++++ samba-4.8.0/source3/rpc_server/mdssvc/mdssvc.c
+@@ -1219,7 +1219,15 @@ static bool slrpc_open_query(struct mds_
+ 		goto error;
+ 	}
+ 
+-	slq->path_scope = talloc_strdup(slq, slq->path_scope);
++	char *scope = NULL;
++	scope = g_uri_escape_string(slq->path_scope,
++					G_URI_RESERVED_CHARS_ALLOWED_IN_PATH, FALSE);
++	if (scope == NULL) {
++		goto error;
++	}
++
++	slq->path_scope = talloc_strdup(slq, scope);
++	g_free(scope);
+ 	if (slq->path_scope == NULL) {
+ 		goto error;
+ 	}
+--- samba-4.8.0.orig/source3/rpc_server/mdssvc/sparql_parser.y
++++ samba-4.8.0/source3/rpc_server/mdssvc/sparql_parser.y
+@@ -358,7 +358,7 @@ static const char *map_expr(const char *
+ 					return NULL;
+ 				}
+ 			}
+-			q = talloc_strdup_append(q, ".*");
++			//q = talloc_strdup_append(q, ".*");
+ 			if (q == NULL) {
+ 				return NULL;
+ 			}
+@@ -373,7 +373,7 @@ static const char *map_expr(const char *
+ 		}
+ 		sparql = talloc_asprintf(talloc_tos(),
+ 					 "?obj %s ?%c "
+-					 "FILTER(regex(?%c, '^.*%s$', 'i'))",
++					 "FILTER(fn:contains(fn:lower-case(?%c), '%s'))",
+ 					 p->sparql_attr,
+ 					 s->var,
+ 					 s->var,
+@@ -444,6 +444,70 @@ int mdsyywrap(void)
+ /**
+  * Map a Spotlight RAW query string to a SPARQL query string
+  **/
++char *str_replace(char *Str, const char *OldStr, const char *NewStr)
++{
++	int OldLen, NewLen;
++	char *p, *q;
++
++	if (NULL == (p = strstr(Str, OldStr)))
++	{
++		return p;
++	}
++	OldLen = strlen(OldStr);
++	NewLen = strlen(NewStr);
++	memmove(q = p + NewLen, p + OldLen, strlen(p + OldLen) + 1);
++	memcpy(p, NewStr, NewLen);
++	return q;
++}
++
++void str_global_replace(char *Str, const char *OldStr, const char *NewStr)
++{
++	char *tp;
++	int len;
++
++	len = strlen(NewStr);
++	for (tp = Str;; tp += len)
++	{
++		tp = strstr(tp, OldStr);
++		if (tp == NULL)
++		{
++			break;
++		}
++		str_replace(tp, OldStr, NewStr);
++	}
++}
++
++//returned need to be freed
++char *replace_umlaut(const char* src)
++{
++	int path_len = strlen(src);
++	char *des = (char*)malloc(path_len + 1);
++	if (NULL == des)
++	{
++		return NULL;	
++	}
++
++	strncpy(des, src, path_len);
++	des[path_len] = '\0';
++
++	//ä -> ä
++	str_global_replace(des, "a\%CC\%88", "\%C3\%A4");
++	//ö -> ö
++	str_global_replace(des, "o\%CC\%88", "\%C3\%B6");
++	//ü -> ü
++	str_global_replace(des, "u\%CC\%88", "\%C3\%BC");
++	//Ä -> Ä
++	str_global_replace(des, "A\%CC\%88", "\%C3\%84");
++	//Ö -> Ö
++	str_global_replace(des, "O\%CC\%88", "\%C3\%96");
++	//Ü -> Ü
++	str_global_replace(des, "U\%CC\%88", "\%C3\%9C");
++
++	DEBUG(1, ("Replaced umlaut: %s\n", des));
++
++	return des;
++}
++
+ bool map_spotlight_to_sparql_query(struct sl_query *slq)
+ {
+ 	struct sparql_parser_state s = {
+@@ -452,7 +516,29 @@ bool map_spotlight_to_sparql_query(struc
+ 	};
+ 	int result;
+ 
+-	s.s = mdsyy_scan_string(slq->query_string);
++	char *escaped_query_string = NULL;
++	escaped_query_string = g_uri_escape_string(slq->query_string,
++					G_URI_RESERVED_CHARS_ALLOWED_IN_PATH, FALSE);
++	if (NULL == escaped_query_string) {
++		return false;
++	}
++
++	char *replaced_umlaut = replace_umlaut(escaped_query_string);
++	g_free(escaped_query_string);
++	if (NULL == replaced_umlaut) {
++		return false;
++	}
++
++	char *unescaped_query_string = NULL;
++	unescaped_query_string = g_uri_unescape_string(replaced_umlaut,
++					G_URI_RESERVED_CHARS_ALLOWED_IN_PATH);
++	free(replaced_umlaut);
++	if (NULL == unescaped_query_string) {
++		return false;
++	}
++
++	s.s = mdsyy_scan_string(unescaped_query_string);
++	g_free(unescaped_query_string);
+ 	if (s.s == NULL) {
+ 		TALLOC_FREE(s.frame);
+ 		return false;
+@@ -467,14 +553,23 @@ bool map_spotlight_to_sparql_query(struc
+ 		return false;
+ 	}
+ 
++	char *tp = replace_umlaut(slq->path_scope);
++	if (NULL == tp) {
++		TALLOC_FREE(s.frame);
++		return false;
++	}
++
+ 	slq->sparql_query = talloc_asprintf(slq,
+ 		"SELECT ?url WHERE { %s . ?obj nie:url ?url . "
+ 		"FILTER(tracker:uri-is-descendant('file://%s/', ?url)) }",
+-		s.result, slq->path_scope);
++		s.result, tp);
++	free(tp);
+ 	TALLOC_FREE(s.frame);
+ 	if (slq->sparql_query == NULL) {
+ 		return false;
+ 	}
+ 
++	DEBUG(1, ("Sparql Query: %s\n", slq->sparql_query));
++
+ 	return true;
+ }

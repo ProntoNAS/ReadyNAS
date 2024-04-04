@@ -1,0 +1,168 @@
+From: Christian Kastner <debian@kvr.at>
+Date: Wed, 4 Jun 2014 10:26:43 +0200
+Subject: Enable skipping of MAXDESCLEN tests
+
+This tests currently expect a failure, but on some platforms they don't. Since
+the result is actually successful (verified manually), they should be skipped
+on those platforms.
+
+Bug-Debian: http://bugs.debian.org/749657
+Forwarded: yes
+Last-Update: 2014-07-26
+---
+ tests/keyctl/add/bad-args/runtest.sh        | 13 ++++++++-----
+ tests/keyctl/newring/bad-args/runtest.sh    | 12 ++++++++----
+ tests/keyctl/padd/bad-args/runtest.sh       | 12 ++++++++----
+ tests/keyctl/requesting/bad-args/runtest.sh | 12 ++++++++----
+ tests/keyctl/search/bad-args/runtest.sh     | 18 +++++++++++-------
+ tests/keyctl/session/bad-args/runtest.sh    | 12 ++++++++----
+ 6 files changed, 51 insertions(+), 28 deletions(-)
+
+diff --git a/tests/keyctl/add/bad-args/runtest.sh b/tests/keyctl/add/bad-args/runtest.sh
+index 8419fbc..b49e836 100644
+--- a/tests/keyctl/add/bad-args/runtest.sh
++++ b/tests/keyctl/add/bad-args/runtest.sh
+@@ -51,11 +51,14 @@ else
+     expect_error EDQUOT
+ fi
+ 
+-# check that an overlong key description fails correctly (>4095 inc NUL)
+-marker "CHECK OVERLONG DESC"
+-create_key --fail user a$maxdesc stuff @p
+-
+-expect_error EINVAL
++# Temporarily disable this test on mipsel and sparc, where it does not fail
++if [ "$MAXDESCLEN_NOCHECK" != "yes" ]
++then
++    # check that an overlong key description fails correctly (>4095 inc NUL)
++    marker "CHECK OVERLONG DESC"
++    create_key --fail user a$maxdesc stuff @p
++    expect_error EINVAL
++fi
+ 
+ # check that a bad key ID fails correctly
+ marker "CHECK BAD KEY ID"
+diff --git a/tests/keyctl/newring/bad-args/runtest.sh b/tests/keyctl/newring/bad-args/runtest.sh
+index 54655c3..9bc6f06 100644
+--- a/tests/keyctl/newring/bad-args/runtest.sh
++++ b/tests/keyctl/newring/bad-args/runtest.sh
+@@ -21,10 +21,14 @@ else
+     expect_error EDQUOT
+ fi
+ 
+-# check that an overlong key description fails correctly (>4095 inc NUL)
+-marker "CHECK OVERLONG DESC"
+-create_keyring --fail a$maxdesc @p
+-expect_error EINVAL
++# Temporarily disable this test on mipsel and sparc, where it does not fail
++if [ "$MAXDESCLEN_NOCHECK" != "yes" ]
++then
++    # check that an overlong key description fails correctly (>4095 inc NUL)
++    marker "CHECK OVERLONG DESC"
++    create_keyring --fail a$maxdesc @p
++    expect_error EINVAL
++fi
+ 
+ # check that an empty keyring name fails
+ marker "CHECK EMPTY KEYRING NAME"
+diff --git a/tests/keyctl/padd/bad-args/runtest.sh b/tests/keyctl/padd/bad-args/runtest.sh
+index a13e8db..ff1e82e 100644
+--- a/tests/keyctl/padd/bad-args/runtest.sh
++++ b/tests/keyctl/padd/bad-args/runtest.sh
+@@ -51,10 +51,14 @@ else
+     expect_error EDQUOT
+ fi
+ 
+-# check that an overlong key description fails correctly (>4095 inc NUL)
+-marker "CHECK OVERLONG DESC"
+-pcreate_key --fail stuff user a$maxdesc @p
+-expect_error EINVAL
++# Temporarily disable this test on mipsel and sparc, where it does not fail
++if [ "$MAXDESCLEN_NOCHECK" != "yes" ]
++then
++    # check that an overlong key description fails correctly (>4095 inc NUL)
++    marker "CHECK OVERLONG DESC"
++    pcreate_key --fail stuff user a$maxdesc @p
++    expect_error EINVAL
++fi
+ 
+ # check that a bad key ID fails correctly
+ marker "CHECK BAD KEY ID"
+diff --git a/tests/keyctl/requesting/bad-args/runtest.sh b/tests/keyctl/requesting/bad-args/runtest.sh
+index f460a9b..229c84b 100644
+--- a/tests/keyctl/requesting/bad-args/runtest.sh
++++ b/tests/keyctl/requesting/bad-args/runtest.sh
+@@ -91,10 +91,14 @@ marker "CHECK MAXLEN DESC"
+ request_key --fail user $maxdesc
+ expect_error ENOKEY
+ 
+-# check that an overlong key description fails correctly
+-marker "CHECK OVERLONG DESC"
+-request_key --fail user a$maxdesc
+-expect_error EINVAL
++# Temporarily disable this test on mipsel and sparc, where it does not fail
++if [ "$MAXDESCLEN_NOCHECK" != "yes" ]
++then
++    # check that an overlong key description fails correctly
++    marker "CHECK OVERLONG DESC"
++    request_key --fail user a$maxdesc
++    expect_error EINVAL
++fi
+ 
+ # check that a max length callout info works correctly
+ marker "CHECK MAXLEN CALLOUT"
+diff --git a/tests/keyctl/search/bad-args/runtest.sh b/tests/keyctl/search/bad-args/runtest.sh
+index 23bbc8b..e724736 100644
+--- a/tests/keyctl/search/bad-args/runtest.sh
++++ b/tests/keyctl/search/bad-args/runtest.sh
+@@ -45,13 +45,17 @@ expect_error ENOKEY
+ search_for_key --fail @s user $maxdesc @p
+ expect_error ENOKEY
+ 
+-# check that an overlong key description fails correctly (>4095 inc NUL)
+-marker "CHECK OVERLONG DESC"
+-search_for_key --fail @s user a$maxdesc
+-expect_error EINVAL
+-
+-search_for_key --fail @s user a$maxdesc @p
+-expect_error EINVAL
++# Temporarily disable this test on mipsel and sparc, where it does not fail
++if [ "$MAXDESCLEN_NOCHECK" != "yes" ]
++then
++    # check that an overlong key description fails correctly (>4095 inc NUL)
++    marker "CHECK OVERLONG DESC"
++    search_for_key --fail @s user a$maxdesc
++    expect_error EINVAL
++
++    search_for_key --fail @s user a$maxdesc @p
++    expect_error EINVAL
++fi
+ 
+ # check that a bad key ID fails correctly
+ marker "CHECK BAD KEY ID"
+diff --git a/tests/keyctl/session/bad-args/runtest.sh b/tests/keyctl/session/bad-args/runtest.sh
+index e3b6f71..50300cc 100644
+--- a/tests/keyctl/session/bad-args/runtest.sh
++++ b/tests/keyctl/session/bad-args/runtest.sh
+@@ -14,10 +14,14 @@ marker "SESSION WITH EMPTY KEYRING NAME"
+ new_session --fail ""
+ expect_error EINVAL
+ 
+-# check that an overlong keyring name fails correctly
+-marker "SESSION WITH OVERLONG KEYRING NAME"
+-new_session --fail a$maxdesc
+-expect_error EINVAL
++# Temporarily disable this test on mipsel and sparc, where it does not fail
++if [ "$MAXDESCLEN_NOCHECK" != "yes" ]
++then
++    # check that an overlong keyring name fails correctly
++    marker "SESSION WITH OVERLONG KEYRING NAME"
++    new_session --fail a$maxdesc
++    expect_error EINVAL
++fi
+ 
+ echo "++++ FINISHED TEST: $result" >>$OUTPUTFILE
+ 
+-- 
+2.0.0
+

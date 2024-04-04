@@ -1,0 +1,60 @@
+From 39f89f5708485448b762628d75bee8e994e12d23 Mon Sep 17 00:00:00 2001
+From: Sowmini Varadhan <sowmini.varadhan@oracle.com>
+Date: Tue, 12 Jan 2016 19:32:31 -0800
+Subject: [PATCH 112/224] i40e: use eth_platform_get_mac_address()
+
+This commit converts commit b499ffb0a22c ("i40e: Look up MAC address in
+Open Firmware or IDPROM") to use eth_platform_get_mac_address()
+added by commit c7f5d105495a ("net: Add eth_platform_get_mac_address()
+helper.")
+
+Signed-off-by: Sowmini Varadhan <sowmini.varadhan@oracle.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_main.c | 19 +------------------
+ 1 file changed, 1 insertion(+), 18 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_main.c b/drivers/net/ethernet/intel/i40e/i40e_main.c
+index be8d468..fa454f7 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_main.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_main.c
+@@ -28,11 +28,6 @@
+ #include <linux/of_net.h>
+ #include <linux/pci.h>
+ 
+-#ifdef CONFIG_SPARC
+-#include <asm/idprom.h>
+-#include <asm/prom.h>
+-#endif
+-
+ /* Local includes */
+ #include "i40e.h"
+ #include "i40e_diag.h"
+@@ -10618,21 +10613,9 @@ static void i40e_print_features(struct i40e_pf *pf)
+  **/
+ static void i40e_get_platform_mac_addr(struct pci_dev *pdev, struct i40e_pf *pf)
+ {
+-	struct device_node *dp = pci_device_to_OF_node(pdev);
+-	const unsigned char *addr;
+-	u8 *mac_addr = pf->hw.mac.addr;
+-
+ 	pf->flags &= ~I40E_FLAG_PF_MAC;
+-	addr = of_get_mac_address(dp);
+-	if (addr) {
+-		ether_addr_copy(mac_addr, addr);
++	if (!eth_platform_get_mac_address(&pdev->dev, pf->hw.mac.addr))
+ 		pf->flags |= I40E_FLAG_PF_MAC;
+-#ifdef CONFIG_SPARC
+-	} else {
+-		ether_addr_copy(mac_addr, idprom->id_ethaddr);
+-		pf->flags |= I40E_FLAG_PF_MAC;
+-#endif /* CONFIG_SPARC */
+-	}
+ }
+ 
+ /**
+-- 
+1.9.1
+

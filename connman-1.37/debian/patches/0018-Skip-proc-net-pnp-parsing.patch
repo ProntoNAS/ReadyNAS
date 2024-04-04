@@ -1,0 +1,51 @@
+From b382496ad82e7e63d42cca3388434377bb5afaaf Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Fri, 12 Jan 2018 10:34:09 -0800
+Subject: [PATCH 18/21] Skip /proc/net/pnp parsing
+
+We don't want our logs to be cluttered with error messages about not
+being able to open /proc/net/pnp, since we don't have that feature
+enabled in our kernel.
+---
+ src/device.c   | 5 -----
+ src/resolver.c | 8 --------
+ 2 files changed, 13 deletions(-)
+
+diff --git a/src/device.c b/src/device.c
+index a563f46..e1b2868 100644
+--- a/src/device.c
++++ b/src/device.c
+@@ -1317,11 +1317,6 @@ nodevice:
+ 	}
+ 
+ list:
+-	if (__connman_inet_isrootnfs_device(devname)) {
+-		DBG("ignoring device %s (rootnfs)", devname);
+-		return true;
+-	}
+-
+ 	blacklisted_interfaces =
+ 		connman_setting_get_string_list("NetworkInterfaceBlacklist");
+ 	if (!blacklisted_interfaces)
+diff --git a/src/resolver.c b/src/resolver.c
+index 7cec5e1..d0c2daa 100644
+--- a/src/resolver.c
++++ b/src/resolver.c
+@@ -658,14 +658,6 @@ int __connman_resolver_init(gboolean dnsproxy)
+ 
+ 	DBG("dnsproxy %d", dnsproxy);
+ 
+-	/* get autoip nameservers */
+-	ns = __connman_inet_get_pnp_nameservers(NULL);
+-	for (i = 0; ns && ns[i]; i += 1) {
+-		DBG("pnp server %s", ns[i]);
+-		append_resolver(i, NULL, ns[i], 86400, 0);
+-	}
+-	g_strfreev(ns);
+-
+ 	if (!dnsproxy)
+ 		return 0;
+ 
+-- 
+2.1.4
+

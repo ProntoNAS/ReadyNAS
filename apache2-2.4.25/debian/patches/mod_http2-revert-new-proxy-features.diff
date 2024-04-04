@@ -1,0 +1,34 @@
+# Revert part of r1824187 which requires a newer mod_proxy
+--- apache2.orig/modules/http2/h2_h2.c
++++ apache2/modules/http2/h2_h2.c
+@@ -60,6 +60,7 @@ const char *H2_MAGIC_TOKEN = "PRI * HTTP
+ /*******************************************************************************
+  * The optional mod_ssl functions we need. 
+  */
++static APR_OPTIONAL_FN_TYPE(ssl_engine_disable) *opt_ssl_engine_disable;
+ static APR_OPTIONAL_FN_TYPE(ssl_is_https) *opt_ssl_is_https;
+ static APR_OPTIONAL_FN_TYPE(ssl_var_lookup) *opt_ssl_var_lookup;
+ 
+@@ -445,6 +446,7 @@ apr_status_t h2_h2_init(apr_pool_t *pool
+ {
+     (void)pool;
+     ap_log_error(APLOG_MARK, APLOG_TRACE1, 0, s, "h2_h2, child_init");
++    opt_ssl_engine_disable = APR_RETRIEVE_OPTIONAL_FN(ssl_engine_disable);
+     opt_ssl_is_https = APR_RETRIEVE_OPTIONAL_FN(ssl_is_https);
+     opt_ssl_var_lookup = APR_RETRIEVE_OPTIONAL_FN(ssl_var_lookup);
+     
+--- apache2.orig/modules/http2/mod_proxy_http2.c
++++ apache2/modules/http2/mod_proxy_http2.c
+@@ -580,9 +580,9 @@ run_connect:
+     
+     /* Step Three: Create conn_rec for the socket we have open now. */
+     if (!ctx->p_conn->connection) {
+-        status = ap_proxy_connection_create_ex(ctx->proxy_func,
+-                                               ctx->p_conn, ctx->rbase);
+-        if (status != OK) {
++        if ((status = ap_proxy_connection_create(ctx->proxy_func, ctx->p_conn,
++                                                 ctx->owner, 
++                                                 ctx->server)) != OK) {
+             ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, ctx->owner, APLOGNO(03353)
+                           "setup new connection: is_ssl=%d %s %s %s", 
+                           ctx->p_conn->is_ssl, ctx->p_conn->ssl_hostname, 

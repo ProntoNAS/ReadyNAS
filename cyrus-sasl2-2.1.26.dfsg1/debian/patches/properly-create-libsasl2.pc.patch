@@ -1,0 +1,36 @@
+--- cyrus-sasl2.orig/configure.in
++++ cyrus-sasl2/configure.in
+@@ -1419,7 +1419,6 @@ inline static unsigned int sleep(unsigne
+ AM_CONFIG_HEADER(config.h)
+ 
+ AC_OUTPUT(Makefile
+-libsasl2.pc
+ include/Makefile
+ sasldb/Makefile
+ plugins/Makefile
+--- cyrus-sasl2.orig/Makefile.am
++++ cyrus-sasl2/Makefile.am
+@@ -43,6 +43,12 @@ AUTOMAKE_OPTIONS = 1.7
+ #
+ ################################################################
+ 
++do_subst = sed -e 's,[@]LIB_DOOR[@],$(LIB_DOOR),g' \
++	       -e 's,[@]SASL_DL_LIB[@],$(SASL_DL_LIB),g' \
++	       -e 's,[@]LIBS[@],$(LIBS),g' \
++	       -e 's,[@]VERSION[@],$(VERSION),g' \
++	       -e 's,[@]libdir[@],$(libdir),g'
++
+ ACLOCAL_AMFLAGS = -I cmulocal -I config
+ 
+ if SASLAUTHD
+@@ -78,6 +84,10 @@ EXTRA_DIST=config cmulocal win32 mac dlc
+ pkgconfigdir = $(libdir)/pkgconfig
+ pkgconfig_DATA = libsasl2.pc
+ 
++libsasl2.pc:	$(srcdir)/libsasl2.pc.in Makefile
++	rm -f $@
++	$(do_subst) < $(srcdir)/libsasl2.pc.in > $@
++
+ dist-hook:
+ 	@find $(distdir) -exec chmod o+w {} ';'
+ 	@find $(distdir) -name CVS -print | xargs -t rm -rf

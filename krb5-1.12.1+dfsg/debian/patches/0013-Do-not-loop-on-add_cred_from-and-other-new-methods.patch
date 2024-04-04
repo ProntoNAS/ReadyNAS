@@ -1,0 +1,37 @@
+From 2d1dddba54f37721198d49ddeb83c20c5674c737 Mon Sep 17 00:00:00 2001
+From: Sam Hartman <hartmans@debian.org>
+Date: Wed, 4 Jun 2014 12:06:27 -0400
+Subject: Do not loop on add_cred_from and other new methods
+
+Several new GSS-API methods were added but GSSAPI_ADD_METHOD was
+called to add them rather than GSSAPI_ADD_METHOD_NOLOOP.  This means
+that the implementation from the GSS-API mechglue would be used if the
+mechanism had no implementation.  As a result, the mechglue will call
+into itself exhausting the call stack in an endless loop when one of
+these methods is called.
+
+ticket: 7926
+---
+ src/lib/gssapi/mechglue/g_initialize.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/lib/gssapi/mechglue/g_initialize.c b/src/lib/gssapi/mechglue/g_initialize.c
+index 7fab03d..f997096 100644
+--- a/src/lib/gssapi/mechglue/g_initialize.c
++++ b/src/lib/gssapi/mechglue/g_initialize.c
+@@ -731,11 +731,11 @@ build_dynamicMech(void *dl, const gss_OID mech_type)
+         GSS_ADD_DYNAMIC_METHOD_NOLOOP(dl, mech, gss_inquire_mech_for_saslname);
+         /* RFC 5587 */
+         GSS_ADD_DYNAMIC_METHOD_NOLOOP(dl, mech, gss_inquire_attrs_for_mech);
+-	GSS_ADD_DYNAMIC_METHOD(dl, mech, gss_acquire_cred_from);
+-	GSS_ADD_DYNAMIC_METHOD(dl, mech, gss_store_cred_into);
++	GSS_ADD_DYNAMIC_METHOD_NOLOOP(dl, mech, gss_acquire_cred_from);
++	GSS_ADD_DYNAMIC_METHOD_NOLOOP(dl, mech, gss_store_cred_into);
+ 	GSS_ADD_DYNAMIC_METHOD(dl, mech, gssspi_acquire_cred_with_password);
+-	GSS_ADD_DYNAMIC_METHOD(dl, mech, gss_export_cred);
+-	GSS_ADD_DYNAMIC_METHOD(dl, mech, gss_import_cred);
++	GSS_ADD_DYNAMIC_METHOD_NOLOOP(dl, mech, gss_export_cred);
++	GSS_ADD_DYNAMIC_METHOD_NOLOOP(dl, mech, gss_import_cred);
+ 	GSS_ADD_DYNAMIC_METHOD(dl, mech, gssspi_import_sec_context_by_mech);
+ 	GSS_ADD_DYNAMIC_METHOD(dl, mech, gssspi_import_name_by_mech);
+ 	GSS_ADD_DYNAMIC_METHOD(dl, mech, gssspi_import_cred_by_mech);

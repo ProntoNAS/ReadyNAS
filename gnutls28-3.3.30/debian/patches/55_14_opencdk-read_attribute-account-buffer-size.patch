@@ -1,0 +1,33 @@
+From 3f5b3a45e4ad9520f5efc02676f996f780169e40 Mon Sep 17 00:00:00 2001
+From: Nikos Mavrogiannopoulos <nmav@redhat.com>
+Date: Thu, 23 Feb 2017 11:10:04 +0100
+Subject: [PATCH] opencdk: read_attribute: account buffer size
+
+That ensures that there is no read past the end of buffer.
+
+Resolves the oss-fuzz found bug:
+https://bugs.chromium.org/p/oss-fuzz/issues/detail?id=391
+
+Relates: #159
+
+Signed-off-by: Nikos Mavrogiannopoulos <nmav@redhat.com>
+---
+ lib/opencdk/read-packet.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/opencdk/read-packet.c b/lib/opencdk/read-packet.c
+index 87ab06c56..ba1223bd3 100644
+--- a/lib/opencdk/read-packet.c
++++ b/lib/opencdk/read-packet.c
+@@ -514,7 +514,7 @@ read_attribute(cdk_stream_t inp, size_t pktlen, cdk_pkt_userid_t attr,
+ 		pktlen--;
+ 	}
+ 
+-	if (!len || *p != 1) {		/* Currently only 1, meaning an image, is defined. */
++	if (!len || pktlen == 0 || *p != 1) {	/* Currently only 1, meaning an image, is defined. */
+ 		rc = CDK_Inv_Packet;
+ 		goto error;
+ 	}
+-- 
+2.11.0
+

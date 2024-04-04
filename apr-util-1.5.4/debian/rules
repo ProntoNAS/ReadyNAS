@@ -1,0 +1,114 @@
+#!/usr/bin/make -f
+
+#export DH_VERBOSE=1
+
+# for ppc64 on Ubuntu
+export DEB_GCC_NO_O3=1
+
+SHELL    := /bin/bash
+BUILDDIR := debian/build
+
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_HOST_ARCH       ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+DEB_HOST_ARCH_OS    ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+DEB_HOST_MULTIARCH  ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+# configure takes ages to test for all db versions. Provide the installed
+# version to speed things up.
+DB_VERSION = $(shell dpkg-query -W -f '$${Version}' libdb-dev | \
+	       perl -pe 's/^(?:[^:]*:)?(\d+)[.](\d+)[.].*/$$1$$2/')
+
+# The 'build' target needs special handling because there there is a directory
+# named 'build'.
+.PHONY: build
+%:
+	dh $@ -B$(BUILDDIR) --parallel --with autotools_dev
+
+#
+# configure
+#
+CONFFLAGS := LTFLAGS=--no-silent \
+	     --host=$(DEB_HOST_GNU_TYPE) \
+	     --build=$(DEB_BUILD_GNU_TYPE) \
+	     --with-apr=/usr/bin/apr-1-config \
+	     --enable-layout=Debian \
+	     --includedir=/usr/include/apr-1.0 \
+	     --libdir=/usr/lib/$(DEB_HOST_MULTIARCH) \
+	     --with-ldap=yes \
+	     --with-dbm=db$(DB_VERSION) \
+	     --with-sqlite3 \
+	     --with-pgsql=/usr \
+	     --without-gdbm \
+	     --without-sqlite2 \
+	     --with-berkeley-db \
+	     --with-mysql=/usr \
+	     --with-odbc=/usr \
+	     --with-openssl=/usr \
+	     --with-crypto \
+	     ac_cv_prog_AWK=mawk
+
+# files that are modified by buildconf and need to be restored during clean
+SAVE_FILES := configure build/apr_common.m4
+
+ifeq ($(DEB_HOST_ARCH),i386)
+	CONFFLAGS += apr_lock_method=USE_PROC_PTHREAD_SERIALIZE
+else
+	CONFFLAGS += ac_cv_func_pthread_mutexattr_setpshared=no \
+		     ac_cv_func_sem_open=no
+endif
+
+override_dh_auto_configure:
+	mkdir -p $(BUILDDIR)/docs
+	for f in $(SAVE_FILES) ; do [ -e $$f.dr-orig ] || cp -p $$f $$f.dr-orig ; done
+	./buildconf --with-apr=$(shell apr-1-config --srcdir)
+	cd $(BUILDDIR) && $(CURDIR)/configure $(CONFFLAGS)
+
+#
+# build
+#
+
+# get cflags from apr-config but remove -O2
+export DEB_CFLAGS_MAINT_PREPEND := $(shell apr-1-config --cflags |perl -p -e 's!-O.( |$$)!!')
+export DEB_LDFLAGS_MAINT_PREPEND := $(shell apr-1-config --ldflags)
+
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+  MAKEARGS := -j$(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+endif
+
+override_dh_auto_build:
+	dh_auto_build --parallel -B$(BUILDDIR)
+	$(MAKE) $(MAKEARGS) -C $(BUILDDIR) dox
+
+#
+# test
+#
+
+ifeq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
+override_dh_auto_test:
+	$(MAKE) -C $(BUILDDIR)/test $(MAKEARGS) all
+	$(MAKE) -C $(BUILDDIR)/test -j1 check
+
+else
+override_dh_auto_test:
+
+endif
+
+#
+# install
+#
+override_dh_auto_install:
+	dh_auto_install --destdir=debian/tmp
+	perl -p -i -e "s,^dependency_libs=.*,dependency_libs=''," debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/libaprutil-1.la
+
+override_dh_strip:
+	dh_strip --dbg-package=libaprutil1-dbg
+
+# The -X option causes the internal-use-only driver libs to be ignored
+override_dh_makeshlibs:
+	dh_makeshlibs -Xapr-util-1 -- -Idebian/symbols.$(DEB_HOST_ARCH_OS)
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf $(BUILDDIR)
+	for f in $(SAVE_FILES) ; do [ ! -e $$f.dr-orig ] || mv $$f.dr-orig $$f ; done

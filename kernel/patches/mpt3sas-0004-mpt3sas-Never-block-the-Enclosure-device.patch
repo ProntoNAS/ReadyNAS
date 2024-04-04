@@ -1,0 +1,82 @@
+From 1e464ba3de3e827524ca41167a8ea01db73e01ef Mon Sep 17 00:00:00 2001
+From: Suganath prabu Subramani <suganath-prabu.subramani@avagotech.com>
+Date: Thu, 28 Jan 2016 12:07:01 +0530
+Subject: [PATCH 04/15] mpt3sas: Never block the Enclosure device
+
+Never block the SEP device (i.e. Never invoke the
+scsi_internal_device_block() API for SEP device) even for the delay not
+responding events. Blocking the SEP device will create a deadlock while
+adding any device to the OS.
+
+Signed-off-by: Suganath prabu Subramani <suganath-prabu.subramani@avagotech.com>
+Signed-off-by: Chaitra P B <chaitra.basappa@avagotech.com>
+Reviewed-by: Tomas Henzl <thenzl@redhat.com>
+Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>
+Acked-by: Hannes Reinecke <hare@suse.de>
+---
+ drivers/scsi/mpt3sas/mpt3sas_base.h  |  1 +
+ drivers/scsi/mpt3sas/mpt3sas_scsih.c | 22 +++++++++++++++++++++-
+ 2 files changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/scsi/mpt3sas/mpt3sas_base.h b/drivers/scsi/mpt3sas/mpt3sas_base.h
+index 92648a5..731c8a6 100644
+--- a/drivers/scsi/mpt3sas/mpt3sas_base.h
++++ b/drivers/scsi/mpt3sas/mpt3sas_base.h
+@@ -398,6 +398,7 @@ struct MPT3SAS_DEVICE {
+ 	u8	configured_lun;
+ 	u8	block;
+ 	u8	tlr_snoop_check;
++	u8	ignore_delay_remove;
+ };
+ 
+ #define MPT3_CMD_NOT_USED	0x8000	/* free */
+diff --git a/drivers/scsi/mpt3sas/mpt3sas_scsih.c b/drivers/scsi/mpt3sas/mpt3sas_scsih.c
+index c1f195c..ebdafa0 100644
+--- a/drivers/scsi/mpt3sas/mpt3sas_scsih.c
++++ b/drivers/scsi/mpt3sas/mpt3sas_scsih.c
+@@ -1953,7 +1953,15 @@ scsih_slave_configure(struct scsi_device *sdev)
+ 	if (sas_device->device_info & MPI2_SAS_DEVICE_INFO_SSP_TARGET) {
+ 		qdepth = MPT3SAS_SAS_QUEUE_DEPTH;
+ 		ssp_target = 1;
+-		ds = "SSP";
++		if (sas_device->device_info &
++				MPI2_SAS_DEVICE_INFO_SEP) {
++			sdev_printk(KERN_WARNING, sdev,
++			"set ignore_delay_remove for handle(0x%04x)\n",
++			sas_device_priv_data->sas_target->handle);
++			sas_device_priv_data->ignore_delay_remove = 1;
++			ds = "SES";
++		} else
++			ds = "SSP";
+ 	} else {
+ 		qdepth = MPT3SAS_SATA_QUEUE_DEPTH;
+ 		if (sas_device->device_info & MPI2_SAS_DEVICE_INFO_STP_TARGET)
+@@ -2949,6 +2957,12 @@ _scsih_block_io_all_device(struct MPT3SAS_ADAPTER *ioc)
+ 			continue;
+ 		if (sas_device_priv_data->block)
+ 			continue;
++		if (sas_device_priv_data->ignore_delay_remove) {
++			sdev_printk(KERN_INFO, sdev,
++			"%s skip device_block for SES handle(0x%04x)\n",
++			__func__, sas_device_priv_data->sas_target->handle);
++			continue;
++		}
+ 		_scsih_internal_device_block(sdev, sas_device_priv_data);
+ 	}
+ }
+@@ -2981,6 +2995,12 @@ _scsih_block_io_device(struct MPT3SAS_ADAPTER *ioc, u16 handle)
+ 			continue;
+ 		if (sas_device->pend_sas_rphy_add)
+ 			continue;
++		if (sas_device_priv_data->ignore_delay_remove) {
++			sdev_printk(KERN_INFO, sdev,
++			"%s skip device_block for SES handle(0x%04x)\n",
++			__func__, sas_device_priv_data->sas_target->handle);
++			continue;
++		}
+ 		_scsih_internal_device_block(sdev, sas_device_priv_data);
+ 	}
+ 
+-- 
+1.9.1
+

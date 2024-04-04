@@ -1,0 +1,31 @@
+From 51650820d682d76254430c9abc38c66d3393850e Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 11 Jan 2017 17:15:26 -0800
+Subject: [PATCH] btrfs: skip snapper '.snapshots' subvolume entries in readdir
+
+---
+ fs/btrfs/inode.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/fs/btrfs/inode.c b/fs/btrfs/inode.c
+index bdc46e4..dce9838 100644
+--- a/fs/btrfs/inode.c
++++ b/fs/btrfs/inode.c
+@@ -5935,8 +5935,12 @@ static int btrfs_real_readdir(struct file *file, struct dir_context *ctx)
+ 		d_type = btrfs_filetype_table[btrfs_dir_type(leaf, di)];
+ 		btrfs_dir_item_key_to_cpu(leaf, di, &location);
+ 
+-		over = !dir_emit(ctx, name_ptr, name_len, location.objectid,
+-				 d_type);
++		/* Skip the snapper '.snapshots' subvolume */
++		if (location.type != BTRFS_ROOT_ITEM_KEY ||
++		    strncmp(name_ptr, ".snapshots", 10)) {
++			over = !dir_emit(ctx, name_ptr, name_len, location.objectid,
++					 d_type);
++		}
+ 
+ 		if (name_ptr != tmp_name)
+ 			kfree(name_ptr);
+-- 
+1.9.1
+

@@ -1,0 +1,72 @@
+From f60b25e7e94ccaec4700f2711a15b461427f9d03 Mon Sep 17 00:00:00 2001
+From: Anjali Singhai Jain <anjali.singhai@intel.com>
+Date: Wed, 9 Dec 2015 15:50:31 -0800
+Subject: [PATCH 068/224] i40e: Cleanup the code with respect to restarting
+ autoneg
+
+The restart-autoneg work around does not apply to X722.
+Added a flag to set it only for the right MAC and right FW version
+where the work around should be applied.
+
+Signed-off-by: Anjali Singhai Jain <anjali.singhai@intel.com>
+Change-ID: I942c3ff40cccd1e56f424b1da776b020fe3c9d2a
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e.h      |  1 +
+ drivers/net/ethernet/intel/i40e/i40e_main.c | 12 ++++++++----
+ 2 files changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e.h b/drivers/net/ethernet/intel/i40e/i40e.h
+index a7025cf..933c4b3 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e.h
++++ b/drivers/net/ethernet/intel/i40e/i40e.h
+@@ -340,6 +340,7 @@ struct i40e_pf {
+ #define I40E_FLAG_GENEVE_OFFLOAD_CAPABLE	BIT_ULL(41)
+ #define I40E_FLAG_NO_PCI_LINK_CHECK		BIT_ULL(42)
+ #define I40E_FLAG_100M_SGMII_CAPABLE		BIT_ULL(43)
++#define I40E_FLAG_RESTART_AUTONEG		BIT_ULL(44)
+ #define I40E_FLAG_PF_MAC			BIT_ULL(50)
+ 
+ 	/* tracks features that get auto disabled by errors */
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_main.c b/drivers/net/ethernet/intel/i40e/i40e_main.c
+index b6646a37f..a60d4b2 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_main.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_main.c
+@@ -6898,8 +6898,7 @@ static void i40e_reset_and_rebuild(struct i40e_pf *pf, bool reinit)
+ 		wr32(hw, I40E_REG_MSS, val);
+ 	}
+ 
+-	if (((pf->hw.aq.fw_maj_ver == 4) && (pf->hw.aq.fw_min_ver < 33)) ||
+-	    (pf->hw.aq.fw_maj_ver < 4)) {
++	if (pf->flags & I40E_FLAG_RESTART_AUTONEG) {
+ 		msleep(75);
+ 		ret = i40e_aq_set_link_restart_an(&pf->hw, true, NULL);
+ 		if (ret)
+@@ -8376,6 +8375,12 @@ static int i40e_sw_init(struct i40e_pf *pf)
+ 				 pf->hw.func_caps.fd_filters_best_effort;
+ 	}
+ 
++	if (((pf->hw.mac.type == I40E_MAC_X710) ||
++	     (pf->hw.mac.type == I40E_MAC_XL710)) &&
++	    (((pf->hw.aq.fw_maj_ver == 4) && (pf->hw.aq.fw_min_ver < 33)) ||
++	    (pf->hw.aq.fw_maj_ver < 4)))
++		pf->flags |= I40E_FLAG_RESTART_AUTONEG;
++
+ 	if (pf->hw.func_caps.vmdq) {
+ 		pf->num_vmdq_vsis = I40E_DEFAULT_NUM_VMDQ_VSI;
+ 		pf->flags |= I40E_FLAG_VMDQ_ENABLED;
+@@ -10913,8 +10918,7 @@ static int i40e_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+ 		wr32(hw, I40E_REG_MSS, val);
+ 	}
+ 
+-	if (((pf->hw.aq.fw_maj_ver == 4) && (pf->hw.aq.fw_min_ver < 33)) ||
+-	    (pf->hw.aq.fw_maj_ver < 4)) {
++	if (pf->flags & I40E_FLAG_RESTART_AUTONEG) {
+ 		msleep(75);
+ 		err = i40e_aq_set_link_restart_an(&pf->hw, true, NULL);
+ 		if (err)
+-- 
+1.9.1
+

@@ -1,0 +1,63 @@
+Author: Sven Joachim <svenjoac@gmx.de>
+Description: Apply termcap-format fix from openSUSE
+Bug-Debian: https://bugs.debian.org/868266
+Forwarded: not-needed
+Last-Update: 2017-08-12
+
+---
+ progs/dump_entry.c |   30 ++++++++++++++++++++++++++++--
+ 1 file changed, 28 insertions(+), 2 deletions(-)
+
+--- a/progs/dump_entry.c
++++ b/progs/dump_entry.c
+@@ -427,6 +427,22 @@ wrap_concat(const char *src)
+     column += (int) need;
+ }
+ 
++static void
++wrap_termap(const char *a, const char *b, const char *c)
++{
++    size_t need = strlen(a)+strlen(b)+strlen(c);
++    size_t want = strlen(separator)+need;
++    if (column > INDENT
++	&& column + (int) want > width) {
++	force_wrap();
++    }
++    strcpy_DYN(&outbuf, a);
++    strcpy_DYN(&outbuf, b);
++    strcpy_DYN(&outbuf, c);
++    strcpy_DYN(&outbuf, separator);
++    column += (int) need;
++}
++
+ #define IGNORE_SEP_TRAIL(first,last,sep_trail) \
+ 	if ((size_t)(last - first) > sizeof(sep_trail)-1 \
+ 	 && !strncmp(first, sep_trail, sizeof(sep_trail)-1)) \
+@@ -808,7 +824,12 @@ fmt_entry(TERMTYPE *tterm,
+ 			continue;
+ 		    } else {
+ 			char *s = srccap, *d = buffer;
+-			WRAP_CONCAT3("..", name, "=");
++			if (infodump) {
++			    WRAP_CONCAT3("..", name, "=");
++			} else {
++			    wrap_termap("..", name, "=");
++			    outcount = TRUE;
++			}
+ 			while ((*d = *s++) != 0) {
+ 			    if ((d - buffer + 1) >= (int) sizeof(buffer)) {
+ 				fprintf(stderr,
+@@ -829,7 +850,12 @@ fmt_entry(TERMTYPE *tterm,
+ 			WRAP_CONCAT;
+ 		    }
+ 		} else {
+-		    WRAP_CONCAT3(name, "=", cv);
++		    if (infodump) {
++			WRAP_CONCAT3(name, "=", cv);
++		    } else {
++			wrap_termap(name, "=", cv);
++			outcount = TRUE;
++		    }
+ 		}
+ 		len += (int) strlen(capability) + 1;
+ 	    } else {

@@ -1,0 +1,70 @@
+From 9c194ec49a1d1c0e4f11e64fe4195e8a819c53ba Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 11 Feb 2016 17:40:37 -0800
+Subject: [PATCH 06/12] rtc: ds1307: enable power state tracking for RN2xx
+
+DNI hijacked the ALARM2 minute field to track the last power state on
+RN2xx.  This is used to determine whether to power on or not after power
+is initially connected.  U-Boot sets this register during bootup, so
+we need to clear it during shutdown.
+---
+ drivers/rtc/rtc-ds1307.c | 23 ++++++++++++++++++++++-
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/rtc/rtc-ds1307.c b/drivers/rtc/rtc-ds1307.c
+index 501af9c..e7af804 100644
+--- a/drivers/rtc/rtc-ds1307.c
++++ b/drivers/rtc/rtc-ds1307.c
+@@ -92,6 +92,7 @@ enum ds_type {
+ #	define DS1337_BIT_A2I		0x02
+ #	define DS1337_BIT_A1I		0x01
+ #define DS1339_REG_ALARM1_SECS	0x07
++#	define RN2XX_PWR_STATE		0x0b
+ 
+ #define DS13XX_TRICKLE_CHARGER_MAGIC	0xa0
+ 
+@@ -536,7 +537,7 @@ static int ds1337_set_alarm(struct device *dev, struct rtc_wkalrm *t)
+ 	buf[3] = bin2bcd(t->time.tm_mday);
+ 
+ 	/* set ALARM2 to non-garbage */
+-	buf[4] = 0;
++	buf[4] = 1;
+ 	buf[5] = 0;
+ 	buf[6] = 0;
+ 
+@@ -1210,12 +1211,32 @@ static int ds1307_remove(struct i2c_client *client)
+ 	return 0;
+ }
+ 
++static void ds1307_shutdown(struct i2c_client *client)
++{
++	struct ds1307 *ds1307 = dev_get_drvdata(&client->dev);
++	int stat;
++
++	ds1307->regs[0] = 0; /* RN2XX_PWR_STATE 0x0b */
++	ds1307->regs[1] = 0;
++	ds1307->regs[2] = 1; /* RN2XX_WOL_STATE	0x0d */
++	ds1307->write_block_data(client, RN2XX_PWR_STATE, 3, ds1307->regs);
++	/* Clear any pending alarms */
++	stat = i2c_smbus_read_byte_data(client, DS1337_REG_STATUS);
++	if (stat < 0)
++		return;
++	if (stat & (DS1337_BIT_A1I | DS1337_BIT_A2I)) {
++		stat &= ~(DS1337_BIT_A1I | DS1337_BIT_A2I);
++		i2c_smbus_write_byte_data(client, DS1337_REG_STATUS, stat);
++	}
++}
++
+ static struct i2c_driver ds1307_driver = {
+ 	.driver = {
+ 		.name	= "rtc-ds1307",
+ 	},
+ 	.probe		= ds1307_probe,
+ 	.remove		= ds1307_remove,
++	.shutdown	= ds1307_shutdown,
+ 	.id_table	= ds1307_id,
+ };
+ 
+-- 
+1.9.1
+

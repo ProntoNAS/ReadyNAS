@@ -1,0 +1,30 @@
+From: Yann Ylavic <ylavic@apache.org>
+Date: Thu, 7 Sep 2017 22:43:41 +0000
+Subject: core: Disallow Methods' registration at run time (.htaccess), they
+ may be used only if registered at init time (httpd.conf).
+Origin: https://github.com/apache/httpd/commit/29afdd2550b3d30a8defece2b95ae81edcf66ac9
+Bug-Debian: https://bugs.debian.org/876109
+Bug-Debian-Security: https://security-tracker.debian.org/tracker/CVE-2017-9798
+
+Calling ap_method_register() in children processes is not the right scope
+since it won't be shared for all requests.
+
+
+git-svn-id: https://svn.apache.org/repos/asf/httpd/httpd/trunk@1807655 13f79535-47bb-0310-9956-ffa450edef68
+---
+
+--- apache2.orig/server/core.c
++++ apache2/server/core.c
+@@ -2262,6 +2262,12 @@ AP_CORE_DECLARE_NONSTD(const char *) ap_
+             /* method has not been registered yet, but resource restriction
+              * is always checked before method handling, so register it.
+              */
++            if (cmd->pool == cmd->temp_pool) {
++                /* In .htaccess, we can't globally register new methods. */
++                return apr_psprintf(cmd->pool, "Could not register method '%s' "
++                                   "for %s from .htaccess configuration",
++                                    method, cmd->cmd->name);
++            }
+             methnum = ap_method_register(cmd->pool,
+                                          apr_pstrdup(cmd->pool, method));
+         }

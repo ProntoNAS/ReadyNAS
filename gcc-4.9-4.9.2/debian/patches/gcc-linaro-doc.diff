@@ -1,0 +1,175 @@
+# DP: Changes for the Linaro 4.9-2014.11 release (documentation).
+
+--- a/src/gcc/doc/extend.texi
++++ b/src/gcc/doc/extend.texi
+@@ -9109,6 +9109,8 @@
+ instructions, but allow the compiler to schedule those calls.
+ 
+ @menu
++* AArch64 Built-in Functions::
++* AArch64 intrinsics::
+ * Alpha Built-in Functions::
+ * Altera Nios II Built-in Functions::
+ * ARC Built-in Functions::
+@@ -9116,6 +9118,7 @@
+ * ARM iWMMXt Built-in Functions::
+ * ARM NEON Intrinsics::
+ * ARM ACLE Intrinsics::
++* ARM Floating Point Status and Control Intrinsics::
+ * AVR Built-in Functions::
+ * Blackfin Built-in Functions::
+ * FR-V Built-in Functions::
+@@ -9141,6 +9144,23 @@
+ * TILEPro Built-in Functions::
+ @end menu
+ 
++@node AArch64 Built-in Functions
++@subsection AArch64 Built-in Functions
++
++These built-in functions are available for the AArch64 family of
++processors.
++@smallexample
++unsigned int __builtin_aarch64_get_fpcr ()
++void __builtin_aarch64_set_fpcr (unsigned int)
++unsigned int __builtin_aarch64_get_fpsr ()
++void __builtin_aarch64_set_fpsr (unsigned int)
++@end smallexample
++
++@node AArch64 intrinsics
++@subsection ACLE Intrinsics for AArch64
++
++@include aarch64-acle-intrinsics.texi
++
+ @node Alpha Built-in Functions
+ @subsection Alpha Built-in Functions
+ 
+@@ -9917,6 +9937,17 @@
+ 
+ @include arm-acle-intrinsics.texi
+ 
++@node ARM Floating Point Status and Control Intrinsics
++@subsection ARM Floating Point Status and Control Intrinsics
++
++These built-in functions are available for the ARM family of
++processors with floating-point unit.
++
++@smallexample
++unsigned int __builtin_arm_get_fpscr ()
++void __builtin_arm_set_fpscr (unsigned int)
++@end smallexample
++
+ @node AVR Built-in Functions
+ @subsection AVR Built-in Functions
+ 
+--- a/src/gcc/doc/aarch64-acle-intrinsics.texi
++++ b/src/gcc/doc/aarch64-acle-intrinsics.texi
+@@ -0,0 +1,55 @@
++@c Copyright (C) 2014 Free Software Foundation, Inc.
++@c This is part of the GCC manual.
++@c For copying conditions, see the file gcc.texi.
++
++@subsubsection CRC32 intrinsics
++
++These intrinsics are available when the CRC32 architecture extension is
++specified, e.g. when the @option{-march=armv8-a+crc} switch is used, or when
++the target processor specified with @option{-mcpu} supports it.
++
++@itemize @bullet
++@item uint32_t __crc32b (uint32_t, uint8_t)
++@*@emph{Form of expected instruction(s):} @code{crc32b @var{w0}, @var{w1}, @var{w2}}
++@end itemize
++
++
++@itemize @bullet
++@item uint32_t __crc32h (uint32_t, uint16_t)
++@*@emph{Form of expected instruction(s):} @code{crc32h @var{w0}, @var{w1}, @var{w2}}
++@end itemize
++
++
++@itemize @bullet
++@item uint32_t __crc32w (uint32_t, uint32_t)
++@*@emph{Form of expected instruction(s):} @code{crc32w @var{w0}, @var{w1}, @var{w2}}
++@end itemize
++
++
++@itemize @bullet
++@item uint32_t __crc32d (uint32_t, uint64_t)
++@*@emph{Form of expected instruction(s):} @code{crc32x @var{w0}, @var{w1}, @var{x2}}
++@end itemize
++
++@itemize @bullet
++@item uint32_t __crc32cb (uint32_t, uint8_t)
++@*@emph{Form of expected instruction(s):} @code{crc32cb @var{w0}, @var{w1}, @var{w2}}
++@end itemize
++
++
++@itemize @bullet
++@item uint32_t __crc32ch (uint32_t, uint16_t)
++@*@emph{Form of expected instruction(s):} @code{crc32ch @var{w0}, @var{w1}, @var{w2}}
++@end itemize
++
++
++@itemize @bullet
++@item uint32_t __crc32cw (uint32_t, uint32_t)
++@*@emph{Form of expected instruction(s):} @code{crc32cw @var{w0}, @var{w1}, @var{w2}}
++@end itemize
++
++
++@itemize @bullet
++@item uint32_t __crc32cd (uint32_t, uint64_t)
++@*@emph{Form of expected instruction(s):} @code{crc32cx @var{w0}, @var{w1}, @var{x2}}
++@end itemize
+--- a/src/gcc/doc/md.texi
++++ b/src/gcc/doc/md.texi
+@@ -5319,10 +5319,18 @@
+ The @code{ffs} built-in function of C always uses the mode which
+ corresponds to the C data type @code{int}.
+ 
++@cindex @code{clrsb@var{m}2} instruction pattern
++@item @samp{clrsb@var{m}2}
++Count leading redundant sign bits.
++Store into operand 0 the number of redundant sign bits in operand 1, starting
++at the most significant bit position.
++A redundant sign bit is defined as any sign bit after the first. As such,
++this count will be one less than the count of leading sign bits.
++
+ @cindex @code{clz@var{m}2} instruction pattern
+ @item @samp{clz@var{m}2}
+-Store into operand 0 the number of leading 0-bits in @var{x}, starting
+-at the most significant bit position.  If @var{x} is 0, the
++Store into operand 0 the number of leading 0-bits in operand 1, starting
++at the most significant bit position.  If operand 1 is 0, the
+ @code{CLZ_DEFINED_VALUE_AT_ZERO} (@pxref{Misc}) macro defines if
+ the result is undefined or has a useful value.
+ @var{m} is the mode of operand 0; operand 1's mode is
+@@ -5331,8 +5339,8 @@
+ 
+ @cindex @code{ctz@var{m}2} instruction pattern
+ @item @samp{ctz@var{m}2}
+-Store into operand 0 the number of trailing 0-bits in @var{x}, starting
+-at the least significant bit position.  If @var{x} is 0, the
++Store into operand 0 the number of trailing 0-bits in operand 1, starting
++at the least significant bit position.  If operand 1 is 0, the
+ @code{CTZ_DEFINED_VALUE_AT_ZERO} (@pxref{Misc}) macro defines if
+ the result is undefined or has a useful value.
+ @var{m} is the mode of operand 0; operand 1's mode is
+@@ -5341,7 +5349,7 @@
+ 
+ @cindex @code{popcount@var{m}2} instruction pattern
+ @item @samp{popcount@var{m}2}
+-Store into operand 0 the number of 1-bits in @var{x}.  @var{m} is the
++Store into operand 0 the number of 1-bits in operand 1.  @var{m} is the
+ mode of operand 0; operand 1's mode is specified by the instruction
+ pattern, and the compiler will convert the operand to that mode before
+ generating the instruction.
+@@ -5348,8 +5356,8 @@
+ 
+ @cindex @code{parity@var{m}2} instruction pattern
+ @item @samp{parity@var{m}2}
+-Store into operand 0 the parity of @var{x}, i.e.@: the number of 1-bits
+-in @var{x} modulo 2.  @var{m} is the mode of operand 0; operand 1's mode
++Store into operand 0 the parity of operand 1, i.e.@: the number of 1-bits
++in operand 1 modulo 2.  @var{m} is the mode of operand 0; operand 1's mode
+ is specified by the instruction pattern, and the compiler will convert
+ the operand to that mode before generating the instruction.
+ 

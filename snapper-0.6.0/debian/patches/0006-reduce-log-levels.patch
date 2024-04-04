@@ -1,0 +1,199 @@
+From 9e10602e5e80a5e8c7f6af5802229101241311cd Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 8 Sep 2016 12:15:45 -0700
+Subject: [PATCH] reduce log levels
+
+---
+ server/snapperd.cc   |  8 ++++----
+ snapper/AsciiFile.cc |  6 +++---
+ snapper/FileUtils.cc |  9 +++++++--
+ snapper/Snapper.cc   | 24 ++++++++++++------------
+ snapper/Snapshot.cc  |  2 +-
+ 5 files changed, 27 insertions(+), 22 deletions(-)
+
+diff --git a/server/snapperd.cc b/server/snapperd.cc
+index 60e6a2e..c4c514c 100644
+--- a/server/snapperd.cc
++++ b/server/snapperd.cc
+@@ -293,19 +293,19 @@ main(int argc, char** argv)
+ 
+     mainloop.set_idle_timeout(idle_time);
+ 
+-    y2mil("Requesting DBus name");
++    y2deb("Requesting DBus name");
+ 
+     mainloop.request_name(SERVICE, DBUS_NAME_FLAG_REPLACE_EXISTING);
+ 
+-    y2mil("Loading snapper configs");
++    y2deb("Loading snapper configs");
+ 
+     meta_snappers.init();
+ 
+-    y2mil("Listening for method calls and signals");
++    y2deb("Listening for method calls and signals");
+ 
+     mainloop.run();
+ 
+-    y2mil("Exiting");
++    y2deb("Exiting");
+ 
+     meta_snappers.unload();
+ 
+diff --git a/snapper/AsciiFile.cc b/snapper/AsciiFile.cc
+index 04714ab..b3af78d 100644
+--- a/snapper/AsciiFile.cc
++++ b/snapper/AsciiFile.cc
+@@ -111,7 +111,7 @@ AsciiFile::AsciiFile(const string& Name_Cv, bool remove_empty)
+     void
+     AsciiFile::reload()
+     {
+-	y2mil("loading file " << Name_C);
++	y2deb("loading file " << Name_C);
+ 	clear();
+ 
+ 	AsciiFileReader file(Name_C);
+@@ -136,7 +136,7 @@ AsciiFile::save()
+     }
+     else
+     {
+-	y2mil("saving file " << Name_C);
++	y2deb("saving file " << Name_C);
+ 
+ 	ofstream file( Name_C.c_str() );
+ 	classic(file);
+@@ -232,7 +232,7 @@ AsciiFile::save()
+ 	    return false;
+ 
+ 	value = rx.cap(2);
+-	y2mil("key:" << key << " value:" << value);
++	y2deb("key:" << key << " value:" << value);
+ 	return true;
+     }
+ 
+diff --git a/snapper/FileUtils.cc b/snapper/FileUtils.cc
+index e607c15..76ddc82 100644
+--- a/snapper/FileUtils.cc
++++ b/snapper/FileUtils.cc
+@@ -84,8 +84,13 @@ namespace snapper
+ 
+ 	dirfd = ::openat(dir.dirfd, name.c_str(), O_RDONLY | O_NOFOLLOW | O_NOATIME | O_CLOEXEC);
+ 	if (dirfd < 0)
+-	    SN_THROW(IOErrorException(sformat("open failed path:%s errno:%d (%s)", dir.fullname().c_str(),
+-					      errno, stringerror(errno).c_str())));
++	{
++	    if (errno == ENOENT)
++		return;
++	    else
++		SN_THROW(IOErrorException(sformat("open %s failed path:%s errno:%d (%s)", name.c_str(),
++						  dir.fullname().c_str(), errno, stringerror(errno).c_str())));
++	}
+ 
+ 	struct stat buf;
+ 	if (fstat(dirfd, &buf) != 0)
+diff --git a/snapper/Snapper.cc b/snapper/Snapper.cc
+index 5a0e10f..a650e89 100644
+--- a/snapper/Snapper.cc
++++ b/snapper/Snapper.cc
+@@ -88,9 +88,9 @@ namespace snapper
+     Snapper::Snapper(const string& config_name, const string& root_prefix, bool disable_filters)
+ 	: config_info(NULL), filesystem(NULL), snapshots(this), selabel_handle(NULL)
+     {
+-	y2mil("Snapper constructor");
+-	y2mil("libsnapper version " VERSION);
+-	y2mil("config_name:" << config_name << " disable_filters:" << disable_filters);
++	y2deb("Snapper constructor");
++	y2deb("libsnapper version " VERSION);
++	y2deb("config_name:" << config_name << " disable_filters:" << disable_filters);
+ 
+ #ifdef ENABLE_SELINUX
+ 	try
+@@ -121,7 +121,7 @@ namespace snapper
+ 	if (config_info->getValue(KEY_SYNC_ACL, sync_acl) && sync_acl == true)
+ 	    syncAcl();
+ 
+-	y2mil("subvolume:" << config_info->getSubvolume() << " filesystem:" <<
++	y2deb("subvolume:" << config_info->getSubvolume() << " filesystem:" <<
+ 	      filesystem->fstype());
+ 
+ 	if (!disable_filters)
+@@ -133,7 +133,7 @@ namespace snapper
+ 
+     Snapper::~Snapper()
+     {
+-	y2mil("Snapper destructor");
++	y2deb("Snapper destructor");
+ 
+ 	for (Snapshots::iterator it = snapshots.begin(); it != snapshots.end(); ++it)
+ 	{
+@@ -174,7 +174,7 @@ namespace snapper
+ 	    }
+ 	}
+ 
+-	y2mil("number of ignore patterns:" << ignore_patterns.size());
++	y2deb("number of ignore patterns:" << ignore_patterns.size());
+     }
+ 
+ 
+@@ -269,8 +269,8 @@ namespace snapper
+     list<ConfigInfo>
+     Snapper::getConfigs(const string& root_prefix)
+     {
+-	y2mil("Snapper get-configs");
+-	y2mil("libsnapper version " VERSION);
++	y2deb("Snapper get-configs");
++	y2deb("libsnapper version " VERSION);
+ 
+ 	list<ConfigInfo> config_infos;
+ 
+@@ -311,7 +311,7 @@ namespace snapper
+ 			  const string& template_name)
+     {
+ 	y2mil("Snapper create-config");
+-	y2mil("libsnapper version " VERSION);
++	y2deb("libsnapper version " VERSION);
+ 	y2mil("config_name:" << config_name << " subvolume:" << subvolume <<
+ 	      " fstype:" << fstype << " template_name:" << template_name);
+ 
+@@ -413,7 +413,7 @@ namespace snapper
+     Snapper::deleteConfig(const string& config_name, const string& root_prefix)
+     {
+ 	y2mil("Snapper delete-config");
+-	y2mil("libsnapper version " VERSION);
++	y2deb("libsnapper version " VERSION);
+ 
+ 	unique_ptr<Snapper> snapper(new Snapper(config_name, root_prefix));
+ 
+@@ -909,7 +909,7 @@ namespace snapper
+     bool
+     Snapper::detectFstype(const string& subvolume, string& fstype)
+     {
+-	y2mil("subvolume:" << subvolume);
++	y2deb("subvolume:" << subvolume);
+ 
+ 	if (!boost::starts_with(subvolume, "/") || !checkDir(subvolume))
+ 	    return false;
+@@ -943,7 +943,7 @@ namespace snapper
+ 	if (fstype == "ext4dev")
+ 	    fstype = "ext4";
+ 
+-	y2mil("fstype:" << fstype);
++	y2deb("fstype:" << fstype);
+ 
+ 	return !best_match.empty();
+     }
+diff --git a/snapper/Snapshot.cc b/snapper/Snapshot.cc
+index 3b1d7c2..5db1d82 100644
+--- a/snapper/Snapshot.cc
++++ b/snapper/Snapshot.cc
+@@ -270,7 +270,7 @@ namespace snapper
+ 
+ 	entries.sort();
+ 
+-	y2mil("found " << entries.size() << " snapshots");
++	y2deb("found " << entries.size() << " snapshots");
+     }
+ 
+ 
+-- 
+2.1.4
+

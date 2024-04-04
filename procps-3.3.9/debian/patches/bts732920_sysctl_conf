@@ -1,0 +1,26 @@
+Description: Fix sysctl --system
+ Interim patch until 3.3.10 comes along which fixes this.
+Bug-Debian: http://bugs.debian.org/732920
+Last-Update: 2014-02-19
+--- a/sysctl.c
++++ b/sysctl.c
+@@ -640,11 +640,18 @@
+ 	}
+ 
+ 
+-	if (stat(DEFAULT_PRELOAD, &ts) < 0 && S_ISREG(ts.st_mode)) {
++	if (stat(DEFAULT_PRELOAD, &ts) < 0 || S_ISREG(ts.st_mode)) {
+ 		if (!Quiet)
+ 			printf(_("* Applying %s ...\n"), DEFAULT_PRELOAD);
+ 		rc |= Preload(DEFAULT_PRELOAD);
+ 	}
++
++	/* cleaning */
++	for (i = 0; i < ncfgs; ++i) {
++		free(cfgs[i]);
++	}
++	if (cfgs) free(cfgs);
++
+ 	return rc;
+ }
+ 

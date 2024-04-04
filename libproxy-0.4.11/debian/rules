@@ -1,0 +1,50 @@
+#!/usr/bin/make -f
+
+include /usr/share/gnome-pkg-tools/1/rules/uploaders.mk
+
+SHLIBVER := 0.4.11
+libproxy := $(shell sed -nr 's/^Package:[[:space:]]*(libproxy[0-9]+)[[:space:]]*$$/\1/p' debian/control.in)
+
+#export DH_VERBOSE=1
+
+export LDFLAGS := $(shell dpkg-buildflags --get LDFLAGS) -Wl,--as-needed
+
+# only invoke dh --with cli if cli-common-dev is present
+WITH_CLI = --with cli
+WITH_DOTNET = -DWITH_DOTNET=ON
+ifeq (,$(wildcard /usr/share/perl5/Debian/Debhelper/Sequence/cli.pm))
+WITH_CLI = 
+WITH_DOTNET = -DWITH_DOTNET=OFF
+endif
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+CONFIGURE_FLAGS = $(WITH_DOTNET) \
+		-DWITH_VALA=ON \
+		-DWITH_GNOME3=ON \
+		-DWITH_MOZJS=ON \
+		-DWITH_WEBKIT3=ON \
+		-DGMCS_EXECUTABLE=/usr/bin/mono-csc \
+		-DCMAKE_SKIP_RPATH=ON \
+		-DBIPR=0 \
+		-DLIB_INSTALL_DIR=/usr/lib/$(DEB_HOST_MULTIARCH) \
+		-DLIBEXEC_INSTALL_DIR=/usr/lib/$(DEB_HOST_MULTIARCH)/libproxy/$(SHLIBVER)
+
+override_dh_auto_configure:
+	dh_auto_configure -- $(CONFIGURE_FLAGS)
+
+override_dh_install-arch:
+	dh_install
+	rm -f \
+	  debian/libproxy-dev/usr/lib/$(DEB_HOST_MULTIARCH)/pkgconfig/libproxy-sharp-*.pc
+
+override_dh_install-indep:
+	dh_install
+	sed -i 's!/usr/lib/mono/libproxy-sharp!/usr/lib/cli/libproxy-sharp-0.4!' \
+		debian/libproxy-cil-dev/usr/lib/pkgconfig/libproxy-sharp-1.0.pc
+
+override_dh_makeshlibs:
+	dh_makeshlibs -V '$(libproxy) (>= $(SHLIBVER))' -- -c4
+
+%:
+	dh $@ $(WITH_CLI) --with python2

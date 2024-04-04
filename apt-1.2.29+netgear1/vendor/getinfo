@@ -1,0 +1,40 @@
+#!/bin/sh
+# small helper to extract information form *.ent files
+
+BASEDIR="$(readlink -f "$(dirname $0)")"
+INFO="$(readlink -f "${BASEDIR}/current/apt-vendor.ent")"
+VERBATIM="${BASEDIR}/../doc/apt-verbatim.ent"
+
+if [ -z "$INFO" ] || [ ! -e "$INFO" ]; then
+	echo >&2 'The current vendor is not valid or not chosen by the buildsystem yet.'
+	exit 1
+fi
+
+getrawfield() {
+	awk "/<!ENTITY $1/ {f=NR} f && NR-1==f { print; exit 0 }" RS='"' "${2:-$INFO}"
+}
+
+getfield() {
+	local FIELD="$(getrawfield "$@")"
+	FIELD="${FIELD#*>}"
+	echo "${FIELD%<*}"
+}
+
+case "$1" in
+debian-stable-codename|debian-oldstable-codename|debian-testing-codename|ubuntu-codename)
+	getrawfield "$1" "$VERBATIM"
+	;;
+keyring-package|keyring-filename|keyring-master-filename|keyring-removed-filename|keyring-uri|current-codename)
+	exec $0 'vendor' "$@"
+	;;
+vendor)
+	getfield "$2"
+	;;
+verbatim)
+	getfield "$2" "$VERBATIM"
+	;;
+*)
+	echo >&2 "Unknown data field $1 requested"
+	exit 2
+	;;
+esac

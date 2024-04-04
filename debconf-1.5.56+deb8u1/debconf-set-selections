@@ -1,0 +1,227 @@
+#!/usr/bin/perl
+
+=head1 NAME
+
+debconf-set-selections - insert new values into the debconf database
+
+=cut
+
+sub usage {
+	print STDERR <<EOF;
+Usage: debconf-set-selections [-vcu] [file]
+  -v, --verbose     verbose output
+  -c, --checkonly   only check the input file format
+  -u, --unseen      do not set the 'seen' flag when preseeding values
+EOF
+	exit(1);
+}
+
+=head1 SYNOPSIS
+
+ debconf-set-selections file
+ debconf-get-selections | ssh newhost debconf-set-selections
+
+=head1 DESCRIPTION
+
+B<debconf-set-selections> can be used to pre-seed the debconf database with
+answers, or to change answers in the database. Each question will be marked
+as seen to prevent debconf from asking the question interactively.
+
+Reads from a file if a filename is given, otherwise from stdin.
+
+=head1 WARNING
+
+Only use this command to seed debconf values for packages that will be or
+are installed. Otherwise you can end up with values in the database for
+uninstalled packages that will not go away, or with worse problems
+involving shared values. It is recommended that this only be used to seed
+the database if the originating machine has an identical install.
+
+=head1 DATA FORMAT
+
+The data is a series of lines. Lines beginning with a # character are
+comments. Blank lines are ignored. All other lines set the value of one
+question, and should contain four values, each separated by one character
+of whitespace. The first value is the name of the package that owns the
+question. The second is the name of the question, the third value is the
+type of this question, and the fourth value (through the end of the line)
+is the value to use for the answer of the question.
+
+Alternatively, the third value can be "seen"; then the preseed line only
+controls whether the question is marked as seen in debconf's database. Note
+that preseeding a question's value defaults to marking that question as
+seen, so to override the default value without marking a question seen, you
+need two lines.
+
+Lines can be continued to the next line by ending them with a "\"
+character.
+
+=head1 EXAMPLES
+
+ # Force debconf priority to critical.
+ debconf debconf/priority select critical
+
+ # Override default frontend to readline, but allow user to select.
+ debconf debconf/frontend select readline
+ debconf debconf/frontend seen false
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--verbose>, B<-v>
+
+verbose output
+
+=item B<--checkonly>, B<-c>
+
+only check the input file format, do not save changes to database
+
+=back
+
+=head1 SEE ALSO
+
+L<debconf-get-selections(1)>
+(available in the debconf-utils package)
+
+=cut
+
+use warnings;
+use strict;
+use Debconf::Db;
+use Debconf::Template;
+use Getopt::Long;
+
+use vars qw(%opts $filename $debug $error $checkonly $unseen);
+
+sub info {
+	my $msg = shift;
+	print STDERR "info: $msg\n" if $debug;
+}
+
+sub warning {
+	my $msg = shift;
+	print STDERR "warning: $msg\n";
+}
+
+sub error {
+	my $msg = shift;
+	print STDERR "error: $msg\n";
+	$error++
+}
+
+sub load_answer {
+	my ($owner, $label, $type, $content) = @_;
+	
+	info "Loading answer for '$label'";
+
+	# Set up the template.
+	my $template=Debconf::Template->get($label);
+	if (! $template) {
+		$template=Debconf::Template->new($label, $owner, $type);
+		$template->description("Dummy template");
+		$template->extended_description("This is a fake template used to pre-seed the debconf database. If you are seeing this, something is probably wrong.");
+	}
+	$template->type($type);
+	
+	# The question should already exist, it was created along with the
+	# template. Set it up.
+	my $question=Debconf::Question->get($label);
+	if (! $question) {
+		error("Cannot find a question for $label");
+		return;
+	}
+	$question->addowner($owner, $type);
+	$question->value($content);
+	if (! $unseen) {
+		$question->flag("seen", "true");
+	}
+}
+
+sub set_flag {
+	my ($owner, $label, $flag, $content) = @_;
+
+	info "Setting $flag flag";
+
+	my $question=Debconf::Question->get($label);
+	if (! $question) {
+		error("Cannot find a question for $label");
+		return;
+	}
+	$question->flag($flag, $content);
+}
+
+my @knowntypes = qw(select boolean string multiselect note password text title);
+my @knownflags = qw(seen);
+
+sub ok_format {
+	my ($owner, $label, $type, $content) = @_;
+	if (! defined $owner || ! defined $label || ! defined $content) {
+		error "parse error on line $.: '$_'";
+		return;
+	}
+	elsif (! grep { $_ eq $type } @knowntypes, @knownflags) {
+		warning "Unknown type $type, skipping line $.";
+		return;
+	}
+	else {
+		return 1;
+	}
+}
+
+sub mungeline ($) {
+	my $line=shift;
+	chomp $line;
+	$line=~s/\r$//;
+	return $line;
+}
+
+
+GetOptions(
+	"verbose|v" => \$debug,
+	"checkonly|c" => \$checkonly,
+	"unseen|u" => \$unseen,
+) || usage();
+
+Debconf::Db->load;
+
+$error = 0;
+
+while (<>) {
+	$_=mungeline($_);
+	while (/\\$/ && ! eof) {
+		s/\\$//;
+		$_.=mungeline(<>);
+	}
+	next if /^\s*$/ || /^\s*\#/;
+	# Allow multiple spaces between all values except the last one.
+	# Extra whitespace in the content is significant.
+	my ($owner, $label, $type, $content) = /^\s*(\S+)\s+(\S+)\s+(\S+)(?:\s(.*))?/;
+	if (! defined $content) {
+		$content='';
+	}
+	if (ok_format($owner, $label, $type, $content)) {
+		if (grep { $_ eq $type } @knownflags) {
+			info "Trying to set '$type' flag to '$content'";
+			set_flag($owner, $label, $type, $content);
+		}
+		else {
+			info "Trying to set '$label' [$type] to '$content'";
+			load_answer($owner, $label, $type, $content);
+		}
+	}
+}
+
+if (! $checkonly) {
+	Debconf::Db->save;
+}
+
+if ($error) {
+	exit 1;
+}
+
+=head1 AUTHOR
+
+Petter Reinholdtsen <pere@hungry.com>
+
+=cut

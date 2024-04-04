@@ -1,0 +1,38 @@
+From c31aabfca47372cf377703652be8f186d4c88d4a Mon Sep 17 00:00:00 2001
+From: Jesse Brandeburg <jesse.brandeburg@intel.com>
+Date: Sun, 4 Oct 2015 01:09:49 -0700
+Subject: [PATCH 001/224] i40evf: fix compiler warning of unused variable
+
+Compiler complained of an unused variable, which the driver was just
+using to store the result of a rd32 which is used to clear a register
+unconditionally.  Just drop the unused variable and re-use one.
+
+Signed-off-by: Jesse Brandeburg <jesse.brandeburg@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40evf/i40evf_main.c | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40evf/i40evf_main.c b/drivers/net/ethernet/intel/i40evf/i40evf_main.c
+index 5f03ab3..b063458 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40evf_main.c
++++ b/drivers/net/ethernet/intel/i40evf/i40evf_main.c
+@@ -307,10 +307,9 @@ static irqreturn_t i40evf_msix_aq(int irq, void *data)
+ 	struct i40e_hw *hw = &adapter->hw;
+ 	u32 val;
+ 
+-	/* handle non-queue interrupts */
+-	rd32(hw, I40E_VFINT_ICR01);
+-	rd32(hw, I40E_VFINT_ICR0_ENA1);
+-
++	/* handle non-queue interrupts, these reads clear the registers */
++	val = rd32(hw, I40E_VFINT_ICR01);
++	val = rd32(hw, I40E_VFINT_ICR0_ENA1);
+ 
+ 	val = rd32(hw, I40E_VFINT_DYN_CTL01) |
+ 	      I40E_VFINT_DYN_CTL01_CLEARPBA_MASK;
+-- 
+1.9.1
+

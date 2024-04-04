@@ -1,0 +1,85 @@
+From 7535e4d5d46dd34cdeef617584c04d6cb05c5794 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Wed, 5 Mar 2014 17:48:03 -0800
+Subject: [PATCH 4/7] netgear: assemble: add --really-force option
+
+Using --force is necessary for certain things, but also dangerous.
+Add --really-force option to allow mdadm to do those dangerous
+operations if commanded to, without affecting the other things that
+--force is good for.
+
+Conflicts:
+	mdadm.h
+---
+ Assemble.c | 12 +++++++++++-
+ ReadMe.c   |  1 +
+ mdadm.c    |  3 +++
+ mdadm.h    |  1 +
+ 4 files changed, 16 insertions(+), 1 deletion(-)
+
+Index: mdadm-4.1/Assemble.c
+===================================================================
+--- mdadm-4.1.orig/Assemble.c
++++ mdadm-4.1/Assemble.c
+@@ -875,12 +875,22 @@ static int force_array(struct mdinfo *co
+ 			break;
+ 		current_events = devices[chosen_drive].i.events;
+ 	add_another:
+-		if (c->verbose >= 0)
++		if (c->verbose >= 0) {
++			if (c->force < 2) {
++				pr_err("NOT forcing event count in %s(%d) from %d up to %d\n",
++					devices[chosen_drive].devname,
++					devices[chosen_drive].i.disk.raid_disk,
++					(int)(devices[chosen_drive].i.events),
++					(int)(devices[most_recent].i.events));
++				pr_err("You can use --really-force to do that (DANGEROUS)\n");
++				break;
++			}
+ 			pr_err("forcing event count in %s(%d) from %d upto %d\n",
+ 			       devices[chosen_drive].devname,
+ 			       devices[chosen_drive].i.disk.raid_disk,
+ 			       (int)(devices[chosen_drive].i.events),
+ 			       (int)(devices[most_recent].i.events));
++		}
+ 		fd = dev_open(devices[chosen_drive].devname,
+ 			      devices[chosen_drive].included ? O_RDWR
+ 			      : (O_RDWR|O_EXCL));
+Index: mdadm-4.1/ReadMe.c
+===================================================================
+--- mdadm-4.1.orig/ReadMe.c
++++ mdadm-4.1/ReadMe.c
+@@ -159,6 +159,7 @@ struct option long_options[] = {
+     {"force",	  0, 0, Force},
+     {"update",	  1, 0, 'U'},
+     {"freeze-reshape", 0, 0, FreezeReshape},
++    {"really-force", 0, 0, ReallyForce},
+ 
+     /* Management */
+     {"add",       0, 0, Add},
+Index: mdadm-4.1/mdadm.c
+===================================================================
+--- mdadm-4.1.orig/mdadm.c
++++ mdadm-4.1/mdadm.c
+@@ -673,6 +673,9 @@ int main(int argc, char *argv[])
+ 		case O(MANAGE,Force): /* add device which is too large */
+ 			c.force = 1;
+ 			continue;
++		case O(ASSEMBLE,ReallyForce): /* really force assembly */
++			c.force=2;
++			continue;
+ 			/* now for the Assemble options */
+ 		case O(ASSEMBLE, FreezeReshape):   /* Freeze reshape during
+ 						    * initrd phase */
+Index: mdadm-4.1/mdadm.h
+===================================================================
+--- mdadm-4.1.orig/mdadm.h
++++ mdadm-4.1/mdadm.h
+@@ -454,6 +454,7 @@ enum special_options {
+ 	ClusterConfirm,
+ 	WriteJournal,
+ 	ConsistencyPolicy,
++	ReallyForce,
+ };
+ 
+ enum prefix_standard {

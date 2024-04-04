@@ -1,0 +1,51 @@
+From e329f023a6d1c576a3be99b5504b93f980e83a47 Mon Sep 17 00:00:00 2001
+From: Father Chrysostomos <sprout@cpan.org>
+Date: Mon, 17 Aug 2015 08:13:52 +0100
+Subject: Fix crash with 0-5x-l{0}
+
+perl-5.8.0-117-g6f33ba7, which added the XTERMORDORDOR hack, did not
+change the leftbracket code to treat XTERMORDORDOR the same way as
+XTERM, so -l {0} and getc {0} (among other ops) were treating {...} as
+a block, rather than an anonymous hash.  This was not, however, being
+turned into a real block with enter/leave ops to protect the stack,
+so the nextstate op was corrupting the stack and possibly freeing mor-
+tals in use.
+
+This commit makes the leftbracket code check for XTERMORDORDOR and
+treat it like XTERM, so that -l {0} once more creates an anonymous
+hash.  There is really no way to get to that hash, though, so all I
+can test for is the crash.
+
+(cherry picked from commit 83a85f49e265a458a481a9dc402dd3bdd30ae457)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=123711
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/leftbracket_XTERMORDORDOR.diff
+---
+ t/base/lex.t | 3 +++
+ toke.c       | 1 +
+ 2 files changed, 4 insertions(+)
+
+diff --git a/t/base/lex.t b/t/base/lex.t
+index 01ab2088b..3c612ec9e 100644
+--- a/t/base/lex.t
++++ b/t/base/lex.t
+@@ -434,3 +434,6 @@ print "ok $test - y <comment> <newline> ...\n"; $test++;
+ print "not " unless (time
+                      =>) eq time=>;
+ print "ok $test - => quotes keywords across lines\n"; $test++;
++
++# Used to crash [perl #123711]
++0-5x-l{0};
+diff --git a/toke.c b/toke.c
+index 899712b8a..51408a18d 100644
+--- a/toke.c
++++ b/toke.c
+@@ -6107,6 +6107,7 @@ Perl_yylex(pTHX)
+ 	}
+ 	switch (PL_expect) {
+ 	case XTERM:
++	case XTERMORDORDOR:
+ 	    PL_lex_brackstack[PL_lex_brackets++] = XOPERATOR;
+ 	    PL_lex_allbrackets++;
+ 	    OPERATOR(HASHBRACK);

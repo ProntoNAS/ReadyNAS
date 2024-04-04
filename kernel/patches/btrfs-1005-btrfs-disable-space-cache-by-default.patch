@@ -1,0 +1,47 @@
+From 8035591bab5b8211e4aab4f564785f373ca628d4 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Fri, 2 Dec 2016 12:30:47 -0800
+Subject: [PATCH 1005/1016] btrfs: disable space cache by default
+
+The btrfs space cache can become quite non-optimal over time, causing the
+first large allocation after mount to be very slow.
+
+My testing consists of copying xxx files and xxx folder using 7.9TB
+of disk space to a fresh system with 6 3TB drives in a RAID 5.
+
+With the original space cache, the first 2GB fallocate after mount took
+~2m30s.  When mounting without the space cache, the same fallocate took
+~11s.
+
+This was reported many times on the forum as "disconnect during large
+file copy" after reboot.
+---
+ fs/btrfs/super.c | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/fs/btrfs/super.c b/fs/btrfs/super.c
+index 40cda4b..b18bd3e 100644
+--- a/fs/btrfs/super.c
++++ b/fs/btrfs/super.c
+@@ -382,7 +382,6 @@ int btrfs_parse_options(struct btrfs_root *root, char *options)
+ 	struct btrfs_fs_info *info = root->fs_info;
+ 	substring_t args[MAX_OPT_ARGS];
+ 	char *p, *num, *orig = NULL;
+-	u64 cache_gen;
+ 	int intarg;
+ 	int ret = 0;
+ 	char *compress_type;
+@@ -391,10 +390,6 @@ int btrfs_parse_options(struct btrfs_root *root, char *options)
+ 	bool saved_compress_force;
+ 	int no_compress = 0;
+ 
+-	cache_gen = btrfs_super_cache_generation(root->fs_info->super_copy);
+-	if (cache_gen)
+-		btrfs_set_opt(info->mount_opt, SPACE_CACHE);
+-
+ 	if (!options)
+ 		goto out;
+ 
+-- 
+1.9.1
+

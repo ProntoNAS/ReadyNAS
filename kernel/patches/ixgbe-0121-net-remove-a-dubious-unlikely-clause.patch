@@ -1,0 +1,35 @@
+From f5f138ef35c9e92ac3b2eeb85cba6a6e20792e50 Mon Sep 17 00:00:00 2001
+From: Eric Dumazet <edumazet@google.com>
+Date: Sun, 20 Mar 2016 11:27:47 -0700
+Subject: [PATCH 121/191] net: remove a dubious unlikely() clause
+
+TCP protocol is still used these days, and TCP uses
+clones in its transmit path. We can not optimize linux
+stack assuming it is mostly used in routers, or that TCP
+is dead.
+
+Fixes: 795bb1c00d ("net: bulk free infrastructure for NAPI context, use napi_consume_skb")
+Signed-off-by: Eric Dumazet <edumazet@google.com>
+Cc: Jesper Dangaard Brouer <brouer@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit abbdb5a74cead60e20b79c960c1772955f0b6b81)
+---
+ net/core/skbuff.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/net/core/skbuff.c b/net/core/skbuff.c
+index fca7066..2eada72 100644
+--- a/net/core/skbuff.c
++++ b/net/core/skbuff.c
+@@ -811,7 +811,7 @@ void napi_consume_skb(struct sk_buff *skb, int budget)
+ 	trace_consume_skb(skb);
+ 
+ 	/* if SKB is a clone, don't handle this case */
+-	if (unlikely(skb->fclone != SKB_FCLONE_UNAVAILABLE)) {
++	if (skb->fclone != SKB_FCLONE_UNAVAILABLE) {
+ 		__kfree_skb(skb);
+ 		return;
+ 	}
+-- 
+1.9.1
+

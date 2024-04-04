@@ -1,0 +1,24 @@
+#! /usr/bin/make -f
+
+export DH_OPTIONS += --dbg-package=libidn2-0-dbg
+
+%:
+	dh $@ --parallel --with autoreconf
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		--enable-ld-version-script \
+		--with-packager=Debian \
+		--with-packager-bug-reports=http://bugs.debian.org/ \
+		--with-packager-version="$(DEB_VERSION)"
+
+# Texinfo PDF manual is not built by 'make' but removed by 'make clean'.
+override_dh_auto_build:
+	dh_auto_build
+	make -C doc libidn2.pdf
+
+override_dh_auto_clean:
+	test ! -f Makefile || dh_auto_clean
+
+override_dh_compress:
+	dh_compress -Xlibidn2.pdf

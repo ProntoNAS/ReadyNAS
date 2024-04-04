@@ -1,0 +1,37 @@
+From ec5cfb266a9d4e73fbc039c65d1bda74ede2b335 Mon Sep 17 00:00:00 2001
+From: Michael Li <michael.li@netgear.com>
+Date: Mon, 2 Apr 2018 15:32:56 +0800
+Subject: [PATCH] winbind: fix rid lookup by uid on default domain
+
+Match * domain specifier in getpwuid/gid if no exact match exists.
+Refresh Justin Maggard's patch for 4.8.0.
+---
+ source3/winbindd/winbindd_util.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/source3/winbindd/winbindd_util.c b/source3/winbindd/winbindd_util.c
+index b19c42f..3a6b01d 100644
+--- a/source3/winbindd/winbindd_util.c
++++ b/source3/winbindd/winbindd_util.c
+@@ -45,6 +45,8 @@
+ 
+ static bool add_trusted_domains_dc(void);
+ 
++static bool assume_domain(const char *domain);
++
+ /* The list of trusted domains.  Note that the list can be deleted and
+    recreated using the init_domain_list() function so pointers to
+    individual winbindd_domain structures cannot be made.  Keep a copy of
+@@ -1335,6 +1337,9 @@ struct winbindd_domain *find_domain_from_name_noinit(const char *domain_name)
+ 		if (strequal(domain_name, domain->alt_name)) {
+ 			return domain;
+ 		}
++		if (strequal(domain_name, "*") && assume_domain(domain->name)) {
++			return domain;
++		}
+ 	}
+ 
+ 	/* Not found */
+-- 
+2.1.4
+

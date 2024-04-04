@@ -1,0 +1,265 @@
+=head1 NAME
+
+rrdtune - Modify some basic properties of a Round Robin Database
+
+=head1 SYNOPSIS
+
+B<rrdtool> B<tune> I<filename>
+S<[B<--heartbeat>|B<-h> I<ds-name>:I<heartbeat>]>
+S<[B<--minimum>|B<-i> I<ds-name>:I<min>]>
+S<[B<--maximum>|B<-a> I<ds-name>:I<max>]>
+S<[B<--data-source-type>|B<-d> I<ds-name>:I<DST>]>
+S<[B<--data-source-rename>|B<-r> I<old-name>:I<new-name>]>
+S<[B<--deltapos>|B<-p> I<scale-value>]>
+S<[B<--deltaneg>|B<-n> I<scale-value>]>
+S<[B<--failure-threshold>|B<-f> I<failure-threshold>]>
+S<[B<--window-length>|B<-w> I<window-length>]>
+S<[B<--alpha>|B<-x> I<adaption-parameter>]>
+S<[B<--beta>|B<-y> I<adaption-parameter>]>
+S<[B<--gamma>|B<-z> I<adaption-parameter>]>
+S<[B<--gamma-deviation>|B<-v> I<adaption-parameter>]>
+S<[B<--smoothing-window>|B<-s> I<fraction-of-season>]>
+S<[B<--smoothing-window-deviation>|B<-S> I<fraction-of-season>]>
+S<[B<--aberrant-reset>|B<-b> I<ds-name>]>
+S<[B<--step>|B<-t> I<newstep>]>
+S<[B<--daemon>|B<-D> I<address>]>
+S<[B<DEL:>I<ds-name>]>
+S<[B<DS:>I<ds-spec>]>
+S<[B<DELRRA:>I<index>]>
+S<[B<RRA:>I<rra-spec>]>
+S<[B<RRA#>I<index>:[+-=]<number>]>
+
+=head1 DESCRIPTION
+
+The tune option allows you to alter some of the basic configuration
+values stored in the header area of a Round Robin Database (B<RRD>).
+
+One application of the B<tune> function is to relax the
+validation rules on an B<RRD>. This allows you to fill a new B<RRD> with
+data available in larger intervals than what you would normally want
+to permit. Be very careful with tune operations for COMPUTE data sources.
+Setting the I<min>, I<max>, and  I<heartbeat> for a COMPUTE data source
+without changing the data source type to a non-COMPUTE B<DST> WILL corrupt
+the data source header in the B<RRD>.
+
+A second application of the B<tune> function is to set or alter parameters
+used by the specialized function B<RRAs> for aberrant behavior detection.
+
+Still another application is to add or remove data sources (DS) or 
+add / remove or alter some aspects of round-robin archives (RRA). These operations 
+are not really done in-place, but rather generate a new RRD file internally and 
+move it over the original file. Data is kept intact during theses operations.
+For even more in-depth modifications you may review the 
+S<B<--source>> and S<B<--template>> options of the B<create> function which  
+allow you to combine multiple RRD files into a new one and which is even more clever 
+in what data it is able to keep or "regenerate".
+
+=over 8
+
+=item I<filename>
+
+The name of the B<RRD> you want to tune.
+
+=item S<B<--heartbeat>|B<-h> I<ds-name>:I<heartbeat>>
+
+modify the I<heartbeat> of a data source. By setting this to a high
+value the RRD will accept things like one value per day.
+
+=item S<B<--minimum>|B<-i> I<ds-name>:I<min>>
+
+alter the minimum value acceptable as input from the data source.
+Setting I<min> to 'U' will disable this limit.
+
+=item S<B<--maximum>|B<-a> I<ds-name>:I<max>>
+
+alter the maximum value acceptable as input from the data source.
+Setting I<max> to 'U' will disable this limit.
+
+=item S<B<--data-source-type>|B<-d> I<ds-name>:I<DST>>
+
+alter the type B<DST> of a data source.
+
+=item S<B<--data-source-rename>|B<-r> I<old-name>:I<new-name>>
+
+rename a data source.
+
+=item S<B<--deltapos>|B<-p> I<scale-value>>
+
+Alter the deviation scaling factor for the upper bound of the
+confidence band used internally to calculate violations for the
+FAILURES B<RRA>. The default value is 2. Note that this parameter is
+not related to graphing confidence bounds which must be specified as a
+CDEF argument to generate a graph with confidence bounds. The graph
+scale factor need not to agree with the value used internally by the
+FAILURES B<RRA>.
+
+=item S<B<--deltaneg>|B<-n> I<scale-value>>
+
+Alter the deviation scaling factor for the lower bound of the confidence band
+used internally to calculate violations for the FAILURES B<RRA>. The default
+value is 2. As with B<--deltapos>, this argument is unrelated to the scale
+factor chosen when graphing confidence bounds.
+
+=item S<B<--failure-threshold>|B<-f> I<failure-threshold>>
+
+Alter the number of confidence bound violations that constitute a failure for
+purposes of the FAILURES B<RRA>. This must be an integer less than or equal to
+the window length of the FAILURES B<RRA>. This restriction is not verified by
+the tune option, so one can reset failure-threshold and window-length
+simultaneously. Setting this option will reset the count of violations to 0.
+
+=item S<B<--window-length>|B<-w> I<window-length>>
+
+Alter the number of time points in the temporal window for determining
+failures. This must be an integer greater than or equal to the window
+length of the FAILURES B<RRA> and less than or equal to 28. Setting
+this option will reset the count of violations to 0.
+
+=item S<B<--alpha>|B<-x> I<adaption-parameter>>
+
+Alter the intercept adaptation parameter for the Holt-Winters
+forecasting algorithm. This parameter must be between 0 and 1.
+
+=item S<B<--beta>|B<-y> I<adaption-parameter>>
+
+Alter the slope adaptation parameter for the Holt-Winters forecasting
+algorithm. This parameter must be between 0 and 1.
+
+=item S<B<--gamma>|B<-z> I<adaption-parameter>>
+
+Alter the seasonal coefficient adaptation parameter for the SEASONAL
+B<RRA>. This parameter must be between 0 and 1.
+
+=item S<B<--gamma-deviation>|B<-v> I<adaption-parameter>>
+
+Alter the seasonal deviation adaptation parameter for the DEVSEASONAL
+B<RRA>. This parameter must be between 0 and 1.
+
+=item S<B<--smoothing-window>|B<-s> I<fraction-of-season>>
+
+Alter the size of the smoothing window for the SEASONAL B<RRA>. This must
+be between 0 and 1.
+
+=item S<B<--smoothing-window-deviation>|B<-S> I<fraction-of-season>>
+
+Alter the size of the smoothing window for the DEVSEASONAL B<RRA>. This must
+be between 0 and 1.
+
+=item S<B<--aberrant-reset>|B<-b> I<ds-name>>
+
+This option causes the aberrant behavior detection algorithm to reset
+for the specified data source; that is, forget all it is has learnt so far.
+Specifically, for the HWPREDICT or MHWPREDICT B<RRA>, it sets the intercept and
+slope coefficients to unknown. For the SEASONAL B<RRA>, it sets all seasonal
+coefficients to unknown. For the DEVSEASONAL B<RRA>, it sets all seasonal
+deviation coefficients to unknown. For the FAILURES B<RRA>, it erases the
+violation history. Note that reset does not erase past predictions
+(the values of the HWPREDICT or MHWPREDICT B<RRA>), predicted deviations (the
+values of the DEVPREDICT B<RRA>), or failure history (the values of the 
+FAILURES B<RRA>).  This option will function even if not all the listed 
+B<RRAs> are present.
+
+Due to the implementation of this option, there is an indirect impact on
+other data sources in the RRD. A smoothing algorithm is applied to
+SEASONAL and DEVSEASONAL values on a periodic basis. During bootstrap
+initialization this smoothing is deferred. For efficiency, the implementation
+of smoothing is not data source specific. This means that utilizing
+reset for one data source will delay running the smoothing algorithm
+for all data sources in the file. This is unlikely to have serious
+consequences, unless the data being collected for the non-reset data sources
+is unusually volatile during the reinitialization period of the reset
+data source.
+
+Use of this tuning option is advised when the behavior of the data source
+time series changes in a drastic and permanent manner.
+
+=item B<--step>|B<-t> I<newstep>
+
+Changes the step size of the RRD to newstep.
+
+TODO: add proper documentation
+
+=item B<--daemon>|B<-D> I<address>
+
+B<NOTE>: Because the B<-d> (small letter 'd') option was already taken, this 
+function (unlike most other) uses the capital letter 'D' for the one-letter 
+option to name the cache daemon.
+
+If given, B<RRDTool> will try to connect to the caching daemon
+L<rrdcached> at I<address> and will fail if the connection cannot be
+established. If the connection is successfully established the data
+for the I<filename> will be flushed before performing the
+copy/modify operation. Afterwards the I<filename> will be
+forgotten by the cache daemon, so that the next access using the
+caching daemon will read the proper structure.
+
+This sequence of operations is designed to achieve a consistent overall 
+result with respect to
+RRD internal file consistency when using one of the B<DS> or B<RRA> changing 
+operations (that is: the resulting file should always be a valid RRD file,
+regardless of concurrent updates through the caching daemon).
+Regarding data consistency such guarantees are not made: Without external 
+synchronization concurrent updates may be lost.
+
+For a list of accepted formats, see the B<-l> option in the L<rrdcached> manual.
+
+=item B<DEL:>I<ds-name>
+
+Every data source named with a DEL specification will be removed.
+The resulting RRD will miss both the definition and the data for that 
+data source. Multiple DEL specifications are permitted.
+
+=item B<DS:>I<ds-spec>
+
+For every such data source definition (for the exact syntax see the
+B<create> command), a new data source will be added to the RRD. Multiple DS 
+specifications are permitted.
+
+=item B<DELRRA:>I<index>
+
+Removes the RRA with index I<index>. The index is zero-based, 
+that is the very first RRA has index 0.
+
+=item B<RRA:>I<rra-spec>
+
+For every such archive definition (for the exact syntax see the
+B<create> command), a new RRA will be added to the output
+RRD. Multiple RRA specifications are permitted.
+
+=item B<RRA#>I<index>:[+-=]<number>
+
+Adds/removes or sets the given number of rows for the RRA with index
+<index>. The index is zero-based, that is the very first RRA has index 0.
+
+=back
+
+=head1 EXAMPLE 1
+
+C<rrdtool tune data.rrd -h in:100000 -h out:100000 -h through:100000>
+
+Set the minimum required heartbeat for data sources 'in', 'out'
+and 'through' to 10'000 seconds which is a little over one day in data.rrd.
+This would allow to feed old data from MRTG-2.0 right into
+RRDtool without generating *UNKNOWN* entries.
+
+=head1 EXAMPLE 2
+
+C<rrdtool tune monitor.rrd --window-length 5 --failure-threshold 3>
+
+If the FAILURES B<RRA> is implicitly created, the default
+window-length is 9 and the default failure-threshold is 7. This
+command now defines a failure as 3 or more violations in a temporal
+window of 5 time points.
+
+=head1 EXAMPLE 3
+
+C<rrdtool tune some.rrd DEL:a RRA#0:+10>
+
+Delete the data source named B<a> and extend the very first archive by 10 rows.
+This will in fact replace the input RRD with a new RRD keeping all existing data.
+For most practical use cases this is identical to a real in-place modification.
+
+=head1 AUTHORS
+
+Tobias Oetiker E<lt>tobi@oetiker.chE<gt>, Peter Stamfest E<lt>peter@stamfest.atE<gt>
+

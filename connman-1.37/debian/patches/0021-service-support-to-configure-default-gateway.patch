@@ -1,0 +1,206 @@
+From 563a6c9e288cbdf3f4ad78093b946ad97712ca2a Mon Sep 17 00:00:00 2001
+From: Justin Ding <justin.ding@netgear.com>
+Date: Mon, 8 Jul 2019 23:40:13 -0700
+Subject: [PATCH] service:support to configure default gateway.
+
+Implement a property of service:IsDefaultGW to setup default gateway.
+---
+ src/connman.h |  2 ++
+ src/service.c | 90 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 91 insertions(+), 1 deletion(-)
+
+diff --git a/src/connman.h b/src/connman.h
+index 865ec39..c658d34 100644
+--- a/src/connman.h
++++ b/src/connman.h
+@@ -711,6 +711,8 @@ int __connman_service_set_favorite(struct connman_service *service,
+ int __connman_service_set_favorite_delayed(struct connman_service *service,
+ 					bool favorite,
+ 					bool delay_ordering);
++int __connman_service_set_isdefaultgw(struct connman_service *service,
++					bool is_defaultgw);	
+ int __connman_service_set_immutable(struct connman_service *service,
+ 						bool immutable);
+ int __connman_service_set_ignore(struct connman_service *service,
+diff --git a/src/service.c b/src/service.c
+index 094f5a8..1cb3bc5 100644
+--- a/src/service.c
++++ b/src/service.c
+@@ -137,6 +137,7 @@ struct connman_service {
+ 	bool hidden_service;
+ 	char *config_file;
+ 	char *config_entry;
++	bool is_defaultgw;
+ };
+ 
+ static bool allow_property_changed(struct connman_service *service);
+@@ -432,6 +433,7 @@ static int service_load(struct connman_service *service)
+ 	gsize length;
+ 	gchar *str;
+ 	bool autoconnect;
++	bool is_defaultgw;
+ 	unsigned int ssid_len;
+ 	int err = 0;
+ 
+@@ -526,6 +528,12 @@ static int service_load(struct connman_service *service)
+ 				service->identifier, "AutoConnect", &error);
+ 		if (!error)
+ 			service->autoconnect = autoconnect;
++		
++		is_defaultgw = g_key_file_get_boolean(keyfile,
++				service->identifier, "IsDefaultGW", &error);
++		if (!error)
++			service->is_defaultgw = is_defaultgw;
++		
+ 		g_clear_error(&error);
+ 		break;
+ 	}
+@@ -704,6 +712,9 @@ static int service_save(struct connman_service *service)
+ 		if (service->favorite)
+ 			g_key_file_set_boolean(keyfile, service->identifier,
+ 					"AutoConnect", service->autoconnect);
++		
++		g_key_file_set_boolean(keyfile, service->identifier,
++					"IsDefaultGW", service->is_defaultgw);
+ 		break;
+ 	}
+ 
+@@ -1609,6 +1620,22 @@ static void favorite_changed(struct connman_service *service)
+ 					DBUS_TYPE_BOOLEAN, &favorite);
+ }
+ 
++static void isdefaultgw_changed(struct connman_service *service)
++{
++	dbus_bool_t is_defaultgw;
++
++	if (!service->path)
++		return;
++
++	if (!allow_property_changed(service))
++		return;
++
++	is_defaultgw = service->is_defaultgw;
++	connman_dbus_property_changed_basic(service->path,
++				CONNMAN_SERVICE_INTERFACE, "IsDefaultGW",
++					DBUS_TYPE_BOOLEAN, &is_defaultgw);
++}
++
+ static void immutable_changed(struct connman_service *service)
+ {
+ 	dbus_bool_t immutable;
+@@ -2585,7 +2612,10 @@ static void append_properties(DBusMessageIter *dict, dbus_bool_t limited,
+ 	val = service->favorite;
+ 	connman_dbus_dict_append_basic(dict, "Favorite",
+ 					DBUS_TYPE_BOOLEAN, &val);
+-
++	
++	val = service->is_defaultgw;
++	connman_dbus_dict_append_basic(dict, "IsDefaultGW",
++					DBUS_TYPE_BOOLEAN, &val);
+ 	val = service->immutable;
+ 	connman_dbus_dict_append_basic(dict, "Immutable",
+ 					DBUS_TYPE_BOOLEAN, &val);
+@@ -3765,6 +3795,20 @@ static DBusMessage *set_property(DBusConnection *conn,
+ 			__connman_service_auto_connect(CONNMAN_SERVICE_CONNECT_REASON_AUTO);
+ 
+ 		service_save(service);
++	} else if (g_str_equal(name, "IsDefaultGW")) {
++		dbus_bool_t is_defaultgw;
++
++		if (type != DBUS_TYPE_BOOLEAN)
++			return __connman_error_invalid_arguments(msg);
++
++		dbus_message_iter_get_basic(&value, &is_defaultgw);
++
++		if (service->is_defaultgw == is_defaultgw)
++			return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
++
++		__connman_service_set_isdefaultgw(service, is_defaultgw);
++
++		service_save(service);
+ 	} else if (g_str_equal(name, "Nameservers.Configuration")) {
+ 		DBusMessageIter entry;
+ 		GString *str;
+@@ -4737,6 +4781,8 @@ bool __connman_service_remove(struct connman_service *service)
+ 
+ 	g_free(service->eap);
+ 	service->eap = NULL;
++	
++	service->is_defaultgw = false;
+ 
+ 	service->error = CONNMAN_SERVICE_ERROR_UNKNOWN;
+ 
+@@ -5256,6 +5302,8 @@ static void service_initialize(struct connman_service *service)
+ 
+ 	service->wps = false;
+ 	service->wps_advertizing = false;
++	
++	service->is_defaultgw = false;
+ }
+ 
+ /**
+@@ -5358,6 +5406,13 @@ static gint service_compare(gconstpointer a, gconstpointer b)
+ 	b_connected = is_connected(state_b);
+ 
+ 	if (a_connected && b_connected) {
++		
++		if (service_a->is_defaultgw && !service_b->is_defaultgw)
++			return -1;
++
++		if (!service_a->is_defaultgw && service_b->is_defaultgw)
++			return 1;
++	
+ 		if (service_a->order > service_b->order)
+ 			return -1;
+ 
+@@ -5385,7 +5440,13 @@ static gint service_compare(gconstpointer a, gconstpointer b)
+ 		if (is_connecting(state_b))
+ 			return 1;
+ 	}
++	
++	if (service_a->is_defaultgw && !service_b->is_defaultgw)
++			return -1;
+ 
++	if (!service_a->is_defaultgw && service_b->is_defaultgw)
++			return 1;
++		
+ 	if (service_a->favorite && !service_b->favorite)
+ 		return -1;
+ 
+@@ -5641,6 +5702,33 @@ bool connman_service_get_favorite(struct connman_service *service)
+ 	return service->favorite;
+ }
+ 
++int __connman_service_set_isdefaultgw(struct connman_service *service,
++					bool is_defaultgw)
++{
++	if (service->hidden)
++		return -EOPNOTSUPP;
++
++	if (service->is_defaultgw == is_defaultgw)
++		return -EALREADY;
++
++	service->is_defaultgw = is_defaultgw;
++
++	__connman_service_get_order(service);
++
++	isdefaultgw_changed(service);
++
++	service_list_sort();
++
++	__connman_connection_update_gateway();
++
++	return 0;
++}
++
++bool connman_service_get_isdefaultgw(struct connman_service *service)
++{
++	return service->is_defaultgw;
++}
++
+ bool connman_service_get_autoconnect(struct connman_service *service)
+ {
+ 	return service->autoconnect;
+-- 
+2.1.4
+

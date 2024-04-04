@@ -1,0 +1,72 @@
+From: Michael Biebl <mbiebl@gmail.com>
+Date: Wed, 27 Jul 2016 05:32:37 +0200
+Subject: string-util: rework memory_erase() to not use GCC optimize attribute
+ (#3812)
+
+"#pragma GCC optimize" is merely a convenience to decorate multiple
+functions with attribute optimize. And the manual has this to say about
+this attribute:
+
+  This attribute should be used for debugging purposes only. It
+  is not suitable in production code.
+
+Some versions of GCC also seem to have a problem with this pragma in
+combination with LTO, resulting in ICEs.
+
+So use a different approach (indirect the memset call via a volatile
+function pointer) as implemented in openssl's crypto/mem_clr.c.
+
+Closes: #3811
+(cherry picked from commit 19f945767e4fd5015dbeb47293afca48e0da0c69)
+---
+ src/basic/string-util.c | 26 +++++++++++---------------
+ 1 file changed, 11 insertions(+), 15 deletions(-)
+
+diff --git a/src/basic/string-util.c b/src/basic/string-util.c
+index 293a15f..f371a66 100644
+--- a/src/basic/string-util.c
++++ b/src/basic/string-util.c
+@@ -22,6 +22,7 @@
+ #include <stdint.h>
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <string.h>
+ 
+ #include "alloc-util.h"
+ #include "gunicode.h"
+@@ -803,25 +804,20 @@ int free_and_strdup(char **p, const char *s) {
+         return 1;
+ }
+ 
+-#pragma GCC push_options
+-#pragma GCC optimize("O0")
++/*
++ * Pointer to memset is volatile so that compiler must de-reference
++ * the pointer and can't assume that it points to any function in
++ * particular (such as memset, which it then might further "optimize")
++ * This approach is inspired by openssl's crypto/mem_clr.c.
++ */
++typedef void *(*memset_t)(void *,int,size_t);
+ 
+-void* memory_erase(void *p, size_t l) {
+-        volatile uint8_t* x = (volatile uint8_t*) p;
+-
+-        /* This basically does what memset() does, but hopefully isn't
+-         * optimized away by the compiler. One of those days, when
+-         * glibc learns memset_s() we should replace this call by
+-         * memset_s(), but until then this has to do. */
+-
+-        for (; l > 0; l--)
+-                *(x++) = 'x';
++static volatile memset_t memset_func = memset;
+ 
+-        return p;
++void* memory_erase(void *p, size_t l) {
++        return memset_func(p, 'x', l);
+ }
+ 
+-#pragma GCC pop_options
+-
+ char* string_erase(char *x) {
+ 
+         if (!x)

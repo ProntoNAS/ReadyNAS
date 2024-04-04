@@ -1,0 +1,33 @@
+From e9baa725dc7acfa70feeadfab5d788d72d108915 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 27 Jul 2016 12:51:03 -0700
+Subject: [PATCH 7/9] Don't fail snapper config creation if the snapshot subvol
+ already exists.
+
+---
+ snapper/BtrfsUtils.cc | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/snapper/BtrfsUtils.cc b/snapper/BtrfsUtils.cc
+index b0f7ca6..a365c1b 100644
+--- a/snapper/BtrfsUtils.cc
++++ b/snapper/BtrfsUtils.cc
+@@ -117,7 +117,15 @@ namespace snapper
+ 	    strncpy(args.name, name.c_str(), sizeof(args.name) - 1);
+ 
+ 	    if (ioctl(fddst, BTRFS_IOC_SUBVOL_CREATE, &args) < 0)
++	    {
++		if (errno == EEXIST)
++		{
++		    struct stat x;
++		    if (fstatat(fddst, args.name, &x, 0) == 0 && is_subvolume(x))
++			return;
++		}
+ 		throw runtime_error_with_errno("ioctl(BTRFS_IOC_SUBVOL_CREATE) failed", errno);
++	    }
+ 	}
+ 
+ 
+-- 
+2.9.3
+

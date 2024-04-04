@@ -1,0 +1,36 @@
+From ff8b4af18fb93f915b666507553bd09748ded6c4 Mon Sep 17 00:00:00 2001
+From: Mitch Williams <mitch.a.williams@intel.com>
+Date: Fri, 15 Jan 2016 14:33:19 -0800
+Subject: [PATCH 139/224] i40evf: set adapter state on reset failure
+
+If a reset fails to complete, the driver gets its affairs in order and
+awaits the cold solace of rmmod. Unfortunately, it was not properly
+setting the adapter state, which would cause a panic on rmmod, instead
+of the desired surcease.
+
+Set the adapter state to DOWN in this case, and avoid a panic.
+
+Change-ID: I6fdd9906da52e023f8dc744f7da44b5d95278ca9
+Signed-off-by: Mitch Williams <mitch.a.williams@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40evf/i40evf_main.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/net/ethernet/intel/i40evf/i40evf_main.c b/drivers/net/ethernet/intel/i40evf/i40evf_main.c
+index 3482c0c..9d9517d 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40evf_main.c
++++ b/drivers/net/ethernet/intel/i40evf/i40evf_main.c
+@@ -1883,6 +1883,7 @@ static void i40evf_reset_task(struct work_struct *work)
+ 		adapter->netdev->flags &= ~IFF_UP;
+ 		clear_bit(__I40EVF_IN_CRITICAL_TASK, &adapter->crit_section);
+ 		adapter->flags &= ~I40EVF_FLAG_RESET_PENDING;
++		adapter->state = __I40EVF_DOWN;
+ 		dev_info(&adapter->pdev->dev, "Reset task did not complete, VF disabled\n");
+ 		return; /* Do not attempt to reinit. It's dead, Jim. */
+ 	}
+-- 
+1.9.1
+

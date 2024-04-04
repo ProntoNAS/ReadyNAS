@@ -1,0 +1,44 @@
+From e7cbce8fb2b7417fd1048f916b3e3281f5b9dd7b Mon Sep 17 00:00:00 2001
+From: Daniel Kahn Gillmor <dkg@fifthhorseman.net>
+Date: Fri, 19 Dec 2014 17:53:36 -0500
+Subject: [PATCH 24/45] avoid future chance of using uninitialized memory
+
+* util/iobuf.c: (iobuf_open): initialize len
+
+--
+
+Cherry-pick 367b073ab5f439ccf0750461d10c69f36998bd62.
+
+In iobuf_open, IOBUFCTRL_DESC and IOBUFCTRL_INIT commands are invoked
+(via file_filter()) on fcx, passing in a pointer to an uninitialized
+len.
+
+With these two commands, file_filter doesn't actually do anything with
+the value of len, so there's no actual risk of use of uninitialized
+memory in the code as it stands.
+
+However, some static analysis tools might flag this situation with a
+warning, and initializing the value doesn't hurt anything, so i think
+this trivial cleanup is warranted.
+
+Debian-Bug-Id: 773469
+---
+ util/iobuf.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/util/iobuf.c b/util/iobuf.c
+index 35de020..a330460 100644
+--- a/util/iobuf.c
++++ b/util/iobuf.c
+@@ -1107,7 +1107,7 @@ iobuf_open( const char *fname )
+     IOBUF a;
+     FILEP_OR_FD fp;
+     file_filter_ctx_t *fcx;
+-    size_t len;
++    size_t len = 0;
+     int print_only = 0;
+     int fd;
+ 
+-- 
+2.1.4
+

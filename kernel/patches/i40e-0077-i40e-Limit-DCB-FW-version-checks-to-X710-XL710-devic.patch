@@ -1,0 +1,47 @@
+From d905b7866d33445ae5277194d8322c262d0c25d6 Mon Sep 17 00:00:00 2001
+From: Greg Bowers <gregory.j.bowers@intel.com>
+Date: Tue, 22 Dec 2015 14:25:10 -0800
+Subject: [PATCH 077/224] i40e: Limit DCB FW version checks to X710/XL710
+ devices
+
+X710/XL710 devices require FW version checks to properly handle DCB
+configurations from the FW.  Newer devices do not, so limit these checks
+to X710/XL710.
+
+Signed-off-by: Greg Bowers <gregory.j.bowers@intel.com>
+Acked-by: Shannon Nelson <shannon.nelson@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_dcb.c | 12 +++++++-----
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_dcb.c b/drivers/net/ethernet/intel/i40e/i40e_dcb.c
+index 2691277..582daa7 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_dcb.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_dcb.c
+@@ -814,13 +814,15 @@ i40e_status i40e_get_dcb_config(struct i40e_hw *hw)
+ 	struct i40e_aqc_get_cee_dcb_cfg_resp cee_cfg;
+ 	struct i40e_aqc_get_cee_dcb_cfg_v1_resp cee_v1_cfg;
+ 
+-	/* If Firmware version < v4.33 IEEE only */
+-	if (((hw->aq.fw_maj_ver == 4) && (hw->aq.fw_min_ver < 33)) ||
+-	    (hw->aq.fw_maj_ver < 4))
++	/* If Firmware version < v4.33 on X710/XL710, IEEE only */
++	if ((hw->mac.type == I40E_MAC_XL710) &&
++	    (((hw->aq.fw_maj_ver == 4) && (hw->aq.fw_min_ver < 33)) ||
++	      (hw->aq.fw_maj_ver < 4)))
+ 		return i40e_get_ieee_dcb_config(hw);
+ 
+-	/* If Firmware version == v4.33 use old CEE struct */
+-	if ((hw->aq.fw_maj_ver == 4) && (hw->aq.fw_min_ver == 33)) {
++	/* If Firmware version == v4.33 on X710/XL710, use old CEE struct */
++	if ((hw->mac.type == I40E_MAC_XL710) &&
++	    ((hw->aq.fw_maj_ver == 4) && (hw->aq.fw_min_ver == 33))) {
+ 		ret = i40e_aq_get_cee_dcb_config(hw, &cee_v1_cfg,
+ 						 sizeof(cee_v1_cfg), NULL);
+ 		if (!ret) {
+-- 
+1.9.1
+

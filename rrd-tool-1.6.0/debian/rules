@@ -1,0 +1,25 @@
+#!/usr/bin/make -f
+#export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- --disable-nls --disable-libdbi --disable-libwrap \
+		--disable-perl --disable-ruby --disable-lua --disable-tcl --disable-python \
+		--disable-rrdcgi --disable-rrd_restore --disable-rrdcached --disable-examples
+
+override_dh_auto_build:
+	make -j8
+	sed '/setlocale/i setenv("PANGO_RC_FILE", "/etc/frontview/.pangorc", 1);' src/rrd_tool.c > src/rrd_tool-netgear.c
+	make -f debian/Makefile
+
+override_dh_auto_install:
+	dh_auto_install -- -f debian/Makefile
+
+override_dh_clean:
+	dh_clean
+	-rm rrdtool src/rrd_tool-netgear.c
+
+override_dh_auto_test:
+	:

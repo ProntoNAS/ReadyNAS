@@ -1,0 +1,76 @@
+#!/bin/sh
+
+PREREQ="mdadm mdrun multipath"
+
+prereqs()
+{
+	echo "$PREREQ"
+}
+
+case $1 in
+# get pre-requisites
+prereqs)
+	prereqs
+	exit 0
+	;;
+esac
+
+activate_vg()
+{
+	local dev="$1"
+
+	# Make sure that we have a non-empty argument
+	if [ -z "$dev" ]; then
+		return 1
+	fi
+
+	case "$dev" in
+	# Take care of lilo boot arg, risky activating of all vg
+	fe[0-9]*)
+		lvm vgchange -aly --ignorelockingfailure
+		exit 0
+		;;
+	# FIXME: check major
+	/dev/root)
+		lvm vgchange -aly --ignorelockingfailure
+		exit 0
+		;;
+
+	/dev/mapper/*)
+		dev="${dev#/dev/mapper/}"
+
+		eval $(dmsetup splitname --nameprefixes --noheadings --rows "$dev")
+
+		if [ "$DM_VG_NAME" ] && [ "$DM_LV_NAME" ]; then
+			lvm lvchange -aly --ignorelockingfailure "$DM_VG_NAME/$DM_LV_NAME"
+			rc=$?
+			if [ $rc = 5 ]; then
+				echo "Unable to find LVM volume $DM_VG_NAME/$DM_LV_NAME"
+			fi
+			return 0
+		fi
+		;;
+
+	/dev/*/*)
+		# Could be /dev/VG/LV; use lvs to check
+		dev="${dev#/dev/}"
+		if lvm lvs -- "$dev" >/dev/null 2>/dev/null; then
+			lvm lvchange -aly --ignorelockingfailure "$dev"
+			return 0
+		fi
+		;;
+	esac
+
+	return 1
+}
+
+if [ ! -e /sbin/lvm ]; then
+	exit 0
+fi
+
+modprobe -q dm-mod
+
+activate_vg "$ROOT"
+activate_vg "$resume"
+
+exit 0

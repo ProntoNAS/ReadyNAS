@@ -1,0 +1,67 @@
+--- a/runtime/syntax/debchangelog.vim
++++ b/runtime/syntax/debchangelog.vim
+@@ -3,7 +3,7 @@
+ " Maintainer:  Debian Vim Maintainers <pkg-vim-maintainers@lists.alioth.debian.org>
+ " Former Maintainers: Gerfried Fuchs <alfie@ist.org>
+ "                     Wichert Akkerman <wakkerma@debian.org>
+-" Last Change: 2014 Jul 11
++" Last Change: 2015 Mar 21
+ " URL: http://anonscm.debian.org/hg/pkg-vim/vim/raw-file/unstable/runtime/syntax/debchangelog.vim
+ 
+ " Standard syntax initialization
+@@ -16,10 +16,14 @@
+ " Case doesn't matter for us
+ syn case ignore
+ 
++let urgency='urgency=\(low\|medium\|high\|critical\)\( [^[:space:],][^,]*\)\='
++let binNMU='binary-only=yes'
++
+ " Define some common expressions we can use later on
+ syn match debchangelogName	contained "^[[:alnum:]][[:alnum:].+-]\+ "
+-syn match debchangelogUrgency	contained "; urgency=\(low\|medium\|high\|critical\|emergency\)\( \S.*\)\="
+-syn match debchangelogTarget	contained "\v %(frozen|unstable|%(testing|%(old)=stable)%(-proposed-updates|-security)=|experimental|squeeze-%(backports%(-sloppy)=|volatile)|wheezy-backports|%(devel|lucid|precise|trusty|utopic)%(-%(security|proposed|updates|backports|commercial|partner))=)+"
++exe 'syn match debchangelogFirstKV	contained "; \('.urgency.'\|'.binNMU.'\)"'
++exe 'syn match debchangelogOtherKV	contained ", \('.urgency.'\|'.binNMU.'\)"'
++syn match debchangelogTarget	contained "\v %(frozen|unstable|sid|%(testing|%(old)=stable)%(-proposed-updates|-security)=|experimental|squeeze-%(backports%(-sloppy)=|volatile)|wheezy-backports|jessie%(-backports)=|%(devel|lucid|precise|trusty|utopic|vivid)%(-%(security|proposed|updates|backports|commercial|partner))=)+"
+ syn match debchangelogVersion	contained "(.\{-})"
+ syn match debchangelogCloses	contained "closes:\_s*\(bug\)\=#\=\_s\=\d\+\(,\_s*\(bug\)\=#\=\_s\=\d\+\)*"
+ syn match debchangelogLP	contained "\clp:\s\+#\d\+\(,\s*#\d\+\)*"
+@@ -27,7 +31,7 @@
+ syn match debchangelogEmail	contained "<.\{-}>"
+ 
+ " Define the entries that make up the changelog
+-syn region debchangelogHeader start="^[^ ]" end="$" contains=debchangelogName,debchangelogUrgency,debchangelogTarget,debchangelogVersion oneline
++syn region debchangelogHeader start="^[^ ]" end="$" contains=debchangelogName,debchangelogFirstKV,debchangelogOtherKV,debchangelogTarget,debchangelogVersion,debchangelogBinNMU oneline
+ syn region debchangelogFooter start="^ [^ ]" end="$" contains=debchangelogEmail oneline
+ syn region debchangelogEntry start="^  " end="$" contains=debchangelogCloses,debchangelogLP oneline
+ 
+@@ -45,7 +49,8 @@
+   HiLink debchangelogEntry		Normal
+   HiLink debchangelogCloses		Statement
+   HiLink debchangelogLP			Statement
+-  HiLink debchangelogUrgency		Identifier
++  HiLink debchangelogFirstKV		Identifier
++  HiLink debchangelogOtherKV		Identifier
+   HiLink debchangelogName		Comment
+   HiLink debchangelogVersion		Identifier
+   HiLink debchangelogTarget		Identifier
+--- a/runtime/syntax/debsources.vim
++++ b/runtime/syntax/debsources.vim
+@@ -2,7 +2,7 @@
+ " Language:     Debian sources.list
+ " Maintainer:   Debian Vim Maintainers <pkg-vim-maintainers@lists.alioth.debian.org>
+ " Former Maintainer: Matthijs Mohlmann <matthijs@cacholong.nl>
+-" Last Change: 2014 Jul 11
++" Last Change: 2014 Oct 20
+ " URL: http://anonscm.debian.org/hg/pkg-vim/vim/raw-file/unstable/runtime/syntax/debsources.vim
+ 
+ " Standard syntax initialization
+@@ -23,7 +23,7 @@
+ 
+ " Match uri's
+ syn match debsourcesUri            +\(http://\|ftp://\|[rs]sh://\|debtorrent://\|\(cdrom\|copy\|file\):\)[^' 	<>"]\++
+-syn match debsourcesDistrKeyword   +\([[:alnum:]_./]*\)\(squeeze\|wheezy\|jessie\|\(old\)\=stable\|testing\|unstable\|sid\|rc-buggy\|experimental\|devel\|lucid\|precise\|trusty\|utopic\)\([-[:alnum:]_./]*\)+
++syn match debsourcesDistrKeyword   +\([[:alnum:]_./]*\)\(squeeze\|wheezy\|jessie\|\(old\)\=stable\|testing\|unstable\|sid\|rc-buggy\|experimental\|devel\|lucid\|precise\|trusty\|utopic\|vivid\)\([-[:alnum:]_./]*\)+
+ 
+ " Associate our matches and regions with pretty colours
+ hi def link debsourcesLine            Error

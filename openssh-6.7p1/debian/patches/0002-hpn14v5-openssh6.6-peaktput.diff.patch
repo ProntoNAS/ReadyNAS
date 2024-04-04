@@ -1,0 +1,81 @@
+From 80de3f4c1ead6aa46168932a5fb0f39e1e2aef23 Mon Sep 17 00:00:00 2001
+From: Mike Frysinger <vapier@gentoo.org>
+Date: Sat, 15 Nov 2014 15:22:24 -0500
+Subject: [PATCH 2/6] hpn14v5: openssh6.6-peaktput.diff
+
+https://sourceforge.net/projects/hpnssh/files/HPN-SSH%2014.5%206.6p1/
+
+This patch modifes the progress bar to display the 1 second throughput
+average. On completion of the transfer it will display the peak throughput
+through the life of the connection.
+---
+ progressmeter.c | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/progressmeter.c b/progressmeter.c
+index bbbc706..02e5d6d 100644
+--- a/progressmeter.c
++++ b/progressmeter.c
+@@ -69,6 +69,8 @@ static char *file;		/* name of the file being transferred */
+ static off_t start_pos;		/* initial position of transfer */
+ static off_t end_pos;		/* ending position of transfer */
+ static off_t cur_pos;		/* transfer position as of last refresh */
++static off_t last_pos;
++static off_t max_delta_pos = 0;
+ static volatile off_t *counter;	/* progress counter */
+ static long stalled;		/* how long we have been stalled */
+ static int bytes_per_second;	/* current speed in bytes per second */
+@@ -129,12 +131,17 @@ refresh_progress_meter(void)
+ 	int hours, minutes, seconds;
+ 	int i, len;
+ 	int file_len;
++	off_t delta_pos;
+ 
+ 	transferred = *counter - (cur_pos ? cur_pos : start_pos);
+ 	cur_pos = *counter;
+ 	now = monotime();
+ 	bytes_left = end_pos - cur_pos;
+ 
++	delta_pos = cur_pos - last_pos;
++	if (delta_pos > max_delta_pos) 
++		max_delta_pos = delta_pos;
++
+ 	if (bytes_left > 0)
+ 		elapsed = now - last_update;
+ 	else {
+@@ -159,7 +166,7 @@ refresh_progress_meter(void)
+ 
+ 	/* filename */
+ 	buf[0] = '\0';
+-	file_len = win_size - 35;
++	file_len = win_size - 45;
+ 	if (file_len > 0) {
+ 		len = snprintf(buf, file_len + 1, "\r%s", file);
+ 		if (len < 0)
+@@ -189,6 +196,15 @@ refresh_progress_meter(void)
+ 	    (off_t)bytes_per_second);
+ 	strlcat(buf, "/s ", win_size);
+ 
++	/* instantaneous rate */
++	if (bytes_left > 0)
++		format_rate(buf + strlen(buf), win_size - strlen(buf),
++			    delta_pos);
++	else
++		format_rate(buf + strlen(buf), win_size - strlen(buf),
++			    max_delta_pos);
++	strlcat(buf, "/s ", win_size);
++
+ 	/* ETA */
+ 	if (!transferred)
+ 		stalled += elapsed;
+@@ -225,6 +241,7 @@ refresh_progress_meter(void)
+ 
+ 	atomicio(vwrite, STDOUT_FILENO, buf, win_size - 1);
+ 	last_update = now;
++	last_pos = cur_pos;
+ }
+ 
+ /*ARGSUSED*/
+-- 
+2.1.4
+

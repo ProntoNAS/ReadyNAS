@@ -1,0 +1,78 @@
+From 81d3e541326e94d26a953aa70afc3cb149d11ebe Mon Sep 17 00:00:00 2001
+From: Werner Koch <wk@gnupg.org>
+Date: Sat, 21 Feb 2015 23:10:30 -0500
+Subject: [PATCH 35/45] gpg: Prevent an invalid memory read using a garbled
+ keyring.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+* g10/keyring.c (keyring_get_keyblock): Whitelist allowed packet
+types.
+--
+
+The keyring DB code did not reject packets which don't belong into a
+keyring.  If for example the keyblock contains a literal data packet
+it is expected that the processing code stops at the data packet and
+reads from the input stream which is referenced from the data packets.
+Obviously the keyring processing code does not and cannot do that.
+However, when exporting this messes up the IOBUF and leads to an
+invalid read of sizeof (int).
+
+We now skip all packets which are not allowed in a keyring.
+
+Reported-by: Hanno Böck <hanno@hboeck.de>
+
+(back ported from commit f0f71a721ccd7ab9e40b8b6b028b59632c0cc648)
+
+[dkg: rebased to STABLE-BRANCH-1-4]
+Signed-off-by: Daniel Kahn Gillmor <dkg@fifthhorseman.net>
+---
+ g10/keyring.c | 24 +++++++++++++++++++++---
+ 1 file changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/g10/keyring.c b/g10/keyring.c
+index 108e107..270bf8e 100644
+--- a/g10/keyring.c
++++ b/g10/keyring.c
+@@ -400,8 +400,26 @@ keyring_get_keyblock (KEYRING_HANDLE hd, KBNODE *ret_kb)
+             rc = G10ERR_INV_KEYRING;
+             break;
+         }
+-	if (pkt->pkttype == PKT_COMPRESSED) {
+-	    log_error ("skipped compressed packet in keyring\n");
++
++        /* Filter allowed packets.  */
++        switch (pkt->pkttype){
++          case PKT_PUBLIC_KEY:
++          case PKT_PUBLIC_SUBKEY:
++          case PKT_SECRET_KEY:
++          case PKT_SECRET_SUBKEY:
++          case PKT_USER_ID:
++          case PKT_ATTRIBUTE:
++          case PKT_SIGNATURE:
++            break; /* Allowed per RFC.  */
++          case PKT_RING_TRUST:
++          case PKT_OLD_COMMENT:
++          case PKT_COMMENT:
++          case PKT_GPG_CONTROL:
++            break; /* Allowed by us.  */
++
++          default:
++	    log_error ("skipped packet of type %d in keyring\n",
++                       (int)pkt->pkttype);
+ 	    free_packet(pkt);
+ 	    init_packet(pkt);
+ 	    continue;
+@@ -467,7 +485,7 @@ keyring_get_keyblock (KEYRING_HANDLE hd, KBNODE *ret_kb)
+     if (rc || !ret_kb)
+ 	release_kbnode (keyblock);
+     else {
+-        /*(duplicated form the loop body)*/
++        /*(duplicated from the loop body)*/
+         if ( pkt && pkt->pkttype == PKT_RING_TRUST
+              && lastnode
+              && lastnode->pkt->pkttype == PKT_SIGNATURE
+-- 
+2.1.4
+

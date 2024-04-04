@@ -1,11 +1,5 @@
 #!/usr/bin/make -f
 
-# hacks to avoid running these things during the build
-export ACLOCAL    = : aclocal
-export AUTOCONF   = : autoconf
-export AUTOMAKE   = : automake
-export AUTOHEADER = : autoheader
-
 DEB_HOST_ARCH_OS ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
 
 CPPFLAGS = $(shell dpkg-buildflags --get CPPFLAGS) -D_GNU_SOURCE
@@ -18,7 +12,7 @@ ifeq (hurd, $(DEB_HOST_ARCH_OS))
 	# hurd does not provided the system calls needed for ntpd to work.
 	exit 1
 endif
-	cp /usr/share/misc/config.guess /usr/share/misc/config.sub .
+	dh_autoreconf
 	./configure CFLAGS='$(CFLAGS)' CPPFLAGS='$(CPPFLAGS)' LDFLAGS='$(LDFLAGS)' \
 		--prefix=/usr \
 		--enable-all-clocks --enable-parse-clocks --enable-SHM \
@@ -44,7 +38,8 @@ clean:
 	dh_testroot
 	rm -f build-stamp 
 	[ ! -f Makefile ] || $(MAKE) -k distclean
-	rm -f config.guess config.sub
+	dh_autoreconf_clean
+	rm -f Makefile sntp/Makefile
 	dh_clean
 
 install: build-stamp

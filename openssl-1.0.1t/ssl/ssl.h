@@ -2256,6 +2256,7 @@ void ERR_load_SSL_strings(void);
 # define SSL_F_DTLS1_HEARTBEAT                            305
 # define SSL_F_DTLS1_OUTPUT_CERT_CHAIN                    255
 # define SSL_F_DTLS1_PREPROCESS_FRAGMENT                  288
+# define SSL_F_DTLS1_PROCESS_BUFFERED_RECORDS             404
 # define SSL_F_DTLS1_PROCESS_OUT_OF_SEQ_MESSAGE           256
 # define SSL_F_DTLS1_PROCESS_RECORD                       257
 # define SSL_F_DTLS1_READ_BYTES                           258
@@ -2718,6 +2719,7 @@ void ERR_load_SSL_strings(void);
 # define SSL_R_TLS_INVALID_ECPOINTFORMAT_LIST             157
 # define SSL_R_TLS_PEER_DID_NOT_RESPOND_WITH_CERTIFICATE_LIST 233
 # define SSL_R_TLS_RSA_ENCRYPTED_VALUE_LENGTH_IS_WRONG    234
+# define SSL_R_TOO_MANY_WARN_ALERTS                       409
 # define SSL_R_TRIED_TO_USE_UNSUPPORTED_CIPHER            235
 # define SSL_R_UNABLE_TO_DECODE_DH_CERTS                  236
 # define SSL_R_UNABLE_TO_DECODE_ECDH_CERTS                313

@@ -1,0 +1,32 @@
+#!/usr/bin/make -f
+
+DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh ${@} --parallel
+
+ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+override_dh_auto_build:
+	dh_auto_build -- CC=$(DEB_HOST_GNU_TYPE)-gcc
+endif
+
+override_dh_auto_install:
+	dh_auto_install -- PREFIX=/usr SBINDIR=/sbin
+
+	# Removing useless files
+	rm -f debian/tmp/usr/share/doc/dosfstools/ChangeLog
+
+override_dh_auto_test:
+	# disabled
+
+override_dh_builddeb:
+	dh_builddeb -- -Zxz
+
+override_dh_install:
+	dh_install --fail-missing
+
+override_dh_strip:
+	dh_strip --dbg-package=dosfstools-dbg

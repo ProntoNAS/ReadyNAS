@@ -1,0 +1,109 @@
+#! /usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+#ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+#	INSTALL_PROGRAM += -s
+#endif
+
+# Ensure the build aborts when there are still references to undefined
+# symbols.
+#        LDFLAGS += -Wl,-z,defs
+# Make the linker work a bit harder so dynamic loading can be done faster
+#        LDFLAGS += -Wl,-O1
+# Minimise needless linking:
+#        LDFLAGS += -Wl,--as-needed
+
+export DEB_LDFLAGS_MAINT_APPEND= -Wl,-z,defs  -Wl,-O1  -Wl,--as-needed
+
+upstreamversion=$(shell dpkg-parsechangelog | grep Version | head -1 | sed -e 's/Version: //g' -e 's/-[A-Za-z0-9\.]*$$//g')
+gsf_version_major=$(shell perl -ne 'print $$1 if m{m4_define\S+\[libgsf_version_major\],\s*\[(\d+)\]};' configure.ac)
+gsf_version_minor=$(shell perl -ne 'print $$1 if m{m4_define\S+\[libgsf_version_minor\],\s*\[(\d+)\]};' configure.ac)
+
+# This goes into the package names; make sure the debian/* files match
+so_version_major=$(shell expr $(gsf_version_major) '*' 100 '+' $(gsf_version_minor))
+
+# Package names
+plib=libgsf-1-$(so_version_major)
+plib_dbg=libgsf-1-$(so_version_major)-dbg
+plib_common=libgsf-1-common
+plib_bin=libgsf-bin
+plib_dev=libgsf-1-dev
+plib_gir=gir1.2-gsf-1
+$(info I: library_name=$(plib) gsf_version_major=$(gsf_version_major) gsf_version_minor=$(gsf_version_minor))
+
+# Build up the options for "./configure"
+confflags := -v
+
+# FHS locations
+confflags += --prefix=/usr \
+             --sysconfdir=/etc \
+             --mandir=\$${prefix}/share/man \
+             --infodir=\$${prefix}/share/info \
+             --with-html-dir=\$${prefix}/share/doc/$(plib_dev)/html
+
+# Compiler, language dialect
+confflags += --enable-compile-warnings=maximum \
+             --disable-silent-rules
+
+# Features
+confflags += --with-bz2 \
+             --with-gio \
+             --without-python \
+             --enable-gtk-doc \
+             --enable-introspection=yes
+
+%:
+	dh $@ --parallel --with autoreconf,gir
+
+#	if test -d build && test -f build/Makefile ; then \
+#		$(MAKE) -C build distclean; \
+#	fi
+#	-find -type f -name 'Makefile.am' | sed -e 's/\.am$$//' | xargs rm -f
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+            $(confflags)
+
+override_dh_auto_build:
+	cd po && intltool-update -p
+	dh_auto_build
+
+override_dh_auto_install:
+	GCONF_DISABLE_MAKEFILE_SCHEMA_INSTALL=1 \
+        dh_auto_install --destdir=$(CURDIR)/debian/tmp
+	# Removing *.la files
+	find $(CURDIR)/debian -name '*.la' -delete -printf 'removed %p\n'
+
+override_dh_install:
+	$(if $(wildcard debian/$(plib).symbols),,$(error invalid package/library name..))
+	dh_install -v -p$(plib) --autodest \
+            usr/lib/*/lib*-[0-9.]*.so.*
+	dh_install -v -p$(plib_dev) --autodest -Xindex.sgml \
+            usr/include/lib*                                \
+            usr/lib/*/lib*-[0-9.]*.a                        \
+            usr/lib/*/lib*-[0-9.]*.so                       \
+            usr/lib/*/pkgconfig/lib*-[0-9.]*.pc             \
+            usr/share/doc/$(plib_dev)/html                  \
+            usr/share/gir-1.0
+	dh_install
+
+override_dh_installdocs:
+	dh_installdocs -p$(plib_dbg) --link-doc=$(plib)
+	dh_installdocs -N$(plib_dbg)
+	dh_buildinfo -N$(plib_dbg)
+
+override_dh_link:
+	# Make the documentation accessible through devhelp.
+	env -u DH_OPTIONS dh_link -p$(plib_dev) /usr/share/doc/$(plib_dev)/html/gsf/ /usr/share/gtk-doc/html/gsf
+	dh_link
+
+override_dh_makeshlibs:
+	dh_makeshlibs -V
+
+override_dh_strip:
+	dh_strip --dbg-package=$(plib_dbg)
+
+override_dh_builddeb:
+	dh_builddeb -- -Zxz

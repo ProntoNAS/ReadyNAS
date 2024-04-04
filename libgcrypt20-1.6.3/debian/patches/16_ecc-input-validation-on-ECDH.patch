@@ -1,0 +1,25 @@
+From 28eb424e4427b320ec1c9c4ce56af25d495230bd Mon Sep 17 00:00:00 2001
+From: NIIBE Yutaka <gniibe@fsij.org>
+Date: Wed, 25 Nov 2015 08:41:41 +0900
+Subject: [PATCH] ecc: input validation on ECDH.
+
+* cipher/ecc.c (ecc_decrypt_raw): Validate the point.
+---
+ cipher/ecc.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+--- a/cipher/ecc.c
++++ b/cipher/ecc.c
+@@ -1348,6 +1348,12 @@ ecc_decrypt_raw (gcry_sexp_t *r_plain, g
+   ec = _gcry_mpi_ec_p_internal_new (sk.E.model, sk.E.dialect, 0,
+                                     sk.E.p, sk.E.a, sk.E.b);
+ 
++  if (!_gcry_mpi_ec_curve_point (&kG, ec))
++    {
++      point_free (&kG);
++      return GPG_ERR_INV_DATA;
++    }
++
+   /* R = dkG */
+   _gcry_mpi_ec_mul_point (&R, sk.d, &kG, ec);
+ 

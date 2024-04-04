@@ -1,0 +1,62 @@
+From 5508a0f2771f6ba2e0da775b1a6b005e6349b91c Mon Sep 17 00:00:00 2001
+From: David Sterba <dsterba@suse.com>
+Date: Fri, 27 Nov 2015 19:24:16 +0100
+Subject: [PATCH 004/165] btrfs: sink parameter wait to
+ btrfs_alloc_delalloc_work
+
+There's only one caller and single value, we can propagate it down to
+the callee and remove the unused parameter.
+
+Signed-off-by: David Sterba <dsterba@suse.com>
+---
+ fs/btrfs/ctree.h | 2 +-
+ fs/btrfs/inode.c | 6 +++---
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/fs/btrfs/ctree.h b/fs/btrfs/ctree.h
+index e847573..78662f86 100644
+--- a/fs/btrfs/ctree.h
++++ b/fs/btrfs/ctree.h
+@@ -3919,7 +3919,7 @@ struct btrfs_delalloc_work {
+ };
+ 
+ struct btrfs_delalloc_work *btrfs_alloc_delalloc_work(struct inode *inode,
+-						    int wait, int delay_iput);
++						    int delay_iput);
+ void btrfs_wait_and_free_delalloc_work(struct btrfs_delalloc_work *work);
+ 
+ struct extent_map *btrfs_get_extent_fiemap(struct inode *inode, struct page *page,
+diff --git a/fs/btrfs/inode.c b/fs/btrfs/inode.c
+index 3cff652..3683f8c 100644
+--- a/fs/btrfs/inode.c
++++ b/fs/btrfs/inode.c
+@@ -9465,7 +9465,7 @@ static void btrfs_run_delalloc_work(struct btrfs_work *work)
+ }
+ 
+ struct btrfs_delalloc_work *btrfs_alloc_delalloc_work(struct inode *inode,
+-						    int wait, int delay_iput)
++						    int delay_iput)
+ {
+ 	struct btrfs_delalloc_work *work;
+ 
+@@ -9476,7 +9476,7 @@ struct btrfs_delalloc_work *btrfs_alloc_delalloc_work(struct inode *inode,
+ 	init_completion(&work->completion);
+ 	INIT_LIST_HEAD(&work->list);
+ 	work->inode = inode;
+-	work->wait = wait;
++	work->wait = 0;
+ 	work->delay_iput = delay_iput;
+ 	WARN_ON_ONCE(!inode);
+ 	btrfs_init_work(&work->work, btrfs_flush_delalloc_helper,
+@@ -9524,7 +9524,7 @@ static int __start_delalloc_inodes(struct btrfs_root *root, int delay_iput,
+ 		}
+ 		spin_unlock(&root->delalloc_lock);
+ 
+-		work = btrfs_alloc_delalloc_work(inode, 0, delay_iput);
++		work = btrfs_alloc_delalloc_work(inode, delay_iput);
+ 		if (!work) {
+ 			if (delay_iput)
+ 				btrfs_add_delayed_iput(inode);
+-- 
+1.9.1
+

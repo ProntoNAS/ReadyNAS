@@ -1,0 +1,92 @@
+From e773b76d5bd9d5456bb231c76f2e1e34caad461e Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 14 Dec 2016 11:32:56 -0800
+Subject: [PATCH 81/85] hwmon: (it87) Add EuP get/set support
+
+---
+ drivers/hwmon/it87.c | 48 ++++++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 46 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/hwmon/it87.c b/drivers/hwmon/it87.c
+index 11b7d36..511bf26 100644
+--- a/drivers/hwmon/it87.c
++++ b/drivers/hwmon/it87.c
+@@ -166,6 +166,7 @@ static inline void superio_exit(int ioreg)
+ #define IT8628E_DEVID 0x8628
+ #define IT87_ACT_REG  0x30
+ #define IT87_BASE_REG 0x60
++#define IT87_EUP_REG  0xfa	/* Special PME EUP configure register */
+ 
+ /* Logical device 7 registers (IT8712F and later) */
+ #define IT87_SIO_GPIO1_REG	0x25
+@@ -1957,6 +1958,48 @@ static ssize_t show_vid_reg(struct device *dev, struct device_attribute *attr,
+ }
+ static DEVICE_ATTR(cpu0_vid, S_IRUGO, show_vid_reg, NULL);
+ 
++static ssize_t show_eup(struct device *dev, struct device_attribute *attr,
++		char *buf)
++{
++	struct it87_data *data = dev_get_drvdata(dev);
++	u8 reg;
++
++	mutex_lock(&data->update_lock);
++
++	superio_enter(REG_2E);
++	superio_select(REG_2E, PME);
++	reg = superio_inb(REG_2E, IT87_EUP_REG);
++	superio_exit(REG_2E);
++
++	mutex_unlock(&data->update_lock);
++
++	return sprintf(buf, "0x%x\n", reg);
++}
++
++static ssize_t set_eup(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct it87_data *data = dev_get_drvdata(dev);
++	long val;
++
++	/* Bits 5-7 are reserved */
++	if (kstrtol(buf, 0, &val) < 0 || val < 0 || val > 0x1f)
++		return -EINVAL;
++
++	mutex_lock(&data->update_lock);
++
++	superio_enter(REG_2E);
++	superio_select(REG_2E, PME);
++	superio_outb(REG_2E, IT87_EUP_REG, (int)val);
++	superio_exit(REG_2E);
++
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++static DEVICE_ATTR(eup, S_IRUGO | S_IWUSR, show_eup, set_eup);
++
+ static ssize_t show_label(struct device *dev, struct device_attribute *attr,
+ 			  char *buf)
+ {
+@@ -2141,7 +2184,7 @@ static umode_t it87_is_visible(struct kobject *kobj,
+ 	if ((index == 2 || index == 3) && !data->has_vid)
+ 		return 0;
+ 
+-	if (index > 3 && !(data->in_internal & BIT(index - 4)))
++	if (index > 4 && !(data->in_internal & BIT(index - 5)))
+ 		return 0;
+ 
+ 	return attr->mode;
+@@ -2152,7 +2195,8 @@ static struct attribute *it87_attributes[] = {
+ 	&sensor_dev_attr_intrusion0_alarm.dev_attr.attr,
+ 	&dev_attr_vrm.attr,				/* 2 */
+ 	&dev_attr_cpu0_vid.attr,			/* 3 */
+-	&sensor_dev_attr_in3_label.dev_attr.attr,	/* 4 .. 7 */
++	&dev_attr_eup.attr,				/* 4 */
++	&sensor_dev_attr_in3_label.dev_attr.attr,	/* 5 .. 8 */
+ 	&sensor_dev_attr_in7_label.dev_attr.attr,
+ 	&sensor_dev_attr_in8_label.dev_attr.attr,
+ 	&sensor_dev_attr_in9_label.dev_attr.attr,
+-- 
+1.9.1
+

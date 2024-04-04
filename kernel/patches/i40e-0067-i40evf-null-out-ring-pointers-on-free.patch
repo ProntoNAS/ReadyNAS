@@ -1,0 +1,36 @@
+From 284b68026cc1fc252c827f8183e1812585f67c41 Mon Sep 17 00:00:00 2001
+From: Mitch Williams <mitch.a.williams@intel.com>
+Date: Wed, 9 Dec 2015 15:50:30 -0800
+Subject: [PATCH 067/224] i40evf: null out ring pointers on free
+
+Since we check these ring pointers to make sure we don't double-allocate
+or double-free the rings, we had better null them out after we free
+them. In very rare cases this can cause a panic if the driver is removed
+during reset recovery.
+
+Change-ID: Ib06eb4910a3058275c8f7ec5ef7f45baa4674f96
+Signed-off-by: Mitch Williams <mitch.a.williams@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40evf/i40evf_main.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/net/ethernet/intel/i40evf/i40evf_main.c b/drivers/net/ethernet/intel/i40evf/i40evf_main.c
+index 2bc7406..54040e5 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40evf_main.c
++++ b/drivers/net/ethernet/intel/i40evf/i40evf_main.c
+@@ -1122,7 +1122,9 @@ static void i40evf_free_queues(struct i40evf_adapter *adapter)
+ 	if (!adapter->vsi_res)
+ 		return;
+ 	kfree(adapter->tx_rings);
++	adapter->tx_rings = NULL;
+ 	kfree(adapter->rx_rings);
++	adapter->rx_rings = NULL;
+ }
+ 
+ /**
+-- 
+1.9.1
+

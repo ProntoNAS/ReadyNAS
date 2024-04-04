@@ -1,0 +1,88 @@
+From 7ae80f800c755a6e6c9e3a1d2804b40e86e89d5e Mon Sep 17 00:00:00 2001
+From: Father Chrysostomos <sprout@cpan.org>
+Date: Thu, 20 Aug 2015 08:44:58 +0100
+Subject: Fix /$a[/ parsing
+
+The parser used to read more lines of input when parsing code interpo-
+lated into quote-like operators, under some circumstance.  This would
+result in code like this working, even though it should be a syn-
+tax error:
+
+s||${s/.*/|;
+/s}Just another Perl hacker,
+print
+
+"${;s/.*/Just an";
+other Perl hacker,
+/s} die or return;
+print
+
+While this was harmless, other cases, like /$a[/<<a with no trailing
+newline, would cause unexpected internal state that did not meet the
+reasonable assumptions made by S_scan_heredoc, resulting in a crash.
+
+The simplest fix is to modify the function that reads more input,
+namely, lex_next_chunk, and prevent it from reading more lines of
+input from inside a quote-like operator.  (The alternative would be to
+modify all the calls to lex_next_chunk, and make them conditional.)
+That breaks here-doc parsing for things like s//<<EOF/, but the
+LEX_NO_TERM flag to lex_next_chunk is used only by the here-doc
+parser, so lex_next_chunk can make an exception if it is set.
+
+(cherry picked from commit e47d32dcd59a578274f445fac79e977d83055c8c)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=123712
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/quoted_code_crash.diff
+---
+ t/op/lex.t | 10 +++++++++-
+ toke.c     |  4 +++-
+ 2 files changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/t/op/lex.t b/t/op/lex.t
+index b33f0efc9..35d4d9c3d 100644
+--- a/t/op/lex.t
++++ b/t/op/lex.t
+@@ -4,7 +4,7 @@ use warnings;
+ 
+ BEGIN { chdir 't'; require './test.pl'; }
+ 
+-plan(tests => 8);
++plan(tests => 9);
+ 
+ {
+     no warnings 'deprecated';
+@@ -88,3 +88,11 @@ is runperl(
+  ."2.\n",
+   'no buffer corruption with multiline *{...expr...}'
+ ;
++
++fresh_perl_is(
++  '/$a[/<<a',
++  "syntax error at - line 1, next char ;\n" .
++  "Can't find string terminator \"a\" anywhere before EOF at - line 1.\n",
++   { stderr => 1 },
++  '/$a[/<<a with no newline [perl #123712]'
++);
+diff --git a/toke.c b/toke.c
+index 51408a18d..90642b25e 100644
+--- a/toke.c
++++ b/toke.c
+@@ -1301,7 +1301,7 @@ buffer has reached the end of the input text.
+ */
+ 
+ #define LEX_FAKE_EOF 0x80000000
+-#define LEX_NO_TERM  0x40000000
++#define LEX_NO_TERM  0x40000000 /* here-doc */
+ 
+ bool
+ Perl_lex_next_chunk(pTHX_ U32 flags)
+@@ -1315,6 +1315,8 @@ Perl_lex_next_chunk(pTHX_ U32 flags)
+     bool got_some;
+     if (flags & ~(LEX_KEEP_PREVIOUS|LEX_FAKE_EOF|LEX_NO_TERM))
+ 	Perl_croak(aTHX_ "Lexing code internal error (%s)", "lex_next_chunk");
++    if (!(flags & LEX_NO_TERM) && PL_sublex_info.sub_inwhat)
++	return FALSE;
+     linestr = PL_parser->linestr;
+     buf = SvPVX(linestr);
+     if (!(flags & LEX_KEEP_PREVIOUS) &&

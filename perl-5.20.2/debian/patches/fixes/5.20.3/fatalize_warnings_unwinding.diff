@@ -1,0 +1,30 @@
+From 960994516add91d29e444c909b76d02c79646e27 Mon Sep 17 00:00:00 2001
+From: Lukas Mai <l.mai@web.de>
+Date: Thu, 12 Feb 2015 13:29:29 +0100
+Subject: don't fatalize warnings during unwinding (#123398)
+
+(cherry picked from commit 46b27d2f2c37f40dde845f9b4743975c69f2cc27)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=123398
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/fatalize_warnings_unwinding.diff
+---
+ util.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/util.c b/util.c
+index 5a3c07702..fede576d8 100644
+--- a/util.c
++++ b/util.c
+@@ -1877,7 +1877,10 @@ Perl_vwarner(pTHX_ U32  err, const char* pat, va_list* args)
+ {
+     dVAR;
+     PERL_ARGS_ASSERT_VWARNER;
+-    if (PL_warnhook == PERL_WARNHOOK_FATAL || ckDEAD(err)) {
++    if (
++        (PL_warnhook == PERL_WARNHOOK_FATAL || ckDEAD(err)) &&
++        !(PL_in_eval & EVAL_KEEPERR)
++    ) {
+ 	SV * const msv = vmess(pat, args);
+ 
+ 	invoke_exception_hook(msv, FALSE);

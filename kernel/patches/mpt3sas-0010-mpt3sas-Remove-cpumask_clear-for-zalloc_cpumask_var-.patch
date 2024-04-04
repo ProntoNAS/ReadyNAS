@@ -1,0 +1,42 @@
+From a44fd62f749f4a250a13649cf564b560f0bc8691 Mon Sep 17 00:00:00 2001
+From: Suganath prabu Subramani <suganath-prabu.subramani@broadcom.com>
+Date: Thu, 11 Feb 2016 15:02:55 +0530
+Subject: [PATCH 10/15] mpt3sas: Remove cpumask_clear for zalloc_cpumask_var
+ and don't free free_cpu_mask_var before reply_q
+
+Removed cpumask_clear as it is not required for zalloc_cpumask_var and
+free free_cpumask_var before freeing reply_q.
+
+Signed-off-by: Suganath prabu Subramani <suganath-prabu.subramani@broadcom.com>
+Signed-off-by: Chaitra P B <chaitra.basappa@broadcom.com>
+Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>
+Acked-by: Hannes Reinecke <hare@suse.de>
+---
+ drivers/scsi/mpt3sas/mpt3sas_base.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/drivers/scsi/mpt3sas/mpt3sas_base.c b/drivers/scsi/mpt3sas/mpt3sas_base.c
+index c401e3f..e15fc72 100644
+--- a/drivers/scsi/mpt3sas/mpt3sas_base.c
++++ b/drivers/scsi/mpt3sas/mpt3sas_base.c
+@@ -1855,7 +1855,6 @@ _base_request_irq(struct MPT3SAS_ADAPTER *ioc, u8 index, u32 vector)
+ 			kfree(reply_q);
+ 			return -ENOMEM;
+ 		}
+-		cpumask_clear(reply_q->affinity_hint);
+ 	}
+ 
+ 	atomic_set(&reply_q->busy, 0);
+@@ -1870,8 +1869,8 @@ _base_request_irq(struct MPT3SAS_ADAPTER *ioc, u8 index, u32 vector)
+ 	if (r) {
+ 		pr_err(MPT3SAS_FMT "unable to allocate interrupt %d!\n",
+ 		    reply_q->name, vector);
+-		kfree(reply_q);
+ 		free_cpumask_var(reply_q->affinity_hint);
++		kfree(reply_q);
+ 		return -EBUSY;
+ 	}
+ 
+-- 
+1.9.1
+

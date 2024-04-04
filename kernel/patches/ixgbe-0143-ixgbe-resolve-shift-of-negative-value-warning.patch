@@ -1,0 +1,34 @@
+From 03b6427d7beccc7da58c0f897b93ccd10780fdc0 Mon Sep 17 00:00:00 2001
+From: Jacob Keller <jacob.e.keller@intel.com>
+Date: Wed, 13 Apr 2016 16:08:23 -0700
+Subject: [PATCH 143/191] ixgbe: resolve shift of negative value warning
+
+Make use of GENMASK instead of open coding the equivalent operation
+incorrectly.
+
+Signed-off-by: Jacob Keller <jacob.e.keller@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+---
+ drivers/net/ethernet/intel/ixgbe/ixgbe_main.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+index f10f52c..86d77e0 100644
+--- a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
++++ b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+@@ -3766,9 +3766,9 @@ static void ixgbe_configure_virtualization(struct ixgbe_adapter *adapter)
+ 	reg_offset = (VMDQ_P(0) >= 32) ? 1 : 0;
+ 
+ 	/* Enable only the PF's pool for Tx/Rx */
+-	IXGBE_WRITE_REG(hw, IXGBE_VFRE(reg_offset), (~0) << vf_shift);
++	IXGBE_WRITE_REG(hw, IXGBE_VFRE(reg_offset), GENMASK(vf_shift, 31));
+ 	IXGBE_WRITE_REG(hw, IXGBE_VFRE(reg_offset ^ 1), reg_offset - 1);
+-	IXGBE_WRITE_REG(hw, IXGBE_VFTE(reg_offset), (~0) << vf_shift);
++	IXGBE_WRITE_REG(hw, IXGBE_VFTE(reg_offset), GENMASK(vf_shift, 31));
+ 	IXGBE_WRITE_REG(hw, IXGBE_VFTE(reg_offset ^ 1), reg_offset - 1);
+ 	if (adapter->bridge_mode == BRIDGE_MODE_VEB)
+ 		IXGBE_WRITE_REG(hw, IXGBE_PFDTXGSWC, IXGBE_PFDTXGSWC_VT_LBEN);
+-- 
+1.9.1
+

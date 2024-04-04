@@ -1,0 +1,34 @@
+From 37649d274867edd2dd25d8a3057c3b6cd81ce83e Mon Sep 17 00:00:00 2001
+From: Tim Kientzle <kientzle@acm.org>
+Date: Sun, 21 Feb 2016 11:43:03 -0800
+Subject: [PATCH] Clarify the limit on number of filters
+
+---
+ libarchive/archive_read.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+--- a/libarchive/archive_read.c
++++ b/libarchive/archive_read.c
+@@ -541,16 +541,20 @@ archive_read_open1(struct archive *_a)
+  * it wants to handle this stream.  Repeat until we've finished
+  * building the pipeline.
+  */
++
++/* We won't build a filter pipeline with more stages than this. */
++#define MAX_NUMBER_FILTERS 25
++
+ static int
+ choose_filters(struct archive_read *a)
+ {
+-	int number_bidders, i, bid, best_bid, n;
++	int number_bidders, i, bid, best_bid, number_filters;
+ 	struct archive_read_filter_bidder *bidder, *best_bidder;
+ 	struct archive_read_filter *filter;
+ 	ssize_t avail;
+ 	int r;
+ 
+-	for (n = 0; n < 25; ++n) {
++	for (number_filters = 0; number_filters < MAX_NUMBER_FILTERS; ++number_filters) {
+ 		number_bidders = sizeof(a->bidders) / sizeof(a->bidders[0]);
+ 
+ 		best_bid = 0;

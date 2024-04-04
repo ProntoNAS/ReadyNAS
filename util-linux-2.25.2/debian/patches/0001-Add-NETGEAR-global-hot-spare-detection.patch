@@ -1,0 +1,80 @@
+From 643494e63ed2f22d547acb66fa4cf0f8edf8a140 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Mon, 25 Jan 2016 13:23:24 -0800
+Subject: [PATCH] Add NETGEAR global hot spare detection.
+
+---
+ libblkid/src/Makemodule.am              |  1 +
+ libblkid/src/superblocks/netgear_raid.c | 21 +++++++++++++++++++++
+ libblkid/src/superblocks/superblocks.c  |  2 ++
+ libblkid/src/superblocks/superblocks.h  |  1 +
+ 4 files changed, 25 insertions(+)
+ create mode 100644 libblkid/src/superblocks/netgear_raid.c
+
+diff --git a/libblkid/src/Makemodule.am b/libblkid/src/Makemodule.am
+index d9f9276..773773f 100644
+--- a/libblkid/src/Makemodule.am
++++ b/libblkid/src/Makemodule.am
+@@ -69,6 +69,7 @@ libblkid_la_SOURCES = \
+ 	libblkid/src/superblocks/luks.c \
+ 	libblkid/src/superblocks/lvm.c \
+ 	libblkid/src/superblocks/minix.c \
++	libblkid/src/superblocks/netgear_raid.c \
+ 	libblkid/src/superblocks/netware.c \
+ 	libblkid/src/superblocks/nilfs.c \
+ 	libblkid/src/superblocks/ntfs.c \
+diff --git a/libblkid/src/superblocks/netgear_raid.c b/libblkid/src/superblocks/netgear_raid.c
+new file mode 100644
+index 0000000..2afca65
+--- /dev/null
++++ b/libblkid/src/superblocks/netgear_raid.c
+@@ -0,0 +1,21 @@
++/*
++ * Copyright (C) 2016 NETGEAR, Inc.
++ *
++ * This file may be redistributed under the terms of the
++ * GNU Lesser General Public License.
++ */
++
++#include "superblocks.h"
++
++const struct blkid_idinfo netgear_ghs_idinfo =
++{
++	.name		= "netgear_global_hotspare",
++	.usage		= BLKID_USAGE_RAID,
++	.magics		= {
++		{ .magic = "\x4e\x45\x54\x47\x45\x41\x52\x47\x48\x53",
++		  .len = 9,
++		  .sboff = 448
++		},
++		{ NULL }
++	}
++};
+diff --git a/libblkid/src/superblocks/superblocks.c b/libblkid/src/superblocks/superblocks.c
+index 80bd6e5..22f68df 100644
+--- a/libblkid/src/superblocks/superblocks.c
++++ b/libblkid/src/superblocks/superblocks.c
+@@ -111,6 +111,8 @@ static const struct blkid_idinfo *idinfos[] =
+ 	&luks_idinfo,
+ 	&vmfs_volume_idinfo,
+ 
++	&netgear_ghs_idinfo,
++
+ 	/* Filesystems */
+ 	&vfat_idinfo,
+ 	&swsuspend_idinfo,
+diff --git a/libblkid/src/superblocks/superblocks.h b/libblkid/src/superblocks/superblocks.h
+index 3bbfb9c..81e2aa5 100644
+--- a/libblkid/src/superblocks/superblocks.h
++++ b/libblkid/src/superblocks/superblocks.h
+@@ -74,6 +74,7 @@ extern const struct blkid_idinfo nilfs2_idinfo;
+ extern const struct blkid_idinfo exfat_idinfo;
+ extern const struct blkid_idinfo f2fs_idinfo;
+ extern const struct blkid_idinfo bcache_idinfo;
++extern const struct blkid_idinfo netgear_ghs_idinfo;
+ 
+ /*
+  * superblock functions
+-- 
+2.7.0
+

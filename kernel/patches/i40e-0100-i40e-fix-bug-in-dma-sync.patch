@@ -1,0 +1,77 @@
+From 8bd8d65eee048fbebaa5c7752e2bcd780e5d6d8b Mon Sep 17 00:00:00 2001
+From: Jesse Brandeburg <jesse.brandeburg@intel.com>
+Date: Mon, 4 Jan 2016 10:33:03 -0800
+Subject: [PATCH 100/224] i40e: fix bug in dma sync
+
+Driver was using an offset based off a DMA handle while mapping and
+unmapping using sync_single_range_for[cpu|device], where it should
+be using DMA handle (returned from alloc_coherent) and the offset of the
+memory to be sync'd.
+
+Change-ID: I208256565b1595ff0e9171ab852de06b997917c6
+Signed-off-by: Jesse Brandeburg <jesse.brandeburg@intel.com>
+Reviewed-by: Nelson, Shannon <shannon.nelson@intel.com>
+Reviewed-by: Williams, Mitch A <mitch.a.williams@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_txrx.c   | 8 ++++----
+ drivers/net/ethernet/intel/i40evf/i40e_txrx.c | 8 ++++----
+ 2 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_txrx.c b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+index a5df435..38d027c 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+@@ -1226,8 +1226,8 @@ void i40e_alloc_rx_buffers_ps(struct i40e_ring *rx_ring, u16 cleaned_count)
+ 		}
+ 
+ 		dma_sync_single_range_for_device(rx_ring->dev,
+-						 bi->dma,
+-						 0,
++						 rx_ring->rx_bi[0].dma,
++						 i * rx_ring->rx_hdr_len,
+ 						 rx_ring->rx_hdr_len,
+ 						 DMA_FROM_DEVICE);
+ 		/* Refresh the desc even if buffer_addrs didn't change
+@@ -1542,8 +1542,8 @@ static int i40e_clean_rx_irq_ps(struct i40e_ring *rx_ring, int budget)
+ 			skb_record_rx_queue(skb, rx_ring->queue_index);
+ 			/* we are reusing so sync this buffer for CPU use */
+ 			dma_sync_single_range_for_cpu(rx_ring->dev,
+-						      rx_bi->dma,
+-						      0,
++						      rx_ring->rx_bi[0].dma,
++						      i * rx_ring->rx_hdr_len,
+ 						      rx_ring->rx_hdr_len,
+ 						      DMA_FROM_DEVICE);
+ 		}
+diff --git a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+index 1f9da36..00e9db3 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+@@ -700,8 +700,8 @@ void i40evf_alloc_rx_buffers_ps(struct i40e_ring *rx_ring, u16 cleaned_count)
+ 		}
+ 
+ 		dma_sync_single_range_for_device(rx_ring->dev,
+-						 bi->dma,
+-						 0,
++						 rx_ring->rx_bi[0].dma,
++						 i * rx_ring->rx_hdr_len,
+ 						 rx_ring->rx_hdr_len,
+ 						 DMA_FROM_DEVICE);
+ 		/* Refresh the desc even if buffer_addrs didn't change
+@@ -1007,8 +1007,8 @@ static int i40e_clean_rx_irq_ps(struct i40e_ring *rx_ring, int budget)
+ 			skb_record_rx_queue(skb, rx_ring->queue_index);
+ 			/* we are reusing so sync this buffer for CPU use */
+ 			dma_sync_single_range_for_cpu(rx_ring->dev,
+-						      rx_bi->dma,
+-						      0,
++						      rx_ring->rx_bi[0].dma,
++						      i * rx_ring->rx_hdr_len,
+ 						      rx_ring->rx_hdr_len,
+ 						      DMA_FROM_DEVICE);
+ 		}
+-- 
+1.9.1
+

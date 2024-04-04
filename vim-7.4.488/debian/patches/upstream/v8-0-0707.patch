@@ -1,0 +1,37 @@
+commit f1d13478e3a7e1a86d52552c8c5571f00dc28ad1
+Author: Bram Moolenaar <Bram@vim.org>
+Date:   Tue Jul 11 18:28:46 2017 +0200
+
+    patch 8.0.0707: freeing wrong memory with certain autocommands
+    
+    Problem:    Freeing wrong memory when manipulating buffers in autocommands.
+                (James McCoy)
+    Solution:   Also set the w_s pointer if w_buffer was NULL.
+
+Index: vim-7.4.488/src/ex_cmds.c
+===================================================================
+--- vim-7.4.488.orig/src/ex_cmds.c
++++ vim-7.4.488/src/ex_cmds.c
+@@ -3482,7 +3482,8 @@ do_ecmd(fnum, ffname, sfname, eap, newln
+ 		     * <VN> We could instead free the synblock
+ 		     * and re-attach to buffer, perhaps.
+ 		     */
+-		    if (curwin->w_s == &(curwin->w_buffer->b_s))
++		    if (curwin->w_buffer == NULL
++			    || curwin->w_s == &(curwin->w_buffer->b_s))
+ 			curwin->w_s = &(buf->b_s);
+ #endif
+ 		    curwin->w_buffer = buf;
+Index: vim-7.4.488/src/version.c
+===================================================================
+--- vim-7.4.488.orig/src/version.c
++++ vim-7.4.488/src/version.c
+@@ -1733,6 +1733,8 @@ static int included_patches[] =
+ static char *(extra_patches[]) =
+ {   /* Add your patch description below this line */
+ /**/
++    "8.0.0707",
++/**/
+     "8.0.0706",
+ /**/
+     "8.0.0703",

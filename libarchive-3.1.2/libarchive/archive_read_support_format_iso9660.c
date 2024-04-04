@@ -387,7 +387,7 @@ static int	archive_read_format_iso9660_read_data(struct archive_read *,
 static int	archive_read_format_iso9660_read_data_skip(struct archive_read *);
 static int	archive_read_format_iso9660_read_header(struct archive_read *,
 		    struct archive_entry *);
-static const char *build_pathname(struct archive_string *, struct file_info *);
+static const char *build_pathname(struct archive_string *, struct file_info *, int);
 static int	build_pathname_utf16be(unsigned char *, size_t, size_t *,
 		    struct file_info *);
 #if DEBUG
@@ -409,7 +409,8 @@ static int	next_entry_seek(struct archive_read *, struct iso9660 *,
 		    struct file_info **);
 static struct file_info *
 		parse_file_info(struct archive_read *a,
-		    struct file_info *parent, const unsigned char *isodirrec);
+		    struct file_info *parent, const unsigned char *isodirrec,
+		    size_t reclen);
 static int	parse_rockridge(struct archive_read *a,
 		    struct file_info *file, const unsigned char *start,
 		    const unsigned char *end);
@@ -1020,7 +1021,7 @@ read_children(struct archive_read *a, struct file_info *parent)
 			if (*(p + DR_name_len_offset) == 1
 			    && *(p + DR_name_offset) == '\001')
 				continue;
-			child = parse_file_info(a, parent, p);
+			child = parse_file_info(a, parent, p, b - p);
 			if (child == NULL) {
 				__archive_read_consume(a, skip_size);
 				return (ARCHIVE_FATAL);
@@ -1089,7 +1090,7 @@ choose_volume(struct archive_read *a, struct iso9660 *iso9660)
 		/* This condition is unlikely; by way of caution. */
 		vd = &(iso9660->joliet);
 
-	skipsize = LOGICAL_BLOCK_SIZE * vd->location;
+	skipsize = LOGICAL_BLOCK_SIZE * (int64_t)vd->location;
 	skipsize = __archive_read_consume(a, skipsize);
 	if (skipsize < 0)
 		return ((int)skipsize);
@@ -1110,7 +1111,7 @@ choose_volume(struct archive_read *a, struct iso9660 *iso9660)
 	 */
 	seenJoliet = iso9660->seenJoliet;/* Save flag. */
 	iso9660->seenJoliet = 0;
-	file = parse_file_info(a, NULL, block);
+	file = parse_file_info(a, NULL, block, vd->size);
 	if (file == NULL)
 		return (ARCHIVE_FATAL);
 	iso9660->seenJoliet = seenJoliet;
@@ -1127,7 +1128,7 @@ choose_volume(struct archive_read *a, struct iso9660 *iso9660)
 	    && iso9660->seenJoliet) {
 		/* Switch reading data from primary to joliet. */
 		vd = &(iso9660->joliet);
-		skipsize = LOGICAL_BLOCK_SIZE * vd->location;
+		skipsize = LOGICAL_BLOCK_SIZE * (int64_t)vd->location;
 		skipsize -= iso9660->current_position;
 		skipsize = __archive_read_consume(a, skipsize);
 		if (skipsize < 0)
@@ -1142,7 +1143,7 @@ choose_volume(struct archive_read *a, struct iso9660 *iso9660)
 			return (ARCHIVE_FATAL);
 		}
 		iso9660->seenJoliet = 0;
-		file = parse_file_info(a, NULL, block);
+		file = parse_file_info(a, NULL, block, vd->size);
 		if (file == NULL)
 			return (ARCHIVE_FATAL);
 		iso9660->seenJoliet = seenJoliet;
@@ -1223,6 +1224,7 @@ archive_read_format_iso9660_read_header(struct archive_read *a,
 			archive_set_error(&a->archive,
 			    ARCHIVE_ERRNO_FILE_FORMAT,
 			    "Pathname is too long");
+			return (ARCHIVE_FATAL);
 		}
 
 		r = archive_entry_copy_pathname_l(entry,
@@ -1245,9 +1247,16 @@ archive_read_format_iso9660_read_header(struct archive_read *a,
 			rd_r = ARCHIVE_WARN;
 		}
 	} else {
-		archive_string_empty(&iso9660->pathname);
-		archive_entry_set_pathname(entry,
-		    build_pathname(&iso9660->pathname, file));
+		const char *path = build_pathname(&iso9660->pathname, file, 0);
+		if (path == NULL) {
+			archive_set_error(&a->archive,
+			    ARCHIVE_ERRNO_FILE_FORMAT,
+			    "Pathname is too long");
+			return (ARCHIVE_FATAL);
+		} else {
+			archive_string_empty(&iso9660->pathname);
+			archive_entry_set_pathname(entry, path);
+		}
 	}
 
 	iso9660->entry_bytes_remaining = file->size;
@@ -1739,21 +1748,25 @@ archive_read_format_iso9660_cleanup(struct archive_read *a)
  */
 static struct file_info *
 parse_file_info(struct archive_read *a, struct file_info *parent,
-    const unsigned char *isodirrec)
+    const unsigned char *isodirrec, size_t reclen)
 {
 	struct iso9660 *iso9660;
-	struct file_info *file;
+	struct file_info *file, *filep;
 	size_t name_len;
 	const unsigned char *rr_start, *rr_end;
 	const unsigned char *p;
 	size_t dr_len;
-	uint64_t fsize;
+	uint64_t fsize, offset;
 	int32_t location;
 	int flags;
 
 	iso9660 = (struct iso9660 *)(a->format->data);
 
-	dr_len = (size_t)isodirrec[DR_length_offset];
+	if (reclen == 0 || reclen < (dr_len = (size_t)isodirrec[DR_length_offset])) {
+		archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC,
+			"Invalid directory record length");
+		return (NULL);
+	}
 	name_len = (size_t)isodirrec[DR_name_len_offset];
 	location = archive_le32dec(isodirrec + DR_extent_offset);
 	fsize = toi(isodirrec + DR_size_offset, DR_size_size);
@@ -1791,6 +1804,16 @@ parse_file_info(struct archive_read *a, struct file_info *parent,
 		return (NULL);
 	}
 
+	/* Sanity check that this entry does not create a cycle. */
+	offset = iso9660->logical_block_size * (uint64_t)location;
+	for (filep = parent; filep != NULL; filep = filep->parent) {
+		if (filep->offset == offset) {
+			archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
+			    "Directory structure contains loop");
+			return (NULL);
+		}
+	}
+
 	/* Create a new file entry and copy data from the ISO dir record. */
 	file = (struct file_info *)calloc(1, sizeof(*file));
 	if (file == NULL) {
@@ -1799,7 +1822,7 @@ parse_file_info(struct archive_read *a, struct file_info *parent,
 		return (NULL);
 	}
 	file->parent = parent;
-	file->offset = iso9660->logical_block_size * (uint64_t)location;
+	file->offset = offset;
 	file->size = fsize;
 	file->mtime = isodate7(isodirrec + DR_date_offset);
 	file->ctime = file->atime = file->mtime;
@@ -2075,6 +2098,7 @@ parse_rockridge(struct archive_read *a, struct file_info *file,
     const unsigned char *p, const unsigned char *end)
 {
 	struct iso9660 *iso9660;
+	int entry_seen = 0;
 
 	iso9660 = (struct iso9660 *)(a->format->data);
 
@@ -2230,8 +2254,16 @@ parse_rockridge(struct archive_read *a, struct file_info *file,
 		}
 
 		p += p[2];
+		entry_seen = 1;
 	}
-	return (ARCHIVE_OK);
+
+	if (entry_seen)
+		return (ARCHIVE_OK);
+	else {
+		archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
+				  "Tried to parse Rockridge extensions, but none found");
+		return (ARCHIVE_WARN);
+	}
 }
 
 static int
@@ -3164,10 +3196,17 @@ time_from_tm(struct tm *t)
 }
 
 static const char *
-build_pathname(struct archive_string *as, struct file_info *file)
+build_pathname(struct archive_string *as, struct file_info *file, int depth)
 {
+	// Plain ISO9660 only allows 8 dir levels; if we get
+	// to 1000, then something is very, very wrong.
+	if (depth > 1000) {
+		return NULL;
+	}
 	if (file->parent != NULL && archive_strlen(&file->parent->name) > 0) {
-		build_pathname(as, file->parent);
+		if (build_pathname(as, file->parent, depth + 1) == NULL) {
+			return NULL;
+		}
 		archive_strcat(as, "/");
 	}
 	if (archive_strlen(&file->name) == 0)

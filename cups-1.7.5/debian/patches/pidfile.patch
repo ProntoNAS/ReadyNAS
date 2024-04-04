@@ -1,0 +1,120 @@
+Description: Add support for creating pid files.
+Author: Martin Pitt <mpitt@debian.org>
+Bug: http://www.cups.org/str.php?L2465
+
+Last-Update: 2012-11-29
+
+--- a/scheduler/conf.c
++++ b/scheduler/conf.c
+@@ -156,7 +156,8 @@
+ #ifdef HAVE_AUTHORIZATION_H
+   { "SystemGroupAuthKey",	&SystemGroupAuthKey,	CUPSD_VARTYPE_STRING },
+ #endif /* HAVE_AUTHORIZATION_H */
+-  { "TempDir",			&TempDir,		CUPSD_VARTYPE_PATHNAME }
++  { "TempDir",			&TempDir,		CUPSD_VARTYPE_PATHNAME },
++  { "PidFile",			&PidFile,		CUPSD_VARTYPE_STRING }
+ };
+ 
+ static int		default_auth_type = CUPSD_AUTH_AUTO;
+@@ -572,6 +573,7 @@
+   cupsdSetStringf(&ServerHeader, "CUPS/%d.%d IPP/2.1", CUPS_VERSION_MAJOR,
+                   CUPS_VERSION_MINOR);
+   cupsdSetString(&StateDir, CUPS_STATEDIR);
++  cupsdSetString(&PidFile, "/var/run/cups/cupsd.pid");
+ 
+   if (!strcmp(CUPS_DEFAULT_PRINTCAP, "/etc/printers.conf"))
+     PrintcapFormat = PRINTCAP_SOLARIS;
+@@ -3370,6 +3372,7 @@
+              !_cups_strcasecmp(line, "SystemGroup") ||
+              !_cups_strcasecmp(line, "SystemGroupAuthKey") ||
+              !_cups_strcasecmp(line, "TempDir") ||
++             !_cups_strcasecmp(line, "PidFile") ||
+ 	     !_cups_strcasecmp(line, "User"))
+     {
+       cupsdLogMessage(CUPSD_LOG_INFO,
+--- a/scheduler/conf.h
++++ b/scheduler/conf.h
+@@ -247,6 +247,8 @@
+ VAR int			SSLOptions		VALUE(CUPSD_SSL_NONE);
+ 					/* SSL/TLS options */
+ #endif /* HAVE_SSL */
++VAR char		*PidFile		VALUE(NULL);
++					/* Debian CUPS pid file */
+ 
+ VAR int			IdleExitTimeout		VALUE(0);
+ 					/* Time after which an idle cupsd will exit */
+--- a/scheduler/main.c
++++ b/scheduler/main.c
+@@ -79,6 +79,8 @@
+ static void		sigterm_handler(int sig);
+ static long		select_timeout(int fds);
+ static void		usage(int status) __attribute__((noreturn));
++int			write_pid(void);
++int			remove_pid(void);
+ 
+ 
+ /*
+@@ -696,6 +698,11 @@
+     cupsdStartSystemMonitor();
+ #endif /* __APPLE__ */
+ 
++  if (write_pid() == 0) {
++    cupsdLogMessage(CUPSD_LOG_ERROR, "Unable to write pid file");
++    return (1);
++  }
++
+  /*
+   * Send server-started event...
+   */
+@@ -1242,10 +1249,41 @@
+ 
+   cupsdStopSelect();
+ 
++  remove_pid();
++
+   return (!stop_scheduler);
+ }
+ 
+ 
++/* 'write_pid()' - Write PID file.
++   'remove_pid()' - Delete PID file.
++*/
++int
++write_pid()
++{
++  FILE *f;
++  int fd;
++  int pid;
++  if (((fd = open(PidFile, O_RDWR|O_CREAT, 0644)) == -1)
++      || ((f = fdopen(fd, "r+")) == NULL) ) {
++    return 0;
++  }
++  pid = getpid();
++  if (!fprintf(f, "%d\n", pid)) {
++    close(fd);
++    return 0;
++  }
++  fflush(f);
++  close(fd);
++
++  return pid;
++}
++
++int
++remove_pid() {
++  return unlink(PidFile);
++}
++
+ /*
+  * 'cupsdAddString()' - Copy and add a string to an array.
+  */
+--- a/test/run-stp-tests.sh
++++ b/test/run-stp-tests.sh
+@@ -502,6 +502,7 @@
+ DocumentRoot $root/doc
+ RequestRoot /tmp/cups-$user/spool
+ TempDir /tmp/cups-$user/spool/temp
++PidFile /tmp/cups-$user/cupsd.pid
+ AccessLog /tmp/cups-$user/log/access_log
+ ErrorLog /tmp/cups-$user/log/error_log
+ PageLog /tmp/cups-$user/log/page_log

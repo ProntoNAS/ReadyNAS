@@ -1,0 +1,79 @@
+From 69fa1fe36396c1f370c0dd91ca6de5ebd92c8601 Mon Sep 17 00:00:00 2001
+From: Ben Kaduk <kaduk@mit.edu>
+Date: Fri, 1 Nov 2013 15:12:33 -0400
+Subject: Remove rtm_type_name()
+
+It has been unused since 2009 when Ken decided that the routing log
+messages were too verbose (commit 91fc077c96926dd60).
+
+(cherry picked from commit bcc91c8d8b3d5b775cfde1ee461d7e0394070852)
+
+There was a slight conflict because commit
+3a8eaa43045fb242739ad9729bb66f915be209b9 had #if 0'd this function, but
+that commit is too large for the current purpose.
+
+Patch-Category: upstream
+---
+ src/lib/apputils/net-server.c | 35 -----------------------------------
+ 1 file changed, 35 deletions(-)
+
+diff --git a/src/lib/apputils/net-server.c b/src/lib/apputils/net-server.c
+index 331b857..ccb6c77 100644
+--- a/src/lib/apputils/net-server.c
++++ b/src/lib/apputils/net-server.c
+@@ -983,30 +983,6 @@ setup_udp_port(void *P_data, struct sockaddr *addr)
+ #ifdef HAVE_STRUCT_RT_MSGHDR
+ #include <net/route.h>
+ 
+-static char *
+-rtm_type_name(int type)
+-{
+-    switch (type) {
+-    case RTM_ADD: return "RTM_ADD";
+-    case RTM_DELETE: return "RTM_DELETE";
+-    case RTM_NEWADDR: return "RTM_NEWADDR";
+-    case RTM_DELADDR: return "RTM_DELADDR";
+-    case RTM_IFINFO: return "RTM_IFINFO";
+-    case RTM_OLDADD: return "RTM_OLDADD";
+-    case RTM_OLDDEL: return "RTM_OLDDEL";
+-    case RTM_RESOLVE: return "RTM_RESOLVE";
+-#ifdef RTM_NEWMADDR
+-    case RTM_NEWMADDR: return "RTM_NEWMADDR";
+-    case RTM_DELMADDR: return "RTM_DELMADDR";
+-#endif
+-    case RTM_MISS: return "RTM_MISS";
+-    case RTM_REDIRECT: return "RTM_REDIRECT";
+-    case RTM_LOSING: return "RTM_LOSING";
+-    case RTM_GET: return "RTM_GET";
+-    default: return "?";
+-    }
+-}
+-
+ static void
+ do_network_reconfig(verto_ctx *ctx, verto_ev *ev)
+ {
+@@ -1056,11 +1032,6 @@ routing_update_needed(struct rt_msghdr *rtm)
+         if (rtm->rtm_flags & RTF_LLINFO)
+             break;
+ #endif
+-#if 0
+-        krb5_klog_syslog(LOG_DEBUG,
+-                         "network reconfiguration message (%s) received",
+-                         rtm_type_name(rtm->rtm_type));
+-#endif
+         return 1;
+     case RTM_RESOLVE:
+ #ifdef RTM_NEWMADDR
+@@ -1117,12 +1088,6 @@ process_routing_update(verto_ctx *ctx, verto_ev *ev)
+                 return;
+             }
+         }
+-#if 0
+-        krb5_klog_syslog(LOG_INFO,
+-                         _("got routing msg type %d(%s) v%d"),
+-                         rtm.rtm_type, rtm_type_name(rtm.rtm_type),
+-                         rtm.rtm_version);
+-#endif
+         if (rtm.rtm_msglen > sizeof(rtm)) {
+             /* It appears we get a partial message and the rest is
+                thrown away?  */

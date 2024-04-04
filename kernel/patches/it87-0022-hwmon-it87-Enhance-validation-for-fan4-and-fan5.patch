@@ -1,0 +1,53 @@
+From 3044d15bca9cc343b431e029c4c57beffdd07c6d Mon Sep 17 00:00:00 2001
+From: Guenter Roeck <linux@roeck-us.net>
+Date: Sun, 5 Apr 2015 16:51:36 -0700
+Subject: [PATCH 22/28] hwmon: (it87) Enhance validation for fan4 and fan5
+
+Several of the chips supported by this driver have a configuration
+register to enable fan4 and fan5. Use those registers to determine
+if fan4 and fan5 tachometers are supported.
+
+Tested-by: Martin Blumenstingl <martin.blumenstingl@googlemail.com>
+Signed-off-by: Guenter Roeck <linux@roeck-us.net>
+(cherry picked from commit a0df926d33232f311d6a4d834391fec21b60db30)
+---
+ drivers/hwmon/it87.c | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/drivers/hwmon/it87.c b/drivers/hwmon/it87.c
+index f40d81a..5adb269 100644
+--- a/drivers/hwmon/it87.c
++++ b/drivers/hwmon/it87.c
+@@ -2415,6 +2415,29 @@ static int __init it87_find(int sioaddr, unsigned short *address,
+ 
+ 		superio_select(sioaddr, GPIO);
+ 
++		/* Check for fan4, fan5 */
++		if (has_five_fans(config)) {
++			reg = superio_inb(sioaddr, IT87_SIO_GPIO2_REG);
++			switch (sio_data->type) {
++			case it8718:
++				if (reg & BIT(5))
++					sio_data->skip_fan |= BIT(3);
++				if (reg & BIT(4))
++					sio_data->skip_fan |= BIT(4);
++				break;
++			case it8720:
++			case it8721:
++			case it8728:
++				if (!(reg & BIT(5)))
++					sio_data->skip_fan |= BIT(3);
++				if (!(reg & BIT(4)))
++					sio_data->skip_fan |= BIT(4);
++				break;
++			default:
++				break;
++			}
++		}
++
+ 		reg = superio_inb(sioaddr, IT87_SIO_GPIO3_REG);
+ 		if (!sio_data->skip_vid) {
+ 			/* We need at least 4 VID pins */
+-- 
+1.9.1
+

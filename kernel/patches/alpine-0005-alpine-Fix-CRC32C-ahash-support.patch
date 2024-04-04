@@ -1,0 +1,48 @@
+From ca071707fa2458e182e7938984e60f6b95ddfc99 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 4 Nov 2015 10:37:23 -0800
+Subject: [PATCH 05/12] alpine: Fix CRC32C ahash support.
+
+From Slava @ Annapurna.  Add required .statesize definition.
+---
+ crypto/testmgr.c                  | 4 ++--
+ drivers/crypto/al/al_crypto_crc.c | 1 +
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/crypto/testmgr.c b/crypto/testmgr.c
+index 6193d0c..541cf0d 100644
+--- a/crypto/testmgr.c
++++ b/crypto/testmgr.c
+@@ -1688,7 +1688,7 @@ static int alg_test_hash(const struct alg_test_desc *desc, const char *driver,
+ static int alg_test_crc32c(const struct alg_test_desc *desc,
+ 			   const char *driver, u32 type, u32 mask)
+ {
+-#ifndef CRYPTO_DEV_AL_AHASH_CRC
++#ifndef CONFIG_CRYPTO_DEV_AL_AHASH_CRC
+ 	struct crypto_shash *tfm;
+ 	u32 val;
+ #endif
+@@ -1701,7 +1701,7 @@ static int alg_test_crc32c(const struct alg_test_desc *desc,
+  * Removed the part of CRC self-test that assumes CRC is implemented as SHASH
+  * since AL crypto driver implement it as AHASH
+  */
+-#ifndef CRYPTO_DEV_AL_AHASH_CRC
++#ifndef CONFIG_CRYPTO_DEV_AL_AHASH_CRC
+ 	tfm = crypto_alloc_shash(driver, type | CRYPTO_ALG_INTERNAL, mask);
+ 	if (IS_ERR(tfm)) {
+ 		printk(KERN_ERR "alg: crc32c: Failed to load transform for %s: "
+diff --git a/drivers/crypto/al/al_crypto_crc.c b/drivers/crypto/al/al_crypto_crc.c
+index 331a542..1bb59e9 100644
+--- a/drivers/crypto/al/al_crypto_crc.c
++++ b/drivers/crypto/al/al_crypto_crc.c
+@@ -95,6 +95,7 @@ static struct al_crc_template driver_crc[] = {
+ 			.setkey = crc_setkey,
+ 			.halg = {
+ 				.digestsize = CHKSUM_DIGEST_SIZE,
++				.statesize = sizeof(struct al_crc_ctx),
+ 				},
+ 			},
+ 		.crcsum_type = AL_CRC_CHECKSUM_CRC32C,
+-- 
+1.9.1
+

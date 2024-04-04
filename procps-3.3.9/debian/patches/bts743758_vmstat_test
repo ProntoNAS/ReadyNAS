@@ -1,0 +1,16 @@
+Description: Add bypass for vmstat -p test
+ Some buildd have odd /proc/partition which means this test fails
+ The change just bypasses the test in this case
+Bug-Debian: http://bugs.debian.org/743758
+Last-Update: 2014-05-27
+--- a/testsuite/vmstat.test/vmstat.exp
++++ b/testsuite/vmstat.test/vmstat.exp
+@@ -31,7 +31,7 @@
+ 
+ # Need a partition
+ set diskstats [ exec cat /proc/diskstats ]
+-if [ regexp "\\s+\\d+\\s+\\d+\\s+\(\[a-z\]+\\d+\)\\s+\[0-9\]\[0-9\]+" $diskstats line partition == 1 ] {
++if [ regexp "\\s+\\d+\\s+\\d+\\s+\((?:hd|sd|vd)\[a-z\]\\d+\)\\s+\[0-9\]\[0-9\]+" $diskstats line partition == 1 ] {
+     set test "vmstat partition (using $partition)"
+     spawn $vmstat -p $partition
+     expect_pass "$test" "^${partition}\\s+reads"

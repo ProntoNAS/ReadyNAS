@@ -1,0 +1,210 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# Sample debian/rules that uses debhelper.
+# GNU copyright 1997 to 1999 by Joey Hess.
+#
+# Modified to make a template file for a multi-binary package with separated
+# build-arch and build-indep targets  by Bill Allombert 2001
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# support parallel build using DEB_BUILD_OPTIONS=parallel=N
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+  MAKEFLAGS += -j$(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+endif
+
+# This has to be exported to make some magic below work.
+export DH_OPTIONS
+
+# These are used for cross-compiling and for saving the configure script
+# from having to guess our platform (since we know it already)
+DEB_HOST_GNU_TYPE	?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE	?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_MULTIARCH	?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+# Get flags from dpkg-buildflags
+CFLAGS			= $(shell dpkg-buildflags --get CFLAGS)
+LDFLAGS			= $(shell dpkg-buildflags --get LDFLAGS)
+CPPFLAGS		= $(shell dpkg-buildflags --get CPPFLAGS)
+
+# Additional flags
+CFLAGS += -Wall
+
+# Flags for udebs
+CPPFLAGS_UDEB		= $(CPPFLAGS)
+CFLAGS_UDEB		= $(CFLAGS) -Os
+LDFLAGS_UDEB		= $(LDFLAGS)
+
+ifneq ($(DEB_HOST_GNU_TYPE),$(DEB_BUILD_GNU_TYPE))
+  CROSS= --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
+else
+  CROSS= --build $(DEB_BUILD_GNU_TYPE)
+endif
+
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+	INSTALL_PROGRAM += -s
+endif
+
+objdir = $(CURDIR)/obj-$(DEB_HOST_GNU_TYPE)
+objdir_udeb = $(objdir)-udeb
+
+configure: configure-deb-stamp configure-udeb-stamp
+
+configure-common: configure-common-stamp
+configure-common-stamp:
+	dh_testdir
+
+	# make sure this file doesn't exist!
+	rm -f $(CURDIR)/usb.h
+
+	# update config.guess and config.sub
+	cp -f /usr/share/misc/config.sub $(CURDIR)/config.sub
+	cp -f /usr/share/misc/config.guess $(CURDIR)/config.guess
+
+	# make configure executable
+	chmod +x $(CURDIR)/configure
+
+	touch $@
+
+configure-deb: configure-deb-stamp
+configure-deb-stamp: configure-common-stamp
+	dh_testdir
+
+	# make build directory
+	mkdir $(objdir)
+
+	# run configure with build tree $(objdir)
+	cd $(objdir) && \
+		CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" ../configure $(CROSS) \
+			--prefix=/usr \
+			--libdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH) \
+			--mandir=/usr/share/man \
+			--infodir=/usr/share/info \
+			--disable-silent-rules \
+			--enable-tests-build
+
+	touch $@
+
+configure-udeb: configure-udeb-stamp
+configure-udeb-stamp: configure-common-stamp
+	dh_testdir
+
+	# make build directory
+	mkdir $(objdir_udeb)
+
+	# run configure with build tree $(objdir_udeb)
+	cd $(objdir_udeb) && \
+		CPPFLAGS="$(CPPFLAGS_UDEB)" CFLAGS="$(CFLAGS_UDEB)" LDFLAGS="$(LDFLAGS_UDEB)" ../configure $(CROSS) \
+			--prefix=/usr \
+			--mandir=/usr/share/man \
+			--infodir=/usr/share/info \
+			--disable-silent-rules
+
+	touch $@
+
+build: build-arch build-indep
+build-arch: build-arch-deb build-arch-udeb
+
+build-arch-deb: build-arch-deb-stamp
+build-arch-deb-stamp: configure-deb-stamp
+	dh_testdir
+
+	cd $(objdir) && \
+		$(MAKE)
+
+	touch $@
+
+build-arch-udeb: build-arch-udeb-stamp
+build-arch-udeb-stamp: configure-udeb-stamp
+	dh_testdir
+
+	cd $(objdir_udeb) && \
+		$(MAKE)
+
+	touch $@
+
+build-indep: build-indep-stamp
+build-indep-stamp: configure-deb-stamp
+	dh_testdir
+
+	cd $(objdir) && \
+		$(MAKE) -C doc docs
+
+	touch $@
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f *-stamp
+	rm -f config.sub config.guess
+
+	# Remove build trees
+	rm -rf $(objdir) $(objdir_udeb)
+
+	# Remove install dirs
+	rm -rf $(CURDIR)/debian/tmp $(CURDIR)/debian/tmp-udeb
+
+	dh_clean
+
+install: build-arch
+	dh_testdir
+	dh_testroot
+	dh_clean -k -s
+	dh_installdirs -s
+
+	# Main install
+	cd $(objdir) && \
+		$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp
+
+	# Move the library to /lib
+	mkdir -p $(CURDIR)/debian/tmp/lib/$(DEB_HOST_MULTIARCH)/
+	mv $(CURDIR)/debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/libusb-1.0.so.* \
+	   $(CURDIR)/debian/tmp/lib/$(DEB_HOST_MULTIARCH)/
+	ln -sf /lib/$(DEB_HOST_MULTIARCH)/libusb-1.0.so.0.1.0 \
+	       $(CURDIR)/debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/libusb-1.0.so
+
+	# Move all files in their corresponding package
+	dh_install -s -Nlibusb-1.0-0-udeb --list-missing --sourcedir=debian/tmp
+
+	# udeb install
+	$(MAKE) -C $(objdir_udeb) install DESTDIR=$(CURDIR)/debian/tmp-udeb
+
+	dh_install -plibusb-1.0-0-udeb --sourcedir=debian/tmp-udeb
+
+# Build architecture-independent files here.
+binary-indep: build-indep
+	dh_testroot
+	dh_installchangelogs -i
+	dh_installdocs -i
+	dh_installexamples -i
+	dh_installman -i
+	dh_link -i
+	dh_compress -i
+	dh_fixperms -i
+	dh_installdeb -i
+	dh_gencontrol -i
+	dh_md5sums -i
+	dh_builddeb -i
+
+# Buid architecture-dependent files here.
+binary-arch: build-arch install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs -a NEWS
+	dh_installdocs -a
+	dh_installman -a
+	dh_link -a
+	dh_strip -plibusb-1.0-0 --dbg-package=libusb-1.0-0-dbg
+	dh_strip -a --remaining-packages
+	dh_compress -a
+	dh_fixperms -a
+	dh_makeshlibs -a -plibusb-1.0-0 --add-udeb="libusb-1.0-0-udeb"
+	dh_installdeb -a
+	dh_shlibdeps -a
+	dh_gencontrol -a
+	dh_md5sums -a
+	dh_builddeb -a
+
+binary: binary-arch binary-indep
+.PHONY: build clean binary-indep binary-arch binary install configure

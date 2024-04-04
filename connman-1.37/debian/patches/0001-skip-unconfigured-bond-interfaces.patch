@@ -1,0 +1,87 @@
+From b434e427f626fa318e49f1675809a3015bacdf98 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <justing.maggard@netgear.com>
+Date: Thu, 2 Jun 2016 17:16:57 +0000
+Subject: [PATCH 01/21] skip unconfigured bond interfaces
+
+---
+ src/rtnl.c | 39 +++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+
+diff --git a/src/rtnl.c b/src/rtnl.c
+index a094e25..22d1250 100644
+--- a/src/rtnl.c
++++ b/src/rtnl.c
+@@ -34,6 +34,7 @@
+ #include <netinet/icmp6.h>
+ #include <net/if_arp.h>
+ #include <linux/if.h>
++#include <linux/netdevice.h>
+ #include <linux/netlink.h>
+ #include <linux/rtnetlink.h>
+ #include <linux/wireless.h>
+@@ -46,6 +47,10 @@
+ #define ARPHDR_PHONET_PIPE (821)
+ #endif
+ 
++#ifndef NET_ADDR_RANDOM
++#define NET_ADDR_RANDOM (1)
++#endif
++
+ #define print(arg...) do { if (0) connman_info(arg); } while (0)
+ //#define print(arg...) connman_info(arg)
+ 
+@@ -403,10 +408,32 @@ static bool extract_link(struct ifinfomsg *msg, int bytes,
+ 	return true;
+ }
+ 
++static int get_addr_assign_type(const char *ifname)
++{
++	char *filename;
++	int type = -1;
++	FILE *f;
++
++	filename = g_strdup_printf("/sys/class/net/%s/addr_assign_type", ifname);
++
++	f = fopen(filename, "re");
++
++	g_free(filename);
++
++	if (f) {
++		if (fscanf(f, "%d", &type) < 1)
++			type = -1;
++		fclose(f);
++	}
++
++	return type;
++}
++
+ static void process_newlink(unsigned short type, int index, unsigned flags,
+ 			unsigned change, struct ifinfomsg *msg, int bytes)
+ {
+ 	struct ether_addr address = {{ 0, 0, 0, 0, 0, 0 }};
++	struct ether_addr compare = {{ 0, 0, 0, 0, 0, 0 }};
+ 	struct rtnl_link_stats stats;
+ 	unsigned char operstate = 0xff;
+ 	struct interface_data *interface;
+@@ -441,6 +468,18 @@ static void process_newlink(unsigned short type, int index, unsigned flags,
+ 		return;
+ 	}
+ 
++	if (!(flags & IFF_LOOPBACK) && memcmp(&address, &compare, ETH_ALEN) == 0) {
++		connman_info("%s {newlink} skipping incomplete iface %d address %s flags %x",
++						ifname, index, str, flags);
++		return;
++	}
++
++	if ((flags & IFF_MASTER) && (get_addr_assign_type(ifname) == NET_ADDR_RANDOM)) {
++		connman_info("%s {newlink} ignoring unconfigured master, index %d address %s",
++						ifname, index, str);
++		return;
++	}
++
+ 	switch (type) {
+ 	case ARPHRD_ETHER:
+ 	case ARPHRD_LOOPBACK:
+-- 
+2.1.4
+

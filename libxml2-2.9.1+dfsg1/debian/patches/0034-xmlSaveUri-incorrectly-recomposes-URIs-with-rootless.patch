@@ -1,0 +1,27 @@
+From: Dennis Filder <d.filder@web.de>
+Date: Fri, 13 Jun 2014 14:56:14 +0800
+Subject: xmlSaveUri() incorrectly recomposes URIs with rootless paths
+
+For https://bugzilla.gnome.org/show_bug.cgi?id=731063
+
+xmlSaveUri() of libxml2 (snapshot 2014-05-31 and earlier) returns
+bogus values when called with URIs that have rootless paths
+(e.g. "urx:b:b" becomes "urx://b%3Ab" where "urx:b%3Ab" would be
+correct)
+---
+ uri.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/uri.c b/uri.c
+index 4ab0ce2..d4dcd2f 100644
+--- a/uri.c
++++ b/uri.c
+@@ -1194,8 +1194,6 @@ xmlSaveUri(xmlURIPtr uri) {
+                 if (temp == NULL) goto mem_error;
+                 ret = temp;
+ 	    }
+-	    ret[len++] = '/';
+-	    ret[len++] = '/';
+ 	}
+ 	if (uri->path != NULL) {
+ 	    p = uri->path;

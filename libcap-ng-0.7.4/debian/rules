@@ -1,0 +1,44 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+# debian/rules file for libcap-ng
+# Written by Pierre Chifflier <pollux@debian.org>
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+export DEB_BUILD_HARDENING=1
+
+PYTHON2=$(shell pyversions -vr)
+
+build-python%: build-lib
+	vers="$*"; \
+	pythonvers="python$*"; \
+	echo "python $$pythonvers"; \
+	PYFLAGS="PYTHON_VERSION=$$vers _capng_la_LIBADD=\"-l$$pythonvers\""; \
+	sed -i "s/2\.[4567]/$$vers/" bindings/python/Makefile; \
+	$(MAKE) -C bindings/python clean; \
+	$(MAKE) -C bindings/python $$PYFLAGS; \
+	$(MAKE) -C bindings/python $$PYFLAGS DESTDIR=$(CURDIR)/debian/tmp-python-cap-ng install; \
+	echo "OK"
+
+override_dh_auto_build: build-lib $(PYTHON2:%=build-python%)
+
+build-lib:
+	dh_auto_build
+
+override_dh_auto_install:
+	dh_auto_install ;\
+	rm -rf debian/tmp/usr/lib/python*; \
+	find debian/tmp-python-cap-ng/usr/lib -name "*.la" -delete; \
+	mv debian/tmp-python-cap-ng/usr/lib/* debian/tmp/usr/lib/
+
+override_dh_auto_clean:
+	dh_auto_clean
+	-rm -rf debian/tmp-python-cap-ng
+
+override_dh_auto_test:
+	# do nothing, some tests are failing because of failing relink
+
+%:
+	dh $@ --with=python2,autoreconf
+

@@ -1,0 +1,906 @@
+From 3368adf3b3ec206c38161ffbb70b0a0fb9674cd6 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Fri, 2 Dec 2016 12:28:58 -0800
+Subject: [PATCH] btrfs: Add case insensitivity support
+
+---
+ fs/Kconfig           |   7 +++
+ fs/Makefile          |   1 +
+ fs/btrfs/Kconfig     |   7 +++
+ fs/btrfs/ctree.h     |  17 ++++++
+ fs/btrfs/dir-item.c  | 155 ++++++++++++++++++++++++++++++++++++++++++++++---
+ fs/btrfs/extent_io.c |  76 ++++++++++++++++++++++++
+ fs/btrfs/extent_io.h |   8 +++
+ fs/btrfs/inode.c     |  53 +++++++++++++++++
+ fs/btrfs/super.c     |  32 +++++++++++
+ fs/case/Makefile     |   2 +
+ fs/case/case-utf8.c  |  98 +++++++++++++++++++++++++++++++
+ fs/case/case.h       |  42 ++++++++++++++
+ fs/case/upcase.c     | 160 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ 13 files changed, 650 insertions(+), 8 deletions(-)
+ create mode 100644 fs/case/Makefile
+ create mode 100644 fs/case/case-utf8.c
+ create mode 100644 fs/case/case.h
+ create mode 100644 fs/case/upcase.c
+
+diff --git a/fs/Kconfig b/fs/Kconfig
+index 6ce72d8..9ba1291 100644
+--- a/fs/Kconfig
++++ b/fs/Kconfig
+@@ -281,4 +281,11 @@ endif # NETWORK_FILESYSTEMS
+ source "fs/nls/Kconfig"
+ source "fs/dlm/Kconfig"
+ 
++config FNAME_CASEINSENSITIVE
++	bool
++
++config FNAME_CASEINSENSITIVE_UTF8
++	bool
++	select FNAME_CASEINSENSITIVE
++
+ endmenu
+diff --git a/fs/Makefile b/fs/Makefile
+index 79f5225..d7f6a6a 100644
+--- a/fs/Makefile
++++ b/fs/Makefile
+@@ -126,3 +126,4 @@ obj-y				+= exofs/ # Multiple modules
+ obj-$(CONFIG_CEPH_FS)		+= ceph/
+ obj-$(CONFIG_PSTORE)		+= pstore/
+ obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
++obj-$(CONFIG_FNAME_CASEINSENSITIVE)	+= case/
+diff --git a/fs/btrfs/Kconfig b/fs/btrfs/Kconfig
+index 80e9c18..7ecbadd 100644
+--- a/fs/btrfs/Kconfig
++++ b/fs/btrfs/Kconfig
+@@ -41,6 +41,13 @@ config BTRFS_FS_POSIX_ACL
+ 
+ 	  If you don't know what Access Control Lists are, say N
+ 
++config BTRFS_FNAME_CASEINSENSITIVE
++	bool "Btrfs case-insensitive file name comparison"
++	depends on BTRFS_FS
++	select FNAME_CASEINSENSITIVE_UTF8
++	help
++	  Compare file names case insensitively in Unicode character space.
++
+ config BTRFS_FS_CHECK_INTEGRITY
+ 	bool "Btrfs with integrity check tool compiled in (DANGEROUS)"
+ 	depends on BTRFS_FS
+diff --git a/fs/btrfs/ctree.h b/fs/btrfs/ctree.h
+index 3c1aeb2..eb222eb 100644
+--- a/fs/btrfs/ctree.h
++++ b/fs/btrfs/ctree.h
+@@ -1818,6 +1818,12 @@ struct btrfs_fs_info {
+ 	 * and will be latter freed. Protected by fs_info->chunk_mutex.
+ 	 */
+ 	struct list_head pinned_chunks;
++
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++	const struct strcase_operations *strcase_ops;
++#define CASEINSENSITIVE(fs_info)	((fs_info)->strcase_ops)
++#define CASEINSENSITIVE_R(root)		CASEINSENSITIVE((root)->fs_info)
++#endif
+ };
+ 
+ struct btrfs_subvolume_writers {
+@@ -2183,6 +2189,9 @@ struct btrfs_ioctl_defrag_range_args {
+ #define BTRFS_MOUNT_RESCAN_UUID_TREE	(1 << 23)
+ #define BTRFS_MOUNT_FRAGMENT_DATA	(1 << 24)
+ #define BTRFS_MOUNT_FRAGMENT_METADATA	(1 << 25)
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++#define BTRFS_MOUNT_CASEINSENSITIVE	(1 << 26)
++#endif
+ 
+ #define BTRFS_DEFAULT_COMMIT_INTERVAL	(30)
+ #define BTRFS_DEFAULT_MAX_INLINE	(2048)
+@@ -3817,6 +3826,11 @@ struct btrfs_dir_item *
+ btrfs_search_dir_index_item(struct btrfs_root *root,
+ 			    struct btrfs_path *path, u64 dirid,
+ 			    const char *name, int name_len);
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++struct btrfs_dir_item *btrfs_casematch_dir_item_name(struct btrfs_root *root,
++			      struct btrfs_path *path,
++			      const char *name, int name_len);
++#endif
+ int btrfs_delete_one_dir_name(struct btrfs_trans_handle *trans,
+ 			      struct btrfs_root *root,
+ 			      struct btrfs_path *path,
+@@ -4010,6 +4024,9 @@ int btrfs_prealloc_file_range_trans(struct inode *inode,
+ 				    loff_t actual_len, u64 *alloc_hint);
+ int btrfs_inode_check_errors(struct inode *inode);
+ extern const struct dentry_operations btrfs_dentry_operations;
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++extern const struct dentry_operations btrfs_dentry_operations_caseinsensitive;
++#endif
+ #ifdef CONFIG_BTRFS_FS_RUN_SANITY_TESTS
+ void btrfs_test_inode_set_ops(struct inode *inode);
+ #endif
+diff --git a/fs/btrfs/dir-item.c b/fs/btrfs/dir-item.c
+index 1752625..f51f809 100644
+--- a/fs/btrfs/dir-item.c
++++ b/fs/btrfs/dir-item.c
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (C) 2007 Oracle.  All rights reserved.
++ * Copyright (c) 2013 NETGREAR, Inc.  All rights reserved.
+  *
+  * This program is free software; you can redistribute it and/or
+  * modify it under the terms of the GNU General Public
+@@ -188,6 +189,106 @@ out_free:
+  * we're searching in, and 'mod' tells us if you plan on deleting the
+  * item (use mod < 0) or changing the options (use mod > 0)
+  */
++
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++struct btrfs_dir_item *btrfs_caselookup_dir_item(
++					struct btrfs_trans_handle *trans,
++					struct btrfs_root *root,
++					struct btrfs_path *path, u64 dir,
++					const char *name, int name_len,
++					struct btrfs_key *key,
++					int mod, int ins_len, int cow)
++{
++	int ret;
++	unsigned long pos;
++	struct btrfs_dir_item *p = NULL;
++	int is_curr = 0;
++
++	btrfs_set_key_type(key, BTRFS_DIR_INDEX_KEY);
++	key->offset = (pos = 2);	/* Skip "." and ".." */
++	key->objectid = dir;
++
++	path->reada = 1;
++
++	ret = btrfs_search_slot(trans, root, key, path, 0, 0);
++	if (ret < 0)
++		goto out;
++
++	while (1) {
++		struct btrfs_item *item;
++		struct btrfs_key found_key;
++		int di_cur, di_total;
++		struct extent_buffer *leaf = path->nodes[0];
++		int slot = path->slots[0];
++		struct btrfs_dir_item *di;
++
++		if (slot >= btrfs_header_nritems(leaf)) {
++			ret = btrfs_next_leaf(root, path);
++			if (ret < 0)
++				goto out;
++			else if (ret > 0)
++				break;
++			continue;
++		}
++
++		item = btrfs_item_nr(slot);
++		btrfs_item_key_to_cpu(leaf, &found_key, slot);
++
++		if (found_key.objectid != key->objectid)
++			break;
++		if (btrfs_key_type(&found_key) != BTRFS_DIR_INDEX_KEY)
++			break;
++		if (found_key.offset < pos)
++			goto next;
++
++		pos = found_key.offset;
++		is_curr = 1;
++
++		di = btrfs_item_ptr(leaf, slot, struct btrfs_dir_item);
++		di_cur = 0;
++		di_total = btrfs_item_size(leaf, item);
++
++		while (di_cur < di_total) {
++			struct btrfs_key location;
++			size_t dir_name_len, di_len;
++
++			if (verify_dir_item(root, leaf, di))
++				break;
++
++			dir_name_len = btrfs_dir_name_len(leaf, di);
++
++			btrfs_dir_item_key_to_cpu(leaf, di, &location);
++			if ((location.type != BTRFS_ROOT_ITEM_KEY ||
++				location.objectid != root->root_key.objectid) &&
++				dir_name_len == name_len &&
++				!btrfs_casecmp_extent_buffer(root, leaf, name,
++						(unsigned long)(di + 1),
++						name_len)) {/* Found!! */
++
++				btrfs_release_path(path);
++				ret = btrfs_search_slot(trans, root,
++						&found_key, path, ins_len, cow);
++
++				p = di;
++				goto out;
++			}
++
++			di_len = dir_name_len + btrfs_dir_data_len(leaf, di) +
++					sizeof(*di);
++			di_cur += di_len;
++			di = (struct btrfs_dir_item *)((char *)di + di_len);
++		}
++next:
++		path->slots[0]++;
++	}
++
++out:
++	if (ret < 0)
++		p = ERR_PTR(ret);
++	return p;
++}
++#endif
++
+ struct btrfs_dir_item *btrfs_lookup_dir_item(struct btrfs_trans_handle *trans,
+ 					     struct btrfs_root *root,
+ 					     struct btrfs_path *path, u64 dir,
+@@ -197,7 +298,8 @@ struct btrfs_dir_item *btrfs_lookup_dir_item(struct btrfs_trans_handle *trans,
+ 	int ret;
+ 	struct btrfs_key key;
+ 	int ins_len = mod < 0 ? -1 : 0;
+-	int cow = mod != 0;
++	int cow = (mod != 0);
++	struct btrfs_dir_item *p = NULL;
+ 
+ 	key.objectid = dir;
+ 	key.type = BTRFS_DIR_ITEM_KEY;
+@@ -207,10 +309,25 @@ struct btrfs_dir_item *btrfs_lookup_dir_item(struct btrfs_trans_handle *trans,
+ 	ret = btrfs_search_slot(trans, root, &key, path, ins_len, cow);
+ 	if (ret < 0)
+ 		return ERR_PTR(ret);
+-	if (ret > 0)
+-		return NULL;
+-
+-	return btrfs_match_dir_item_name(root, path, name, name_len);
++	if (!ret)
++		p = btrfs_match_dir_item_name(root, path, name, name_len);
++
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++        /* Don't give up yet. Search case-insensitively (if it's not a
++         * subvolume ID).
++         */
++        if (!p && CASEINSENSITIVE_R(root) && dir >= 256ULL) {
++                btrfs_release_path(path);
++                p = btrfs_caselookup_dir_item(
++                                        trans,
++                                        root,
++                                        path, dir,
++                                        name, name_len,
++                                        &key,
++                                        mod, ins_len, cow);
++        }
++#endif
++	return p;
+ }
+ 
+ int btrfs_check_dir_item_collision(struct btrfs_root *root, u64 dir,
+@@ -379,9 +496,9 @@ struct btrfs_dir_item *btrfs_lookup_xattr(struct btrfs_trans_handle *trans,
+  * this walks through all the entries in a dir item and finds one
+  * for a specific name.
+  */
+-struct btrfs_dir_item *btrfs_match_dir_item_name(struct btrfs_root *root,
+-						 struct btrfs_path *path,
+-						 const char *name, int name_len)
++struct btrfs_dir_item *
++__btrfs_match_dir_item_name(struct btrfs_root *root, struct btrfs_path *path,
++			    const char *name, int name_len, bool icase)
+ {
+ 	struct btrfs_dir_item *dir_item;
+ 	unsigned long name_ptr;
+@@ -403,7 +520,13 @@ struct btrfs_dir_item *btrfs_match_dir_item_name(struct btrfs_root *root,
+ 		name_ptr = (unsigned long)(dir_item + 1);
+ 
+ 		if (btrfs_dir_name_len(leaf, dir_item) == name_len &&
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++		    !(icase ? btrfs_casecmp_extent_buffer(root,
++						leaf, name, name_ptr, name_len)
++			: memcmp_extent_buffer(leaf, name, name_ptr, name_len)))
++#else
+ 		    memcmp_extent_buffer(leaf, name, name_ptr, name_len) == 0)
++#endif
+ 			return dir_item;
+ 
+ 		cur += this_len;
+@@ -413,6 +536,22 @@ struct btrfs_dir_item *btrfs_match_dir_item_name(struct btrfs_root *root,
+ 	return NULL;
+ }
+ 
++struct btrfs_dir_item *btrfs_match_dir_item_name(struct btrfs_root *root,
++			      struct btrfs_path *path,
++			      const char *name, int name_len)
++{
++	return __btrfs_match_dir_item_name(root, path, name, name_len, false);
++}
++
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++struct btrfs_dir_item *btrfs_casematch_dir_item_name(struct btrfs_root *root,
++			      struct btrfs_path *path,
++			      const char *name, int name_len)
++{
++	return __btrfs_match_dir_item_name(root, path, name, name_len, true);
++}
++#endif
++
+ /*
+  * given a pointer into a directory item, delete it.  This
+  * handles items that have more than one entry in them.
+diff --git a/fs/btrfs/extent_io.c b/fs/btrfs/extent_io.c
+index ef3edb0..bf45d9e 100644
+--- a/fs/btrfs/extent_io.c
++++ b/fs/btrfs/extent_io.c
+@@ -21,6 +21,10 @@
+ #include "rcu-string.h"
+ #include "backref.h"
+ 
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++#include "../case/case.h"
++#endif
++
+ static struct kmem_cache *extent_state_cache;
+ static struct kmem_cache *extent_buffer_cache;
+ static struct bio_set *btrfs_bioset;
+@@ -5384,6 +5388,78 @@ int memcmp_extent_buffer(struct extent_buffer *eb, const void *ptrv,
+ 	return ret;
+ }
+ 
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++int btrfs_casecmp_extent_buffer(struct btrfs_root *root,
++		struct extent_buffer *eb,
++		const void *name, unsigned long start, unsigned long len)
++{
++	size_t offset;
++	size_t start_offset = eb->start & ((u64)PAGE_CACHE_SIZE - 1);
++	unsigned long i = (start_offset + start) >> PAGE_CACHE_SHIFT;
++	int veclen = len/PAGE_CACHE_SIZE + 2;
++	int vecpos = 0;
++	struct iovec namevec, vec[veclen];
++
++	WARN_ON(start > eb->len);
++	WARN_ON(start + len > eb->start + eb->len);
++
++	offset = (start_offset + start) & ((unsigned long)PAGE_CACHE_SIZE - 1);
++
++	namevec.iov_base = (char *)name;
++	namevec.iov_len = len;
++
++	while (len > 0) {
++		struct page *page = eb->pages[i++];
++		char *kaddr = page_address(page);
++		size_t cur = min(len, (PAGE_CACHE_SIZE - offset));
++
++		vec[vecpos].iov_base = kaddr + offset;
++		vec[vecpos].iov_len = cur;
++		len -= cur;
++		offset = 0;
++		vecpos++;
++		BUG_ON(vecpos >= veclen);
++	}
++	return CASEINSENSITIVE_R(root)->strcasecmp_vec(&namevec, 1, vec, vecpos);
++}
++
++static const struct {
++	const char *fschar, *apichar, *fsapichar;
++	const struct strcase_operations *strcase_ops;
++} caseopt[] = {
++	{"utf8",  "utf8",  "utf8:utf8", &utf8_strcase_ops},
++	{"utf-8", "utf8",  "utf8:utf8", &utf8_strcase_ops},
++	{"utf8",  "utf-8", "utf8:utf8", &utf8_strcase_ops},
++	{"utf-8", "utf-8", "utf8:utf8", &utf8_strcase_ops},
++};
++
++int btrfs_set_case_charset(struct btrfs_root *root,
++				const char *fschar, const char *apichar)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(caseopt); i++) {
++		if (!strcasecmp(caseopt[i].fschar, fschar) &&
++			!strcasecmp(caseopt[i].apichar, apichar)) {
++			CASEINSENSITIVE_R(root) = caseopt[i].strcase_ops;
++			return 0;
++		}
++	}
++	return -EINVAL;
++}
++
++const char *btrfs_get_case_charset(struct btrfs_root *root)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(caseopt); i++) {
++		if (CASEINSENSITIVE_R(root) == caseopt[i].strcase_ops)
++			return caseopt[i].fsapichar;
++	}
++	return "unknown";
++}
++#endif
++
+ void write_extent_buffer(struct extent_buffer *eb, const void *srcv,
+ 			 unsigned long start, unsigned long len)
+ {
+diff --git a/fs/btrfs/extent_io.h b/fs/btrfs/extent_io.h
+index 1567f1c..fa0e92f 100644
+--- a/fs/btrfs/extent_io.h
++++ b/fs/btrfs/extent_io.h
+@@ -425,6 +425,14 @@ int clean_io_failure(struct inode *inode, u64 start, struct page *page,
+ void end_extent_writepage(struct page *page, int err, u64 start, u64 end);
+ int repair_eb_io_failure(struct btrfs_root *root, struct extent_buffer *eb,
+ 			 int mirror_num);
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++int btrfs_casecmp_extent_buffer(struct btrfs_root *root,
++		struct extent_buffer *eb,
++		const void *name, unsigned long start, unsigned long len);
++int btrfs_set_case_charset(struct btrfs_root *root,
++		const char *fschar, const char *apichar);
++const char *btrfs_get_case_charset(struct btrfs_root *root);
++#endif
+ 
+ /*
+  * When IO fails, either with EIO or csum verification fails, we
+diff --git a/fs/btrfs/inode.c b/fs/btrfs/inode.c
+index b931705..197c3c1 100644
+--- a/fs/btrfs/inode.c
++++ b/fs/btrfs/inode.c
+@@ -10042,6 +10042,51 @@ int btrfs_inode_check_errors(struct inode *inode)
+ 	return ret;
+ }
+ 
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++#include "../case/case.h"
++
++static int btrfs_dentry_hash_caseinsensitive(const struct dentry *dentry,
++						struct qstr *str)
++{
++	struct btrfs_root *root = BTRFS_I(dentry->d_inode)->root;
++	unsigned long hash = init_name_hash();
++	struct iovec iov;
++
++	iov.iov_base = (void *)str->name;
++	iov.iov_len = str->len;
++
++	while (iov.iov_len > 0) {
++		u32 cp = CASEINSENSITIVE_R(root)->toupper_vec(&iov, 1);
++		u16 c;
++
++		/* We look only at the lower bits because the vast majority
++		 * of characters belong to BMP and hash collisions are
++		 * anyway inevitable.
++		 */
++		c = cp & 0xffff;
++		hash = partial_name_hash(c, hash);
++	}
++
++	str->hash = end_name_hash(hash);
++	return 0;
++}
++
++static int btrfs_dentry_compare_caseinsensitive(const struct dentry *parent,
++		const struct dentry *dentry,
++		unsigned int len, const char *str, const struct qstr *name)
++{
++	struct btrfs_root *root = BTRFS_I(parent->d_inode)->root;
++	struct iovec iov1, iov2;
++
++	iov1.iov_base = (void *)str;
++	iov1.iov_len = len;
++	iov2.iov_base = (void *)name->name;
++	iov2.iov_len = name->len;
++
++	return CASEINSENSITIVE_R(root)->strcasecmp_vec(&iov1, 1, &iov2, 1);
++}
++#endif
++
+ static const struct inode_operations btrfs_dir_inode_operations = {
+ 	.getattr	= btrfs_getattr,
+ 	.lookup		= btrfs_lookup,
+@@ -10171,3 +10216,11 @@ const struct dentry_operations btrfs_dentry_operations = {
+ 	.d_delete	= btrfs_dentry_delete,
+ 	.d_release	= btrfs_dentry_release,
+ };
++
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++const struct dentry_operations btrfs_dentry_operations_caseinsensitive = {
++	.d_hash		= btrfs_dentry_hash_caseinsensitive,
++	.d_compare	= btrfs_dentry_compare_caseinsensitive,
++	.d_delete	= btrfs_dentry_delete,
++};
++#endif
+diff --git a/fs/btrfs/super.c b/fs/btrfs/super.c
+index 520a6a4..335c688 100644
+--- a/fs/btrfs/super.c
++++ b/fs/btrfs/super.c
+@@ -306,6 +306,9 @@ enum {
+ #ifdef CONFIG_BTRFS_DEBUG
+ 	Opt_fragment_data, Opt_fragment_metadata, Opt_fragment_all,
+ #endif
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++	Opt_caseinsensitive,
++#endif
+ 	Opt_err,
+ };
+ 
+@@ -363,6 +366,9 @@ static match_table_t tokens = {
+ 	{Opt_fragment_metadata, "fragment=metadata"},
+ 	{Opt_fragment_all, "fragment=all"},
+ #endif
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++	{Opt_caseinsensitive, "case=%s"},
++#endif
+ 	{Opt_err, NULL},
+ };
+ 
+@@ -760,6 +766,22 @@ int btrfs_parse_options(struct btrfs_root *root, char *options)
+ 			btrfs_set_opt(info->mount_opt, FRAGMENT_DATA);
+ 			break;
+ #endif
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++		case Opt_caseinsensitive:
++			{
++				char *fschar = strsep(&args[0].from, ":");
++				char *apichar = args[0].from;
++
++				if (!apichar)
++					apichar = fschar;
++				ret = btrfs_set_case_charset(root,
++							fschar, apichar);
++				if (!ret)
++					btrfs_set_opt(info->mount_opt,
++							CASEINSENSITIVE);
++			}
++			break;
++#endif
+ 		case Opt_err:
+ 			btrfs_info(root->fs_info, "unrecognized mount option '%s'", p);
+ 			ret = -EINVAL;
+@@ -1062,6 +1084,11 @@ static int btrfs_fill_super(struct super_block *sb,
+ 		return err;
+ 	}
+ 
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++	if (CASEINSENSITIVE(fs_info))
++		sb->s_d_op = &btrfs_dentry_operations_caseinsensitive;
++#endif
++
+ 	key.objectid = BTRFS_FIRST_FREE_OBJECTID;
+ 	key.type = BTRFS_INODE_ITEM_KEY;
+ 	key.offset = 0;
+@@ -1217,6 +1244,11 @@ static int btrfs_show_options(struct seq_file *seq, struct dentry *dentry)
+ 	if (btrfs_test_opt(root, FRAGMENT_METADATA))
+ 		seq_puts(seq, ",fragment=metadata");
+ #endif
++#ifdef CONFIG_BTRFS_FNAME_CASEINSENSITIVE
++	if (btrfs_test_opt(root, CASEINSENSITIVE))
++		seq_printf(seq, ",case=%s",
++				btrfs_get_case_charset(root));
++#endif
+ 	seq_printf(seq, ",subvolid=%llu",
+ 		  BTRFS_I(d_inode(dentry))->root->root_key.objectid);
+ 	seq_puts(seq, ",subvol=");
+diff --git a/fs/case/Makefile b/fs/case/Makefile
+new file mode 100644
+index 0000000..b242b97
+--- /dev/null
++++ b/fs/case/Makefile
+@@ -0,0 +1,2 @@
++obj-y += upcase.o
++obj-$(CONFIG_FNAME_CASEINSENSITIVE_UTF8) += case-utf8.o
+diff --git a/fs/case/case-utf8.c b/fs/case/case-utf8.c
+new file mode 100644
+index 0000000..65fda93
+--- /dev/null
++++ b/fs/case/case-utf8.c
+@@ -0,0 +1,98 @@
++/*
++ * UTF-8 to Unicode codepoint translation
++ *
++ * Copyright (c) 2013 NETGEAR, Inc.
++ * Copyright (c) 2013 Hiro Sugawara
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by the Free
++ * Software Foundation; either version 2 of the License, or (at your option)
++ * any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program (in the main directory of the Linux-NTFS source
++ * in the file COPYING); if not, write to the Free Software Foundation,
++ */
++
++#include <linux/kernel.h>
++#include <linux/bug.h>
++#include <linux/uio.h>
++#include "case.h"
++
++/*
++ * Converts one character from top of a UTF8 string to its unicode codepoint.
++ * String may be split into discontiguous parts.
++ *	vec	UTF8 string vector. Vector contents will be updated.
++ *	veclen	Number of vector elemensts
++ * Rerturns unicode codepoint or ~0 if string is too short
++ *
++ * This code is very signedness-sensitive.
++ */
++u32 utf8_to_cp(struct iovec *vec, int veclen)
++{
++	static const s8 mask[] = {0xe0, 0xf0, 0xf8, 0xfc, 0xfe, 0xff};
++	const s8 *mp = &mask[0];
++
++	int shift = 0;
++	u32 cx = 0;
++	s8 c;
++	s8 *p = vec->iov_base;
++	size_t len = vec->iov_len;
++
++	BUG_ON(!veclen || !len || !p);
++
++	c = *p++;
++	len--;
++	if (!(c & 0x80)) {
++		cx = (u32)c;
++		goto done;
++	}
++
++	do {
++		s8 mask = *mp++;
++
++		if (unlikely(!len)) {
++			if (unlikely(!--veclen))
++				return (u32)~0;
++			(vec++)->iov_len = 0;
++			p = vec->iov_base;
++			len = vec->iov_len;
++			BUG_ON(!len || !p);
++		}
++		shift += 6;
++		cx |= (*p++ & 0x3f);
++		len--;
++		if ((c & mask) == (mask << 1)) {
++			cx |= ((c & ~mask) << shift);
++			break;
++		}
++		cx <<= 6;
++	} while (~*mp);
++
++done:
++	vec->iov_base = p;
++	vec->iov_len = len;
++	return cx;
++}
++
++static int inline utf8_strcasecmp_vec(struct iovec *vec1, int len1,
++				struct iovec *vec2, int len2)
++{
++	return ucp_strcasecmp_vec(vec1, len1, utf8_to_cp,
++				  vec2, len2, utf8_to_cp);
++}
++
++static u32 utf8_toupper_vec(struct iovec *vec, int veclen)
++{
++	return ucp_toupper_vec(vec, veclen, utf8_to_cp);
++}
++
++const struct strcase_operations utf8_strcase_ops = {
++	.strcasecmp_vec	= utf8_strcasecmp_vec,
++	.toupper_vec = utf8_toupper_vec,
++};
+diff --git a/fs/case/case.h b/fs/case/case.h
+new file mode 100644
+index 0000000..d4ad7b5
+--- /dev/null
++++ b/fs/case/case.h
+@@ -0,0 +1,42 @@
++/*
++ * case.h - Case-insensitive file name comparators
++ * Copyright (c) 2013 Hiro Sugawara <hiro.sugawara@netgear.com>
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by the Free
++ * Software Foundation; either version 2 of the License, or (at your option)
++ * any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program (in the main directory of the Linux-NTFS source
++ * in the file COPYING); if not, write to the Free Software Foundation,
++ * Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ */
++#ifndef __FS_CASE_CASE_H
++#define __FS_CASE_CASE_H
++
++#include <uapi/linux/uio.h>
++
++int ucp_strcasecmp_vec(
++	struct iovec *vec1, int len1, u32 (*conv1)(struct iovec *v, int len),
++	struct iovec *vec2, int len2, u32 (*conv2)(struct iovec *v, int len));
++
++u32 ucp_toupper_vec(
++	struct iovec *vec, int len, u32 (*conv)(struct iovec *v, int len));
++
++
++struct strcase_operations {
++	int (*strcasecmp_vec)(struct iovec *iov1, int vlen1,
++				struct iovec *iov2, int vlen2);
++	u32 (*toupper_vec)(struct iovec *iov, int vlen);
++};
++
++#ifdef CONFIG_FNAME_CASEINSENSITIVE_UTF8
++extern const struct strcase_operations utf8_strcase_ops;
++#endif
++#endif
+diff --git a/fs/case/upcase.c b/fs/case/upcase.c
+new file mode 100644
+index 0000000..6ce9d1c
+--- /dev/null
++++ b/fs/case/upcase.c
+@@ -0,0 +1,160 @@
++/*
++ * upcase.c - Generate and access the Unicode BMP CP upcase table
++ * Copyright (c) 2013 Hiro Sugawara <hiro.sugawara@netgear.com>
++ *
++ * Based of fs/ntfs/upcase.c
++ * Copyright (c) 2001 Richard Russon <ntfs@flatcap.org>
++ * Copyright (c) 2001-2006 Anton Altaparmakov
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by the Free
++ * Software Foundation; either version 2 of the License, or (at your option)
++ * any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program (in the main directory of the Linux-NTFS source
++ * in the file COPYING); if not, write to the Free Software Foundation,
++ * Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ */
++
++#include <linux/slab.h>
++#include <linux/module.h>
++#include <linux/uio.h>
++
++#include "case.h"
++
++#define BMPLEN	0x10000
++static u16 *upcase;
++
++u32 ucp_toupper_vec(
++	struct iovec *vec, int len, u32 (*conv)(struct iovec *v, int len))
++{
++	u32 cp = conv(vec, len);
++
++	return (cp < BMPLEN) ? upcase[cp] : cp;
++}
++
++int ucp_strcasecmp_vec(
++	struct iovec *vec1, int len1, u32 (*conv1)(struct iovec *v, int len),
++	struct iovec *vec2, int len2, u32 (*conv2)(struct iovec *v, int len))
++{
++	while (len1 > 0 && len2 > 0) {
++		u32 cp1 = ucp_toupper_vec(vec1, len1, conv1);
++		u32 cp2 = ucp_toupper_vec(vec2, len2, conv2);
++
++		if (cp1 >= BMPLEN)
++			return 1;	/* TODO */
++		cp1 = upcase[cp1];
++		if (cp2 >= BMPLEN)
++			return 1;	/* TODO */
++		cp2 = upcase[cp2];
++
++		if (cp1 != cp2)
++			return cp1 - cp2;
++
++		if (!vec1->iov_len) {
++			vec1++;
++			len1--;
++		}
++		if (!vec2->iov_len) {
++			vec2++;
++			len2--;
++		}
++	}
++	if (len1 > 0)
++		return 1;	/* TODO */
++	if (len2 > 0)
++		return -1;	/* TODO */
++	return 0;
++}
++
++u32 ucp_struncase_vec(
++	struct iovec *vec, int len, u32 (*conv)(struct iovec *v, int len))
++{
++	u32 cp = conv(vec, len);
++	return (cp < 0x10000) ? upcase[cp] : cp;
++}
++
++static __init u16 *generate_default_upcase(void)
++{
++	static const int uc_run_table[][3] = { /* Start, End, Add */
++	{0x0061, 0x007B,  -32}, {0x0451, 0x045D, -80}, {0x1F70, 0x1F72,  74},
++	{0x00E0, 0x00F7,  -32}, {0x045E, 0x0460, -80}, {0x1F72, 0x1F76,  86},
++	{0x00F8, 0x00FF,  -32}, {0x0561, 0x0587, -48}, {0x1F76, 0x1F78, 100},
++	{0x0256, 0x0258, -205}, {0x1F00, 0x1F08,   8}, {0x1F78, 0x1F7A, 128},
++	{0x028A, 0x028C, -217}, {0x1F10, 0x1F16,   8}, {0x1F7A, 0x1F7C, 112},
++	{0x03AC, 0x03AD,  -38}, {0x1F20, 0x1F28,   8}, {0x1F7C, 0x1F7E, 126},
++	{0x03AD, 0x03B0,  -37}, {0x1F30, 0x1F38,   8}, {0x1FB0, 0x1FB2,   8},
++	{0x03B1, 0x03C2,  -32}, {0x1F40, 0x1F46,   8}, {0x1FD0, 0x1FD2,   8},
++	{0x03C2, 0x03C3,  -31}, {0x1F51, 0x1F52,   8}, {0x1FE0, 0x1FE2,   8},
++	{0x03C3, 0x03CC,  -32}, {0x1F53, 0x1F54,   8}, {0x1FE5, 0x1FE6,   7},
++	{0x03CC, 0x03CD,  -64}, {0x1F55, 0x1F56,   8}, {0x2170, 0x2180, -16},
++	{0x03CD, 0x03CF,  -63}, {0x1F57, 0x1F58,   8}, {0x24D0, 0x24EA, -26},
++	{0x0430, 0x0450,  -32}, {0x1F60, 0x1F68,   8}, {0xFF41, 0xFF5B, -32},
++	{0}
++	};
++
++	static const int uc_dup_table[][2] = { /* Start, End */
++	{0x0100, 0x012F}, {0x01A0, 0x01A6}, {0x03E2, 0x03EF}, {0x04CB, 0x04CC},
++	{0x0132, 0x0137}, {0x01B3, 0x01B7}, {0x0460, 0x0481}, {0x04D0, 0x04EB},
++	{0x0139, 0x0149}, {0x01CD, 0x01DD}, {0x0490, 0x04BF}, {0x04EE, 0x04F5},
++	{0x014A, 0x0178}, {0x01DE, 0x01EF}, {0x04BF, 0x04BF}, {0x04F8, 0x04F9},
++	{0x0179, 0x017E}, {0x01F4, 0x01F5}, {0x04C1, 0x04C4}, {0x1E00, 0x1E95},
++	{0x018B, 0x018B}, {0x01FA, 0x0218}, {0x04C7, 0x04C8}, {0x1EA0, 0x1EF9},
++	{0}
++	};
++
++	static const int uc_word_table[][2] = { /* Offset, Value */
++	{0x00FF, 0x0178}, {0x01AD, 0x01AC}, {0x01F3, 0x01F1}, {0x0269, 0x0196},
++	{0x0183, 0x0182}, {0x01B0, 0x01AF}, {0x0253, 0x0181}, {0x026F, 0x019C},
++	{0x0185, 0x0184}, {0x01B9, 0x01B8}, {0x0254, 0x0186}, {0x0272, 0x019D},
++	{0x0188, 0x0187}, {0x01BD, 0x01BC}, {0x0259, 0x018F}, {0x0275, 0x019F},
++	{0x018C, 0x018B}, {0x01C6, 0x01C4}, {0x025B, 0x0190}, {0x0283, 0x01A9},
++	{0x0192, 0x0191}, {0x01C9, 0x01C7}, {0x0260, 0x0193}, {0x0288, 0x01AE},
++	{0x0199, 0x0198}, {0x01CC, 0x01CA}, {0x0263, 0x0194}, {0x0292, 0x01B7},
++	{0x01A8, 0x01A7}, {0x01DD, 0x018E}, {0x0268, 0x0197},
++	{0}
++	};
++
++	int i, r;
++	u16 *uc;
++
++	uc = kmalloc(BMPLEN * sizeof(u16), GFP_NOFS);
++	if (!uc)
++		return uc;
++
++	/* Generate the little endian Unicode upcase table used by ntfs. */
++	for (i = 0; i < BMPLEN; i++)
++		uc[i] = i;
++	for (r = 0; uc_run_table[r][0]; r++)
++		for (i = uc_run_table[r][0]; i < uc_run_table[r][1]; i++)
++			uc[i] += uc_run_table[r][2];
++	for (r = 0; uc_dup_table[r][0]; r++)
++		for (i = uc_dup_table[r][0]; i < uc_dup_table[r][1]; i += 2)
++			uc[i + 1]--;
++	for (r = 0; uc_word_table[r][0]; r++)
++		uc[uc_word_table[r][0]] = uc_word_table[r][1];
++	return uc;
++}
++
++static int __init generate_upcase(void)
++{
++	return (upcase = generate_default_upcase()) ? 0 : -ENOMEM;
++}
++
++static void __exit discard_upcase(void)
++{
++	kfree(upcase);
++	upcase = NULL;
++}
++
++module_init(generate_upcase);
++module_exit(discard_upcase);
++
++MODULE_AUTHOR("Hiro Sugawara <hiro.sugawawra@netgear.com>");
++MODULE_LICENSE("GPL");
+-- 
+1.9.1
+

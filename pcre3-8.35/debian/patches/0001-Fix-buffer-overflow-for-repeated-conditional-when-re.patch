@@ -1,0 +1,53 @@
+Description: Fix buffer overflow for repeated conditional when referencing
+ a duplicate name.
+ .
+ Addresses CVE-2015-8383.
+Origin: upstream, http://vcs.pcre.org/pcre?view=revision&revision=1557
+Forwarded: not-needed
+Author: Salvatore Bonaccorso <carnil@debian.org>
+Last-Update: 2015-12-28
+Applied-Upstream: 8.38
+
+---
+ pcre_compile.c       | 2 +-
+ testdata/testinput2  | 6 ++++++
+ testdata/testoutput2 | 6 ++++++
+ 4 files changed, 18 insertions(+), 2 deletions(-)
+
+--- a/pcre_compile.c
++++ b/pcre_compile.c
+@@ -6683,7 +6683,7 @@ for (;; ptr++)
+             ptr++;
+             }
+           namelen = (int)(ptr - name);
+-          if (lengthptr != NULL) *lengthptr += IMM2_SIZE;
++          if (lengthptr != NULL) skipbytes += IMM2_SIZE;
+           }
+ 
+         /* Check the terminator */
+--- a/testdata/testinput2
++++ b/testdata/testinput2
+@@ -4072,4 +4072,10 @@ backtracking verbs. --/
+ 
+ /(?=di(?<=(?1))|(?=(.))))/
+ 
++/(((?(R)){0,2}) (?''((?'R')((?'R')))))/J
++
++/(((?(X)){0,2}) (?''((?'X')((?'X')))))/J
++
++/(((?(R)){0,2}) (?''((?'X')((?'R')))))/
++
+ /-- End of testinput2 --/
+--- a/testdata/testoutput2
++++ b/testdata/testoutput2
+@@ -14195,4 +14195,10 @@ Failed: parentheses are too deeply neste
+ /(?=di(?<=(?1))|(?=(.))))/
+ Failed: unmatched parentheses at offset 23
+ 
++/(((?(R)){0,2}) (?''((?'R')((?'R')))))/J
++
++/(((?(X)){0,2}) (?''((?'X')((?'X')))))/J
++
++/(((?(R)){0,2}) (?''((?'X')((?'R')))))/
++
+ /-- End of testinput2 --/

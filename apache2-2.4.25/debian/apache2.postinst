@@ -1,0 +1,322 @@
+#! /bin/bash
+# postinst script
+#
+# see: dh_installdeb(1)
+
+set -e
+
+# summary of how this script can be called:
+#       * <postinst> `configure' <most-recently-configured-version>
+#       * <old-postinst> `abort-upgrade' <new version>
+#       * <conflictor's-postinst> `abort-remove' `in-favour' <package>
+#         <new-version>
+#       * <deconfigured's-postinst> `abort-deconfigure' `in-favour'
+#         <failed-install-package> <version> `removing'
+#         <conflicting-package> <version>
+#
+# for details, see http://www.debian.org/doc/debian-policy/ or
+# the debian-policy package
+#
+
+is_fresh_install()
+{
+	if [ -z "$2" ] ; then
+		return 0
+	fi
+	return 1
+}
+
+
+enable_default_mpm()
+{
+	if is_fresh_install $@ ; then
+		a2enmod -m -q mpm_event
+	fi
+
+}
+
+enable_default_modules()
+{
+	if is_fresh_install $@; then
+		for module in authz_host auth_basic access_compat authn_file authz_user \
+				alias dir autoindex \
+				env mime negotiation setenvif \
+				filter deflate \
+				status reqtimeout ; do
+			a2enmod -m -q $module
+		done
+	fi
+	if [ -z "$2" ] ; then
+		return 0
+	fi
+	# mod_reqtimeout activation was missed in some versions
+	if dpkg --compare-versions "$2" lt "2.4.10-10+deb8u8" || \
+		(dpkg --compare-versions "$2" gt "2.4.10-11" && \
+		 dpkg --compare-versions "$2" lt "2.4.25-2~")
+	then
+			a2enmod -m -q reqtimeout
+	fi
+}
+
+enable_default_conf()
+{
+	if is_fresh_install $@ ; then
+		for conf in charset localized-error-pages other-vhosts-access-log \
+				security serve-cgi-bin ; do
+			a2enconf -m -q $conf
+		done
+	fi
+}
+
+install_default_site()
+{
+	if is_fresh_install $@ ; then
+		if [ ! -L /etc/apache2/sites-enabled/000-default.conf -a \
+			! -f /etc/apache2/sites-enabled/000-default.conf ]; then
+				a2ensite -q 000-default
+		fi
+
+		touch /var/log/apache2/error.log /var/log/apache2/access.log
+		chown root:adm /var/log/apache2/error.log /var/log/apache2/access.log
+		chmod 0640 /var/log/apache2/error.log /var/log/apache2/access.log
+
+		touch /var/log/apache2/other_vhosts_access.log
+		chown root:adm /var/log/apache2/other_vhosts_access.log
+		chmod 0640 /var/log/apache2/other_vhosts_access.log
+	fi
+}
+
+is_problematic_index_html () {
+	local FILE="$1"
+	[ -f "$FILE" ] || return 1
+	local MD5=$(md5sum "$FILE" 2> /dev/null |cut -d' ' -f 1)
+	[ -n "$MD5" ] || return 1
+	grep -q "$MD5" <<- EOF
+	1736dfc80cf1f5a8966c096a0b094377
+	776221a94e5a174dc2396c0f3f6b6a74
+	51a41c3207374dad24ec64a0f2646bdc
+	c481228d439cbb54bdcedbaec5bbb11a
+	3183a3d71d86bcc88aaf3ca5cbbefb45
+	74cec59a19e5d16f7cc6a2445e35fa3b
+	EOF
+}
+
+# XXX: This site is installed in the apache2-data package. Should the postinst
+# scriptlet move there too?
+install_default_files()
+{
+	if is_fresh_install $@ ; then
+		local do_copy=true
+		local dir ext
+		for dir in /var/www /var/www/html ; do
+			for ext in html cgi pl php xhtml htm ; do
+				if [ -e $dir/index.$ext ] ; then
+					do_copy=false
+					break 2
+				fi
+			done
+			if [ -h $dir/index.html ] ; then
+				do_copy=false
+				break
+			fi
+		done
+		if $do_copy ; then
+			cp /usr/share/apache2/default-site/index.html /var/www/html/index.html
+		fi
+	else
+		# see #821313
+		for dir in /var/www /var/www/html ; do
+			local file=$dir/index.html
+			if is_problematic_index_html $file ; then
+				cp /usr/share/apache2/default-site/index.html $file
+			fi
+		done
+	fi
+}
+
+refresh_modules()
+{
+	if dpkg --compare-versions "$2" lt-nl "2.4.10-12~" ; then
+		if [ -e "/etc/apache2/mods-enabled/proxy_html.load" ]
+		then
+			a2enmod -q proxy_html
+		fi
+	fi
+}
+
+start_htcacheclean ()
+{
+	local action
+	if [ -x "/etc/init.d/apache-htcacheclean" ]; then
+		if [ -n "$2" ]; then
+			action=restart
+		else
+			action=start
+		fi
+		invoke-rc.d apache-htcacheclean $action || true
+	fi
+}
+
+disable_htcacheclean()
+{
+	if deb-systemd-helper debian-installed apache-htcacheclean.service; then
+		deb-systemd-helper disable apache-htcacheclean.service >/dev/null || true
+	fi
+	update-rc.d apache-htcacheclean disable >/dev/null
+}
+
+# The apache-htcacheclean service is disabled by default. Can't use
+# debhelper. The update-rc.d 'disable' call must come after the 'defaults'
+# call, or the former will fail.
+handle_htcacheclean ()
+{
+	if dpkg --compare-versions "$2" lt "2.4.18-2~"; then
+		# Disable on initial installation or when upgrading from an old
+		# version without that init script and with the module disabled
+		# (or when configured to run from cron)
+		if [ ! -e "/etc/apache2/mods-enabled/cache_disk.load" ]; then
+			disable_htcacheclean
+			return
+		elif (. /etc/default/apache-htcacheclean && [ "$HTCACHECLEAN_MODE" = "cron" ]); then
+			disable_htcacheclean
+			return
+		fi
+	fi
+
+	# Restart it if applicable
+	start_htcacheclean "$@"
+}
+
+msg ()
+{
+	local PRIORITY="$1"
+	local MSG="$2"
+	echo "$PRIORITY: $MSG"
+	if type logger > /dev/null 2>&1 ; then
+		logger -p daemon.$PRIORITY -t apache2.postinst "$MSG" || true
+	fi
+}
+
+execute_deferred_actions ()
+{
+	if [ ! -e /var/lib/apache2/deferred_actions ]; then
+		return 0
+	fi
+
+	local error=false
+
+	cat /var/lib/apache2/deferred_actions |
+	while read PACKAGE FUNCTION ARG1 ARG2 ARG3
+	do
+		if ! dpkg-query -f '${Status}' -W "$PACKAGE"|egrep -q 'installed|triggers-awaited|triggers-pending' ; then
+			# If the package has been removed again, skip the actions
+			continue
+		fi
+		case "$FUNCTION" in
+		apache2_invoke)
+			case "$ARG1" in
+			enmod|dismod|enconf|disconf|ensite|dissite)
+				# We can ignore reload/restart in ARG3 because apache2 has not
+				# been started, yet.
+				msg "info" "Executing deferred 'a2$ARG1 $ARG2' for package $PACKAGE"
+				a2$ARG1 -m -q "$ARG2"
+				;;
+			*)
+				msg "error" "'apache2_invoke $ARG1' in /var/lib/apache2/deferred_actions invalid"
+				error=true
+			esac
+			;;
+		apache2_switch_mpm)
+			local MPM="$ARG1"
+			local CUR_MPM="$(ls /etc/apache2/mods-enabled/mpm_*.load | grep -e event -e prefork -e worker)"
+			CUR_MPM="${CUR_MPM##*/mpm_}"
+			CUR_MPM="${CUR_MPM%.load}"
+			if [ ! -e /etc/apache2/mods-available/mpm_$MPM.load ] ; then
+				msg "error" "mpm $MPM not found in 'apache2_switch_mpm $ARG1' for package $PACKAGE"
+				error=true
+			elif [ -e /etc/apache2/mods-enabled/mpm_$MPM.load ] ; then
+				msg "info" "Switch to mpm $MPM for package $PACKAGE: No action required"
+			else
+				msg "info" "Switch to mpm $MPM for package $PACKAGE"
+				if ! a2dismod -m -q "mpm_$CUR_MPM" ||
+				   ! a2enmod -m -q "mpm_$MPM"
+				then
+					msg "error" "Switching to mpm $MPM failed"
+					error=true
+				fi
+			fi
+			;;
+		*)
+			msg "ERROR: function '$FUNCTION' in /var/lib/apache2/deferred_actions invalid"
+			;;
+		esac
+	done
+
+	if $error ; then
+		msg "error" "Some deferred actions failed. You will need to fix the configuration manually."
+	fi
+	rm /var/lib/apache2/deferred_actions
+}
+
+list_fixup_conffiles () {
+	cat <<- EOF
+		/etc/bash_completion.d/apache2
+		/etc/apache2/sites-available/000-default.conf
+		/etc/apache2/sites-available/default-ssl.conf
+		/etc/apache2/conf-available/charset.conf
+		/etc/apache2/conf-available/localized-error-pages.conf
+		/etc/apache2/conf-available/other-vhosts-access-log.conf
+		/etc/apache2/conf-available/security.conf
+		EOF
+}
+
+case "$1" in
+	configure)
+
+		if dpkg --compare-versions "$2" lt-nl "2.4.23-3~" ; then
+			list_fixup_conffiles | while read FILE ; do
+				if [ -e "${FILE}.dpkg-remove-fixup" ] ; then
+					echo "Removing backup copy of $FILE"
+					rm "${FILE}.dpkg-remove-fixup"
+				fi
+			done
+		fi
+		enable_default_mpm $@
+		refresh_modules $@
+		install_default_files $@
+		enable_default_modules $@
+		enable_default_conf $@
+		install_default_site $@
+		execute_deferred_actions
+
+	;;
+
+	abort-upgrade)
+
+	;;
+
+	abort-remove|abort-deconfigure)
+
+	;;
+
+	*)
+		echo "postinst called with unknown argument \`$1'" >&2
+		exit 1
+	;;
+esac
+
+#DEBHELPER#
+
+# Deal with htcacheclean after debhelper's initial init script handling
+case "$1" in
+	configure)
+		handle_htcacheclean $@
+	;;
+	abort-upgrade)
+		start_htcacheclean $@
+	;;
+esac
+
+exit 0
+
+# vim: syntax=sh ts=4 sw=4 sts=4 sr noet

@@ -842,6 +842,8 @@ int RAND_pseudo_bytes(unsigned char *buf, int num);
 
 # else                          /* !BN_DEBUG */
 
+/* we don't build BN_DEBUG versions here, so no need to define this anywhere else */
+#  define BN_FLG_FIXED_TOP 0
 #  define bn_pollute(a)
 #  define bn_check_top(a)
 #  define bn_fix_top(a)           bn_correct_top(a)

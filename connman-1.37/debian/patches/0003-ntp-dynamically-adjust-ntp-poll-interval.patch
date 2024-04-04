@@ -1,0 +1,62 @@
+From 3fee8996e19b587ea86c197823e62c369d8d9874 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 13 Jul 2017 15:42:42 -0700
+Subject: [PATCH] ntp: dynamically adjust ntp poll interval
+
+Currently, NTP is hard-coded to poll once very 17 minutes.  This patch
+adjusts that interval up or down, depending on the skew detected from
+the last poll.
+---
+ src/ntp.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/ntp.c b/src/ntp.c
+index e7fee22..1952a9e 100644
+--- a/src/ntp.c
++++ b/src/ntp.c
+@@ -67,6 +67,8 @@ struct ntp_msg {
+ #define OFFSET_1900_1970  2208988800UL	/* 1970 - 1900 in seconds */
+ 
+ #define STEPTIME_MIN_OFFSET  0.4
++#define NTP_MIN_INTERVAL     4
++#define NTP_MAX_INTERVAL     10
+ 
+ #define LOGTOD(a)  ((a) < 0 ? 1. / (1L << -(a)) : 1L << (int)(a))
+ #define NSEC_PER_SEC  ((uint64_t)1000000000ULL)
+@@ -132,6 +134,7 @@ struct ntp_data {
+ };
+ 
+ static struct ntp_data *ntp_data;
++static int8_t poll_interval = NTP_MIN_INTERVAL;
+ 
+ static void free_ntp_data(struct ntp_data *nd)
+ {
+@@ -183,7 +186,7 @@ static void send_packet(struct ntp_data *nd, struct sockaddr *server,
+ 	memset(&msg, 0, sizeof(msg));
+ 	msg.flags = NTP_FLAGS_ENCODE(NTP_FLAG_LI_NOTINSYNC, NTP_FLAG_VN_VER4,
+ 	    NTP_FLAG_MD_CLIENT);
+-	msg.poll = 10;
++	msg.poll = poll_interval;
+ 	msg.precision = NTP_PRECISION_S;
+ 
+ 	if (server->sa_family == AF_INET) {
+@@ -354,6 +357,8 @@ static void decode_msg(struct ntp_data *nd, void *base, size_t len,
+ 		tmx.constant = msg->poll - 4;
+ 		tmx.maxerror = 0;
+ 		tmx.esterror = 0;
++		if (offset < (STEPTIME_MIN_OFFSET / 2) && offset > (-STEPTIME_MIN_OFFSET / 2))
++			poll_interval += (poll_interval >= NTP_MAX_INTERVAL ? 0 : 1);
+ 
+ 		connman_info("ntp: adjust (slew): %+.6f sec", offset);
+ 	} else {
+@@ -370,6 +375,7 @@ static void decode_msg(struct ntp_data *nd, void *base, size_t len,
+ 			tmx.time.tv_sec  -= 1;
+ 			tmx.time.tv_usec += NSEC_PER_SEC;
+ 		}
++		poll_interval -= (poll_interval <= NTP_MIN_INTERVAL ? 0 : 1);
+ 
+ 		connman_info("ntp: adjust (jump): %+.6f sec", offset);
+ 	}
+-- 
+2.1.4
+

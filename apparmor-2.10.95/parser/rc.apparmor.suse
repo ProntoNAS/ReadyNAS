@@ -1,0 +1,149 @@
+#!/bin/sh
+# ----------------------------------------------------------------------
+#    Copyright (c) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007
+#    NOVELL (All rights reserved)
+#
+#    This program is free software; you can redistribute it and/or
+#    modify it under the terms of version 2 of the GNU General Public
+#    License published by the Free Software Foundation.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, contact Novell, Inc.
+# ----------------------------------------------------------------------
+# rc.apparmor by Steve Beattie
+#
+# /etc/init.d/boot.apparmor
+#   and its symbolic link
+# /sbin/rcapparmor
+#
+# chkconfig: 2345 01 99
+# description: AppArmor rc file. This rc script inserts the apparmor \
+# 	       module and runs the parser on the /etc/apparmor.d/ \
+#	       directory.
+#
+### BEGIN INIT INFO
+# Provides: apparmor
+# Required-Start: boot.cleanup
+# Required-Stop: $null
+# Should-Start: $local_fs
+# Should-Stop: $null
+# Default-Start: B
+# Default-Stop:
+# Short-Description: AppArmor initialization
+# Description: AppArmor rc file. This rc script inserts the apparmor
+#	module and runs the parser on the /etc/apparmor.d/
+#	directory.
+### END INIT INFO
+APPARMOR_FUNCTIONS=/lib/apparmor/rc.apparmor.functions
+
+# source function library
+if [ -f /etc/init.d/functions ]; then
+        . /etc/init.d/functions
+elif [ -f /etc/rc.d/init.d/functions ]; then
+	. /etc/rc.d/init.d/functions
+elif [ -f /lib/lsb/init-functions ]; then
+	. /lib/lsb/init-functions
+else
+	exit 0
+fi
+
+# Ugh, SUSE doesn't implement action
+aa_action() { STRING=$1
+	shift
+	"$@"
+	rc=$?
+	if [ $rc -eq 0 ] ; then
+		log_success_msg $"$STRING "
+	else
+		log_failure_msg $"$STRING "
+	fi
+	return $rc
+}
+
+aa_log_success_msg() {
+	log_success_msg $*
+}
+
+aa_log_warning_msg() {
+	log_warning_msg $*
+}
+
+aa_log_failure_msg() {
+	log_failure_msg '\n'$*
+}
+
+aa_log_action_start() {
+	echo -n
+}
+
+aa_log_action_end() {
+	echo -n
+}
+
+aa_log_daemon_msg() {
+	echo -en "$@ "
+}
+
+aa_log_skipped_msg() {
+	echo -en "$@"
+	echo -e	"$rc_skipped"
+}
+
+_set_status() {
+	return $1
+}
+
+aa_log_end_msg() {
+	_set_status $1
+	rc_status -v
+}
+
+usage() {
+    echo "Usage: $0 {start|stop|restart|try-restart|reload|force-reload|status|kill}"
+}
+
+# source apparmor function library
+if [ -f "${APPARMOR_FUNCTIONS}" ]; then
+	. ${APPARMOR_FUNCTIONS}
+else
+	aa_log_failure_msg "Unable to find AppArmor initscript functions"
+	exit 1
+fi
+
+case "$1" in
+	start)
+		apparmor_start
+		rc=$?
+		;;
+	stop)
+		apparmor_stop
+		rc=$?
+		;;
+	restart|reload|force-reload)
+		apparmor_restart
+		rc=$?
+		;;
+	try-restart)
+		apparmor_try_restart
+		rc=$?
+		;;
+	kill)
+		apparmor_kill
+		rc=$?
+		;;
+	status)
+		apparmor_status
+		rc=$?
+		;;
+	*)
+		usage
+		exit 1
+		;;
+esac
+exit $rc
+

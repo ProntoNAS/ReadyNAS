@@ -1,0 +1,65 @@
+From 907822826685e83aea248b625087040a8b3f4268 Mon Sep 17 00:00:00 2001
+From: Michael Biebl <biebl@debian.org>
+Date: Fri, 1 May 2015 09:04:15 +0200
+Subject: [PATCH] build: hide private symbols
+
+Use -export-symbols-regex to hide private symbols which should not be
+exported.
+---
+ libmediaart/Makefile.am | 7 ++++---
+ libmediaart/storage.c   | 4 ++--
+ 2 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/libmediaart/Makefile.am b/libmediaart/Makefile.am
+index a234ead..a844f4d 100644
+--- a/libmediaart/Makefile.am
++++ b/libmediaart/Makefile.am
+@@ -44,7 +44,8 @@ endif
+ endif
+ 
+ libmediaart_@LIBMEDIAART_API_VERSION@_la_LDFLAGS = \
+-	-version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE)
++	-version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE) \
++	-export-symbols-regex '^media_art_.*'
+ 
+ libmediaart_@LIBMEDIAART_API_VERSION@_la_LIBADD = \
+ 	$(BUILD_LIBS) \
+@@ -52,11 +53,11 @@ libmediaart_@LIBMEDIAART_API_VERSION@_la_LIBADD = \
+ 
+ 
+ marshal.h: marshal.list
+-	$(AM_V_GEN)$(GLIB_GENMARSHAL) $< --prefix=media_art_marshal --header > $@
++	$(AM_V_GEN)$(GLIB_GENMARSHAL) $< --prefix=_media_art_marshal --header > $@
+ 
+ marshal.c: marshal.list
+ 	$(AM_V_GEN)(echo "#include \"marshal.h\""; \
+-	    $(GLIB_GENMARSHAL) $< --prefix=media_art_marshal --body) > $@
++	    $(GLIB_GENMARSHAL) $< --prefix=_media_art_marshal --body) > $@
+ 
+ 
+ BUILT_SOURCES = \
+diff --git a/libmediaart/storage.c b/libmediaart/storage.c
+index 36213d7..80673b7 100644
+--- a/libmediaart/storage.c
++++ b/libmediaart/storage.c
+@@ -111,7 +111,7 @@ storage_class_init (StorageClass *klass)
+ 		              G_SIGNAL_RUN_LAST,
+ 		              0,
+ 		              NULL, NULL,
+-		              media_art_marshal_VOID__STRING_STRING_STRING_BOOLEAN_BOOLEAN,
++		              _media_art_marshal_VOID__STRING_STRING_STRING_BOOLEAN_BOOLEAN,
+ 		              G_TYPE_NONE,
+ 		              5,
+ 		              G_TYPE_STRING,
+@@ -126,7 +126,7 @@ storage_class_init (StorageClass *klass)
+ 		              G_SIGNAL_RUN_LAST,
+ 		              0,
+ 		              NULL, NULL,
+-		              media_art_marshal_VOID__STRING_STRING,
++		              _media_art_marshal_VOID__STRING_STRING,
+ 		              G_TYPE_NONE,
+ 		              2,
+ 		              G_TYPE_STRING,
+-- 
+2.1.4
+

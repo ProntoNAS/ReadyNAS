@@ -1,0 +1,33 @@
+disk/swsusp.o: \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/disk/swsusp.c \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/stdlib.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/klibc/extern.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/klibc/compiler.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/stddef.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/bitsize/stddef.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/bitsize32/stddef.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/string.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../gplinclude/disk/swsusp.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../gplinclude/disk/geom.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/stdint.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/bitsize/stdint.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/bitsize32/stdint.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/bitsize/stdintlimits.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/bitsize32/stdintlimits.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/bitsize/stdintconst.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/bitsize32/stdintconst.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../gplinclude/disk/common.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../gplinclude/cpuid.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/stdbool.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/stdio.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/stdarg.h \
+ /usr/lib/gcc/x86_64-linux-gnu/4.9/include/stdarg.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/cpufeature.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/sys/bitops.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/sys/i386/bitops.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/sys/cpu.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/sys/i386/cpu.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/sys/io.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../include/inttypes.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../gplinclude/disk/partition.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/gpllib/../gplinclude/disk/read.h

@@ -1,0 +1,59 @@
+From 61d2ada917bc864c1e71ba69e99256a89f349d84 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 8 Sep 2016 11:29:54 -0700
+Subject: [PATCH 9/9] Store snapshot HWM (High Water Mark) in the config
+
+---
+ snapper/SnapperDefines.h |  1 +
+ snapper/Snapshot.cc      | 10 ++++++++++
+ 2 files changed, 11 insertions(+)
+
+diff --git a/snapper/SnapperDefines.h b/snapper/SnapperDefines.h
+index 8490894..edfe84f 100644
+--- a/snapper/SnapperDefines.h
++++ b/snapper/SnapperDefines.h
+@@ -43,5 +43,6 @@
+ #define KEY_ALLOW_GROUPS "ALLOW_GROUPS"
+ #define KEY_SYNC_ACL "SYNC_ACL"
+ 
++#define KEY_SNAPSHOT_HWM "SNAPSHOT_HWM"
+ 
+ #endif
+diff --git a/snapper/Snapshot.cc b/snapper/Snapshot.cc
+index b80cfd5..662a7d6 100644
+--- a/snapper/Snapshot.cc
++++ b/snapper/Snapshot.cc
+@@ -397,6 +397,11 @@ namespace snapper
+ 	unsigned int num = entries.empty() ? 0 : entries.rbegin()->num;
+ 
+ 	SDir infos_dir = snapper->openInfosDir();
++	ConfigInfo conf = snapper->getConfig(snapper->configName(), "/");
++	string hwm;
++
++	if (!conf.getValue(KEY_SNAPSHOT_HWM, hwm))
++	    hwm = "0";
+ 
+ 	while (true)
+ 	{
+@@ -405,6 +410,9 @@ namespace snapper
+ 	    if (snapper->getFilesystem()->checkSnapshot(num))
+ 		continue;
+ 
++	    if ((unsigned int)stoi(hwm) >= num)
++		num = (unsigned int)stoi(hwm) + 1;
++
+ 	    if (infos_dir.mkdir(decString(num), 0777) == 0)
+ 		break;
+ 
+@@ -672,6 +680,8 @@ namespace snapper
+ 
+ 	Hooks::create_snapshot(snapper->subvolumeDir(), snapper->getFilesystem());
+ 
++	const_cast<Snapper*>(snapper)->setConfigInfo({ { KEY_SNAPSHOT_HWM, to_string(snapshot.getNum()) } });
++
+ 	return entries.insert(entries.end(), snapshot);
+     }
+ 
+-- 
+2.9.3
+

@@ -1,0 +1,62 @@
+From fd73d279ab286d8502798c0eab175fcbdbeaa3a0 Mon Sep 17 00:00:00 2001
+From: Dan Kogai <dankogai+github@gmail.com>
+Date: Tue, 15 Sep 2015 22:49:12 +0900
+Subject: Address https://rt.cpan.org/Public/Bug/Display.html?id=107043
+
+Backported to Encode 2.72 by Niko Tyni <ntyni@debian.org>
+
+Origin: backport, https://github.com/dankogai/p5-encode/commit/27682d02f7ac0669043faeb419dd5a104eecfb73
+Bug: https://rt.cpan.org/Public/Bug/Display.html?id=107043
+Bug-Debian: https://bugs.debian.org/798727
+Patch-Name: fixes/encode-unicode-bom.diff
+---
+ cpan/Encode/Unicode/Unicode.pm |  8 +++++++-
+ cpan/Encode/Unicode/Unicode.xs | 16 +++++++++++++---
+ 2 files changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/cpan/Encode/Unicode/Unicode.pm b/cpan/Encode/Unicode/Unicode.pm
+index 6b35cb756..9b197d97e 100644
+--- a/cpan/Encode/Unicode/Unicode.pm
++++ b/cpan/Encode/Unicode/Unicode.pm
+@@ -176,7 +176,13 @@ simply treated as a normal character (ZERO WIDTH NO-BREAK SPACE).
+ 
+ When BE or LE is omitted during decode(), it checks if BOM is at the
+ beginning of the string; if one is found, the endianness is set to
+-what the BOM says.  If no BOM is found, the routine dies.
++what the BOM says.  
++
++=item Default Byte Order
++
++When no BOM is found, Encode 2.76 and blow croaked.  Since Encode
++2.77, it falls back to BE accordingly to RFC2781 and the Unicode
++Standard version 8.0
+ 
+ =item *
+ 
+diff --git a/cpan/Encode/Unicode/Unicode.xs b/cpan/Encode/Unicode/Unicode.xs
+index cf42ab867..831708c2c 100644
+--- a/cpan/Encode/Unicode/Unicode.xs
++++ b/cpan/Encode/Unicode/Unicode.xs
+@@ -164,9 +164,19 @@ CODE:
+ 		endian = 'V';
+ 	    }
+ 	    else {
+-		croak("%"SVf":Unrecognised BOM %"UVxf,
+-		      *hv_fetch((HV *)SvRV(obj),"Name",4,0),
+-		      bom);
++               /* No BOM found, use big-endian fallback as specified in
++                * RFC2781 and the Unicode Standard version 8.0:
++                *
++                *  The UTF-16 encoding scheme may or may not begin with
++                *  a BOM. However, when there is no BOM, and in the
++                *  absence of a higher-level protocol, the byte order
++                *  of the UTF-16 encoding scheme is big-endian.
++                *
++                *  If the first two octets of the text is not 0xFE
++                *  followed by 0xFF, and is not 0xFF followed by 0xFE,
++                *  then the text SHOULD be interpreted as big-endian.
++                */
++                s -= size;
+ 	    }
+ 	}
+ #if 1

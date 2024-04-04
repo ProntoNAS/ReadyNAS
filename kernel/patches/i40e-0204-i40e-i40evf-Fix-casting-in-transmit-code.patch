@@ -1,0 +1,68 @@
+From 0a37aaf8fa719e6d628b67a83cb3c5ec3be4bb1c Mon Sep 17 00:00:00 2001
+From: Jesse Brandeburg <jesse.brandeburg@intel.com>
+Date: Thu, 10 Mar 2016 14:59:39 -0800
+Subject: [PATCH 204/224] i40e/i40evf: Fix casting in transmit code
+
+Simple cast to fix a sparse warning.
+
+Fixes: commit 5453205cd097 ("i40e/i40evf: Enable support for
+SKB_GSO_UDP_TUNNEL_CSUM")
+
+Signed-off-by: Jesse Brandeburg <jesse.brandeburg@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_txrx.c   | 5 +++--
+ drivers/net/ethernet/intel/i40evf/i40e_txrx.c | 5 +++--
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_txrx.c b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+index d876f4e..22567c2 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+@@ -2304,7 +2304,8 @@ static int i40e_tso(struct i40e_ring *tx_ring, struct sk_buff *skb,
+ 
+ 			/* remove payload length from outer checksum */
+ 			paylen = (__force u16)l4.udp->check;
+-			paylen += ntohs(1) * (u16)~(skb->len - l4_offset);
++			paylen += ntohs((__force __be16)1) *
++					(u16)~(skb->len - l4_offset);
+ 			l4.udp->check = ~csum_fold((__force __wsum)paylen);
+ 		}
+ 
+@@ -2326,7 +2327,7 @@ static int i40e_tso(struct i40e_ring *tx_ring, struct sk_buff *skb,
+ 
+ 	/* remove payload length from inner checksum */
+ 	paylen = (__force u16)l4.tcp->check;
+-	paylen += ntohs(1) * (u16)~(skb->len - l4_offset);
++	paylen += ntohs((__force __be16)1) * (u16)~(skb->len - l4_offset);
+ 	l4.tcp->check = ~csum_fold((__force __wsum)paylen);
+ 
+ 	/* compute length of segmentation header */
+diff --git a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+index 0c6d2fd..5df2e2e 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+@@ -1571,7 +1571,8 @@ static int i40e_tso(struct i40e_ring *tx_ring, struct sk_buff *skb,
+ 
+ 			/* remove payload length from outer checksum */
+ 			paylen = (__force u16)l4.udp->check;
+-			paylen += ntohs(1) * (u16)~(skb->len - l4_offset);
++			paylen += ntohs((__force __be16)1) *
++					(u16)~(skb->len - l4_offset);
+ 			l4.udp->check = ~csum_fold((__force __wsum)paylen);
+ 		}
+ 
+@@ -1593,7 +1594,7 @@ static int i40e_tso(struct i40e_ring *tx_ring, struct sk_buff *skb,
+ 
+ 	/* remove payload length from inner checksum */
+ 	paylen = (__force u16)l4.tcp->check;
+-	paylen += ntohs(1) * (u16)~(skb->len - l4_offset);
++	paylen += ntohs((__force __be16)1) * (u16)~(skb->len - l4_offset);
+ 	l4.tcp->check = ~csum_fold((__force __wsum)paylen);
+ 
+ 	/* compute length of segmentation header */
+-- 
+1.9.1
+

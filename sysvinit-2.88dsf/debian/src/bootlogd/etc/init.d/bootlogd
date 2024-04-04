@@ -13,10 +13,11 @@
 
 PATH=/sbin:/bin  # No remote fs at start
 DAEMON=/sbin/bootlogd
+TMPLOG=/run/bootlog
 [ -x "$DAEMON" ] || exit 0
 NAME=bootlogd
 DESC="boot logger"
-BOOTLOGD_OPTS="-r -c"
+BOOTLOGD_OPTS="-c -l $TMPLOG"
 . /lib/init/vars.sh
 
 . /lib/lsb/init-functions
@@ -57,6 +58,11 @@ case "$ACTION" in
 	ES=$?
 	sleep 1
 	[ "$VERBOSE" != no ] && log_end_msg $ES
+	if [ -r "$TMPLOG" ]
+	then
+		cat "$TMPLOG" >> /var/log/boot
+		rm -f "$TMPLOG"
+	fi
 	if [ -f /var/log/boot ] && [ -f /var/log/boot~ ]
 	then
 		[ "$VERBOSE" = no ] || log_action_begin_msg "Moving boot log file"

@@ -1,0 +1,154 @@
+#!/usr/bin/make -f
+
+#export DH_VERBOSE=1
+SHELL=/bin/bash
+BUILDDIR := debian/build
+
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_HOST_ARCH       ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+DEB_HOST_ARCH_OS    ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+DEB_HOST_ARCH_BITS  ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_BITS)
+DEB_HOST_MULTIARCH  ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+# The 'build' target needs special handling because there there is a directory
+# named 'build'.
+.PHONY: build
+%:
+	dh $@ -B$(BUILDDIR) --parallel --with autotools_dev
+
+#
+# configure
+#
+CONFFLAGS := LTFLAGS=--no-silent \
+             --host=$(DEB_HOST_GNU_TYPE) \
+             --build=$(DEB_BUILD_GNU_TYPE) \
+             --enable-layout=Debian \
+             --includedir=/usr/include/apr-1.0 \
+             --with-installbuilddir=/usr/share/apr-1.0/build \
+             --libdir=/usr/lib/$(DEB_HOST_MULTIARCH) \
+             --enable-nonportable-atomics \
+             --enable-allocator-uses-mmap \
+             ac_cv_prog_AWK=mawk
+
+# apr_cv_mutex_robust_shared causes hangs in procmutex test on arm(el|hf) and alpha
+ifneq (,$(findstring armel,$(DEB_HOST_ARCH)))
+  CONFFLAGS += apr_cv_mutex_robust_shared=no
+endif
+ifneq (,$(findstring armhf,$(DEB_HOST_ARCH)))
+  CONFFLAGS += apr_cv_mutex_robust_shared=no
+endif
+ifneq (,$(findstring alpha,$(DEB_HOST_ARCH)))
+  CONFFLAGS += apr_cv_mutex_robust_shared=no
+endif
+
+# SH4 cannot use proc_pthread.
+ifneq (,$(findstring sh4,$(DEB_HOST_ARCH)))
+  CONFFLAGS += apr_cv_hasprocpthreadser=no ac_cv_define_PTHREAD_PROCESS_SHARED=no
+endif
+
+# multicast not supported on Hurd
+ifeq (hurd,$(DEB_HOST_ARCH_OS))
+  CONFFLAGS += apr_cv_struct_ipmreq=no
+endif
+
+# some minimal cross-building support
+ifneq ($(DEB_HOST_GNU_TYPE),$(DEB_BUILD_GNU_TYPE))
+  ifeq ($(DEB_HOST_ARCH_OS),linux)
+    CONFFLAGS += ac_cv_file__dev_zero=yes \
+                 ac_cv_func_setpgrp_void=yes \
+                 apr_cv_epoll=yes \
+                 ac_cv_struct_rlimit=yes \
+                 apr_cv_tcp_nodelay_with_cork=yes \
+                 apr_cv_process_shared_works=yes
+  endif
+  ifeq ($(DEB_HOST_ARCH_BITS),32)
+    CONFFLAGS += ac_cv_sizeof_struct_iovec=8
+  else ifeq ($(DEB_HOST_ARCH_BITS),64)
+    CONFFLAGS += ac_cv_sizeof_struct_iovec=16
+  endif
+endif
+
+# files that are modified by buildconf and need to be restored during clean
+SAVE_FILES := configure build/libtool.m4 build/ltmain.sh
+
+override_dh_auto_configure:
+	mkdir -p $(BUILDDIR)/docs
+	for f in $(SAVE_FILES) ; do [ -e $$f.dr-orig ] || cp -p $$f $$f.dr-orig ; done
+	./buildconf
+	# We need to force the use of bash here. Otherwise, if apr is built with
+	# /bin/sh -> /bin/bash, the resulting libtool will not work on systems
+	# where /bin/sh -> /bin/dash.
+	cd $(BUILDDIR) && CONFIG_SHELL=/bin/bash /bin/bash $(CURDIR)/configure $(CONFFLAGS)
+ifeq (linux,$(DEB_HOST_ARCH_OS))
+	if grep -q APR_HAS_POSIXSEM_SERIALIZE.*0 $(BUILDDIR)/include/apr.h ;\
+	then \
+		echo "WARNING: This is Linux but configure did not detect POSIX semaphores." ;\
+		if ! df /dev/shm/.|grep -q ^tmpfs ;\
+		then \
+			echo "ERROR: POSIX semaphores not usable and /dev/shm not mounted." ;\
+			echo "ERROR: Aborting." ;\
+			echo "HINT: If you are using pbuilder or cowbuilder, add /dev/shm to BINDMOUNTS" ;\
+			echo "HINT: in pbuilderrc" ;\
+			exit 1 ;\
+		fi ;\
+	fi
+endif
+
+
+#
+# build
+#
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+  NUMJOBS := $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+endif
+
+override_dh_auto_build:
+	$(MAKE) -j$(NUMJOBS) -C $(BUILDDIR) all dox
+
+#
+# test
+#
+
+ifeq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
+
+# the testsockets test will fail on vservers (no 127.0.0.1) or if ipv6 is
+# enabled in the kernel but not configured on any interface
+IGNORE_TESTSOCK = $(shell IGN=false; \
+	/sbin/ifconfig|grep -q 127.0.0.1 || IGN=true; \
+	grep -q ipv6 /proc/net/protocols && ( /sbin/ifconfig|grep -q inet6 || IGN=true ) ; \
+	echo $$IGN )
+
+override_dh_auto_test:
+	$(MAKE) -C $(BUILDDIR)/test -j$(NUMJOBS) all
+	cd $(BUILDDIR)/test && ./testall -v testsockets testsock || $(IGNORE_TESTSOCK)
+	cd $(BUILDDIR)/test && ( ulimit -S -s 8192 ; ./testall -v testatomic)
+	cd $(BUILDDIR)/test && ./testall -v -x testsockets testsock testatomic
+
+else
+override_dh_auto_test:
+
+endif
+
+
+#
+# install
+#
+override_dh_auto_install:
+	dh_auto_install --destdir=debian/tmp
+	perl -p -i -e "s,^dependency_libs=.*,dependency_libs=''," debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/libapr-1.la
+	if ! head -n 1 debian/tmp/usr/share/apr-1.0/build/libtool | grep -q /bin/bash ; then \
+		echo ERROR: The built libtool uses /bin/sh instead of /bin/bash ; \
+		exit 1 ; \
+	fi
+
+override_dh_strip:
+	dh_strip --dbg-package=libapr1-dbg
+
+override_dh_makeshlibs:
+	dh_makeshlibs -- -Idebian/symbols.$(DEB_HOST_ARCH_OS)
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf $(BUILDDIR)
+	for f in $(SAVE_FILES) ; do [ ! -e $$f.dr-orig ] || mv $$f.dr-orig $$f ; done

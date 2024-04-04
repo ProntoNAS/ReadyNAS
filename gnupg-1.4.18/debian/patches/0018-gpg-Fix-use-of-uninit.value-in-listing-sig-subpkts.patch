@@ -1,0 +1,52 @@
+From 2d359681f08999686734421228cb69893d8a0060 Mon Sep 17 00:00:00 2001
+From: Werner Koch <wk@gnupg.org>
+Date: Mon, 24 Nov 2014 19:41:46 +0100
+Subject: [PATCH 18/20] gpg: Fix use of uninit.value in listing sig subpkts.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+* g10/parse-packet.c (dump_sig_subpkt): Print regex subpacket
+sanitized.
+--
+
+We may not use "%s" to print an arbitrary buffer.  At least "%.*s"
+should have been used.  However, it is in general preferable to escape
+control characters while printf user data.
+
+Reported-by: Hanno Böck
+Signed-off-by: Werner Koch <wk@gnupg.org>
+
+(backported from commit 596ae9f5433ca3b0e01f7acbe06fd2e424c42ae8)
+---
+ g10/parse-packet.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/g10/parse-packet.c b/g10/parse-packet.c
+index db1702f..01600e4 100644
+--- a/g10/parse-packet.c
++++ b/g10/parse-packet.c
+@@ -892,13 +892,18 @@ dump_sig_subpkt( int hashed, int type, int critical,
+ 	if(length!=2)
+ 	  p="[invalid trust subpacket]";
+ 	else
+-	  fprintf (listfp, "trust signature of depth %d, value %d",buffer[0],buffer[1]);
++	  fprintf (listfp, "trust signature of depth %d, value %d",
++                   buffer[0],buffer[1]);
+ 	break;
+       case SIGSUBPKT_REGEXP:
+ 	if(!length)
+ 	  p="[invalid regexp subpacket]";
+ 	else
+-	  fprintf (listfp, "regular expression: \"%s\"",buffer);
++          {
++            fprintf (listfp, "regular expression: \"");
++            print_string (listfp, buffer, length, '\"');
++            p = "\"";
++          }
+ 	break;
+       case SIGSUBPKT_REVOCABLE:
+ 	if( length )
+-- 
+2.1.3
+

@@ -1,0 +1,39 @@
+From 2a87f87ca4b16742c34adde6e0edd19a9aa435ba Mon Sep 17 00:00:00 2001
+From: Father Chrysostomos <sprout@cpan.org>
+Date: Mon, 20 Jul 2015 11:23:49 -0700
+Subject: Fix crash with %::=(); J->${\"::"}
+
+gv_stashpvn does not expect gv_fetchpv to return something that is
+not a GV.  If someone has blown away the stash with %::=(), then the
+$::{"main::"} entry no longer exists, but gv_fetchpv expects it to be
+there.  This patch just makes this case fail somewhat gracefully
+instead of crashing:
+
+$  ./miniperl -e '%::=(); J->${\"::"}'
+Can't locate object method "" via package "" (perhaps you forgot to load ""?) at -e line 1.
+
+If someone does %::=(), nothing more reasonable should be expected.
+At least it does not crash now.
+
+(cherry picked from commit d2fcb1d6773910aef058d59681ff6ae649f68352)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=125541
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/stashpvn_crash.diff
+---
+ gv.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gv.c b/gv.c
+index ce6847842..6b17ae2bb 100644
+--- a/gv.c
++++ b/gv.c
+@@ -1339,7 +1339,7 @@ Perl_gv_stashpvn(pTHX_ const char *name, U32 namelen, I32 flags)
+     tmpgv = gv_fetchpvn_flags(tmpbuf, tmplen, flags, SVt_PVHV);
+     if (tmpbuf != smallbuf)
+ 	Safefree(tmpbuf);
+-    if (!tmpgv)
++    if (!tmpgv || !isGV_with_GP(tmpgv))
+ 	return NULL;
+     stash = GvHV(tmpgv);
+     if (!(flags & ~GV_NOADD_MASK) && !stash) return NULL;

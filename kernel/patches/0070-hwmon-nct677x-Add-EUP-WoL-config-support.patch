@@ -1,0 +1,115 @@
+From 6af3d60fb6ab01c17502dd3005e14db01b7e39e7 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Fri, 23 Oct 2015 10:34:34 -0700
+Subject: [PATCH 70/72] hwmon: (nct677x) Add EUP / WoL config support.
+
+ReadyNAS uses some of the chip registers to configure what gets powered
+down and what stays up on standby power.  This controls Wake-on-LAN and
+Wake-on-RTC support.
+---
+ drivers/hwmon/nct6775.c | 82 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 82 insertions(+)
+
+diff --git a/drivers/hwmon/nct6775.c b/drivers/hwmon/nct6775.c
+index d7ebdf8..13f76b7 100644
+--- a/drivers/hwmon/nct6775.c
++++ b/drivers/hwmon/nct6775.c
+@@ -3133,6 +3133,86 @@ show_vid(struct device *dev, struct device_attribute *attr, char *buf)
+ 
+ static DEVICE_ATTR(cpu0_vid, S_IRUGO, show_vid, NULL);
+ 
++static ssize_t
++show_eup(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct nct6775_data *data = dev_get_drvdata(dev);
++	int val = 0;
++
++	mutex_lock(&data->update_lock);
++	superio_enter(0x4e);
++	superio_select(0x4e, 0x16);
++	val = superio_inb(0x4e, 0x30);
++	superio_exit(0x4e);
++	mutex_unlock(&data->update_lock);
++
++	return sprintf(buf, "%d\n", val);
++}
++
++static ssize_t set_eup(struct device *dev, struct device_attribute *attr,
++					const char *buf, size_t count)
++{
++	struct nct6775_data *data = dev_get_drvdata(dev);
++	int val = simple_strtol(buf, NULL, 10);
++
++	mutex_lock(&data->update_lock);
++	superio_enter(0x4e);
++	superio_select(0x4e, 0x16);
++	dev_dbg(dev, "before set_eup: 0x%02x\n", val);
++	superio_outb(0x4e, 0x30, val);
++	val = superio_inb(0x4e, 0x30);
++	dev_dbg(dev, "after set_eup: 0x%02x\n", val);
++	superio_exit(0x4e);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++static DEVICE_ATTR(eup, S_IWUSR | S_IRUGO, show_eup, set_eup);
++
++static ssize_t
++show_wol(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct nct6775_data *data = dev_get_drvdata(dev);
++	int val = 0;
++
++	mutex_lock(&data->update_lock);
++	superio_enter(0x4e);
++	superio_select(0x4e, 0x0a);
++	val = superio_inb(0x4e, 0xfe);
++	superio_exit(0x4e);
++	mutex_unlock(&data->update_lock);
++
++	return sprintf(buf, "%d\n", val);
++}
++static ssize_t set_wol(struct device *dev, struct device_attribute *attr,
++					const char *buf, size_t count)
++{
++	struct nct6775_data *data = dev_get_drvdata(dev);
++	int val = simple_strtol(buf, NULL, 10);
++
++	mutex_lock(&data->update_lock);
++	superio_enter(0x4e);
++	superio_select(0x4e, 0x0a);
++	dev_dbg(dev, "before set_wol: 0x%02x\n", val);
++	superio_outb(0x4e, 0xfe, val);
++	val = superio_inb(0x4e, 0xfe);
++	dev_dbg(dev, "after set_wol: 0x%02x\n", val);
++	superio_exit(0x4e);
++	mutex_unlock(&data->update_lock);
++
++	mutex_lock(&data->update_lock);
++	superio_enter(0x4e);
++	superio_select(0x4e, 0x09);
++	(void) superio_inb(0x4e, 0xe8);	// dummy read to clear gp41 status
++	superio_exit(0x4e);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++static DEVICE_ATTR(wol, S_IWUSR | S_IRUGO, show_wol, set_wol);
++
+ /* Case open detection */
+ 
+ static ssize_t
+@@ -3220,6 +3300,8 @@ static struct attribute *nct6775_attributes_other[] = {
+ 	&sensor_dev_attr_intrusion0_beep.dev_attr.attr,		/* 3 */
+ 	&sensor_dev_attr_intrusion1_beep.dev_attr.attr,		/* 4 */
+ 	&sensor_dev_attr_beep_enable.dev_attr.attr,		/* 5 */
++	&dev_attr_eup.attr,
++	&dev_attr_wol.attr,
+ 
+ 	NULL
+ };
+-- 
+1.9.1
+

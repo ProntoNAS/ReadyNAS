@@ -1,0 +1,372 @@
+librrd(3)                           rrdtool                          librrd(3)
+
+
+
+NNAAMMEE
+       librrd - RRD library functions
+
+DDEESSCCRRIIPPTTIIOONN
+       lliibbrrrrdd contains most of the functionality in RRRRDDTTooooll.  The command line
+       utilities and language bindings are often just wrappers around the code
+       contained in lliibbrrrrdd.
+
+       This manual page documents the lliibbrrrrdd API.
+
+       NNOOTTEE:: This document is a work in progress, and should be considered
+       incomplete as long as this warning persists.  For more information
+       about the lliibbrrrrdd functions, always consult the source code.
+
+CCOORREE FFUUNNCCTTIIOONNSS
+       rrrrdd__dduummpp__ccbb__rr((cchhaarr **ffiilleennaammee,, iinntt oopptt__hheeaaddeerr,, rrrrdd__oouuttppuutt__ccaallllbbaacckk__tt ccbb,,
+       vvooiidd **uusseerr))
+           In some situations it is necessary to get the output of "rrd_dump"
+           without writing it to a file or the standard output. In such cases
+           an application can ask rrrrdd__dduummpp__ccbb__rr to call an user-defined
+           function each time there is output to be stored somewhere. This can
+           be used, to e.g. directly feed an XML parser with the dumped output
+           or transfer the resulting string in memory.
+
+           The arguments for rrrrdd__dduummpp__ccbb__rr are the same as for rrrrdd__dduummpp__oopptt__rr
+           except that the output filename parameter is replaced by the user-
+           defined callback function and an additional parameter for the
+           callback function that is passed untouched, i.e. to store
+           information about the callback state needed for the user-defined
+           callback to function properly.
+
+           Recent versions of rrrrdd__dduummpp__oopptt__rr internally use this callback
+           mechanism to write their output to the file provided by the user.
+
+               size_t rrd_dump_opt_cb_fileout(
+                   const void *data,
+                   size_t len,
+                   void *user)
+               {
+                   return fwrite(data, 1, len, (FILE *)user);
+               }
+
+           The associated call for rrrrdd__dduummpp__ccbb__rr looks like
+
+               res = rrd_dump_cb_r(filename, opt_header,
+                   rrd_dump_opt_cb_fileout, (void *)out_file);
+
+           where the last parameter specifies the file handle
+           rrrrdd__dduummpp__oopptt__ccbb__ffiilleeoouutt should write to. There's no specific
+           condition for the callback to detect when it is called for the
+           first time, nor for the last time. If you require this for
+           initialization and cleanup you should do those tasks before and
+           after calling rrrrdd__dduummpp__ccrr__rr respectively.
+
+       rrrrdd__ffeettcchh__ccbb__rreeggiisstteerr((rrrrdd__ffeettcchh__ccbb__tt cc))
+           If your data does not reside in rrd files, but you would like to
+           draw charts using the rrd_graph functionality, you can supply your
+           own rrd_fetch function and register it using the
+           rrrrdd__ffeettcchh__ccbb__rreeggiisstteerr function.
+
+           The argument signature and api must be the same of the callback
+           function must be aequivalent to the on of rrrrdd__ffeettcchh__ffnn in
+           _r_r_d___f_e_t_c_h_._c.
+
+           To activate the callback function you can use the pseudo filename
+           _c_b_/_/_f_r_e_e___f_o_r_m___t_e_x_t.
+
+           Note that rrdtool graph will not ask the same rrd for data twice.
+           It determines this by building a key out of the values supplied to
+           the fetch function. If the values are the same, the previous answer
+           will be used.
+
+UUTTIILLIITTYY FFUUNNCCTTIIOONNSS
+       _rr_rr_dd____rr_aa_nn_dd_oo_mm_((_))
+           Generates random numbers just like _r_a_n_d_o_m_(_).  This further ensures
+           that the random number generator is seeded exactly once per
+           process.
+
+       rrrrdd__ssttrrttooddbbll
+           an rrd aware string to double converter which sets rrd_error in if
+           there is a problem and uses the return code exclusively for
+           conversion status reporting.
+
+       rrrrdd__ssttrrttoodd
+           works like normal strtod, but it is locale independent (and thread
+           safe)
+
+       rrrrdd__ssnnpprriinnttff
+           works  like normal snprintf but it is locale independent (and
+           thread safe)
+
+       rrrrdd__aadddd__ppttrr((vvooiidd ******ddeesstt,, ssiizzee__tt **ddeesstt__ssiizzee,, vvooiidd **ssrrcc))
+           Dynamically resize the array pointed to by "dest".  "dest_size" is
+           a pointer to the current size of "dest".  Upon successful
+           _r_e_a_l_l_o_c_(_), the "dest_size" is incremented by 1 and the "src"
+           pointer is stored at the end of the new "dest".  Returns 1 on
+           success, 0 on failure.
+
+               type **arr = NULL;
+               type *elem = "whatever";
+               size_t arr_size = 0;
+               if (!rrd_add_ptr(&arr, &arr_size, elem))
+                   handle_failure();
+
+       rrrrdd__aadddd__ppttrr__cchhuunnkk((vvooiidd ******ddeesstt,, ssiizzee__tt **ddeesstt__ssiizzee,, vvooiidd **ssrrcc,, ssiizzee__tt
+       **aalllloocc,, ssiizzee__tt cchhuunnkk))
+           Like "rrd_add_ptr", except the destination is allocated in chunks
+           of "chunk".  "alloc" points to the number of entries allocated,
+           whereas "dest_size" points to the number of valid pointers.  If
+           more pointers are needed, "chunk" pointers are allocated and
+           "alloc" is increased accordingly.  "alloc" must be >= "dest_size".
+
+           This method improves performance on hosts with expensive
+           "realloc()".
+
+       rrrrdd__aadddd__ssttrrdduupp((cchhaarr ******ddeesstt,, ssiizzee__tt **ddeesstt__ssiizzee,, cchhaarr **ssrrcc))
+           Like "rrd_add_ptr", except adds a "strdup" of the source string.
+
+               char **arr = NULL;
+               size_t arr_size = NULL;
+               char *str  = "example text";
+               if (!rrd_add_strdup(&arr, &arr_size, str))
+                   handle_failure();
+
+       rrrrdd__aadddd__ssttrrdduupp__cchhuunnkk((cchhaarr ******ddeesstt,, ssiizzee__tt **ddeesstt__ssiizzee,, cchhaarr **ssrrcc,, ssiizzee__tt
+       **aalllloocc,, ssiizzee__tt cchhuunnkk))
+           Like "rrd_add_strdup", except the destination is allocated in
+           chunks of "chunk".  "alloc" points to the number of entries
+           allocated, whereas "dest_size" points to the number of valid
+           pointers.  If more pointers are needed, "chunk" pointers are
+           allocated and "alloc" is increased accordingly.  "alloc" must be >=
+           "dest_size".
+
+       rrrrdd__ffrreeee__ppttrrss((vvooiidd ******ssrrcc,, ssiizzee__tt **ccnntt))
+           Free an array of pointers allocated by "rrd_add_ptr" or
+           "rrd_add_strdup".  Also frees the array pointer itself.  On return,
+           the source pointer will be NULL and the count will be zero.
+
+               /* created as above */
+               rrd_free_ptrs(&arr, &arr_size);
+               /* here, arr == NULL && arr_size == 0 */
+
+       rrrrdd__mmkkddiirr__pp((ccoonnsstt cchhaarr **ppaatthhnnaammee,, mmooddee__tt mmooddee))
+           Create the directory named "pathname" including all of its parent
+           directories (similar to "mkdir -p" on the command line - see
+           _m_k_d_i_r(1) for more information). The argument "mode" specifies the
+           permissions to use. It is modified by the process's "umask". See
+           _m_k_d_i_r(2) for more details.
+
+           The function returns 0 on success, a negative value else. In case
+           of an error, "errno" is set accordingly. Aside from the errors
+           documented in _m_k_d_i_r(2), the function may fail with the following
+           errors:
+
+           EEIINNVVAALL
+               "pathname" is "NULL" or the empty string.
+
+           EENNOOMMEEMM
+               Insufficient memory was available.
+
+           aannyy eerrrroorr rreettuurrnneedd bbyy _ss_tt_aa_tt((22))
+
+           In contrast to _m_k_d_i_r(2), the function does nnoott fail if "pathname"
+           already exists and is a directory.
+
+       rrrrdd__ssccaalleedd__dduurraattiioonn ((ccoonnsstt cchhaarr ** ttookkeenn,, uunnssiiggnneedd lloonngg ddiivviissoorr,,
+       uunnssiiggnneedd lloonngg ** vvaalluueepp))
+           Parse a token in a context where it contains a count (of seconds or
+           PDP instances), or a duration that can be converted to a count by
+           representing the duration in seconds and dividing by some scaling
+           factor.  For example, if a user would natively express a 3 day
+           archive of samples collected every 2 minutes, the sample interval
+           can be represented by "2m" instead of 120, and the archive duration
+           by "3d" (to be divided by 120) instead of 2160 (3*24*60*60 / 120).
+           See more examples in "STEP, HEARTBEAT, and Rows As Durations" in
+           rrdcreate.
+
+           "token" must be a number with an optional single-character suffix
+           encoding the scaling factor:
+
+           "s" indicates seconds
+
+           "m" indicates minutes.  The value is multiplied by 60.
+
+           "h" indicates hours.  The value is multiplied by 3600 (or "60m").
+
+           "d" indicates days.  The value is multiplied by 86400 (or "24h").
+
+           "w" indicates weeks.  The value is multiplied by 604800 (or "7d").
+
+           "M" indicates months.  The value is multiplied by 2678400 (or
+               "31d").  (Note this factor accommodates the maximum number of
+               days in a month.)
+
+           "y" indicates years.  The value is multiplied by 31622400 (or
+               "366d").  (Note this factor accommodates leap years.)
+
+           "divisor" is a positive value representing the duration in seconds
+           of an interval that the desired result counts.
+
+           "valuep" is a pointer to where the decoded value will be stored if
+           the conversion is successful.
+
+           The initial characters of "token" must be the base-10
+           representation of a positive integer, or the conversion fails.
+
+           If the remainder "token" is empty (no suffix), it is a count and no
+           scaling is performed.
+
+           If "token" has one of the suffixes above, the count is multiplied
+           to convert it to a duration in seconds.  The resulting number of
+           seconds is divided by "divisor" to produce a count of intervals
+           each of duration "divisor" seconds.  If division would produce a
+           remainder (e.g., "5m" (300 seconds) divided by "90s"), the
+           conversion is invalid.
+
+           If "token" has unrecognized trailing characters the conversion
+           fails.
+
+           The function returns a null pointer if the conversion was
+           successful and "valuep" has been updated to the scaled value.  On
+           failure, it returns a text diagnostic suitable for use in user
+           error messages.
+
+CCLLIIEENNTT FFUUNNCCTTIIOONNSS
+       The following functions are used to connected to an rrdcached instance,
+       either via a unix or inet address, and create, update, or gather
+       statistics about a specified RRD database file.
+
+       All of the following functions are specified in the "rrd_client.h"
+       header file.
+
+       rrrrddcc__ccoonnnneecctt((ccoonnsstt cchhaarr **ddaaeemmoonn__aaddddrr
+           Connect to a running rrdcached instance, specified via
+           "daemon_addr".
+
+       rrrrddcc__iiss__ccoonnnneecctteedd((ccoonnsstt cchhaarr **ddaaeemmoonn__aaddddrr))
+           Return a boolean int to determine if the client is connected to the
+           rrdcache daemon specified by the "daemon_addr" parameter.
+
+       rrrrddcc__iiss__aannyy__ccoonnnneecctteedd
+           Return a boolean int if any daemon connections are connected.
+
+       rrrrddcc__ddiissccoonnnneecctt
+           Disconnect gracefully from all present daemon connections.
+
+       rrrrddcc__uuppddaattee((ccoonnsstt cchhaarr **ffiilleennaammee,, iinntt vvaalluueess__nnuumm,, ccoonnsstt cchhaarr ** ccoonnsstt
+       **vvaalluueess))
+           Update the RRD "filename" via the rrdcached. Where "values_num" is
+           the number of values to update and "values" are the new values to
+           add.
+
+       rrrrddcc__iinnffoo((ccoonnsstt cchhaarr **ffiilleennaammee))
+           Grab rrd info of the RRD "filename" from the connected cache
+           daemon.  This function returns an rrd_info_t structure of the
+           following format:
+
+               typedef struct rrd_blob_t {
+                   unsigned long size; /* size of the blob */
+                   unsigned char *ptr; /* pointer */
+               } rrd_blob_t;
+
+               typedef enum rrd_info_type { RD_I_VAL = 0,
+                   RD_I_CNT,
+                   RD_I_STR,
+                   RD_I_INT,
+                   RD_I_BLO
+               } rrd_info_type_t;
+
+               typedef union rrd_infoval {
+                   unsigned long u_cnt;
+                   rrd_value_t u_val;
+                   char     *u_str;
+                   int       u_int;
+                   rrd_blob_t u_blo;
+               } rrd_infoval_t;
+
+               typedef struct rrd_info_t {
+                   char     *key;
+                   rrd_info_type_t type;
+                   rrd_infoval_t value;
+                   struct rrd_info_t *next;
+               } rrd_info_t;
+
+       rrrrddcc__llaasstt((ccoonnsstt cchhaarr **ffiilleennaammee))
+           Grab the unix epoch of the last time RRD "filename" was updated.
+
+       rrrrddcc__ffiirrsstt((ccoonnsstt cchhaarr **ffiilleennaammee,, iinntt rrrraaiinnddeexx))
+           Get the first value of the first sample of the RRD "filename", of
+           the "rraindex" RRA (Round Robin Archive) index number.  The RRA
+           index number can be determined by pulling the rrd_info_t off the
+           RRD.
+
+       rrrrddcc__ccrreeaattee((ccoonnsstt cchhaarr **ffiilleennaammee,, uunnssiiggnneedd lloonngg ppddpp__sstteepp,, ttiimmee__tt
+       llaasstt__uupp,, iinntt nnoo__oovveerrwwrriittee,, iinntt aarrggcc,, ccoonnsstt cchhaarr ****aarrggvv))
+           Create RRD database of path "filename".  The RRD will have a step
+           size of "pfp_step", the unix epoch timestamp to start collecting
+           data from. The number of data sources and RRAs "argc" and the
+           definitions of the data sources and RRAs "argv". Lastly whether or
+           not to overwrite an existing RRD if one is found with the same
+           filename; "no_overwrite".
+
+       rrrrddcc__ccrreeaattee__rr22((ccoonnsstt cchhaarr **ffiilleennaammee,, uunnssiiggnneedd lloonngg ppddpp__sstteepp,, ttiimmee__tt
+       llaasstt__uupp,, iinntt nnoo__oovveerrwwrriittee,, ccoonnsstt cchhaarr ****ssoouurrcceess,, ccoonnsstt cchhaarr **tteemmppllaattee,,
+       iinntt aarrggcc,, ccoonnsstt cchhaarr ****aarrggvv))
+           Create and RRD database in the daemon. rrrrddcc__ccrreeaattee__rr22 has the same
+           parameters as rrrrddcc__ccrreeaattee with two added parameters of; "sources"
+           and "template".
+
+           where "template" is the file path to a RRD file template, with, the
+           form defined in rrrrddccrreeaattee(1),
+
+           The "sources" parameter defines series of file paths with data
+           defined, to prefill the RRD with. See rrrrddccrreeaattee(1) for more
+           details.
+
+       rrrrddcc__fflluusshh((ccoonnsstt cchhaarr **ffiilleennaammee))
+           flush the currently RRD cached in the daemon specified via
+           "filename".
+
+       rrrrddcc__ffoorrggeett((ccoonnsstt cchhaarr **ffiilleennaammee))
+           Drop the cached data for the RRD file specified via "filename".
+
+       rrrrddcc__fflluusshh__iiff__ddaaeemmoonn((ccoonnsstt cchhaarr **ddaaeemmoonn__aaddddrr,, ccoonnsstt cchhaarr **ffiilleennaammee))
+           Flush the specified RRD given by "filename" only if the daemon
+           "daemon_addr" is up and connected.
+
+       rrrrddcc__ffeettcchh((ccoonnsstt cchhaarr **ffiilleennaammee,, ccoonnsstt cchhaarr **ccff,, ttiimmee__tt **rreett__ssttaarrtt,,
+       ttiimmee__tt **rreett__eenndd,, uunnssiiggnneedd lloonngg **rreett__sstteepp,, uunnssiiggnneedd lloonngg **rreett__ddss__nnuumm,,
+       cchhaarr ******rreett__ddss__nnaammeess,, rrrrdd__vvaalluuee__tt ****rreett__ddaattaa))
+           Perform a fetch operation on the specified RRD Database given be
+           "filename", where "cf" is the consolidation function, "ret_start"
+           is the start time given by unix epoch, "ret_end" is the endtime.
+           "ret_step" is the step size in seconds, "ret_ds_num" the number of
+           data sources in the RRD, "ret_ds_names" the names of the data
+           sources, and a pointer to an rrd_value_t object to shlep the data.
+
+       rrrrddcc__ssttaattss__ggeett((rrrrddcc__ssttaattss__tt ****rreett__ssttaattss))
+           Get stats from the connected daemon, via a linked list of the
+           following structure:
+
+               struct rrdc_stats_s {
+                   const char *name;
+                   uint16_t type;
+                   #define RRDC_STATS_TYPE_GAUGE   0x0001
+                   #define RRDC_STATS_TYPE_COUNTER 0x0002
+                   uint16_t flags;
+                   union {
+                       uint64_t counter;
+                       double   gauge;
+                   } value;
+                   struct rrdc_stats_s *next;
+               };
+               typedef struct rrdc_stats_s rrdc_stats_t;
+
+       rrrrddcc__ssttaattss__ffrreeee((rrrrddcc__ssttaattss__tt **rreett__ssttaattss))
+           Free the stats struct allocated via rrrrddcc__ssttaattss__ggeett.
+
+   SSEEEE AALLSSOO
+           rrrrccaacchheedd(1) rrrrddffeettcchh(1) rrrrddiinnffoo(1) rrrrddllaasstt(1) rrrrddccrreeaattee(1)
+           rrrrdduuppddaattee(1) rrrrddllaasstt(1)
+
+AAUUTTHHOORR
+       RRD Contributors <rrd-developers@lists.oetiker.ch>
+
+
+
+1.6.0                             2016-04-19                         librrd(3)

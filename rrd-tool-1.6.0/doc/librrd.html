@@ -1,0 +1,413 @@
+<?xml version="1.0" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>librrd</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link rev="made" href="mailto:root@localhost" />
+</head>
+
+<body style="background-color: white">
+
+
+
+<h1 id="NAME">NAME</h1>
+
+<p>librrd - RRD library functions</p>
+
+<h1 id="DESCRIPTION">DESCRIPTION</h1>
+
+<p><b>librrd</b> contains most of the functionality in <b>RRDTool</b>. The command line utilities and language bindings are often just wrappers around the code contained in <b>librrd</b>.</p>
+
+<p>This manual page documents the <b>librrd</b> API.</p>
+
+<p><b>NOTE:</b> This document is a work in progress, and should be considered incomplete as long as this warning persists. For more information about the <b>librrd</b> functions, always consult the source code.</p>
+
+<h1 id="CORE-FUNCTIONS">CORE FUNCTIONS</h1>
+
+<dl>
+
+<dt id="rrd_dump_cb_r-char-filename-int-opt_header-rrd_output_callback_t-cb-void-user"><b>rrd_dump_cb_r(char *filename, int opt_header, rrd_output_callback_t cb, void *user)</b></dt>
+<dd>
+
+<p>In some situations it is necessary to get the output of <code>rrd_dump</code> without writing it to a file or the standard output. In such cases an application can ask <b>rrd_dump_cb_r</b> to call an user-defined function each time there is output to be stored somewhere. This can be used, to e.g. directly feed an XML parser with the dumped output or transfer the resulting string in memory.</p>
+
+<p>The arguments for <b>rrd_dump_cb_r</b> are the same as for <b>rrd_dump_opt_r</b> except that the output filename parameter is replaced by the user-defined callback function and an additional parameter for the callback function that is passed untouched, i.e. to store information about the callback state needed for the user-defined callback to function properly.</p>
+
+<p>Recent versions of <b>rrd_dump_opt_r</b> internally use this callback mechanism to write their output to the file provided by the user.</p>
+
+<pre><code>    size_t rrd_dump_opt_cb_fileout(
+        const void *data,
+        size_t len,
+        void *user)
+    {
+        return fwrite(data, 1, len, (FILE *)user);
+    }</code></pre>
+
+<p>The associated call for <b>rrd_dump_cb_r</b> looks like</p>
+
+<pre><code>    res = rrd_dump_cb_r(filename, opt_header,
+        rrd_dump_opt_cb_fileout, (void *)out_file);</code></pre>
+
+<p>where the last parameter specifies the file handle <b>rrd_dump_opt_cb_fileout</b> should write to. There&#39;s no specific condition for the callback to detect when it is called for the first time, nor for the last time. If you require this for initialization and cleanup you should do those tasks before and after calling <b>rrd_dump_cr_r</b> respectively.</p>
+
+</dd>
+<dt id="rrd_fetch_cb_register-rrd_fetch_cb_t-c"><b>rrd_fetch_cb_register(rrd_fetch_cb_t c)</b></dt>
+<dd>
+
+<p>If your data does not reside in rrd files, but you would like to draw charts using the rrd_graph functionality, you can supply your own rrd_fetch function and register it using the <b>rrd_fetch_cb_register</b> function.</p>
+
+<p>The argument signature and api must be the same of the callback function must be aequivalent to the on of <b>rrd_fetch_fn</b> in <i>rrd_fetch.c</i>.</p>
+
+<p>To activate the callback function you can use the pseudo filename <i>cb//</i><i>free_form_text</i>.</p>
+
+<p>Note that rrdtool graph will not ask the same rrd for data twice. It determines this by building a key out of the values supplied to the fetch function. If the values are the same, the previous answer will be used.</p>
+
+</dd>
+</dl>
+
+<h1 id="UTILITY-FUNCTIONS">UTILITY FUNCTIONS</h1>
+
+<dl>
+
+<dt id="rrd_random"><b>rrd_random()</b></dt>
+<dd>
+
+<p>Generates random numbers just like random(). This further ensures that the random number generator is seeded exactly once per process.</p>
+
+</dd>
+<dt id="rrd_strtodbl"><b>rrd_strtodbl</b></dt>
+<dd>
+
+<p>an rrd aware string to double converter which sets rrd_error in if there is a problem and uses the return code exclusively for conversion status reporting.</p>
+
+</dd>
+<dt id="rrd_strtod"><b>rrd_strtod</b></dt>
+<dd>
+
+<p>works like normal strtod, but it is locale independent (and thread safe)</p>
+
+</dd>
+<dt id="rrd_snprintf"><b>rrd_snprintf</b></dt>
+<dd>
+
+<p>works like normal snprintf but it is locale independent (and thread safe)</p>
+
+</dd>
+<dt id="rrd_add_ptr-void-dest-size_t-dest_size-void-src"><b>rrd_add_ptr(void ***dest, size_t *dest_size, void *src)</b></dt>
+<dd>
+
+<p>Dynamically resize the array pointed to by <code>dest</code>. <code>dest_size</code> is a pointer to the current size of <code>dest</code>. Upon successful realloc(), the <code>dest_size</code> is incremented by 1 and the <code>src</code> pointer is stored at the end of the new <code>dest</code>. Returns 1 on success, 0 on failure.</p>
+
+<pre><code>    type **arr = NULL;
+    type *elem = &quot;whatever&quot;;
+    size_t arr_size = 0;
+    if (!rrd_add_ptr(&amp;arr, &amp;arr_size, elem))
+        handle_failure();</code></pre>
+
+</dd>
+<dt id="rrd_add_ptr_chunk-void-dest-size_t-dest_size-void-src-size_t-alloc-size_t-chunk"><b>rrd_add_ptr_chunk(void ***dest, size_t *dest_size, void *src, size_t *alloc, size_t chunk)</b></dt>
+<dd>
+
+<p>Like <code>rrd_add_ptr</code>, except the destination is allocated in chunks of <code>chunk</code>. <code>alloc</code> points to the number of entries allocated, whereas <code>dest_size</code> points to the number of valid pointers. If more pointers are needed, <code>chunk</code> pointers are allocated and <code>alloc</code> is increased accordingly. <code>alloc</code> must be &gt;= <code>dest_size</code>.</p>
+
+<p>This method improves performance on hosts with expensive <code>realloc()</code>.</p>
+
+</dd>
+<dt id="rrd_add_strdup-char-dest-size_t-dest_size-char-src"><b>rrd_add_strdup(char ***dest, size_t *dest_size, char *src)</b></dt>
+<dd>
+
+<p>Like <code>rrd_add_ptr</code>, except adds a <code>strdup</code> of the source string.</p>
+
+<pre><code>    char **arr = NULL;
+    size_t arr_size = NULL;
+    char *str  = &quot;example text&quot;;
+    if (!rrd_add_strdup(&amp;arr, &amp;arr_size, str))
+        handle_failure();</code></pre>
+
+</dd>
+<dt id="rrd_add_strdup_chunk-char-dest-size_t-dest_size-char-src-size_t-alloc-size_t-chunk"><b>rrd_add_strdup_chunk(char ***dest, size_t *dest_size, char *src, size_t *alloc, size_t chunk)</b></dt>
+<dd>
+
+<p>Like <code>rrd_add_strdup</code>, except the destination is allocated in chunks of <code>chunk</code>. <code>alloc</code> points to the number of entries allocated, whereas <code>dest_size</code> points to the number of valid pointers. If more pointers are needed, <code>chunk</code> pointers are allocated and <code>alloc</code> is increased accordingly. <code>alloc</code> must be &gt;= <code>dest_size</code>.</p>
+
+</dd>
+<dt id="rrd_free_ptrs-void-src-size_t-cnt"><b>rrd_free_ptrs(void ***src, size_t *cnt)</b></dt>
+<dd>
+
+<p>Free an array of pointers allocated by <code>rrd_add_ptr</code> or <code>rrd_add_strdup</code>. Also frees the array pointer itself. On return, the source pointer will be NULL and the count will be zero.</p>
+
+<pre><code>    /* created as above */
+    rrd_free_ptrs(&amp;arr, &amp;arr_size);
+    /* here, arr == NULL &amp;&amp; arr_size == 0 */</code></pre>
+
+</dd>
+<dt id="rrd_mkdir_p-const-char-pathname-mode_t-mode"><b>rrd_mkdir_p(const char *pathname, mode_t mode)</b></dt>
+<dd>
+
+<p>Create the directory named <code>pathname</code> including all of its parent directories (similar to <code>mkdir -p</code> on the command line - see <a href="http://man.he.net/man1/mkdir">mkdir(1)</a> for more information). The argument <code>mode</code> specifies the permissions to use. It is modified by the process&#39;s <code>umask</code>. See <a href="http://man.he.net/man2/mkdir">mkdir(2)</a> for more details.</p>
+
+<p>The function returns 0 on success, a negative value else. In case of an error, <code>errno</code> is set accordingly. Aside from the errors documented in <a href="http://man.he.net/man2/mkdir">mkdir(2)</a>, the function may fail with the following errors:</p>
+
+<dl>
+
+<dt id="EINVAL"><b>EINVAL</b></dt>
+<dd>
+
+<p><code>pathname</code> is <code>NULL</code> or the empty string.</p>
+
+</dd>
+<dt id="ENOMEM"><b>ENOMEM</b></dt>
+<dd>
+
+<p>Insufficient memory was available.</p>
+
+</dd>
+<dt id="any-error-returned-by-stat-2"><b>any error returned by <a href="http://man.he.net/man2/stat">stat(2)</a></b></dt>
+<dd>
+
+</dd>
+</dl>
+
+<p>In contrast to <a href="http://man.he.net/man2/mkdir">mkdir(2)</a>, the function does <b>not</b> fail if <code>pathname</code> already exists and is a directory.</p>
+
+</dd>
+<dt id="rrd_scaled_duration-const-char-token-unsigned-long-divisor-unsigned-long-valuep"><b>rrd_scaled_duration (const char * token, unsigned long divisor, unsigned long * valuep)</b></dt>
+<dd>
+
+<p>Parse a token in a context where it contains a count (of seconds or PDP instances), or a duration that can be converted to a count by representing the duration in seconds and dividing by some scaling factor. For example, if a user would natively express a 3 day archive of samples collected every 2 minutes, the sample interval can be represented by <code>2m</code> instead of <code>120</code>, and the archive duration by <code>3d</code> (to be divided by 120) instead of <code>2160</code> (3*24*60*60 / 120). See more examples in <a href="./rrdcreate.html#STEP-HEARTBEAT-and-Rows-As-Durations">&quot;STEP, HEARTBEAT, and Rows As Durations&quot; in rrdcreate</a>.</p>
+
+<p><code>token</code> must be a number with an optional single-character suffix encoding the scaling factor:</p>
+
+<dl>
+
+<dt id="s"><code>s</code></dt>
+<dd>
+
+<p>indicates seconds</p>
+
+</dd>
+<dt id="m"><code>m</code></dt>
+<dd>
+
+<p>indicates minutes. The value is multiplied by 60.</p>
+
+</dd>
+<dt id="h"><code>h</code></dt>
+<dd>
+
+<p>indicates hours. The value is multiplied by 3600 (or <code>60m</code>).</p>
+
+</dd>
+<dt id="d"><code>d</code></dt>
+<dd>
+
+<p>indicates days. The value is multiplied by 86400 (or <code>24h</code>).</p>
+
+</dd>
+<dt id="w"><code>w</code></dt>
+<dd>
+
+<p>indicates weeks. The value is multiplied by 604800 (or <code>7d</code>).</p>
+
+</dd>
+<dt id="M"><code>M</code></dt>
+<dd>
+
+<p>indicates months. The value is multiplied by 2678400 (or <code>31d</code>). (Note this factor accommodates the maximum number of days in a month.)</p>
+
+</dd>
+<dt id="y"><code>y</code></dt>
+<dd>
+
+<p>indicates years. The value is multiplied by 31622400 (or <code>366d</code>). (Note this factor accommodates leap years.)</p>
+
+</dd>
+</dl>
+
+<p><code>divisor</code> is a positive value representing the duration in seconds of an interval that the desired result counts.</p>
+
+<p><code>valuep</code> is a pointer to where the decoded value will be stored if the conversion is successful.</p>
+
+<p>The initial characters of <code>token</code> must be the base-10 representation of a positive integer, or the conversion fails.</p>
+
+<p>If the remainder <code>token</code> is empty (no suffix), it is a count and no scaling is performed.</p>
+
+<p>If <code>token</code> has one of the suffixes above, the count is multiplied to convert it to a duration in seconds. The resulting number of seconds is divided by <code>divisor</code> to produce a count of intervals each of duration <code>divisor</code> seconds. If division would produce a remainder (e.g., <code>5m</code> (300 seconds) divided by <code>90s</code>), the conversion is invalid.</p>
+
+<p>If <code>token</code> has unrecognized trailing characters the conversion fails.</p>
+
+<p>The function returns a null pointer if the conversion was successful and <code>valuep</code> has been updated to the scaled value. On failure, it returns a text diagnostic suitable for use in user error messages.</p>
+
+</dd>
+</dl>
+
+<h1 id="CLIENT-FUNCTIONS">CLIENT FUNCTIONS</h1>
+
+<p>The following functions are used to connected to an rrdcached instance, either via a unix or inet address, and create, update, or gather statistics about a specified RRD database file.</p>
+
+<p>All of the following functions are specified in the <code>rrd_client.h</code> header file.</p>
+
+<dl>
+
+<dt id="rrdc_connect-const-char-daemon_addr"><b>rrdc_connect(const char *daemon_addr</b></dt>
+<dd>
+
+<p>Connect to a running rrdcached instance, specified via <code>daemon_addr</code>.</p>
+
+</dd>
+<dt id="rrdc_is_connected-const-char-daemon_addr"><b>rrdc_is_connected(const char *daemon_addr)</b></dt>
+<dd>
+
+<p>Return a boolean int to determine if the client is connected to the rrdcache daemon specified by the <code>daemon_addr</code> parameter.</p>
+
+</dd>
+<dt id="rrdc_is_any_connected"><b>rrdc_is_any_connected</b></dt>
+<dd>
+
+<p>Return a boolean int if any daemon connections are connected.</p>
+
+</dd>
+<dt id="rrdc_disconnect"><b>rrdc_disconnect</b></dt>
+<dd>
+
+<p>Disconnect gracefully from all present daemon connections.</p>
+
+</dd>
+<dt id="rrdc_update-const-char-filename-int-values_num-const-char-const-values"><b>rrdc_update(const char *filename, int values_num, const char * const *values)</b></dt>
+<dd>
+
+<p>Update the RRD <code>filename</code> via the rrdcached. Where <code>values_num</code> is the number of values to update and <code>values</code> are the new values to add.</p>
+
+</dd>
+<dt id="rrdc_info-const-char-filename"><b>rrdc_info(const char *filename)</b></dt>
+<dd>
+
+<p>Grab rrd info of the RRD <code>filename</code> from the connected cache daemon. This function returns an rrd_info_t structure of the following format:</p>
+
+<pre><code>    typedef struct rrd_blob_t {
+        unsigned long size; /* size of the blob */
+        unsigned char *ptr; /* pointer */
+    } rrd_blob_t;
+
+    typedef enum rrd_info_type { RD_I_VAL = 0,
+        RD_I_CNT,
+        RD_I_STR,
+        RD_I_INT,
+        RD_I_BLO
+    } rrd_info_type_t;
+
+    typedef union rrd_infoval {
+        unsigned long u_cnt;
+        rrd_value_t u_val;
+        char     *u_str;
+        int       u_int;
+        rrd_blob_t u_blo;
+    } rrd_infoval_t;
+
+    typedef struct rrd_info_t {
+        char     *key;
+        rrd_info_type_t type;
+        rrd_infoval_t value;
+        struct rrd_info_t *next;
+    } rrd_info_t;</code></pre>
+
+</dd>
+<dt id="rrdc_last-const-char-filename"><b>rrdc_last(const char *filename)</b></dt>
+<dd>
+
+<p>Grab the unix epoch of the last time RRD <code>filename</code> was updated.</p>
+
+</dd>
+<dt id="rrdc_first-const-char-filename-int-rraindex"><b>rrdc_first(const char *filename, int rraindex)</b></dt>
+<dd>
+
+<p>Get the first value of the first sample of the RRD <code>filename</code>, of the <code>rraindex</code> RRA (Round Robin Archive) index number. The RRA index number can be determined by pulling the rrd_info_t off the RRD.</p>
+
+</dd>
+<dt id="rrdc_create-const-char-filename-unsigned-long-pdp_step-time_t-last_up-int-no_overwrite-int-argc-const-char-argv"><b>rrdc_create(const char *filename, unsigned long pdp_step, time_t last_up, int no_overwrite, int argc, const char **argv)</b></dt>
+<dd>
+
+<p>Create RRD database of path <code>filename</code>. The RRD will have a step size of <code>pfp_step</code>, the unix epoch timestamp to start collecting data from. The number of data sources and RRAs <code>argc</code> and the definitions of the data sources and RRAs <code>argv</code>. Lastly whether or not to overwrite an existing RRD if one is found with the same filename; <code>no_overwrite</code>.</p>
+
+</dd>
+<dt id="rrdc_create_r2-const-char-filename-unsigned-long-pdp_step-time_t-last_up-int-no_overwrite-const-char-sources-const-char-template-int-argc-const-char-argv"><b>rrdc_create_r2(const char *filename, unsigned long pdp_step, time_t last_up, int no_overwrite, const char **sources, const char *template, int argc, const char **argv)</b></dt>
+<dd>
+
+<p>Create and RRD database in the daemon. <b>rrdc_create_r2</b> has the same parameters as <b>rrdc_create</b> with two added parameters of; <code>sources</code> and <code>template</code>.</p>
+
+<p>where <code>template</code> is the file path to a RRD file template, with, the form defined in <b>rrdcreate</b>(1),</p>
+
+<p>The <code>sources</code> parameter defines series of file paths with data defined, to prefill the RRD with. See <b>rrdcreate</b>(1) for more details.</p>
+
+</dd>
+<dt id="rrdc_flush-const-char-filename"><b>rrdc_flush(const char *filename)</b></dt>
+<dd>
+
+<p>flush the currently RRD cached in the daemon specified via <code>filename</code>.</p>
+
+</dd>
+<dt id="rrdc_forget-const-char-filename"><b>rrdc_forget(const char *filename)</b></dt>
+<dd>
+
+<p>Drop the cached data for the RRD file specified via <code>filename</code>.</p>
+
+</dd>
+<dt id="rrdc_flush_if_daemon-const-char-daemon_addr-const-char-filename"><b>rrdc_flush_if_daemon(const char *daemon_addr, const char *filename)</b></dt>
+<dd>
+
+<p>Flush the specified RRD given by <code>filename</code> only if the daemon <code>daemon_addr</code> is up and connected.</p>
+
+</dd>
+<dt id="rrdc_fetch-const-char-filename-const-char-cf-time_t-ret_start-time_t-ret_end-unsigned-long-ret_step-unsigned-long-ret_ds_num-char-ret_ds_names-rrd_value_t-ret_data"><b>rrdc_fetch(const char *filename, const char *cf, time_t *ret_start, time_t *ret_end, unsigned long *ret_step, unsigned long *ret_ds_num, char ***ret_ds_names, rrd_value_t **ret_data)</b></dt>
+<dd>
+
+<p>Perform a fetch operation on the specified RRD Database given be <code>filename</code>, where <code>cf</code> is the consolidation function, <code>ret_start</code> is the start time given by unix epoch, <code>ret_end</code> is the endtime. <code>ret_step</code> is the step size in seconds, <code>ret_ds_num</code> the number of data sources in the RRD, <code>ret_ds_names</code> the names of the data sources, and a pointer to an rrd_value_t object to shlep the data.</p>
+
+</dd>
+<dt id="rrdc_stats_get-rrdc_stats_t-ret_stats"><b>rrdc_stats_get(rrdc_stats_t **ret_stats)</b></dt>
+<dd>
+
+<p>Get stats from the connected daemon, via a linked list of the following structure:</p>
+
+<pre><code>    struct rrdc_stats_s {
+        const char *name;
+        uint16_t type;
+        #define RRDC_STATS_TYPE_GAUGE   0x0001
+        #define RRDC_STATS_TYPE_COUNTER 0x0002
+        uint16_t flags;
+        union {
+            uint64_t counter;
+            double   gauge;
+        } value;
+        struct rrdc_stats_s *next;
+    };
+    typedef struct rrdc_stats_s rrdc_stats_t;</code></pre>
+
+</dd>
+<dt id="rrdc_stats_free-rrdc_stats_t-ret_stats"><b>rrdc_stats_free(rrdc_stats_t *ret_stats)</b></dt>
+<dd>
+
+<p>Free the stats struct allocated via <b>rrdc_stats_get</b>.</p>
+
+</dd>
+</dl>
+
+<h2 id="SEE-ALSO">SEE ALSO</h2>
+
+<ul>
+
+<p><b>rrcached</b>(1) <b>rrdfetch</b>(1) <b>rrdinfo</b>(1) <b>rrdlast</b>(1) <b>rrdcreate</b>(1) <b>rrdupdate</b>(1) <b>rrdlast</b>(1)</p>
+
+</ul>
+
+<h1 id="AUTHOR">AUTHOR</h1>
+
+<p>RRD Contributors &lt;rrd-developers@lists.oetiker.ch&gt;</p>
+
+
+</body>
+
+</html>
+
+

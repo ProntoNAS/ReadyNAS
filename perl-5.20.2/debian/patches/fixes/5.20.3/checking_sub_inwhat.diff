@@ -1,0 +1,96 @@
+From a65cfe4a3ffe7fc17f3c6c00a20cf248ff48c1ae Mon Sep 17 00:00:00 2001
+From: Father Chrysostomos <sprout@cpan.org>
+Date: Thu, 20 Aug 2015 09:03:17 +0100
+Subject: Don't check sub_inwhat
+
+PL_sublex_info.sub_inwhat (in the parser struct) is a temporary spot
+to store the value of PL_lex_inwhat (also in the parser struct)
+when a sub-lexing scope (for a quote-like operator) is entered.
+PL_lex_inwhat is localised, and the value is copied from its temporary
+spot (sub_inwhat) into PL_lex_inwhat.
+
+The PL_sublex_info.sub_inwhat was not localised, but instead the value
+was set to 0 when a sub-lexing scope was exited.  This value was being
+used, in a couple of places, to determine whether we were inside a
+quote-like operator.  But because the value is not localised, it can
+be wrong when it is set to 0, if we have nested lexing scopes.
+
+So this ends up crashing for the same reason described in e47d32dcd5:
+
+echo -n '/$a[m||/<<a' | ./miniperl
+
+perl-5.005_02-1816-g09bef84 added the first use of
+PL_sublex_info.sub_inwhat to determine whether we are in a quote-like
+operator.  (Later it got shifted around.)  I copied that in e47d32dcd5
+(earlier today), because I assumed the logic was correct.  Other parts
+of the code use PL_lex_inwhat, which is already localised, as I said,
+and does not suffer this problem.
+
+If we do not check PL_sublex_info.sub_inwhat to see if we are in
+a quote-like construct, then we don't need to clear it on lexing
+scope exit.
+
+(cherry picked from commit d27f4b916ce5819f564bdd4a135137c457156333)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=123712
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/checking_sub_inwhat.diff
+---
+ t/op/lex.t | 9 ++++++++-
+ toke.c     | 5 ++---
+ 2 files changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/t/op/lex.t b/t/op/lex.t
+index 35d4d9c3d..ac094f8d5 100644
+--- a/t/op/lex.t
++++ b/t/op/lex.t
+@@ -4,7 +4,7 @@ use warnings;
+ 
+ BEGIN { chdir 't'; require './test.pl'; }
+ 
+-plan(tests => 9);
++plan(tests => 10);
+ 
+ {
+     no warnings 'deprecated';
+@@ -96,3 +96,10 @@ fresh_perl_is(
+    { stderr => 1 },
+   '/$a[/<<a with no newline [perl #123712]'
+ );
++fresh_perl_is(
++  '/$a[m||/<<a',
++  "syntax error at - line 1, next char ;\n" .
++  "Execution of - aborted due to compilation errors.\n",
++   { stderr => 1 },
++  '/$a[m||/<<a with no newline [perl #123712]'
++);
+diff --git a/toke.c b/toke.c
+index 90642b25e..f59f91348 100644
+--- a/toke.c
++++ b/toke.c
+@@ -1315,7 +1315,7 @@ Perl_lex_next_chunk(pTHX_ U32 flags)
+     bool got_some;
+     if (flags & ~(LEX_KEEP_PREVIOUS|LEX_FAKE_EOF|LEX_NO_TERM))
+ 	Perl_croak(aTHX_ "Lexing code internal error (%s)", "lex_next_chunk");
+-    if (!(flags & LEX_NO_TERM) && PL_sublex_info.sub_inwhat)
++    if (!(flags & LEX_NO_TERM) && PL_lex_inwhat)
+ 	return FALSE;
+     linestr = PL_parser->linestr;
+     buf = SvPVX(linestr);
+@@ -1962,7 +1962,7 @@ S_skipspace_flags(pTHX_ char *s, U32 flags)
+ 	STRLEN bufptr_pos = PL_bufptr - SvPVX(PL_linestr);
+ 	PL_bufptr = s;
+ 	lex_read_space(flags | LEX_KEEP_PREVIOUS |
+-		(PL_sublex_info.sub_inwhat || PL_lex_state == LEX_FORMLINE ?
++		(PL_lex_inwhat || PL_lex_state == LEX_FORMLINE ?
+ 		    LEX_NO_NEXT_CHUNK : 0));
+ 	s = PL_bufptr;
+ 	PL_bufptr = SvPVX(PL_linestr) + bufptr_pos;
+@@ -2797,7 +2797,6 @@ S_sublex_done(pTHX)
+ 	PL_bufend = SvPVX(PL_linestr);
+ 	PL_bufend += SvCUR(PL_linestr);
+ 	PL_expect = XOPERATOR;
+-	PL_sublex_info.sub_inwhat = 0;
+ 	return ')';
+     }
+ }

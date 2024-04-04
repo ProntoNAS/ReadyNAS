@@ -1057,6 +1057,13 @@ int ssl3_read_bytes(SSL *s, int type, unsigned char *buf, int len, int peek)
             return (ret);
     }
 
+    /*
+     * Reset the count of consecutive warning alerts if we've got a non-empty
+     * record that isn't an alert.
+     */
+    if (rr->type != SSL3_RT_ALERT && rr->length != 0)
+        s->cert->alert_count = 0;
+
     /* we now have a packet which can be read and processed */
 
     if (s->s3->change_cipher_spec /* set when we receive ChangeCipherSpec,
@@ -1271,6 +1278,14 @@ int ssl3_read_bytes(SSL *s, int type, unsigned char *buf, int len, int peek)
 
         if (alert_level == SSL3_AL_WARNING) {
             s->s3->warn_alert = alert_descr;
+
+            s->cert->alert_count++;
+            if (s->cert->alert_count == MAX_WARN_ALERT_COUNT) {
+                al = SSL_AD_UNEXPECTED_MESSAGE;
+                SSLerr(SSL_F_SSL3_READ_BYTES, SSL_R_TOO_MANY_WARN_ALERTS);
+                goto f_err;
+            }
+
             if (alert_descr == SSL_AD_CLOSE_NOTIFY) {
                 s->shutdown |= SSL_RECEIVED_SHUTDOWN;
                 return (0);
@@ -1302,6 +1317,7 @@ int ssl3_read_bytes(SSL *s, int type, unsigned char *buf, int len, int peek)
             ERR_add_error_data(2, "SSL alert number ", tmp);
             s->shutdown |= SSL_RECEIVED_SHUTDOWN;
             SSL_CTX_remove_session(s->ctx, s->session);
+            s->state = SSL_ST_ERR;
             return (0);
         } else {
             al = SSL_AD_ILLEGAL_PARAMETER;
@@ -1406,16 +1422,13 @@ int ssl3_read_bytes(SSL *s, int type, unsigned char *buf, int len, int peek)
 
     switch (rr->type) {
     default:
-#ifndef OPENSSL_NO_TLS
         /*
-         * TLS up to v1.1 just ignores unknown message types: TLS v1.2 give
-         * an unexpected message alert.
+         * TLS 1.0 and 1.1 say you SHOULD ignore unrecognised record types, but
+         * TLS 1.2 says you MUST send an unexpected message alert. We use the
+         * TLS 1.2 behaviour for all protocol versions to prevent issues where
+         * no progress is being made and the peer continually sends unrecognised
+         * record types, using up resources processing them.
          */
-        if (s->version >= TLS1_VERSION && s->version <= TLS1_1_VERSION) {
-            rr->length = 0;
-            goto start;
-        }
-#endif
         al = SSL_AD_UNEXPECTED_MESSAGE;
         SSLerr(SSL_F_SSL3_READ_BYTES, SSL_R_UNEXPECTED_RECORD);
         goto f_err;
@@ -1524,9 +1537,12 @@ int ssl3_send_alert(SSL *s, int level, int desc)
                                           * protocol_version alerts */
     if (desc < 0)
         return -1;
-    /* If a fatal one, remove from cache */
-    if ((level == 2) && (s->session != NULL))
-        SSL_CTX_remove_session(s->ctx, s->session);
+    /* If a fatal one, remove from cache and go into the error state */
+    if (level == SSL3_AL_FATAL) {
+        if (s->session != NULL)
+            SSL_CTX_remove_session(s->session_ctx, s->session);
+        s->state = SSL_ST_ERR;
+    }
 
     s->s3->alert_dispatch = 1;
     s->s3->send_alert[0] = level;

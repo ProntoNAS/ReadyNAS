@@ -50,7 +50,7 @@ for l in $lang; do
    > ${common_objpfx}localedata/$cns.xout || here=1
   cmp -s $cns.in ${common_objpfx}localedata/$cns.xout || here=1
   LOCPATH=${common_objpfx}localedata GCONV_PATH=${common_objpfx}/iconvdata \
-   LC_ALL=$l ${run_program_prefix} \
+   LC_ALL=$l ${test_program_prefix} \
    ${common_objpfx}localedata/xfrm-test $id -nocache < $cns.in \
    > ${common_objpfx}localedata/$cns.nocache.xout || here=1
   cmp -s $cns.in ${common_objpfx}localedata/$cns.nocache.xout || here=1

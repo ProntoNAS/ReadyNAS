@@ -28,7 +28,7 @@
 #define SDALLOW		"/etc/shutdown.allow"	/* Users allowed to shutdown */
 #define INITTAB		"/etc/inittab"		/* Location of inittab */
 #define INIT		"/sbin/init"		/* Location of init itself. */
-#define NOLOGIN		"/etc/nologin"		/* Stop user logging in. */
+#define NOLOGIN		"/run/nologin"		/* Stop user logging in. */
 #define FASTBOOT	"/fastboot"		/* Enable fast boot. */
 #define FORCEFSCK	"/forcefsck"		/* Force fsck on boot */
 #define SDPID		"/var/run/shutdown.pid"	/* PID of shutdown program */

@@ -1,0 +1,70 @@
+From a684e28dece69fdab24a2e7ca8700bd1b48b8662 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 16:42:26 -0800
+Subject: [PATCH 1010/1014] md: add stripe cache invalidate
+
+---
+ drivers/md/raid5.c | 40 ++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 40 insertions(+)
+
+diff --git a/drivers/md/raid5.c b/drivers/md/raid5.c
+index 10ce885..392f1a3 100644
+--- a/drivers/md/raid5.c
++++ b/drivers/md/raid5.c
+@@ -6213,6 +6213,45 @@ raid5_group_thread_cnt = __ATTR(group_thread_cnt, S_IRUGO | S_IWUSR,
+ 				raid5_show_group_thread_cnt,
+ 				raid5_store_group_thread_cnt);
+ 
++static ssize_t
++stripe_cache_invalidate(struct mddev *mddev, const char *page, size_t len)
++{
++	long long unsigned pos;
++	sector_t sector;
++	struct stripe_head *sh;
++	struct r5conf *conf = mddev->private;
++
++	if (kstrtoull(page, 10, &pos))
++		return -EINVAL;
++	sector = pos >> 9;
++
++	spin_lock_irq(&conf->device_lock);
++	sh = __find_stripe(conf, sector, 0);
++	if (sh) {
++		if (test_bit(STRIPE_HANDLE, &sh->state))
++			sh = (struct stripe_head *)-1;
++		else
++			list_del(&sh->lru);
++	}
++	spin_unlock_irq(&conf->device_lock);
++
++	if (sh == (struct stripe_head *)-1)
++		return -EBUSY;
++	else if (sh) {
++		remove_hash(sh);
++		BUG_ON(atomic_read(&sh->count));
++		shrink_buffers(sh);
++		kmem_cache_free(conf->slab_cache, sh);
++	}
++	return len;
++}
++
++static struct md_sysfs_entry
++raid5_stripecache_invalidate = __ATTR(stripe_cache_invalidate,
++					S_IWUSR,
++					NULL,
++					stripe_cache_invalidate);
++
+ static struct attribute *raid5_attrs[] =  {
+ 	&raid5_stripecache_size.attr,
+ 	&raid5_stripecache_active.attr,
+@@ -6220,6 +6259,7 @@ static struct attribute *raid5_attrs[] =  {
+ 	&raid5_group_thread_cnt.attr,
+ 	&raid5_skip_copy.attr,
+ 	&raid5_rmw_level.attr,
++	&raid5_stripecache_invalidate.attr,
+ 	NULL,
+ };
+ static struct attribute_group raid5_attrs_group = {
+-- 
+1.9.1
+

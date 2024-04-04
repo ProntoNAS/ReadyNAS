@@ -1,0 +1,63 @@
+GAS LISTING /tmp/ccwe07cG.s 			page 1
+
+
+   1              	# 1 "/home/jmaggard/source/readynas-platform/boot/syslinux/core/thread/thread_asm.S"
+   1              		.globl	__switch_to
+   1              	...
+   0              	
+   0              	
+   2              		.type	__switch_to, @function
+   3              	__switch_to:
+   4 0000 8B150000 		movl	__current, %edx
+   4      0000
+   5 0006 53       		pushl	%ebx
+   6 0007 55       		pushl	%ebp
+   7 0008 56       		pushl	%esi
+   8 0009 57       		pushl	%edi
+   9 000a FF350000 		pushl	RealModeSSSP
+   9      0000
+  10 0010 FF350000 		pushl	errno			/* Hack! */
+  10      0000
+  11 0016 8922     		movl	%esp, (%edx)
+  12              	
+  13 0018 A3000000 		movl	%eax, __current
+  13      00
+  14 001d 8B20     		movl	(%eax), %esp
+  15 001f 8F050000 		popl	errno
+  15      0000
+  16 0025 8F050000 		popl	RealModeSSSP
+  16      0000
+  17 002b 5F       		popl	%edi
+  18 002c 5E       		popl	%esi
+  19 002d 5D       		popl	%ebp
+  20 002e 5B       		popl	%ebx
+  21 002f C3       		ret
+  22              		.size	__switch_to, .-__switch_to
+  23              	
+  24              		.globl	__start_thread
+  25              		.type	__start_thread, @function
+  26              	__start_thread:
+  27 0030 89F8     		movl	%edi, %eax		/* Thread function argument */
+  28              	
+  29 0032 6A00     		pushl	$0			/* For gdb's benefit */
+  30 0034 89E5     		movl	%esp, %ebp		/* For gdb's benefit */
+  31              	
+  32 0036 53       		pushl	%ebx			/* Set up the flags/interrupt state */
+  33 0037 9D       		popfl
+  34              	
+  35 0038 FFD6     		call	*%esi			/* Run the desired function */
+  36 003a E9FCFFFF 		jmp	__exit_thread		/* If we get here, kill the thread */
+  36      FF
+  37              		.size	__start_thread, .-__start_thread
+GAS LISTING /tmp/ccwe07cG.s 			page 2
+
+
+DEFINED SYMBOLS
+/home/jmaggard/source/readynas-platform/boot/syslinux/core/thread/thread_asm.S:3      .text:0000000000000000 __switch_to
+/home/jmaggard/source/readynas-platform/boot/syslinux/core/thread/thread_asm.S:26     .text:0000000000000030 __start_thread
+
+UNDEFINED SYMBOLS
+__current
+RealModeSSSP
+errno
+__exit_thread

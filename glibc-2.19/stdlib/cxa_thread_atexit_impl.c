@@ -91,8 +91,8 @@ __call_tls_dtors (void)
 #ifdef PTR_DEMANGLE
       PTR_DEMANGLE (func);
 #endif
-      tls_dtor_list = tls_dtor_list->next;
 
+      tls_dtor_list = tls_dtor_list->next;
       func (cur->obj);
 
       __rtld_lock_lock_recursive (GL(dl_load_lock));

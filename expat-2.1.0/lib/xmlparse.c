@@ -338,7 +338,7 @@ initializeEncoding(XML_Parser parser);
 static enum XML_Error
 doProlog(XML_Parser parser, const ENCODING *enc, const char *s,
          const char *end, int tok, const char *next, const char **nextPtr,
-         XML_Bool haveMore);
+         XML_Bool haveMore, XML_Bool allowClosingDoctype);
 static enum XML_Error
 processInternalEntity(XML_Parser parser, ENTITY *entity,
                       XML_Bool betweenDecl);
@@ -1617,11 +1617,14 @@ XML_Parse(XML_Parser parser, const char *s, int len, int isFinal)
     nLeftOver = s + len - end;
     if (nLeftOver) {
       if (buffer == NULL || nLeftOver > bufferLim - buffer) {
-        /* FIXME avoid integer overflow */
-        char *temp;
-        temp = (buffer == NULL
-                ? (char *)MALLOC(len * 2)
-                : (char *)REALLOC(buffer, len * 2));
+        /* avoid _signed_ integer overflow */
+        char *temp = NULL;
+        const int bytesToAllocate = (int)((unsigned)len * 2U);
+        if (bytesToAllocate > 0) {
+          temp = (buffer == NULL
+                ? (char *)MALLOC(bytesToAllocate)
+                : (char *)REALLOC(buffer, bytesToAllocate));
+        }
         if (temp == NULL) {
           errorCode = XML_ERROR_NO_MEMORY;
           eventPtr = eventEndPtr = NULL;
@@ -1629,7 +1632,7 @@ XML_Parse(XML_Parser parser, const char *s, int len, int isFinal)
           return XML_STATUS_ERROR;
         }
         buffer = temp;
-        bufferLim = buffer + len * 2;
+        bufferLim = buffer + bytesToAllocate;
       }
       memcpy(buffer, end, nLeftOver);
     }
@@ -3699,6 +3702,14 @@ entityValueInitProcessor(XML_Parser parser,
       *nextPtr = next;
       return XML_ERROR_NONE;
     }
+    /* If we get this token, we have the start of what might be a
+       normal tag, but not a declaration (i.e. it doesn't begin with
+       "<!").  In a DTD context, that isn't legal.
+    */
+    else if (tok == XML_TOK_INSTANCE_START) {
+      *nextPtr = next;
+      return XML_ERROR_SYNTAX;
+    }
     start = next;
     eventPtr = start;
   }
@@ -3742,7 +3753,7 @@ externalParEntProcessor(XML_Parser parser,
 
   processor = prologProcessor;
   return doProlog(parser, encoding, s, end, tok, next,
-                  nextPtr, (XML_Bool)!ps_finalBuffer);
+                  nextPtr, (XML_Bool)!ps_finalBuffer, XML_TRUE);
 }
 
 static enum XML_Error PTRCALL
@@ -3792,7 +3803,7 @@ prologProcessor(XML_Parser parser,
   const char *next = s;
   int tok = XmlPrologTok(encoding, s, end, &next);
   return doProlog(parser, encoding, s, end, tok, next,
-                  nextPtr, (XML_Bool)!ps_finalBuffer);
+                  nextPtr, (XML_Bool)!ps_finalBuffer, XML_TRUE);
 }
 
 static enum XML_Error
@@ -3803,7 +3814,8 @@ doProlog(XML_Parser parser,
          int tok,
          const char *next,
          const char **nextPtr,
-         XML_Bool haveMore)
+         XML_Bool haveMore,
+         XML_Bool allowClosingDoctype)
 {
 #ifdef XML_DTD
   static const XML_Char externalSubsetName[] = { ASCII_HASH , '\0' };
@@ -3979,6 +3991,11 @@ doProlog(XML_Parser parser,
       }
       break;
     case XML_ROLE_DOCTYPE_CLOSE:
+      if (allowClosingDoctype != XML_TRUE) {
+        /* Must not close doctype from within expanded parameter entities */
+        return XML_ERROR_INVALID_TOKEN;
+      }
+
       if (doctypeName) {
         startDoctypeDeclHandler(handlerArg, doctypeName,
                                 doctypeSysid, doctypePubid, 0);
@@ -4880,7 +4897,7 @@ processInternalEntity(XML_Parser parser, ENTITY *entity,
   if (entity->is_param) {
     int tok = XmlPrologTok(internalEncoding, textStart, textEnd, &next);
     result = doProlog(parser, internalEncoding, textStart, textEnd, tok,
-                      next, &next, XML_FALSE);
+                      next, &next, XML_FALSE, XML_FALSE);
   }
   else
 #endif /* XML_DTD */
@@ -4925,7 +4942,7 @@ internalEntityProcessor(XML_Parser parser,
   if (entity->is_param) {
     int tok = XmlPrologTok(internalEncoding, textStart, textEnd, &next);
     result = doProlog(parser, internalEncoding, textStart, textEnd, tok,
-                      next, &next, XML_FALSE);
+                      next, &next, XML_FALSE, XML_TRUE);
   }
   else
 #endif /* XML_DTD */
@@ -4952,7 +4969,7 @@ internalEntityProcessor(XML_Parser parser,
     processor = prologProcessor;
     tok = XmlPrologTok(encoding, s, end, &next);
     return doProlog(parser, encoding, s, end, tok, next, nextPtr,
-                    (XML_Bool)!ps_finalBuffer);
+                    (XML_Bool)!ps_finalBuffer, XML_TRUE);
   }
   else
 #endif /* XML_DTD */
@@ -5476,6 +5493,7 @@ setElementTypePrefix(XML_Parser parser, ELEMENT_TYPE *elementType)
       else
         poolDiscard(&dtd->pool);
       elementType->prefix = prefix;
+      break;
 
     }
   }

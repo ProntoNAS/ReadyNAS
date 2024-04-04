@@ -1,0 +1,79 @@
+Description: Make pcregrep -q override -l and -c for compatibility with other greps.
+ .
+ Addresses CVE-2015-8393.
+Origin: upstream, http://vcs.pcre.org/pcre?view=revision&revision=1586
+Forwarded: not-needed
+Author: Salvatore Bonaccorso <carnil@debian.org>
+Last-Update: 2015-12-29
+Applied-Upstream: 8.38
+
+---
+ RunGrepTest         |  8 ++++++++
+ pcregrep.c          | 12 ++++++------
+ testdata/grepoutput |  4 ++++
+ 4 files changed, 21 insertions(+), 6 deletions(-)
+
+--- a/RunGrepTest
++++ b/RunGrepTest
+@@ -507,6 +507,14 @@ echo "---------------------------- Test
+ echo "RC=$?" >>testtrygrep
+ 
+ 
++echo "---------------------------- Test 108 ------------------------------" >>testtrygrep
++(cd $srcdir; $valgrind $pcregrep -lq PATTERN ./testdata/grepinput ./testdata/grepinputx) >>testtrygrep
++echo "RC=$?" >>testtrygrep
++
++echo "---------------------------- Test 109 -----------------------------" >>testtrygrep
++(cd $srcdir; $valgrind $pcregrep -cq lazy ./testdata/grepinput*) >>testtrygrep
++echo "RC=$?" >>testtrygrep
++
+ # Now compare the results.
+ 
+ $cf $srcdir/testdata/grepoutput testtrygrep
+--- a/pcregrep.c
++++ b/pcregrep.c
+@@ -1688,9 +1688,13 @@ while (ptr < endptr)
+ 
+     if (filenames == FN_NOMATCH_ONLY) return 1;
+ 
++    /* If all we want is a yes/no answer, stop now. */
++
++    if (quiet) return 0;
++
+     /* Just count if just counting is wanted. */
+ 
+-    if (count_only) count++;
++    else if (count_only) count++;
+ 
+     /* When handling a binary file and binary-files==binary, the "binary"
+     variable will be set true (it's false in all other cases). In this
+@@ -1711,10 +1715,6 @@ while (ptr < endptr)
+       return 0;
+       }
+ 
+-    /* Likewise, if all we want is a yes/no answer. */
+-
+-    else if (quiet) return 0;
+-
+     /* The --only-matching option prints just the substring that matched,
+     and/or one or more captured portions of it, as long as these strings are
+     not empty. The --file-offsets and --line-offsets options output offsets for
+@@ -2053,7 +2053,7 @@ if (filenames == FN_NOMATCH_ONLY)
+ 
+ /* Print the match count if wanted */
+ 
+-if (count_only)
++if (count_only && !quiet)
+   {
+   if (count > 0 || !omit_zero_count)
+     {
+--- a/testdata/grepoutput
++++ b/testdata/grepoutput
+@@ -743,3 +743,7 @@ RC=0
+ ---------------------------- Test 106 -----------------------------
+ a
+ RC=0
++---------------------------- Test 108 ------------------------------
++RC=0
++---------------------------- Test 109 -----------------------------
++RC=0

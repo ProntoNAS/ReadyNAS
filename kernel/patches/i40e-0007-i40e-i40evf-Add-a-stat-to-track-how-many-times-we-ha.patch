@@ -1,0 +1,147 @@
+From 9486e20eabba455ba6191a15aea5fad958edbea3 Mon Sep 17 00:00:00 2001
+From: Anjali Singhai Jain <anjali.singhai@intel.com>
+Date: Wed, 21 Oct 2015 19:47:08 -0400
+Subject: [PATCH 007/224] i40e/i40evf: Add a stat to track how many times we
+ have to do a force WB
+
+When in NAPI with interrupts disabled, the HW needs to be forced to do a
+write back on TX if the number of descriptors pending are less than a
+cache line.
+
+This stat helps keep track of how many times we get into this situation.
+
+Change-ID: I76c1bcc7ebccd6bffcc5aa33bfe05f2fa1c9a984
+Signed-off-by: Anjali Singhai Jain <anjali.singhai@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e.h         | 1 +
+ drivers/net/ethernet/intel/i40e/i40e_ethtool.c | 1 +
+ drivers/net/ethernet/intel/i40e/i40e_main.c    | 5 ++++-
+ drivers/net/ethernet/intel/i40e/i40e_txrx.c    | 4 +++-
+ drivers/net/ethernet/intel/i40e/i40e_txrx.h    | 1 +
+ drivers/net/ethernet/intel/i40evf/i40e_txrx.c  | 4 +++-
+ drivers/net/ethernet/intel/i40evf/i40e_txrx.h  | 1 +
+ 7 files changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e.h b/drivers/net/ethernet/intel/i40e/i40e.h
+index 1551b98..a9fa26d 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e.h
++++ b/drivers/net/ethernet/intel/i40e/i40e.h
+@@ -487,6 +487,7 @@ struct i40e_vsi {
+ 	u32 tx_restart;
+ 	u32 tx_busy;
+ 	u64 tx_linearize;
++	u64 tx_force_wb;
+ 	u32 rx_buf_failed;
+ 	u32 rx_page_failed;
+ 
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_ethtool.c b/drivers/net/ethernet/intel/i40e/i40e_ethtool.c
+index 488a50d..2c913088 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_ethtool.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_ethtool.c
+@@ -88,6 +88,7 @@ static const struct i40e_stats i40e_gstrings_misc_stats[] = {
+ 	I40E_VSI_STAT("tx_broadcast", eth_stats.tx_broadcast),
+ 	I40E_VSI_STAT("rx_unknown_protocol", eth_stats.rx_unknown_protocol),
+ 	I40E_VSI_STAT("tx_linearize", tx_linearize),
++	I40E_VSI_STAT("tx_force_wb", tx_force_wb),
+ };
+ 
+ /* These PF_STATs might look like duplicates of some NETDEV_STATs,
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_main.c b/drivers/net/ethernet/intel/i40e/i40e_main.c
+index 50545b7..ee3d79b 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_main.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_main.c
+@@ -881,6 +881,7 @@ static void i40e_update_vsi_stats(struct i40e_vsi *vsi)
+ 	u64 bytes, packets;
+ 	unsigned int start;
+ 	u64 tx_linearize;
++	u64 tx_force_wb;
+ 	u64 rx_p, rx_b;
+ 	u64 tx_p, tx_b;
+ 	u16 q;
+@@ -899,7 +900,7 @@ static void i40e_update_vsi_stats(struct i40e_vsi *vsi)
+ 	 */
+ 	rx_b = rx_p = 0;
+ 	tx_b = tx_p = 0;
+-	tx_restart = tx_busy = tx_linearize = 0;
++	tx_restart = tx_busy = tx_linearize = tx_force_wb = 0;
+ 	rx_page = 0;
+ 	rx_buf = 0;
+ 	rcu_read_lock();
+@@ -917,6 +918,7 @@ static void i40e_update_vsi_stats(struct i40e_vsi *vsi)
+ 		tx_restart += p->tx_stats.restart_queue;
+ 		tx_busy += p->tx_stats.tx_busy;
+ 		tx_linearize += p->tx_stats.tx_linearize;
++		tx_force_wb += p->tx_stats.tx_force_wb;
+ 
+ 		/* Rx queue is part of the same block as Tx queue */
+ 		p = &p[1];
+@@ -934,6 +936,7 @@ static void i40e_update_vsi_stats(struct i40e_vsi *vsi)
+ 	vsi->tx_restart = tx_restart;
+ 	vsi->tx_busy = tx_busy;
+ 	vsi->tx_linearize = tx_linearize;
++	vsi->tx_force_wb = tx_force_wb;
+ 	vsi->rx_page_failed = rx_page;
+ 	vsi->rx_buf_failed = rx_buf;
+ 
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_txrx.c b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+index 1720005..ffb0763 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+@@ -1939,8 +1939,10 @@ int i40e_napi_poll(struct napi_struct *napi, int budget)
+ 	/* If work not completed, return budget and polling will return */
+ 	if (!clean_complete) {
+ tx_only:
+-		if (arm_wb)
++		if (arm_wb) {
++			q_vector->tx.ring[0].tx_stats.tx_force_wb++;
+ 			i40e_force_wb(vsi, q_vector);
++		}
+ 		return budget;
+ 	}
+ 
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_txrx.h b/drivers/net/ethernet/intel/i40e/i40e_txrx.h
+index 6779fb7..dccc1eb 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_txrx.h
++++ b/drivers/net/ethernet/intel/i40e/i40e_txrx.h
+@@ -202,6 +202,7 @@ struct i40e_tx_queue_stats {
+ 	u64 tx_busy;
+ 	u64 tx_done_old;
+ 	u64 tx_linearize;
++	u64 tx_force_wb;
+ };
+ 
+ struct i40e_rx_queue_stats {
+diff --git a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+index 4acd09f..7816e75 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+@@ -1358,8 +1358,10 @@ int i40evf_napi_poll(struct napi_struct *napi, int budget)
+ 	/* If work not completed, return budget and polling will return */
+ 	if (!clean_complete) {
+ tx_only:
+-		if (arm_wb)
++		if (arm_wb) {
++			q_vector->tx.ring[0].tx_stats.tx_force_wb++;
+ 			i40evf_force_wb(vsi, q_vector);
++		}
+ 		return budget;
+ 	}
+ 
+diff --git a/drivers/net/ethernet/intel/i40evf/i40e_txrx.h b/drivers/net/ethernet/intel/i40evf/i40e_txrx.h
+index 9989768..929ddd9 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40e_txrx.h
++++ b/drivers/net/ethernet/intel/i40evf/i40e_txrx.h
+@@ -201,6 +201,7 @@ struct i40e_tx_queue_stats {
+ 	u64 tx_busy;
+ 	u64 tx_done_old;
+ 	u64 tx_linearize;
++	u64 tx_force_wb;
+ };
+ 
+ struct i40e_rx_queue_stats {
+-- 
+1.9.1
+

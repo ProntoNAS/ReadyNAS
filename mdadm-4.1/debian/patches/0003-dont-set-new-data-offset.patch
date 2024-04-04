@@ -1,0 +1,31 @@
+From c6685ba957904e5e5ae720c5ad7f812eb673c468 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 28 Sep 2016 18:47:45 +0000
+Subject: [PATCH 3/7] dont set new data offset
+
+Don't try to set new_data_offset on older kernels
+
+The SLE11-SP3 kernel has partially-implemented support for setting
+new_data_offset.  This makes RAID 5 reshaping fail, since it can
+be set but not used.  So we'll add a test to check the kernel version
+before trying to set new_data_offset.
+---
+ Grow.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Grow.c b/Grow.c
+index 455c5f9..bfbc6cf 100755
+--- a/Grow.c
++++ b/Grow.c
+@@ -3155,7 +3155,7 @@ static int reshape_array(char *container, int fd, char *devname,
+ 		goto release;
+ 	}
+ 
+-	if (!backup_file)
++	if (!backup_file && (get_linux_version() > 3005000))
+ 		switch(set_new_data_offset(sra, st, devname,
+ 					   reshape.after.data_disks - reshape.before.data_disks,
+ 					   data_offset,
+-- 
+2.13.0
+

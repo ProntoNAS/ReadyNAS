@@ -1,0 +1,393 @@
+.\" dpkg manual page - dpkg-buildpackage(1)
+.\"
+.\" Copyright © 1995-1996 Ian Jackson
+.\" Copyright © 2000 Wichert Akkerman <wakkerma@debian.org>
+.\" Copyright © 2007-2008 Frank Lichtenheld <djpig@debian.org>
+.\" Copyright © 2008-2013 Guillem Jover <guillem@debian.org>
+.\" Copyright © 2008-2012 Raphaël Hertzog <hertzog@debian.org>
+.\"
+.\" This is free software; you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License as published by
+.\" the Free Software Foundation; either version 2 of the License, or
+.\" (at your option) any later version.
+.\"
+.\" This is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public License
+.\" along with this program.  If not, see <https://www.gnu.org/licenses/>.
+.
+.TH dpkg\-buildpackage 1 "2013-12-12" "Debian Project" "dpkg utilities"
+.SH NAME
+dpkg\-buildpackage \- build binary or source packages from sources
+.
+.SH SYNOPSIS
+.B dpkg\-buildpackage
+.RI [ option ...]
+.
+.SH DESCRIPTION
+.B dpkg\-buildpackage
+is a program that automates the process of building a Debian package. It
+consists of the following steps:
+.IP \fB1.\fP 3
+It prepares the build environment by setting various environment
+variables (see \fBENVIRONMENT\fP), runs the \fBinit\fP hook, and calls
+\fBdpkg\-source \-\-before\-build\fP (unless \fB\-T\fP or \fB\-\-target\fP
+has been used).
+.IP \fB2.\fP 3
+It checks that the build-dependencies and build-conflicts
+are satisfied (unless \fB\-d\fP is specified).
+.IP \fB3.\fP 3
+If a specific target has been selected with the \fB\-T\fP or \fB\-\-target\fP
+option, it calls that target and stops here. Otherwise it runs the
+\fBpreclean\fP hook and calls \fBfakeroot debian/rules clean\fP to
+clean the build-tree (unless \fB\-nc\fP is specified).
+.IP \fB4.\fP 3
+It runs the \fBsource\fP hook and calls \fBdpkg\-source \-b\fP to generate
+the source package (unless a binary\-only build has been requested with
+\fB\-b\fP, \fB\-B\fP or \fB\-A\fP).
+.IP \fB5.\fP 3
+It runs the \fBbuild\fP hook and calls \fBdebian/rules\fP \fIbuild-target\fP,
+then runs the \fBbinary\fP hook followed by \fBfakeroot debian/rules\fP
+\fIbinary-target\fP (unless a source-only build has been requested with
+\fB\-S\fP). Note that \fIbuild-target\fR and \fIbinary-target\fP are either
+\fBbuild\fP and \fBbinary\fP (default case, or if \fB\-b\fP is specified),
+or \fBbuild\-arch\fP and \fBbinary\-arch\fP (if \fB\-B\fP or \fB\-G\fP are
+specified), or \fBbuild\-indep\fP and \fBbinary\-indep\fP (if \fB\-A\fP
+or \fB\-g\fP are specified).
+.IP \fB6.\fP 3
+It runs the \fBchanges\fP hook and calls \fBdpkg\-genchanges\fP to
+generate a \fB.changes\fP file.
+Many \fBdpkg\-buildpackage\fP options are forwarded to
+\fBdpkg\-genchanges\fP.
+.IP \fB7.\fP 3
+It runs the \fBpostclean\fP hook and if \fB\-tc\fP is specified, it will
+call \fBfakeroot debian/rules clean\fP again.
+.IP \fB8.\fP 3
+It calls \fBdpkg\-source \-\-after\-build\fP.
+.IP \fB9.\fP 3
+It runs the \fBcheck\fP hook and calls a package checker for the
+\fB.changes\fP file (if a command is specified in \fBDEB_CHECK_COMMAND\fP or
+with \fB\-\-check\-command\fP).
+.IP \fB10.\fP 3
+It runs the \fBsign\fP hook and calls \fBgpg2\fP or \fBgpg\fP to sign
+the \fB.dsc\fP file (if any, unless \fB\-us\fP is specified or on UNRELEASED
+builds), and the \fB.changes\fP file (unless \fB\-uc\fP is specified or on
+UNRELEASED builds).
+.IP \fB11.\fP 3
+It runs the \fBdone\fP hook.
+.
+.SH OPTIONS
+.TP
+.B \-g
+Specifies a build limited to source and architecture independent packages.
+Passed to \fBdpkg\-genchanges\fP.
+.TP
+.B \-G
+Specifies a build limited to source and architecture specific packages.
+Passed to \fBdpkg\-genchanges\fP.
+.TP
+.B \-b
+Specifies a binary-only build, no source files are to be built and/or
+distributed. Passed to \fBdpkg\-genchanges\fP.
+.TP
+.B \-B
+Specifies a binary-only build, limited to architecture dependent packages.
+Passed to \fBdpkg\-genchanges\fP.
+.TP
+.B \-A
+Specifies a binary-only build, limited to architecture independent
+packages. Passed to \fBdpkg\-genchanges\fP.
+.TP
+.B \-S
+Specifies a source-only build, no binary packages need to be made.
+Passed to \fBdpkg\-genchanges\fP.
+.TP
+.B \-F
+Specifies a normal full build, binary and source packages will be built.
+This is the same as the default case when no build option is specified.
+.TP
+.BI \-\-target= target
+.TQ
+.BI "\-\-target " target
+.TQ
+.BI \-T target
+Calls \fBdebian/rules\fP \fItarget\fP after having setup the build
+environment and stops the package build process here. If
+\fB\-\-as\-root\fP is also given, then the command is executed
+as root (see \fB\-r\fP). Note that official targets that are required to
+be run as root by the Debian policy do not need this option.
+.TP
+.B \-\-as\-root
+Only meaningful together with \fB\-\-target\fP. Requires that the target be
+run with root rights.
+.TP
+.B \-si
+.TQ
+.B \-sa
+.TQ
+.B \-sd
+.TQ
+.BI \-v version
+.TQ
+.BI \-C changes-description
+.TQ
+.BI \-m maintainer-address
+.TQ
+.BI \-e maintainer-address
+Passed unchanged to \fBdpkg\-genchanges\fP. See its manual page.
+.TP
+.BR \-a ", " \-\-host\-arch " \fIarchitecture\fP"
+Specify the Debian architecture we build for. The architecture of the
+machine we build on is determined automatically, and is also the default
+for the host machine.
+.TP
+.BR \-t ", " \-\-host\-type " \fIgnu-system-type\fP"
+Specify the GNU system type we build for. It can be used in place
+of \-\-host\-arch or as a complement to override the default GNU system type
+of the host Debian architecture.
+.TP
+.BR \-\-target\-arch " \fIarchitecture\fP"
+Specify the Debian architecture the binaries built will build for.
+The default value is the host machine.
+.TP
+.BR \-\-target\-type " \fIgnu-system-type\fP"
+Specify the GNU system type the binaries built will build for. It can be
+used in place of \-\-target\-arch or as a complement to override the
+default GNU system type of the target Debian architecture.
+.TP
+.BR \-P \fIprofile\fP[ , ...]
+Specify the profile(s) we build, as a comma-separated list. The default
+behavior is to build for no specific profile. Also sets them (as a space
+separated list) as the \fBDEB_BUILD_PROFILES\fP environment variable which
+allows, for example, \fBdebian/rules\fP files to use this information for
+conditional builds.
+.TP
+.BR \-j [\fIjobs\fP|\fBauto\fP]
+Number of jobs allowed to be run simultaneously, number of jobs matching
+the number of online processors if \fBauto\fP is specified, or unlimited
+number if \fIjobs\fP is not specified, equivalent to the
+.BR make (1)
+option of the same name. Will add itself to the \fBMAKEFLAGS\fP
+environment variable, which should cause all subsequent make
+invocations to inherit the option. Also adds \fBparallel=\fP\fIjobs\fP or
+\fBparallel=\fP to the \fBDEB_BUILD_OPTIONS\fP environment variable which
+allows debian/rules files to use this information for their own purposes.
+The \fBparallel=\fP\fIjobs\fP or \fBparallel=\fP option in
+\fBDEB_BUILD_OPTIONS\fP environment variable will override the \fB\-j\fP
+value if this option is given.
+Note that the \fBauto\fP value will get replaced by the actual number of
+currently active processors, and as such will not get propagated to any
+child process. If the number of online processors cannot be inferred then
+the code will fallback to using an unlimited number.
+.TP
+.B \-D
+Check build dependencies and conflicts; abort if unsatisfied. This is the
+default behavior.
+.TP
+.B \-d
+Do not check build dependencies and conflicts.
+.TP
+.B \-nc
+Do not clean the source tree (implies \fB\-b\fP if nothing else has been
+selected among \fB\-F\fP, \fB\-g\fP, \fB\-G\fP, \fB\-B\fP, \fB\-A\fP
+or \fB\-S\fP).
+.TP
+.B \-tc
+Clean the source tree (using
+.I gain-root-command
+.BR "debian/rules clean" )
+after the package has been built.
+.TP
+.BI \-r gain-root-command
+When
+.B dpkg\-buildpackage
+needs to execute part of the build process as root, it prefixes the
+command it executes with
+.I gain-root-command
+if one has been specified. Otherwise, if none has been specified,
+\fBfakeroot\fP will be used by default, if the command is present.
+.I gain-root-command
+should start with the name of a program on the
+.B PATH
+and will get as arguments the name of the real command to run and the
+arguments it should take.
+.I gain-root-command
+can include parameters (they must be space-separated) but no shell
+metacharacters.
+.I gain-root-command
+might typically be
+.BR fakeroot ", " sudo ", " super " or " really .
+.B su
+is not suitable, since it can only invoke the user's shell with
+.B \-c
+instead of passing arguments individually to the command to be run.
+.TP
+.BI \-R rules-file
+Building a Debian package usually involves invoking
+.B debian/rules
+as a command with several standard parameters. With this option it's
+possible to use another program invocation to build the package (it can
+include space separated parameters).
+Alternatively it can be used to execute the standard rules file with
+another make program (for example by using
+.B /usr/local/bin/make \-f debian/rules
+as \fIrules-file\fR).
+.TP
+.BI \-\-check\-command= check-command
+Command used to check the \fB.changes\fP file itself and any artifact built
+referenced in the file. The command should take the \fB.changes\fP pathname
+as an argument. This command will usually be \fBlintian\fP.
+.TP
+.BI \-\-check\-option= opt
+Pass option \fIopt\fP to the \fIcheck-command\fP specified with
+\fBDEB_CHECK_COMMAND\fP or \fB\-\-check\-command\fP.
+Can be used multiple times.
+.TP
+.BI \-\-hook\- hook-name = hook-command
+Set the specified shell code \fIhook-command\fP as the hook \fIhook-name\fP,
+which will run at the times specified in the run steps. The hooks will
+always be executed even if the following action is not performed (except
+for the \fBbinary\fP hook).
+
+Note: Hooks can affect the build process, and cause build failures if
+their commands fail, so watch out for unintended consequences.
+
+The current \fIhook-name\fP supported are:
+
+.B init preclean source build binary changes postclean check sign done
+
+The \fIhook-command\fP supports the following substitution format string,
+which will get applied to it before execution:
+
+.RS
+.TP
+.B %%
+A single % character.
+.TP
+.B %a
+A boolean value (0 or 1), representing whether the following action is
+being performed.
+.TP
+.B %p
+The source package name.
+.TP
+.B %v
+The source package version.
+.TP
+.B %s
+The source package version (without the epoch).
+.TP
+.B %u
+The upstream version.
+.RE
+.TP
+.BI \-p sign-command
+When \fBdpkg\-buildpackage\fP needs to execute GPG to sign a source
+control (\fB.dsc\fP) file or a \fB.changes\fP file it will run
+\fIsign-command\fP (searching the \fBPATH\fP if necessary) instead of
+\fBgpg2\fP or \fBgpg\fP. \fIsign-command\fP will get all the arguments
+that \fBgpg2\fP or \fBgpg\fP would have gotten. \fIsign-command\fP
+should not contain spaces or any other shell metacharacters.
+.TP
+.BI \-k key-id
+Specify a key-ID to use when signing packages.
+.TP
+.BR \-us
+Do not sign the source package.
+.TP
+.BR \-uc
+Do not sign the \fB.changes\fP file.
+.TP
+.BR \-\-force\-sign
+Force the signing of the resulting files (since dpkg 1.17.0),
+regardless of \fB\-us\fP or \fB\-uc\fP or other internal heuristics.
+.TP
+.BR \-i [\fIregex\fP]
+.TQ
+.BR \-I [\fIpattern\fP]
+.TQ
+.BR \-s [ nsAkurKUR ]
+.TQ
+.BR \-z ", " \-Z
+Passed unchanged to \fBdpkg\-source\fP. See its manual page.
+.TP
+.BI \-\-source\-option= opt
+Pass option \fIopt\fP to \fBdpkg\-source\fP.
+Can be used multiple times.
+.TP
+.BI \-\-changes\-option= opt
+Pass option \fIopt\fP to \fBdpkg\-genchanges\fP.
+Can be used multiple times.
+.TP
+.BI \-\-admindir= dir
+.TQ
+.BI "\-\-admindir " dir
+Change the location of the \fBdpkg\fR database. The default location is
+\fI/var/lib/dpkg\fP.
+.TP
+.BR \-? ", " \-\-help
+Show the usage message and exit.
+.TP
+.BR \-\-version
+Show the version and exit.
+.
+.SH ENVIRONMENT
+.TP
+.B DEB_CHECK_COMMAND
+If set, it will be used as the command to check the \fB.changes\fP file.
+Overridden by the \fB\-\-check\-command\fP option.
+.TP
+.B DEB_SIGN_KEYID
+If set, it will be used to sign the \fB.changes\fP and \fB.dsc\fP files.
+Overridden by the \fB\-k\fP option.
+.TP
+.B DEB_BUILD_OPTIONS
+If set, and containing \fBnocheck\fP the \fBDEB_CHECK_COMMAND\fP variable
+will be ignored.
+.TP
+.B DEB_BUILD_PROFILES
+If set, it will be used as the active build profile(s) for the package
+being built. It is a space separated list of profile names. Overridden
+by the \fB\-P\fP option.
+
+.SS Reliance on exported environment flags
+Even if \fBdpkg\-buildpackage\fP exports some variables, \fBdebian/rules\fP
+should not rely on their presence and should instead use the
+respective interface to retrieve the needed values.
+.SS Variables set by dpkg\-architecture
+\fBdpkg\-architecture\fP is called with the \fB\-a\fP and \fB\-t\fP
+parameters forwarded. Any variable that is output by its \fB\-s\fP
+option is integrated in the build environment.
+.
+.SH NOTES
+.SS Compiler flags are no longer exported
+Between dpkg 1.14.17 and 1.16.1, \fBdpkg\-buildpackage\fP
+exported compiler flags (\fBCFLAGS\fP, \fBCXXFLAGS\fP, \fBFFLAGS\fP,
+\fBCPPFLAGS\fP and \fBLDFLAGS\fP) with values as returned
+by \fBdpkg\-buildflags\fP. This is no longer the case.
+.SS Default build targets
+\fBdpkg\-buildpackage\fP is using the \fBbuild\-arch\fP and
+\fBbuild\-indep\fP targets since dpkg 1.16.2. Those targets are thus
+mandatory. But to avoid breakages of existing packages, and ease
+the transition, it will fallback to using the \fBbuild\fP target
+if \fBmake \-f debian/rules \-qn\fP \fIbuild-target\fP returns 2 as
+exit code.
+.SH BUGS
+It should be possible to specify spaces and shell metacharacters
+and initial arguments for
+.IR gain-root-command " and " sign-command .
+.
+.SH SEE ALSO
+.ad l
+.nh
+.BR dpkg\-source (1),
+.BR dpkg\-architecture (1),
+.BR dpkg\-buildflags (1),
+.BR dpkg\-genchanges (1),
+.BR fakeroot (1),
+.BR lintian (1),
+.BR gpg2 (1),
+.BR gpg (1).

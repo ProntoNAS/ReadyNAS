@@ -1,0 +1,45 @@
+From f4fbd147afa15bb5aff461ba7fc53fd434c07a6e Mon Sep 17 00:00:00 2001
+From: Jesper Dangaard Brouer <brouer@redhat.com>
+Date: Fri, 11 Mar 2016 09:43:58 +0100
+Subject: [PATCH 120/191] net: adjust napi_consume_skb to handle non-NAPI
+ callers
+
+Some drivers reuse/share code paths that free SKBs between NAPI
+and non-NAPI calls. Adjust napi_consume_skb to handle this
+use-case.
+
+Before, calls from netpoll (w/ IRQs disabled) was handled and
+indicated with a budget zero indication.  Use the same zero
+indication to handle calls not originating from NAPI/softirq.
+Simply handled by using dev_consume_skb_any().
+
+This adds an extra branch+call for the netpoll case (checking
+in_irq() + irqs_disabled()), but that is okay as this is a slowpath.
+
+Suggested-by: Alexander Duyck <aduyck@mirantis.com>
+Signed-off-by: Jesper Dangaard Brouer <brouer@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 885eb0a516e4d686849b91c5a1ba25c70b7a6540)
+---
+ net/core/skbuff.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/net/core/skbuff.c b/net/core/skbuff.c
+index 3da9463..fca7066 100644
+--- a/net/core/skbuff.c
++++ b/net/core/skbuff.c
+@@ -797,9 +797,9 @@ void napi_consume_skb(struct sk_buff *skb, int budget)
+ 	if (unlikely(!skb))
+ 		return;
+ 
+-	/* if budget is 0 assume netpoll w/ IRQs disabled */
++	/* Zero budget indicate non-NAPI context called us, like netpoll */
+ 	if (unlikely(!budget)) {
+-		dev_consume_skb_irq(skb);
++		dev_consume_skb_any(skb);
+ 		return;
+ 	}
+ 
+-- 
+1.9.1
+

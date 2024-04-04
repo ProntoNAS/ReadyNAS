@@ -1,0 +1,64 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# enable this to activate small testing of library
+#export DEB_MAKE_CHECK_TARGET = check
+
+# Enable all hardening options.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+DPKG_EXPORT_BUILDFLAGS = 1
+include /usr/share/dpkg/buildflags.mk
+
+# Variables used by cdbs
+DEB_COMPRESS_EXCLUDE = html
+CPPFLAGS += -D_REENTRANT
+export CPPFLAGS
+
+# Include cdbs rules files.
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/autotools.mk
+include /usr/share/cdbs/1/rules/autoreconf.mk
+
+DEB_CONFIGURE_USER_FLAGS = --with-docdir="\$${prefix}/share/doc/libtiff-doc" \
+	--libdir="\$${prefix}/lib/$(DEB_HOST_MULTIARCH)" \
+	--includedir="\$${prefix}/include/$(DEB_HOST_MULTIARCH)" \
+	--enable-ld-version-script
+
+clean::
+	$(RM) *.cdbs-config_list
+	$(RM) debian/*.preinst
+
+# tiffgt is in libtiff-opengl so libtiff-tools doesn't have to have
+# all the X and opengl dependencies.
+binary-post-install/libtiff-tools::
+	$(RM) debian/libtiff-tools/usr/bin/tiffgt
+	$(RM) debian/libtiff-tools/usr/share/man/man1/tiffgt.1*
+	# removal as CVE-2015-8668 , CVE-2016-3619 , CVE-2016-3620 ,
+	# CVE-2016-3621 and CVE-2016-5319:
+	$(RM) debian/libtiff-doc/usr/share/doc/libtiff-doc/html/man/bmp2tiff.1.html
+	$(RM) debian/libtiff-tools/usr/bin/bmp2tiff
+	$(RM) debian/libtiff-tools/usr/share/man/man1/bmp2tiff.1*
+	# removal as CVE-2016-3186 and CVE-2016-5102:
+	$(RM) debian/libtiff-doc/usr/share/doc/libtiff-doc/html/man/gif2tiff.1.html
+	$(RM) debian/libtiff-tools/usr/bin/gif2tiff
+	$(RM) debian/libtiff-tools/usr/share/man/man1/gif2tiff.1*
+	# removal as CVE-2016-3631 , CVE-2016-3632 , CVE-2016-3633 ,
+	# CVE-2016-3634 and CVE-2016-8331:
+	$(RM) debian/libtiff-doc/usr/share/doc/libtiff-doc/html/man/thumbnail.1.html
+	$(RM) debian/libtiff-tools/usr/bin/thumbnail
+	$(RM) debian/libtiff-tools/usr/share/man/man1/thumbnail.1*
+	# removal as no longer supported
+	$(RM) debian/libtiff-doc/usr/share/doc/libtiff-doc/html/man/ras2tiff.1.html
+	$(RM) debian/libtiff-tools/usr/bin/ras2tiff
+	$(RM) debian/libtiff-tools/usr/share/man/man1/ras2tiff.1*
+
+# Empty dependency_libs from all .la files
+binary-post-install/libtiff5-dev::
+	sed -i "s,^dependency_libs=.*,dependency_libs=''," \
+	   debian/libtiff5-dev/usr/lib/*/*.la
+
+# Create preinst
+binary-post-install/%::
+	if [ "$*" != "libtiff5" ]; then \
+	    sed -e s/PKG/$*/g < debian/all-preinst > debian/$*.preinst; \
+	fi

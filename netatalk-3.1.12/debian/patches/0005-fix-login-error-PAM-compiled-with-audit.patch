@@ -1,0 +1,63 @@
+Fix our AFP login issue when AUDIT complied in PAM(RNAS-8706).
+
+--- netatalk-3.1.12.orig/etc/afpd/uam.c
++++ netatalk-3.1.12/etc/afpd/uam.c
+@@ -402,6 +402,12 @@ int uam_afpserver_option(void *private,
+ 
+         break;
+     }
++    case UAM_OPTION_CLIENTADDR:
++    {
++        struct DSI *dsi = obj->dsi;
++        *buf = getip_string((struct sockaddr *)&dsi->client);
++        break;
++    }
+     case UAM_OPTION_COOKIE:
+         /* it's up to the uam to actually store something useful here.
+          * this just passes back a handle to the cookie. the uam side
+--- netatalk-3.1.12.orig/etc/uams/uams_dhx2_pam.c
++++ netatalk-3.1.12/etc/uams/uams_dhx2_pam.c
+@@ -592,7 +592,10 @@ static int logincont2(void *obj_in, stru
+     retServerNonce = gcry_mpi_new(0);
+ 
+     /* For PAM */
+-    uam_afpserver_option(obj, UAM_OPTION_CLIENTNAME, (void *) &hostname, NULL);
++    /* libaudit may try to get ip from hostname when AUDIT enabled in PAM,
++     * it consume time and may let the login fail, so use ip for hostname here
++     */
++    uam_afpserver_option(obj, UAM_OPTION_CLIENTADDR, (void *) &hostname, NULL);
+ 
+     /* Set up our encryption context. */
+     ctxerror = gcry_cipher_open( &ctx, GCRY_CIPHER_CAST5, GCRY_CIPHER_MODE_CBC, 0);
+--- netatalk-3.1.12.orig/etc/uams/uams_dhx_pam.c
++++ netatalk-3.1.12/etc/uams/uams_dhx_pam.c
+@@ -442,7 +442,10 @@ static int pam_logincont(void *obj, stru
+     }
+     ibuf += sizeof(sessid);
+     
+-    if (uam_afpserver_option(obj, UAM_OPTION_CLIENTNAME,
++    /* libaudit may try to get ip from hostname when AUDIT enabled in PAM,
++     * it consume time and may let the login fail, so use ip for hostname here
++     */
++    if (uam_afpserver_option(obj, UAM_OPTION_CLIENTADDR,
+ 			     (void *) &hostname, NULL) < 0)
+ 	{
+ 	LOG(log_info, logtype_uams, "uams_dhx_pam.c :PAM: unable to retrieve client hostname");
+--- netatalk-3.1.12.orig/include/atalk/uam.h
++++ netatalk-3.1.12/include/atalk/uam.h
+@@ -39,13 +39,14 @@
+ #define UAM_OPTION_RANDNUM      (1 << 4) /* request a random number */
+ #define UAM_OPTION_HOSTNAME     (1 << 5) /* get host name */
+ #define UAM_OPTION_COOKIE       (1 << 6) /* cookie handle */
+-#define UAM_OPTION_CLIENTNAME   (1 << 8) /* get client IP address */
++#define UAM_OPTION_CLIENTNAME   (1 << 8) /* get client hostname */
+ #define UAM_OPTION_KRB5SERVICE  (1 << 9) /* service name for krb5 principal */
+ #define UAM_OPTION_MACCHARSET   (1 << 10) /* mac charset handle */
+ #define UAM_OPTION_UNIXCHARSET  (1 << 11) /* unix charset handle */
+ #define UAM_OPTION_SESSIONINFO  (1 << 12) /* unix charset handle */
+ #define UAM_OPTION_KRB5REALM    (1 << 13) /* krb realm */
+ #define UAM_OPTION_FQDN         (1 << 14) /* fully qualified name */
++#define UAM_OPTION_CLIENTADDR   (1 << 15) /* get client IP address */
+ 
+ /* some password options. you pass these in the length parameter and
+  * get back the corresponding option. not all of these are implemented. */

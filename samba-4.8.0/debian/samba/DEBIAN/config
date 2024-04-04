@@ -1,0 +1,32 @@
+#!/bin/sh
+
+set -e
+
+. /usr/share/debconf/confmodule
+
+db_title "Samba Server"
+
+SERVER_ROLE=`samba-tool testparm --parameter-name="server role"  2>/dev/null | tail -1`
+if [ ! -z "$SERVER_ROLE" ]; then
+	db_set samba4/server-role "$SERVER_ROLE"
+fi
+
+REALM=`samba-tool testparm --parameter-name=realm  2>/dev/null | tail -1`
+if [ -z "$REALM" ]; then
+	REALM=`hostname -d | tr 'a-z' 'A-Z'`
+fi
+db_set samba4/realm "$REALM"
+
+#
+# Are we upgrading from Samba 3, and already have a configuration file?
+# If so, the user might want to try the automatic upgrading.
+#
+if [ -n "$2" ] && dpkg --compare-versions "$2" lt "3.9.0"; then
+	if [ -f /etc/samba/smb.conf ]; then
+		db_input medium samba4/upgrade-from-v3 || true
+	fi
+fi
+
+db_input medium samba4/server-role || true
+db_input medium samba4/realm || true
+db_go || true

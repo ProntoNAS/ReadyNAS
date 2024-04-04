@@ -6,27 +6,49 @@ Uploaders:
  Petter Reinholdtsen <pere@debian.org>,
  Henrique de Moraes Holschuh <hmh@debian.org>,
  Kel Modderman <kel@otaku42.de>,
- Roger Leigh <rleigh@debian.org>
+ Roger Leigh <rleigh@debian.org>,
+ Thomas Goirand <zigo@debian.org>
 Build-Depends:
  debhelper (>= 9.20120410),
  po-debconf,
  quilt (>= 0.40),
  libselinux1-dev (>= 1.14) [linux-any],
  libsepol1-dev [linux-any]
-Standards-Version: 3.9.3
+Standards-Version: 3.9.5
 Homepage: http://savannah.nongnu.org/projects/sysvinit
-Vcs-Git: git://git.debian.org/collab-maint/sysvinit
-Vcs-Browser: http://anonscm.debian.org/gitweb/?p=collab-maint/sysvinit
+Vcs-Git: git://anonscm.debian.org/collab-maint/sysvinit.git
+Vcs-Browser: http://anonscm.debian.org/gitweb/?p=collab-maint/sysvinit.git
 
 Package: sysvinit
-Essential: yes
+Priority: optional
 Architecture: any
-Pre-Depends: initscripts (>= 2.88dsf-13.3), sysv-rc | file-rc, sysvinit-utils (>= 2.86.ds1-66)
-Depends: ${shlibs:Depends}, ${misc:Depends},
+Pre-Depends: init
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: System-V-like init utilities - transitional package
+ This package depends on init, which is an essential package that
+ pulls in the default init system. Starting with jessie, this will be
+ systemd on Linux. It facilitates a smooth transition and provides a
+ fallback SysV init binary which can be used to boot the system via the
+ init=/lib/sysvinit/init kernel command line parameter in case the
+ system fails to start after the switch to systemd.
+ .
+ If your system successfully boots with systemd or if you have chosen
+ to stick with sysvinit-core, this package can be removed safely.
+
+Package: sysvinit-core
+Priority: extra
+Architecture: any
+Depends: initscripts (>= 2.88dsf-13.3),
+ sysv-rc | file-rc,
+ sysvinit-utils (>= 2.86.ds1-66),
+ ${shlibs:Depends},
+ ${misc:Depends},
 # For ischroot
  debianutils (>= 4),
 # Required for TERM=xterm switch (see #605777)
  kbdcontrol (>= 8.2+ds2-6) [kfreebsd-any]
+Conflicts: systemd-sysv, upstart
+Replaces: sysvinit (<< 2.88dsf-44~), systemd-sysv, upstart
 Description: System-V-like init utilities
  This package contains programs required for booting
  a Debian system and doing basic process management.
@@ -39,10 +61,11 @@ Description: System-V-like init utilities
 Package: sysvinit-utils
 Essential: yes
 Architecture: any
-Conflicts: last, sysvconfig, chkconfig (<< 11.0-79.1-2)
+Conflicts: last, sysvconfig, chkconfig (<< 11.0-79.1-2), startpar (<< 0.58-2)
 Replaces: last, sysvinit (<= 2.86.ds1-65)
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Breaks: upstart (<< 1.5-1)
+ , startpar
+Breaks: upstart (<< 1.5-0ubuntu5)
 Suggests: bootlogd, sash
 Description: System-V-like utilities
  This package contains the important System-V-like utilities.
@@ -52,14 +75,16 @@ Description: System-V-like utilities
 
 Package: sysv-rc
 Architecture: all
+Multi-Arch: foreign
 Recommends: lsb-base (>= 3.2-14)
 Conflicts: file-rc
 Replaces: file-rc
-Suggests: sysv-rc-conf, bum
+Suggests: bum
 Depends:
  ${misc:Depends},
  sysvinit-utils (>= 2.86.ds1-62),
  insserv (>> 1.12.0-10)
+ , startpar
 Breaks: initscripts (<< 2.86.ds1-63)
 Description: System-V-like runlevel change mechanism
  This package provides support for the System-V like system
@@ -68,11 +93,12 @@ Description: System-V-like runlevel change mechanism
 
 Package: initscripts
 Architecture: any
+Multi-Arch: foreign
 Depends:
  ${shlibs:Depends}, ${misc:Depends}, ${mount:Depends},
  debianutils (>= 4),
  lsb-base (>= 3.2-14),
- sysvinit-utils (>= 2.86.ds1-64), sysv-rc | file-rc,
+ sysvinit-utils (>= 2.88dsf-50), sysv-rc | file-rc,
  coreutils (>= 5.93)
 Recommends: psmisc, e2fsprogs
 Conflicts:
@@ -80,7 +106,7 @@ Conflicts:
 Replaces: libc6, libc6.1, libc0.1, libc0.3
 Breaks:
 # Needed for ifquery
- ifupdown (<< 0.7~rc3),
+ ifupdown (<< 0.7.46),
 # Needed to ensure migration of UTC setting before /etc/default/rcS is updated.
  util-linux (<< 2.20.1-5),
 # Packages using /lib/init/rw which must transition to /run.
@@ -116,7 +142,9 @@ Breaks:
 # being a symlink #668616 and #668650
  initramfs-tools (<< 0.104),
 # Needed for transition to dependency-based boot for wheezy
- bootchart (<< 0.10~svn407-4)
+ bootchart (<< 0.10~svn407-4),
+# Older versions of hurd do not implement the neccessary functionality
+ hurd (<< 0.5.git20131101~)
 Description: scripts for initializing and shutting down the system
  The scripts in this package initialize a standard Debian
  system at boot time and shut it down at halt or reboot time.

@@ -1,0 +1,70 @@
+Test for ":options".
+
+STARTTEST
+:so small.vim
+:let caught = 'ok'
+:try
+  :options
+:catch 
+  :let caught = v:throwpoint . "\n" . v:exception
+:endtry
+:buf 1
+:$put =caught
+:function! TrySet(opt, val, exc)
+  :let caught = 'ok'
+  :try
+    :exe 'set '.a:opt.'='.a:val
+  :catch
+    :let caught = v:exception
+  :endtry
+  :$put =a:val.' exception? '.(caught =~ a:exc)
+:endfunction
+: " Test filetype valid
+:set ft=valid_name
+:$put ='ft valid_name? '.(&ft == 'valid_name')
+:set ft=valid-name
+:$put ='ft valid-name? '.(&ft == 'valid-name')
+:"
+:call TrySet('ft', 'wrong;name', 'E474:')
+:call TrySet('ft', 'wrong\\name', 'E474:')
+:call TrySet('ft', 'wrong\|name', 'E474:')
+:call TrySet('ft', 'wrong/name', 'E474:')
+:call TrySet('ft', "wrong\\\nname", 'E474:')
+:"
+:$put ='ft valid-name? '.(&ft == 'valid-name')
+:exe "set ft=trunc\x00name"
+:$put ='ft trunc? '.(&filetype == 'trunc')
+: " Test syntax valid
+:set syn=valid_name
+:$put ='syn valid_name? '.('valid_name' == &syntax)
+:set syn=valid-name
+:$put ='syn valid-name? '.('valid-name' == &syntax)
+:"
+:call TrySet('syn', 'wrong;name', 'E474:')
+:call TrySet('syn', "wrong\\\\name", 'E474:')
+:call TrySet('syn', "wrong\\|name", 'E474:')
+:call TrySet('syn', "wrong/name", 'E474:')
+:call TrySet('syn', "wrong\\\nname", 'E474:')
+:"
+:$put ='syn valid-name? '.('valid-name' == &syntax)
+:exe "set syn=trunc\x00name"
+:$put ='syn trunc? '.('trunc' == &syntax)
+: " Test keymap valid
+:call TrySet('kmp', "valid_name", 'E544:')
+:call TrySet('kmp', "valid_name", 'valid_name')
+:call TrySet('kmp', "valid-name", 'E544:')
+:call TrySet('kmp', "valid-name", 'valid-name')
+:"
+:call TrySet('kmp', "wrong;name", 'E474:')
+:call TrySet('kmp', "wrong\\\\name", 'E474:')
+:call TrySet('kmp', "wrong\\|name", 'E474:')
+:call TrySet('kmp', "wrong/name", 'E474:')
+:call TrySet('kmp', "wrong\\\nname", 'E474:')
+:"
+:call TrySet('kmp', "trunc\x00name", 'E544:')
+:call TrySet('kmp', "trunc\x00name", 'trunc')
+:/^result/,$w! test.out
+:qa!
+ENDTEST
+
+result

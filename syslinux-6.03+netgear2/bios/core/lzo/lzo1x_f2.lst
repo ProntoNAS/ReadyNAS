@@ -1,0 +1,793 @@
+GAS LISTING /tmp/cc1UvS7D.s 			page 1
+
+
+   1              	# 1 "/home/jmaggard/source/readynas-platform/boot/syslinux/core/lzo/lzo1x_f2.S"
+   1              	/* lzo1x_f2.S -- fast LZO1X decompression in assembler (i386 + gcc)
+   1              	...
+   0              	
+   0              	
+   2              	
+   3              	   This file is part of the LZO real-time data compression library.
+   4              	
+   5              	   Copyright (C) 2011 Markus Franz Xaver Johannes Oberhumer
+   6              	   Copyright (C) 2010 Markus Franz Xaver Johannes Oberhumer
+   7              	   Copyright (C) 2009 Markus Franz Xaver Johannes Oberhumer
+   8              	   Copyright (C) 2008 Markus Franz Xaver Johannes Oberhumer
+   9              	   Copyright (C) 2007 Markus Franz Xaver Johannes Oberhumer
+  10              	   Copyright (C) 2006 Markus Franz Xaver Johannes Oberhumer
+  11              	   Copyright (C) 2005 Markus Franz Xaver Johannes Oberhumer
+  12              	   Copyright (C) 2004 Markus Franz Xaver Johannes Oberhumer
+  13              	   Copyright (C) 2003 Markus Franz Xaver Johannes Oberhumer
+  14              	   Copyright (C) 2002 Markus Franz Xaver Johannes Oberhumer
+  15              	   Copyright (C) 2001 Markus Franz Xaver Johannes Oberhumer
+  16              	   Copyright (C) 2000 Markus Franz Xaver Johannes Oberhumer
+  17              	   Copyright (C) 1999 Markus Franz Xaver Johannes Oberhumer
+  18              	   Copyright (C) 1998 Markus Franz Xaver Johannes Oberhumer
+  19              	   Copyright (C) 1997 Markus Franz Xaver Johannes Oberhumer
+  20              	   Copyright (C) 1996 Markus Franz Xaver Johannes Oberhumer
+  21              	   All Rights Reserved.
+  22              	
+  23              	   The LZO library is free software; you can redistribute it and/or
+  24              	   modify it under the terms of the GNU General Public License as
+  25              	   published by the Free Software Foundation; either version 2 of
+  26              	   the License, or (at your option) any later version.
+  27              	
+  28              	   The LZO library is distributed in the hope that it will be useful,
+  29              	   but WITHOUT ANY WARRANTY; without even the implied warranty of
+  30              	   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  31              	   GNU General Public License for more details.
+  32              	
+  33              	   You should have received a copy of the GNU General Public License
+  34              	   along with the LZO library; see the file COPYING.
+  35              	   If not, write to the Free Software Foundation, Inc.,
+  36              	   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+  37              	
+  38              	   Markus F.X.J. Oberhumer
+  39              	   <markus@oberhumer.com>
+  40              	   http://www.oberhumer.com/opensource/lzo/
+  41              	 */
+  42              	
+  43              	
+  44              	/***********************************************************************
+  45              	//
+  46              	************************************************************************/
+  47              	
+  48              	#define LZO_FAST
+  49              	
+  50              	#define LZO_TEST_DECOMPRESS_OVERRUN_INPUT
+  51              	#define LZO_TEST_DECOMPRESS_OVERRUN_OUTPUT
+  52              	#define LZO_TEST_DECOMPRESS_OVERRUN_LOOKBEHIND
+  53              	
+GAS LISTING /tmp/cc1UvS7D.s 			page 2
+
+
+  54              	#include "lzo_asm.h"
+   1              	/* lzo_asm.h -- LZO assembler stuff
+   2              	
+   3              	   This file is part of the LZO real-time data compression library.
+   4              	
+   5              	   Copyright (C) 1996-2014 Markus Franz Xaver Johannes Oberhumer
+   6              	   All Rights Reserved.
+   7              	
+   8              	   The LZO library is free software; you can redistribute it and/or
+   9              	   modify it under the terms of the GNU General Public License as
+  10              	   published by the Free Software Foundation; either version 2 of
+  11              	   the License, or (at your option) any later version.
+  12              	
+  13              	   The LZO library is distributed in the hope that it will be useful,
+  14              	   but WITHOUT ANY WARRANTY; without even the implied warranty of
+  15              	   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  16              	   GNU General Public License for more details.
+  17              	
+  18              	   You should have received a copy of the GNU General Public License
+  19              	   along with the LZO library; see the file COPYING.
+  20              	   If not, write to the Free Software Foundation, Inc.,
+  21              	   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+  22              	
+  23              	   Markus F.X.J. Oberhumer
+  24              	   <markus@oberhumer.com>
+  25              	   http://www.oberhumer.com/opensource/lzo/
+  26              	 */
+  27              	
+  28              	
+  29              	/***********************************************************************
+  30              	// <asmconfig.h>
+  31              	************************************************************************/
+  32              	
+  33              	#if !defined(__i386__)
+  34              	#  error
+  35              	#endif
+  36              	
+  37              	#if !defined(IN_CONFIGURE)
+  38              	#if defined(LZO_HAVE_CONFIG_H)
+  39              	#  include <config.h>
+  40              	#else
+  41              	   /* manual configuration - see defaults below */
+  42              	#  if defined(__ELF__)
+  43              	#    define MFX_ASM_HAVE_TYPE 1
+  44              	#    define MFX_ASM_NAME_NO_UNDERSCORES 1
+  45              	#  elif defined(__linux__)              /* Linux a.out */
+  46              	#    define MFX_ASM_ALIGN_PTWO 1
+  47              	#  elif defined(__DJGPP__)
+  48              	#    define MFX_ASM_ALIGN_PTWO 1
+  49              	#  elif defined(__GO32__)               /* djgpp v1 */
+  50              	#    define MFX_ASM_CANNOT_USE_EBP 1
+  51              	#  elif defined(__EMX__)
+  52              	#    define MFX_ASM_ALIGN_PTWO 1
+  53              	#    define MFX_ASM_CANNOT_USE_EBP 1
+  54              	#  endif
+  55              	#endif
+  56              	#endif
+GAS LISTING /tmp/cc1UvS7D.s 			page 3
+
+
+  57              	
+  58              	#if 1 && defined(__ELF__)
+  59              	.section .note.GNU-stack,"",@progbits
+  60              	#endif
+  55              	
+  56              	    .section ".textnr","ax"
+  57              	
+  58              	    LZO_PUBLIC(lzo1x_decompress_asm_fast_safe)
+  59              	
+  60              	#include "enter.ash"
+   1              	/* enter.ash -- LZO assembler stuff
+   2              	
+   3              	   This file is part of the LZO real-time data compression library.
+   4              	
+   5              	   Copyright (C) 1996-2014 Markus Franz Xaver Johannes Oberhumer
+   6              	   All Rights Reserved.
+   7              	
+   8              	   The LZO library is free software; you can redistribute it and/or
+   9              	   modify it under the terms of the GNU General Public License as
+  10              	   published by the Free Software Foundation; either version 2 of
+  11              	   the License, or (at your option) any later version.
+  12              	
+  13              	   The LZO library is distributed in the hope that it will be useful,
+  14              	   but WITHOUT ANY WARRANTY; without even the implied warranty of
+  15              	   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  16              	   GNU General Public License for more details.
+  17              	
+  18              	   You should have received a copy of the GNU General Public License
+  19              	   along with the LZO library; see the file COPYING.
+  20              	   If not, write to the Free Software Foundation, Inc.,
+  21              	   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+  22              	
+  23              	   Markus F.X.J. Oberhumer
+  24              	   <markus@oberhumer.com>
+  25              	   http://www.oberhumer.com/opensource/lzo/
+  26              	 */
+  27              	
+  28              	
+  29              	/***********************************************************************
+  30              	//
+  31              	************************************************************************/
+  32              	
+  33 0000 55       	        pushl   %ebp
+  34 0001 57       	        pushl   %edi
+  35 0002 56       	        pushl   %esi
+  36 0003 53       	        pushl   %ebx
+  37 0004 51       	        pushl   %ecx
+  38 0005 52       	        pushl   %edx
+  39 0006 83EC0C   	        subl    $12,%esp
+  40              	
+  41 0009 FC       	        cld
+  42              	
+  43 000a 8B742428 	        movl    INP,%esi
+  44 000e 8B7C2430 	        movl    OUTP,%edi
+  45              	#if defined(N_3_EBP)
+  46 0012 BD030000 	        movl    $3,%ebp
+  46      00
+GAS LISTING /tmp/cc1UvS7D.s 			page 4
+
+
+  47              	#endif
+  48              	#if defined(N_255_EBP)
+  49              	        movl    $255,%ebp
+  50              	#endif
+  51              	
+  52              	#if defined(LZO_TEST_DECOMPRESS_OVERRUN_INPUT)
+  53              	#if defined(INIT_OVERRUN)
+  54              	        INIT_OVERRUN
+  55              	# undef INIT_OVERRUN
+  56              	#endif
+  57 0017 8D46FD   	        leal    -3(%esi),%eax       /* 3 == length of EOF code */
+  58 001a 0344242C 	        addl    INS,%eax
+  59 001e 89442404 	        movl    %eax,INEND
+  60              	#endif
+  61              	
+  62              	#if defined(LZO_TEST_DECOMPRESS_OVERRUN_OUTPUT)
+  63              	#if defined(INIT_OVERRUN)
+  64              	        INIT_OVERRUN
+  65              	# undef INIT_OVERRUN
+  66              	#endif
+  67 0022 89F8     	        movl    %edi,%eax
+  68 0024 8B542434 	        movl    OUTS,%edx
+  69 0028 0302     	        addl    (%edx),%eax
+  70 002a 890424   	        movl    %eax,OUTEND
+  71              	#endif
+  61              	#include "lzo1x_d.ash"
+   1              	/* lzo1x_d.ash -- assembler implementation of the LZO1X decompression algorithm
+   2              	
+   3              	   This file is part of the LZO real-time data compression library.
+   4              	
+   5              	   Copyright (C) 1996-2014 Markus Franz Xaver Johannes Oberhumer
+   6              	   All Rights Reserved.
+   7              	
+   8              	   The LZO library is free software; you can redistribute it and/or
+   9              	   modify it under the terms of the GNU General Public License as
+  10              	   published by the Free Software Foundation; either version 2 of
+  11              	   the License, or (at your option) any later version.
+  12              	
+  13              	   The LZO library is distributed in the hope that it will be useful,
+  14              	   but WITHOUT ANY WARRANTY; without even the implied warranty of
+  15              	   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  16              	   GNU General Public License for more details.
+  17              	
+  18              	   You should have received a copy of the GNU General Public License
+  19              	   along with the LZO library; see the file COPYING.
+  20              	   If not, write to the Free Software Foundation, Inc.,
+  21              	   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+  22              	
+  23              	   Markus F.X.J. Oberhumer
+  24              	   <markus@oberhumer.com>
+  25              	   http://www.oberhumer.com/opensource/lzo/
+  26              	 */
+  27              	
+  28              	
+  29              	#if !defined(LZO1X) && !defined(LZO1Y)
+  30              	#  define LZO1X
+  31              	#endif
+GAS LISTING /tmp/cc1UvS7D.s 			page 5
+
+
+  32              	
+  33              	#if defined(LZO_FAST)
+  34              	#  define NN    3
+  35              	#else
+  36              	#  define NN    0
+  37              	#endif
+  38              	
+  39              	
+  40              	/***********************************************************************
+  41              	// init
+  42              	************************************************************************/
+  43              	
+  44 002d 31C0     	        xorl    %eax,%eax
+  45 002f 31DB     	        xorl    %ebx,%ebx       /* high bits 9-32 stay 0 */
+  46 0031 AC       	        lodsb
+  47 0032 3C11     	        cmpb    $17,%al
+  48 0034 7637     	        jbe     .L01
+  49 0036 2C0E     	        subb    $17-NN,%al
+  50              	#if defined(LZO_FAST)
+  51 0038 EB3E     	        jmp     .LFLR
+  52              	#else
+  53              	        cmpb    $4,%al
+  54              	        jae     .LFLR
+  55              	#if 1
+  56              	        TEST_OP((%edi,%eax),%edx)
+  57              	        TEST_IP((%esi,%eax),%edx)
+  58              	        movl    %eax,%ecx
+  59              	        jmp     .LFLR2
+  60              	#else
+  61              	        jmp     .LFLR3
+  62              	#endif
+  63              	#endif
+  64              	
+  65              	
+  66              	/***********************************************************************
+  67              	// literal run
+  68              	************************************************************************/
+  69              	
+  70 003a 05FF0000 	0:      addl    N_255,%eax
+  70      00
+  71 003f 8D540612 	        TEST_IP(18(%esi,%eax),%edx)     /* minimum */
+  71      39542404 
+  71      0F824E02 
+  71      0000
+  72 004d 8A1E     	1:      movb    (%esi),%bl
+  73 004f 46       	        incl    %esi
+  74 0050 08DB     	        orb     %bl,%bl
+  75 0052 74E6     	        jz      0b
+  76 0054 8D441815 	        leal    18+NN(%eax,%ebx),%eax
+  77 0058 EB1E     	        jmp     3f
+  78              	
+  79              	
+  80 005a 8DB60000 	        ALIGN3
+  80      0000
+  81              	.L00:
+  82              	#ifdef LZO_DEBUG
+  83              	    andl $0xffffff00,%eax ; jnz .L_assert_fail
+GAS LISTING /tmp/cc1UvS7D.s 			page 6
+
+
+  84              	    andl $0xffffff00,%ebx ; jnz .L_assert_fail
+  85              	    xorl %eax,%eax ; xorl %ebx,%ebx
+  86              	    xorl %ecx,%ecx ; xorl %edx,%edx
+  87              	#endif
+  88 0060 39742404 	        TEST_IP_R(%esi)
+  88      0F823102 
+  88      0000
+  89 006a 8A0646   	        LODSB
+  90              	.L01:
+  91 006d 3C10     	        cmpb    $16,%al
+  92 006f 7377     	        jae     .LMATCH
+  93              	
+  94              	/* a literal run */
+  95 0071 08C0     	        orb     %al,%al
+  96 0073 74D8     	        jz      1b
+  97 0075 83C006   	        addl    $3+NN,%eax
+  98              	3:
+  99              	.LFLR:
+ 100 0078 8D5407FD 	        TEST_OP(-NN(%edi,%eax),%edx)
+ 100      3914240F 
+ 100      821D0200 
+ 100      00
+ 101 0085 8D5406FD 	        TEST_IP(-NN(%esi,%eax),%edx)
+ 101      39542404 
+ 101      0F820802 
+ 101      0000
+ 102              	#if defined(LZO_FAST)
+ 103 0093 89C1     	        movl    %eax,%ecx
+ 104 0095 31E8     	        NOTL_3(%eax)
+ 105 0097 C1E902   	        shrl    $2,%ecx
+ 106 009a 21E8     	        andl    N_3,%eax
+ 107 009c 8B1683C6 	        COPYL(%esi,%edi,%edx)
+ 107      04891783 
+ 107      C7044975 
+ 107      F3
+ 108 00a9 29C6     	        subl    %eax,%esi
+ 109 00ab 29C7     	        subl    %eax,%edi
+ 110              	#else
+ 111              	        movl    %eax,%ecx
+ 112              	        shrl    $2,%eax
+ 113              	        andl    N_3,%ecx
+ 114              	        COPYL_C(%esi,%edi,%edx,%eax)
+ 115              	.LFLR2:
+ 116              	        rep
+ 117              	        movsb
+ 118              	#endif
+ 119              	
+ 120              	#ifdef LZO_DEBUG
+ 121              	    andl $0xffffff00,%eax ; jnz .L_assert_fail
+ 122              	    andl $0xffffff00,%ebx ; jnz .L_assert_fail
+ 123              	    xorl %eax,%eax ; xorl %ebx,%ebx
+ 124              	    xorl %ecx,%ecx ; xorl %edx,%edx
+ 125              	#endif
+ 126 00ad 8A0646   	        LODSB
+ 127 00b0 3C10     	        cmpb    $16,%al
+ 128 00b2 7334     	        jae     .LMATCH
+ 129              	
+GAS LISTING /tmp/cc1UvS7D.s 			page 7
+
+
+ 130              	
+ 131              	/***********************************************************************
+ 132              	// R1
+ 133              	************************************************************************/
+ 134              	
+ 135 00b4 8D570339 	        TEST_OP(3(%edi),%edx)
+ 135      14240F82 
+ 135      E2010000 
+ 136 00c0 C1E802   	        shrl    $2,%eax
+ 137 00c3 8A1E     	        movb    (%esi),%bl
+ 138              	#if defined(LZO1X)
+ 139 00c5 8D97FFF7 	        leal    -0x801(%edi),%edx
+ 139      FFFF
+ 140              	#elif defined(LZO1Y)
+ 141              	        leal    -0x401(%edi),%edx
+ 142              	#endif
+ 143 00cb 8D0498   	        leal    (%eax,%ebx,4),%eax
+ 144 00ce 46       	        incl    %esi
+ 145 00cf 29C2     	        subl    %eax,%edx
+ 146 00d1 3B542430 	        TEST_LOOKBEHIND(%edx)
+ 146      0F82CE01 
+ 146      0000
+ 147              	#if defined(LZO_FAST)
+ 148 00db 8B0A     	        movl    (%edx),%ecx
+ 149 00dd 890F     	        movl    %ecx,(%edi)
+ 150              	#else
+ 151              	        movb    (%edx),%al
+ 152              	        movb    %al,(%edi)
+ 153              	        movb    1(%edx),%al
+ 154              	        movb    %al,1(%edi)
+ 155              	        movb    2(%edx),%al
+ 156              	        movb    %al,2(%edi)
+ 157              	#endif
+ 158 00df 01EF     	        addl    N_3,%edi
+ 159 00e1 E9970000 	        jmp     .LMDONE
+ 159      00
+ 160              	
+ 161              	
+ 162              	/***********************************************************************
+ 163              	// M2
+ 164              	************************************************************************/
+ 165              	
+ 166 00e6 6690     	        ALIGN3
+ 167              	.LMATCH:
+ 168 00e8 3C40     	        cmpb    $64,%al
+ 169 00ea 7244     	        jb      .LM3MATCH
+ 170              	
+ 171              	/* a M2 match */
+ 172 00ec 89C1     	        movl    %eax,%ecx
+ 173 00ee C1E802   	        shrl    $2,%eax
+ 174 00f1 8D57FF   	        leal    -1(%edi),%edx
+ 175              	#if defined(LZO1X)
+ 176 00f4 83E007   	        andl    $7,%eax
+ 177 00f7 8A1E     	        movb    (%esi),%bl
+ 178 00f9 C1E905   	        shrl    $5,%ecx
+ 179 00fc 8D04D8   	        leal    (%eax,%ebx,8),%eax
+ 180              	#elif defined(LZO1Y)
+GAS LISTING /tmp/cc1UvS7D.s 			page 8
+
+
+ 181              	        andl    N_3,%eax
+ 182              	        movb    (%esi),%bl
+ 183              	        shrl    $4,%ecx
+ 184              	        leal    (%eax,%ebx,4),%eax
+ 185              	#endif
+ 186 00ff 46       	        incl    %esi
+ 187 0100 29C2     	        subl    %eax,%edx
+ 188              	
+ 189              	#if defined(LZO_FAST)
+ 190              	#if defined(LZO1X)
+ 191 0102 83C104   	        addl    $1+3,%ecx
+ 192              	#elif defined(LZO1Y)
+ 193              	        addl    $2,%ecx
+ 194              	#endif
+ 195              	#else
+ 196              	#if defined(LZO1X)
+ 197              	        incl    %ecx
+ 198              	#elif defined(LZO1Y)
+ 199              	        decl    %ecx
+ 200              	#endif
+ 201              	#endif
+ 202              	
+ 203 0105 39E8     	        cmpl    N_3,%eax
+ 204 0107 7349     	        jae     .LCOPYLONG
+ 205 0109 E9AA0000 	        jmp     .LCOPYBYTE
+ 205      00
+ 206              	
+ 207              	
+ 208              	/***********************************************************************
+ 209              	// M3
+ 210              	************************************************************************/
+ 211              	
+ 212 010e 05FF0000 	0:      addl    N_255,%eax
+ 212      00
+ 213 0113 8D560339 	        TEST_IP(3(%esi),%edx)       /* minimum */
+ 213      5424040F 
+ 213      827B0100 
+ 213      00
+ 214 0120 8A1E     	1:      movb    (%esi),%bl
+ 215 0122 46       	        incl    %esi
+ 216 0123 08DB     	        orb     %bl,%bl
+ 217 0125 74E7     	        jz      0b
+ 218 0127 8D4C1824 	        leal    33+NN(%eax,%ebx),%ecx
+ 219 012b 31C0     	        xorl    %eax,%eax
+ 220 012d EB11     	        jmp     3f
+ 221              	
+ 222              	
+ 223 012f 90       	        ALIGN3
+ 224              	.LM3MATCH:
+ 225 0130 3C20     	        cmpb    $32,%al
+ 226 0132 0F82C800 	        jb      .LM4MATCH
+ 226      0000
+ 227              	
+ 228              	/* a M3 match */
+ 229 0138 83E01F   	        andl    $31,%eax
+ 230 013b 74E3     	        jz      1b
+ 231 013d 8D4805   	        lea     2+NN(%eax),%ecx
+GAS LISTING /tmp/cc1UvS7D.s 			page 9
+
+
+ 232              	3:
+ 233              	#ifdef LZO_DEBUG
+ 234              	    andl $0xffff0000,%eax ; jnz .L_assert_fail
+ 235              	#endif
+ 236 0140 668B06   	        movw    (%esi),%ax
+ 237 0143 8D57FF   	        leal    -1(%edi),%edx
+ 238 0146 C1E802   	        shrl    $2,%eax
+ 239 0149 83C602   	        addl    $2,%esi
+ 240 014c 29C2     	        subl    %eax,%edx
+ 241              	
+ 242 014e 39E8     	        cmpl    N_3,%eax
+ 243 0150 7266     	        jb      .LCOPYBYTE
+ 244              	
+ 245              	
+ 246              	/***********************************************************************
+ 247              	// copy match
+ 248              	************************************************************************/
+ 249              	
+ 250              	        ALIGN1
+ 251              	.LCOPYLONG:                      /* copy match using longwords */
+ 252 0152 3B542430 	        TEST_LOOKBEHIND(%edx)
+ 252      0F824D01 
+ 252      0000
+ 253              	#if defined(LZO_FAST)
+ 254 015c 8D440FFD 	        leal    -3(%edi,%ecx),%eax
+ 255 0160 C1E902   	        shrl    $2,%ecx
+ 256 0163 3904240F 	        TEST_OP_R(%eax)
+ 256      82360100 
+ 256      00
+ 257 016c 8B1A83C2 	        COPYL(%edx,%edi,%ebx)
+ 257      04891F83 
+ 257      C7044975 
+ 257      F3
+ 258 0179 89C7     	        movl    %eax,%edi
+ 259 017b 31DB     	        xorl    %ebx,%ebx
+ 260              	#else
+ 261              	        TEST_OP((%edi,%ecx),%eax)
+ 262              	        movl    %ecx,%ebx
+ 263              	        shrl    $2,%ebx
+ 264              	        jz      2f
+ 265              	        COPYL_C(%edx,%edi,%eax,%ebx)
+ 266              	        andl    N_3,%ecx
+ 267              	        jz      1f
+ 268              	2:      COPYB_C(%edx,%edi,%al,%ecx)
+ 269              	1:
+ 270              	#endif
+ 271              	
+ 272              	.LMDONE:
+ 273 017d 8A46FE   	        movb    -2(%esi),%al
+ 274 0180 21E8     	        andl    N_3,%eax
+ 275 0182 0F84D8FE 	        jz      .L00
+ 275      FFFF
+ 276              	.LFLR3:
+ 277 0188 8D140739 	        TEST_OP((%edi,%eax),%edx)
+ 277      14240F82 
+ 277      0E010000 
+ 278 0194 8D140639 	        TEST_IP((%esi,%eax),%edx)
+GAS LISTING /tmp/cc1UvS7D.s 			page 10
+
+
+ 278      5424040F 
+ 278      82FA0000 
+ 278      00
+ 279              	#if defined(LZO_FAST)
+ 280 01a1 8B16     	        movl    (%esi),%edx
+ 281 01a3 01C6     	        addl    %eax,%esi
+ 282 01a5 8917     	        movl    %edx,(%edi)
+ 283 01a7 01C7     	        addl    %eax,%edi
+ 284              	#else
+ 285              	        COPYB_C(%esi,%edi,%cl,%eax)
+ 286              	#endif
+ 287              	
+ 288              	#ifdef LZO_DEBUG
+ 289              	    andl $0xffffff00,%eax ; jnz .L_assert_fail
+ 290              	    andl $0xffffff00,%ebx ; jnz .L_assert_fail
+ 291              	    xorl %eax,%eax ; xorl %ebx,%ebx
+ 292              	    xorl %ecx,%ecx ; xorl %edx,%edx
+ 293              	#endif
+ 294 01a9 8A0646   	        LODSB
+ 295 01ac E937FFFF 	        jmp     .LMATCH
+ 295      FF
+ 296              	
+ 297              	
+ 298 01b1 8DB42600 	        ALIGN3
+ 298      000000
+ 299              	.LCOPYBYTE:                      /* copy match using bytes */
+ 300 01b8 3B542430 	        TEST_LOOKBEHIND(%edx)
+ 300      0F82E700 
+ 300      0000
+ 301 01c2 8D440FFD 	        TEST_OP(-NN(%edi,%ecx),%eax)
+ 301      3904240F 
+ 301      82D30000 
+ 301      00
+ 302 01cf 87D6     	        xchgl   %edx,%esi
+ 303              	#if defined(LZO_FAST)
+ 304 01d1 29E9     	        subl    N_3,%ecx
+ 305              	#endif
+ 306 01d3 F3       	        rep
+ 307 01d4 A4       	        movsb
+ 308 01d5 89D6     	        movl    %edx,%esi
+ 309 01d7 EBA4     	        jmp     .LMDONE
+ 310              	
+ 311              	
+ 312              	/***********************************************************************
+ 313              	// M4
+ 314              	************************************************************************/
+ 315              	
+ 316 01d9 81C1FF00 	0:      addl    N_255,%ecx
+ 316      0000
+ 317 01df 8D560339 	        TEST_IP(3(%esi),%edx)       /* minimum */
+ 317      5424040F 
+ 317      82AF0000 
+ 317      00
+ 318 01ec 8A1E     	1:      movb    (%esi),%bl
+ 319 01ee 46       	        incl    %esi
+ 320 01ef 08DB     	        orb     %bl,%bl
+ 321 01f1 74E6     	        jz      0b
+GAS LISTING /tmp/cc1UvS7D.s 			page 11
+
+
+ 322 01f3 8D4C0B0C 	        leal    9+NN(%ebx,%ecx),%ecx
+ 323 01f7 EB1B     	        jmp     3f
+ 324              	
+ 325              	
+ 326 01f9 8DB42600 	        ALIGN3
+ 326      000000
+ 327              	.LM4MATCH:
+ 328 0200 3C10     	        cmpb    $16,%al
+ 329 0202 722C     	        jb      .LM1MATCH
+ 330              	
+ 331              	/* a M4 match */
+ 332 0204 89C1     	        movl    %eax,%ecx
+ 333 0206 83E008   	        andl    $8,%eax
+ 334 0209 C1E00D   	        shll    $13,%eax        /* save in bit 16 */
+ 335 020c 83E107   	        andl    $7,%ecx
+ 336 020f 74DB     	        jz      1b
+ 337 0211 83C105   	        addl    $2+NN,%ecx
+ 338              	3:
+ 339              	#ifdef LZO_DEBUG
+ 340              	    movl %eax,%edx ; andl $0xfffe0000,%edx ; jnz .L_assert_fail
+ 341              	#endif
+ 342 0214 668B06   	        movw    (%esi),%ax
+ 343 0217 83C602   	        addl    $2,%esi
+ 344 021a 8D9700C0 	        leal    -0x4000(%edi),%edx
+ 344      FFFF
+ 345 0220 C1E802   	        shrl    $2,%eax
+ 346 0223 7439     	        jz      .LEOF
+ 347 0225 29C2     	        subl    %eax,%edx
+ 348 0227 E926FFFF 	        jmp     .LCOPYLONG
+ 348      FF
+ 349              	
+ 350              	
+ 351              	/***********************************************************************
+ 352              	// M1
+ 353              	************************************************************************/
+ 354              	
+ 355 022c 8D742600 	        ALIGN3
+ 356              	.LM1MATCH:
+ 357              	/* a M1 match */
+ 358 0230 8D570239 	        TEST_OP(2(%edi),%edx)
+ 358      1424726A 
+ 359 0238 C1E802   	        shrl    $2,%eax
+ 360 023b 8A1E     	        movb    (%esi),%bl
+ 361 023d 8D57FF   	        leal    -1(%edi),%edx
+ 362 0240 8D0498   	        leal    (%eax,%ebx,4),%eax
+ 363 0243 46       	        incl    %esi
+ 364 0244 29C2     	        subl    %eax,%edx
+ 365 0246 3B542430 	        TEST_LOOKBEHIND(%edx)
+ 365      725D
+ 366              	
+ 367 024c 8A02     	        movb    (%edx),%al      /* we must use this because edx can be edi-1 */
+ 368 024e 8807     	        movb    %al,(%edi)
+ 369 0250 8A5A01   	        movb    1(%edx),%bl
+ 370 0253 885F01   	        movb    %bl,1(%edi)
+ 371 0256 83C702   	        addl    $2,%edi
+ 372 0259 E91FFFFF 	        jmp     .LMDONE
+ 372      FF
+GAS LISTING /tmp/cc1UvS7D.s 			page 12
+
+
+ 373              	
+ 374              	
+ 375              	/***********************************************************************
+ 376              	//
+ 377              	************************************************************************/
+ 378              	
+ 379              	.LEOF:
+ 380              	/****   xorl    %eax,%eax          eax=0 from above */
+ 381              	
+ 382 025e 83F906   	        cmpl    $3+NN,%ecx      /* ecx must be 3/6 */
+ 383 0261 0F95C0   	        setnz   %al
+ 384              	
+  62              	#include "leave.ash"
+   1              	/* leave.ash -- LZO assembler stuff
+   2              	
+   3              	   This file is part of the LZO real-time data compression library.
+   4              	
+   5              	   Copyright (C) 1996-2014 Markus Franz Xaver Johannes Oberhumer
+   6              	   All Rights Reserved.
+   7              	
+   8              	   The LZO library is free software; you can redistribute it and/or
+   9              	   modify it under the terms of the GNU General Public License as
+  10              	   published by the Free Software Foundation; either version 2 of
+  11              	   the License, or (at your option) any later version.
+  12              	
+  13              	   The LZO library is distributed in the hope that it will be useful,
+  14              	   but WITHOUT ANY WARRANTY; without even the implied warranty of
+  15              	   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  16              	   GNU General Public License for more details.
+  17              	
+  18              	   You should have received a copy of the GNU General Public License
+  19              	   along with the LZO library; see the file COPYING.
+  20              	   If not, write to the Free Software Foundation, Inc.,
+  21              	   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+  22              	
+  23              	   Markus F.X.J. Oberhumer
+  24              	   <markus@oberhumer.com>
+  25              	   http://www.oberhumer.com/opensource/lzo/
+  26              	 */
+  27              	
+  28              	
+  29              	/***********************************************************************
+  30              	//
+  31              	************************************************************************/
+  32              	
+  33              	/* check uncompressed size */
+  34              	#if defined(LZO_TEST_DECOMPRESS_OVERRUN_OUTPUT)
+  35 0264 3B3C24   	        cmpl    OUTEND,%edi
+  36 0267 7739     	        ja      .L_output_overrun
+  37              	#endif
+  38              	
+  39              	/* check compressed size */
+  40 0269 8B542428 	        movl    INP,%edx
+  41 026d 0354242C 	        addl    INS,%edx
+  42 0271 39D6     	        cmpl    %edx,%esi       /* check compressed size */
+  43 0273 7726     	        ja      .L_input_overrun
+  44 0275 721D     	        jb      .L_input_not_consumed
+GAS LISTING /tmp/cc1UvS7D.s 			page 13
+
+
+  45              	
+  46              	.L_leave:
+  47 0277 2B7C2430 	        subl    OUTP,%edi       /* write back the uncompressed size */
+  48 027b 8B542434 	        movl    OUTS,%edx
+  49 027f 893A     	        movl    %edi,(%edx)
+  50              	
+  51 0281 F7D8     	        negl    %eax
+  52 0283 83C40C   	        addl    $12,%esp
+  53 0286 5A       	        popl    %edx
+  54 0287 59       	        popl    %ecx
+  55 0288 5B       	        popl    %ebx
+  56 0289 5E       	        popl    %esi
+  57 028a 5F       	        popl    %edi
+  58 028b 5D       	        popl    %ebp
+  59              	#if 1
+  60 028c C3       	        ret
+  61              	#else
+  62              	        jmp     .L_end
+  63              	#endif
+  64              	
+  65              	
+  66              	.L_error:
+  67 028d B8010000 	        movl    $1,%eax         /* LZO_E_ERROR */
+  67      00
+  68 0292 EBE3     	        jmp     .L_leave
+  69              	
+  70              	.L_input_not_consumed:
+  71 0294 B8080000 	        movl    $8,%eax         /* LZO_E_INPUT_NOT_CONSUMED */
+  71      00
+  72 0299 EBDC     	        jmp     .L_leave
+  73              	
+  74              	.L_input_overrun:
+  75 029b B8040000 	        movl    $4,%eax         /* LZO_E_INPUT_OVERRUN */
+  75      00
+  76 02a0 EBD5     	        jmp     .L_leave
+  77              	
+  78              	#if defined(LZO_TEST_DECOMPRESS_OVERRUN_OUTPUT)
+  79              	.L_output_overrun:
+  80 02a2 B8050000 	        movl    $5,%eax         /* LZO_E_OUTPUT_OVERRUN */
+  80      00
+  81 02a7 EBCE     	        jmp     .L_leave
+  82              	#endif
+  83              	
+  84              	#if defined(LZO_TEST_DECOMPRESS_OVERRUN_LOOKBEHIND)
+  85              	.L_lookbehind_overrun:
+  86 02a9 B8060000 	        movl    $6,%eax         /* LZO_E_LOOKBEHIND_OVERRUN */
+  86      00
+  87 02ae EBC7     	        jmp     .L_leave
+  88              	#endif
+  89              	
+  90              	#if defined(LZO_DEBUG)
+  91              	.L_assert_fail:
+  92              	        movl    $99,%eax
+  93              	        jmp     .L_leave
+  94              	#endif
+  95              	
+  96              	.L_end:
+GAS LISTING /tmp/cc1UvS7D.s 			page 14
+
+
+  97              	
+  63              	
+  64              	    LZO_PUBLIC_END(lzo1x_decompress_asm_fast_safe)
+GAS LISTING /tmp/cc1UvS7D.s 			page 15
+
+
+DEFINED SYMBOLS
+/home/jmaggard/source/readynas-platform/boot/syslinux/core/lzo/lzo1x_f2.S:58     .textnr:0000000000000000 _lzo1x_decompress_asm_fast_safe
+
+NO UNDEFINED SYMBOLS

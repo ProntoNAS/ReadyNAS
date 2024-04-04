@@ -1,0 +1,45 @@
+From bc65eba19b5b010bf76378e230c4a28c29b56b24 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 18 Aug 2015 11:26:23 -0700
+Subject: [PATCH 1004/1016] btrfs: Automatically enable extended irefs
+
+We needn't set the INCOMAT_EXTENDED_IREF when making a new fs, just
+do it after we insert a extended iref successfully. Otherwise, we
+can not mount the fs in which there is no extended iref in fact on
+the old kernel, it is not so flexible for the users.
+---
+ fs/btrfs/inode-item.c | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/fs/btrfs/inode-item.c b/fs/btrfs/inode-item.c
+index be4d22a..b25f5c9 100644
+--- a/fs/btrfs/inode-item.c
++++ b/fs/btrfs/inode-item.c
+@@ -384,15 +384,15 @@ out:
+ 	btrfs_free_path(path);
+ 
+ 	if (ret == -EMLINK) {
+-		struct btrfs_super_block *disk_super = root->fs_info->super_copy;
+-		/* We ran out of space in the ref array. Need to
+-		 * add an extended ref. */
+-		if (btrfs_super_incompat_flags(disk_super)
+-		    & BTRFS_FEATURE_INCOMPAT_EXTENDED_IREF)
+-			ret = btrfs_insert_inode_extref(trans, root, name,
+-							name_len,
+-							inode_objectid,
+-							ref_objectid, index);
++		/*
++		 * We ran out of space in the ref array. Need to add an
++		 * extended ref.
++		 */
++		ret = btrfs_insert_inode_extref(trans, root, name, name_len,
++						inode_objectid, ref_objectid,
++						index);
++		if (!ret)
++			btrfs_set_fs_incompat(root->fs_info, EXTENDED_IREF);
+ 	}
+ 
+ 	return ret;
+-- 
+1.9.1
+

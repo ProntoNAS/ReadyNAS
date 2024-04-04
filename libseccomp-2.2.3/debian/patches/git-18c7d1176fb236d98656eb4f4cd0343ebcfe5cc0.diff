@@ -1,0 +1,293 @@
+commit 18c7d1176fb236d98656eb4f4cd0343ebcfe5cc0
+Author: Paul Moore <pmoore@redhat.com>
+Date:   Wed Aug 5 12:04:11 2015 -0400
+
+    arch: update the syscall tables for 4.2-rc5
+    
+    The only update this time around is "switch_endian" for ppc.
+    
+    Signed-off-by: Paul Moore <pmoore@redhat.com>
+diff --git a/include/seccomp.h.in b/include/seccomp.h.in
+index d100dc8..08eae61 100644
+--- a/include/seccomp.h.in
++++ b/include/seccomp.h.in
+@@ -1521,6 +1521,11 @@ int seccomp_export_bpf(const scmp_filter_ctx ctx, int fd);
+ #define __NR_sys_debug_setcontext	__PNR_sys_debug_setcontext
+ #endif /* __NR_sys_debug_setcontext */
+ 
++#define __PNR_switch_endian	-10191
++#ifndef __NR_switch_endian
++#define __NR_switch_endian	__PNR_switch_endian
++#endif /* __NR_switch_endian */
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/arch-aarch64-syscalls.c b/src/arch-aarch64-syscalls.c
+index 315be10..43d77ad 100644
+--- a/src/arch-aarch64-syscalls.c
++++ b/src/arch-aarch64-syscalls.c
+@@ -26,7 +26,7 @@
+ #include "arch.h"
+ #include "arch-aarch64.h"
+ 
+-/* NOTE: based on Linux 3.19 */
++/* NOTE: based on Linux 4.2-rc5 */
+ const struct arch_syscall_def aarch64_syscall_table[] = { \
+ 	{ "_llseek", __PNR__llseek },
+ 	{ "_newselect", __PNR__newselect },
+@@ -387,6 +387,7 @@ const struct arch_syscall_def aarch64_syscall_table[] = { \
+ 	{ "swapcontext", __PNR_swapcontext },
+ 	{ "swapoff", 225 },
+ 	{ "swapon", 224 },
++	{ "switch_endian", __PNR_switch_endian },
+ 	{ "symlink", __PNR_symlink },
+ 	{ "symlinkat", 36 },
+ 	{ "sync", 81 },
+diff --git a/src/arch-arm-syscalls.c b/src/arch-arm-syscalls.c
+index 3d75062..211bbec 100644
+--- a/src/arch-arm-syscalls.c
++++ b/src/arch-arm-syscalls.c
+@@ -37,7 +37,7 @@
+ #define __NR_SYSCALL_BASE	__NR_OABI_SYSCALL_BASE
+ #endif
+ 
+-/* NOTE: based on Linux 3.19 */
++/* NOTE: based on Linux 4.2-rc5 */
+ const struct arch_syscall_def arm_syscall_table[] = { \
+ 	/* NOTE: arm_sync_file_range() and sync_file_range2() share values */
+ 	{ "_llseek", (__NR_SYSCALL_BASE + 140) },
+@@ -399,13 +399,14 @@ const struct arch_syscall_def arm_syscall_table[] = { \
+ 	{ "swapcontext", __PNR_swapcontext },
+ 	{ "swapoff", (__NR_SYSCALL_BASE + 115) },
+ 	{ "swapon", (__NR_SYSCALL_BASE + 87) },
++	{ "switch_endian", __PNR_switch_endian },
+ 	{ "symlink", (__NR_SYSCALL_BASE + 83) },
+ 	{ "symlinkat", (__NR_SYSCALL_BASE + 331) },
+ 	{ "sync", (__NR_SYSCALL_BASE + 36) },
+ 	{ "sync_file_range", __PNR_sync_file_range },
+ 	{ "sync_file_range2", (__NR_SYSCALL_BASE + 341) },
+ 	{ "syncfs", (__NR_SYSCALL_BASE + 373) },
+-	{ "syscall", (__NR_SYSCALL_BASE + 113) },
++	{ "syscall", (__PNR_syscall) },
+ 	{ "sys_debug_setcontext", __PNR_sys_debug_setcontext },
+ 	{ "sysfs", (__NR_SYSCALL_BASE + 135) },
+ 	{ "sysinfo", (__NR_SYSCALL_BASE + 116) },
+diff --git a/src/arch-mips-syscalls.c b/src/arch-mips-syscalls.c
+index f02988e..1fe9315 100644
+--- a/src/arch-mips-syscalls.c
++++ b/src/arch-mips-syscalls.c
+@@ -30,7 +30,7 @@
+ /* O32 ABI */
+ #define __NR_SYSCALL_BASE	4000
+ 
+-/* NOTE: based on Linux 3.19 */
++/* NOTE: based on Linux 4.2-rc5 */
+ const struct arch_syscall_def mips_syscall_table[] = { \
+ 	{ "_llseek", (__NR_SYSCALL_BASE + 140) },
+ 	{ "_newselect", (__NR_SYSCALL_BASE + 142) },
+@@ -391,6 +391,7 @@ const struct arch_syscall_def mips_syscall_table[] = { \
+ 	{ "swapcontext", __PNR_swapcontext },
+ 	{ "swapoff", (__NR_SYSCALL_BASE + 115) },
+ 	{ "swapon", (__NR_SYSCALL_BASE + 87) },
++	{ "switch_endian", __PNR_switch_endian },
+ 	{ "symlink", (__NR_SYSCALL_BASE + 83) },
+ 	{ "symlinkat", (__NR_SYSCALL_BASE + 297) },
+ 	{ "sync", (__NR_SYSCALL_BASE + 36) },
+diff --git a/src/arch-mips64-syscalls.c b/src/arch-mips64-syscalls.c
+index 7faea23..493fe87 100644
+--- a/src/arch-mips64-syscalls.c
++++ b/src/arch-mips64-syscalls.c
+@@ -30,7 +30,7 @@
+ /* 64 ABI */
+ #define __NR_SYSCALL_BASE	5000
+ 
+-/* NOTE: based on Linux 3.19 */
++/* NOTE: based on Linux 4.2-rc5 */
+ const struct arch_syscall_def mips64_syscall_table[] = { \
+ 	{ "_llseek", __PNR__llseek },
+ 	{ "_newselect", (__NR_SYSCALL_BASE + 22) },
+@@ -391,6 +391,7 @@ const struct arch_syscall_def mips64_syscall_table[] = { \
+ 	{ "swapcontext", __PNR_swapcontext },
+ 	{ "swapoff", (__NR_SYSCALL_BASE + 163) },
+ 	{ "swapon", (__NR_SYSCALL_BASE + 162) },
++	{ "switch_endian", __PNR_switch_endian },
+ 	{ "symlink", (__NR_SYSCALL_BASE + 86) },
+ 	{ "symlinkat", (__NR_SYSCALL_BASE + 256) },
+ 	{ "sync", (__NR_SYSCALL_BASE + 157) },
+diff --git a/src/arch-mips64n32-syscalls.c b/src/arch-mips64n32-syscalls.c
+index 18ee476..e1cbf5c 100644
+--- a/src/arch-mips64n32-syscalls.c
++++ b/src/arch-mips64n32-syscalls.c
+@@ -30,7 +30,7 @@
+ /* N32 ABI */
+ #define __NR_SYSCALL_BASE	6000
+ 
+-/* NOTE: based on Linux 3.19 */
++/* NOTE: based on Linux 4.2-rc5 */
+ const struct arch_syscall_def mips64n32_syscall_table[] = { \
+ 	{ "_llseek", __PNR__llseek },
+ 	{ "_newselect", (__NR_SYSCALL_BASE + 22) },
+@@ -391,6 +391,7 @@ const struct arch_syscall_def mips64n32_syscall_table[] = { \
+ 	{ "swapcontext", __PNR_swapcontext },
+ 	{ "swapoff", (__NR_SYSCALL_BASE + 163) },
+ 	{ "swapon", (__NR_SYSCALL_BASE + 162) },
++	{ "switch_endian", __PNR_switch_endian },
+ 	{ "symlink", (__NR_SYSCALL_BASE + 86) },
+ 	{ "symlinkat", (__NR_SYSCALL_BASE + 260) },
+ 	{ "sync", (__NR_SYSCALL_BASE + 157) },
+diff --git a/src/arch-ppc-syscalls.c b/src/arch-ppc-syscalls.c
+index 32fc05a..92fa1c3 100644
+--- a/src/arch-ppc-syscalls.c
++++ b/src/arch-ppc-syscalls.c
+@@ -27,7 +27,7 @@
+ #include "arch.h"
+ #include "arch-ppc.h"
+ 
+-/* NOTE: based on Linux 3.19 */
++/* NOTE: based on Linux 4.2-rc5 */
+ const struct arch_syscall_def ppc_syscall_table[] = { \
+ 	{ "_llseek", 140 },
+ 	{ "_newselect", 142 },
+@@ -47,6 +47,7 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
+ 	{ "bind", 327 },
+ 	{ "bpf", 361 },
+ 	{ "break", 17 },
++	{ "breakpoint", __PNR_breakpoint },
+ 	{ "brk", 45 },
+ 	{ "cachectl", __PNR_cachectl },
+ 	{ "cacheflush", __PNR_cacheflush },
+@@ -325,6 +326,7 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
+ 	{ "set_robust_list", 300 },
+ 	{ "set_thread_area", __PNR_set_thread_area },
+ 	{ "set_tid_address", 232 },
++	{ "set_tls", __PNR_set_tls },
+ 	{ "setdomainname", 121 },
+ 	{ "setfsgid", 139 },
+ 	{ "setfsgid32", __PNR_setfsgid32 },
+@@ -386,6 +388,7 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
+ 	{ "swapcontext", 249 },
+ 	{ "swapoff", 115 },
+ 	{ "swapon", 87 },
++	{ "switch_endian", 363 },
+ 	{ "symlink", 83 },
+ 	{ "symlinkat", 295 },
+ 	{ "sync", 36 },
+@@ -425,6 +428,8 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
+ 	{ "unlinkat", 292 },
+ 	{ "unshare", 282 },
+ 	{ "uselib", 86 },
++	{ "usr26", __PNR_usr26 },
++	{ "usr32", __PNR_usr32 },
+ 	{ "ustat", 62 },
+ 	{ "utime", 30 },
+ 	{ "utimensat", 304 },
+diff --git a/src/arch-ppc64-syscalls.c b/src/arch-ppc64-syscalls.c
+index 1c2a1df..b23d743 100644
+--- a/src/arch-ppc64-syscalls.c
++++ b/src/arch-ppc64-syscalls.c
+@@ -27,7 +27,7 @@
+ #include "arch.h"
+ #include "arch-ppc64.h"
+ 
+-/* NOTE: based on Linux 3.19 */
++/* NOTE: based on Linux 4.2-rc5 */
+ const struct arch_syscall_def ppc64_syscall_table[] = { \
+ 	{ "_llseek", 140 },
+ 	{ "_newselect", 142 },
+@@ -47,6 +47,7 @@ const struct arch_syscall_def ppc64_syscall_table[] = { \
+ 	{ "bind", 327 },
+ 	{ "bpf", 361 },
+ 	{ "break", 17 },
++	{ "breakpoint", __PNR_breakpoint },
+ 	{ "brk", 45 },
+ 	{ "cachectl", __PNR_cachectl },
+ 	{ "cacheflush", __PNR_cacheflush },
+@@ -325,6 +326,7 @@ const struct arch_syscall_def ppc64_syscall_table[] = { \
+ 	{ "set_robust_list", 300 },
+ 	{ "set_thread_area", __PNR_set_thread_area },
+ 	{ "set_tid_address", 232 },
++	{ "set_tls", __PNR_set_tls },
+ 	{ "setdomainname", 121 },
+ 	{ "setfsgid", 139 },
+ 	{ "setfsgid32", __PNR_setfsgid32 },
+@@ -386,6 +388,7 @@ const struct arch_syscall_def ppc64_syscall_table[] = { \
+ 	{ "swapcontext", 249 },
+ 	{ "swapoff", 115 },
+ 	{ "swapon", 87 },
++	{ "switch_endian", __PNR_switch_endian },
+ 	{ "symlink", 83 },
+ 	{ "symlinkat", 295 },
+ 	{ "sync", 36 },
+@@ -425,6 +428,8 @@ const struct arch_syscall_def ppc64_syscall_table[] = { \
+ 	{ "unlinkat", 292 },
+ 	{ "unshare", 282 },
+ 	{ "uselib", 86 },
++	{ "usr26", __PNR_usr26 },
++	{ "usr32", __PNR_usr32 },
+ 	{ "ustat", 62 },
+ 	{ "utime", 30 },
+ 	{ "utimensat", 304 },
+diff --git a/src/arch-x32-syscalls.c b/src/arch-x32-syscalls.c
+index a0b4247..66a58a1 100644
+--- a/src/arch-x32-syscalls.c
++++ b/src/arch-x32-syscalls.c
+@@ -26,7 +26,7 @@
+ #include "arch.h"
+ #include "arch-x32.h"
+ 
+-/* NOTE: based on Linux 3.19 */
++/* NOTE: based on Linux 4.2-rc5 */
+ const struct arch_syscall_def x32_syscall_table[] = { \
+ 	{ "_llseek", __PNR__llseek },
+ 	{ "_newselect", __PNR__newselect },
+@@ -387,6 +387,7 @@ const struct arch_syscall_def x32_syscall_table[] = { \
+ 	{ "swapcontext", __PNR_swapcontext },
+ 	{ "swapoff", (X32_SYSCALL_BIT + 168) },
+ 	{ "swapon", (X32_SYSCALL_BIT + 167) },
++	{ "switch_endian", __PNR_switch_endian },
+ 	{ "symlink", (X32_SYSCALL_BIT + 88) },
+ 	{ "symlinkat", (X32_SYSCALL_BIT + 266) },
+ 	{ "sync", (X32_SYSCALL_BIT + 162) },
+diff --git a/src/arch-x86-syscalls.c b/src/arch-x86-syscalls.c
+index d27a4d1..53f7cfa 100644
+--- a/src/arch-x86-syscalls.c
++++ b/src/arch-x86-syscalls.c
+@@ -26,7 +26,7 @@
+ #include "arch.h"
+ #include "arch-x86.h"
+ 
+-/* NOTE: based on Linux 3.19 */
++/* NOTE: based on Linux 4.2-rc5 */
+ const struct arch_syscall_def x86_syscall_table[] = { \
+ 	{ "_llseek", 140 },
+ 	{ "_newselect", 142 },
+@@ -387,6 +387,7 @@ const struct arch_syscall_def x86_syscall_table[] = { \
+ 	{ "swapcontext", __PNR_swapcontext },
+ 	{ "swapoff", 115 },
+ 	{ "swapon", 87 },
++	{ "switch_endian", __PNR_switch_endian },
+ 	{ "symlink", 83 },
+ 	{ "symlinkat", 304 },
+ 	{ "sync", 36 },
+diff --git a/src/arch-x86_64-syscalls.c b/src/arch-x86_64-syscalls.c
+index cd9eb6d..b50ec23 100644
+--- a/src/arch-x86_64-syscalls.c
++++ b/src/arch-x86_64-syscalls.c
+@@ -26,7 +26,7 @@
+ #include "arch.h"
+ #include "arch-x86_64.h"
+ 
+-/* NOTE: based on Linux 3.19 */
++/* NOTE: based on Linux 4.2-rc5 */
+ const struct arch_syscall_def x86_64_syscall_table[] = { \
+ 	{ "_llseek", __PNR__llseek },
+ 	{ "_newselect", __PNR__newselect },
+@@ -387,6 +387,7 @@ const struct arch_syscall_def x86_64_syscall_table[] = { \
+ 	{ "swapcontext", __PNR_swapcontext },
+ 	{ "swapoff", 168 },
+ 	{ "swapon", 167 },
++	{ "switch_endian", __PNR_switch_endian },
+ 	{ "symlink", 88 },
+ 	{ "symlinkat", 266 },
+ 	{ "sync", 162 },

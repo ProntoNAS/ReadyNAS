@@ -1,0 +1,23 @@
+#!/usr/bin/make -f
+
+%:
+	dh ${@} --with autoreconf
+
+override_dh_auto_install:
+	dh_auto_install
+
+	# Installing additional documentation
+	mkdir -p debian/giflib-tools/usr/share/doc/giflib-tools/html
+	cp -a doc/*.txt debian/giflib-tools/usr/share/doc/giflib-tools/
+	cp -a doc/*.html debian/giflib-tools/usr/share/doc/giflib-tools/html
+
+	# Creating manpages "on the fly"
+	for i in `ls debian/tmp/usr/bin`; do \
+	  if [ ! -e debian/$$i.1 ]; then \
+	    sed -f debian/htmltoman.sed doc/$$i.html > debian/$$i.1 && \
+	    echo debian/$$i.1 >> debian/giflib-tools.manpages; \
+	  fi \
+	done
+
+override_dh_strip:
+	dh_strip --dbg-package=giflib-dbg

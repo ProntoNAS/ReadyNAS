@@ -1,0 +1,35 @@
+From: Gaurav Gupta <g.gupta@samsung.com>
+Date: Thu, 7 Aug 2014 11:19:03 +0800
+Subject: Couple of Missing Null checks
+
+For https://bugzilla.gnome.org/show_bug.cgi?id=734328
+
+Missing Null check could cause crash, if a pointer is dereferenced.
+
+Found problem at two places in valid.c
+---
+ valid.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/valid.c b/valid.c
+index 114bb72..6255b5b 100644
+--- a/valid.c
++++ b/valid.c
+@@ -1798,6 +1798,7 @@ xmlCopyEnumeration(xmlEnumerationPtr cur) {
+ 
+     if (cur == NULL) return(NULL);
+     ret = xmlCreateEnumeration((xmlChar *) cur->name);
++    if (ret == NULL) return(NULL);
+ 
+     if (cur->next != NULL) ret->next = xmlCopyEnumeration(cur->next);
+     else ret->next = NULL;
+@@ -6998,6 +6999,9 @@ xmlValidGetValidElements(xmlNode *prev, xmlNode *next, const xmlChar **names,
+      * Creates a dummy node and insert it into the tree
+      */
+     test_node = xmlNewDocNode (ref_node->doc, NULL, BAD_CAST "<!dummy?>", NULL);
++    if (test_node == NULL)
++        return(-1);
++
+     test_node->parent = parent;
+     test_node->prev = prev;
+     test_node->next = next;

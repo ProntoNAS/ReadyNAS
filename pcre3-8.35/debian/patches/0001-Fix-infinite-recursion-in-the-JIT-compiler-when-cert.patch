@@ -1,0 +1,96 @@
+Description: Fix infinite recursion in the JIT compiler when certain
+ patterns when certain patterns are analysed.
+ .
+ Addresses CVE-2015-8389.
+Origin: upstream, http://vcs.pcre.org/pcre?view=revision&revision=1577
+Forwarded: not-needed
+Author: Salvatore Bonaccorso <carnil@debian.org>
+Last-Update: 2015-12-29
+Applied-Upstream: 8.38
+
+---
+ pcre_jit_compile.c    | 15 +++++++++++----
+ testdata/testinput12  |  2 ++
+ testdata/testoutput12 |  2 ++
+ 4 files changed, 18 insertions(+), 4 deletions(-)
+
+--- a/pcre_jit_compile.c
++++ b/pcre_jit_compile.c
+@@ -3183,7 +3183,7 @@ bytes[len] = byte;
+ bytes[0] = len;
+ }
+ 
+-static int scan_prefix(compiler_common *common, pcre_uchar *cc, pcre_uint32 *chars, pcre_uint8 *bytes, int max_chars)
++static int scan_prefix(compiler_common *common, pcre_uchar *cc, pcre_uint32 *chars, pcre_uint8 *bytes, int max_chars, pcre_uint32 *rec_count)
+ {
+ /* Recursive function, which scans prefix literals. */
+ BOOL last, any, caseless;
+@@ -3201,9 +3201,14 @@ pcre_uchar othercase[1];
+ repeat = 1;
+ while (TRUE)
+   {
++  if (*rec_count == 0)
++    return 0;
++  rec_count--;
++
+   last = TRUE;
+   any = FALSE;
+   caseless = FALSE;
++
+   switch (*cc)
+     {
+     case OP_CHARI:
+@@ -3265,7 +3270,7 @@ while (TRUE)
+ #ifdef SUPPORT_UTF
+     if (common->utf && HAS_EXTRALEN(*cc)) len += GET_EXTRALEN(*cc);
+ #endif
+-    max_chars = scan_prefix(common, cc + len, chars, bytes, max_chars);
++    max_chars = scan_prefix(common, cc + len, chars, bytes, max_chars, rec_count);
+     if (max_chars == 0)
+       return consumed;
+     last = FALSE;
+@@ -3288,7 +3293,7 @@ while (TRUE)
+     alternative = cc + GET(cc, 1);
+     while (*alternative == OP_ALT)
+       {
+-      max_chars = scan_prefix(common, alternative + 1 + LINK_SIZE, chars, bytes, max_chars);
++      max_chars = scan_prefix(common, alternative + 1 + LINK_SIZE, chars, bytes, max_chars, rec_count);
+       if (max_chars == 0)
+         return consumed;
+       alternative += GET(alternative, 1);
+@@ -3530,6 +3535,7 @@ int i, max, from;
+ int range_right = -1, range_len = 3 - 1;
+ sljit_ub *update_table = NULL;
+ BOOL in_range;
++pcre_uint32 rec_count;
+ 
+ /* This is even TRUE, if both are NULL. */
+ SLJIT_ASSERT(common->read_only_data_ptr == common->read_only_data);
+@@ -3541,7 +3547,8 @@ for (i = 0; i < MAX_N_CHARS; i++)
+   bytes[i * MAX_N_BYTES] = 0;
+   }
+ 
+-max = scan_prefix(common, common->start, chars, bytes, MAX_N_CHARS);
++rec_count = 10000;
++max = scan_prefix(common, common->start, chars, bytes, MAX_N_CHARS, &rec_count);
+ 
+ if (max <= 1)
+   return FALSE;
+--- a/testdata/testinput12
++++ b/testdata/testinput12
+@@ -87,4 +87,6 @@ and a couple of things that are differen
+ /^12345678abcd/mS++
+     12345678abcd
+ 
++/(?:|a|){100}x/S++
++
+ /-- End of testinput12 --/
+--- a/testdata/testoutput12
++++ b/testdata/testoutput12
+@@ -176,4 +176,6 @@ No match, mark = m (JIT)
+     12345678abcd
+  0: 12345678abcd (JIT)
+ 
++/(?:|a|){100}x/S++
++
+ /-- End of testinput12 --/

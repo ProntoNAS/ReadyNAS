@@ -1,0 +1,112 @@
+Author: Roberto C. Sanchez <roberto@connexer.com>
+Description: Fix buginess that results in the keytab configuration option not working on MIT Kerberos (Closes: #651308).
+--- cyrus-sasl2.git.orig/cmulocal/sasl2.m4
++++ cyrus-sasl2.git/cmulocal/sasl2.m4
+@@ -266,6 +266,7 @@
+   cmu_save_LIBS="$LIBS"
+   LIBS="$LIBS $GSSAPIBASE_LIBS"
+   AC_CHECK_FUNCS(gsskrb5_register_acceptor_identity)
++  AC_CHECK_FUNCS(krb5_gss_register_acceptor_identity)
+   AC_CHECK_FUNCS(gss_decapsulate_token)
+   AC_CHECK_FUNCS(gss_encapsulate_token)
+   AC_CHECK_FUNCS(gss_oid_equal)
+--- cyrus-sasl2.git.orig/config.h.in
++++ cyrus-sasl2.git/config.h.in
+@@ -126,6 +126,10 @@
+    */
+ #undef HAVE_GSSKRB5_REGISTER_ACCEPTOR_IDENTITY
+ 
++/* Define to 1 if you have the `krb5_gss_register_acceptor_identity' function.
++   */
++#undef HAVE_KRB5_GSS_REGISTER_ACCEPTOR_IDENTITY
++
+ /* Define if your GSSAPI implementation defines GSS_C_NT_HOSTBASED_SERVICE */
+ #undef HAVE_GSS_C_NT_HOSTBASED_SERVICE
+ 
+--- cyrus-sasl2.git.orig/configure
++++ cyrus-sasl2.git/configure
+@@ -13367,7 +13367,7 @@
+   cmu_save_LIBS="$LIBS"
+   LIBS="$LIBS $GSSAPIBASE_LIBS"
+ 
+-for ac_func in gsskrb5_register_acceptor_identity
++for ac_func in gsskrb5_register_acceptor_identity krb5_gss_regster_acceptor_identity
+ do
+ as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
+ { $as_echo "$as_me:$LINENO: checking for $ac_func" >&5
+--- cyrus-sasl2.git.orig/plugins/gssapi.c
++++ cyrus-sasl2.git/plugins/gssapi.c
+@@ -50,6 +50,9 @@
+ #else
+ #include <gssapi/gssapi.h>
+ #endif
++#ifdef HAVE_KRB5_GSS_REGISTER_ACCEPTOR_IDENTITY
++#include <gssapi/gssapi_krb5.h>
++#endif
+ 
+ #ifdef WIN32
+ #  include <winsock2.h>
+@@ -1365,7 +1368,7 @@
+ };
+ 
+ int gssapiv2_server_plug_init(
+-#ifndef HAVE_GSSKRB5_REGISTER_ACCEPTOR_IDENTITY
++#if !defined(HAVE_GSSKRB5_REGISTER_ACCEPTOR_IDENTITY) && !defined(HAVE_KRB5_GSS_REGISTER_ACCEPTOR_IDENTITY)
+     const sasl_utils_t *utils __attribute__((unused)),
+ #else
+     const sasl_utils_t *utils,
+@@ -1375,7 +1378,7 @@
+     sasl_server_plug_t **pluglist,
+     int *plugcount)
+ {
+-#ifdef HAVE_GSSKRB5_REGISTER_ACCEPTOR_IDENTITY
++#if defined(HAVE_GSSKRB5_REGISTER_ACCEPTOR_IDENTITY) || defined(HAVE_KRB5_GSS_REGISTER_ACCEPTOR_IDENTITY)
+     const char *keytab = NULL;
+     char keytab_path[1024];
+     unsigned int rl;
+@@ -1385,7 +1388,7 @@
+ 	return SASL_BADVERS;
+     }
+     
+-#ifdef HAVE_GSSKRB5_REGISTER_ACCEPTOR_IDENTITY
++#if defined(HAVE_GSSKRB5_REGISTER_ACCEPTOR_IDENTITY) || defined(HAVE_KRB5_GSS_REGISTER_ACCEPTOR_IDENTITY)
+     /* unfortunately, we don't check for readability of keytab if it's
+        the standard one, since we don't know where it is */
+     
+@@ -1408,7 +1411,12 @@
+ 	
+ 	strncpy(keytab_path, keytab, 1024);
+ 	
++#ifdef HAVE_GSSKRB5_REGISTER_ACCEPTOR_IDENTITY
+ 	gsskrb5_register_acceptor_identity(keytab_path);
++#endif
++#ifdef HAVE_KRB5_GSS_REGISTER_ACCEPTOR_IDENTITY
++	krb5_gss_register_acceptor_identity(keytab_path);
++#endif
+     }
+ #endif
+     
+--- cyrus-sasl2.git.orig/saslauthd/configure
++++ cyrus-sasl2.git/saslauthd/configure
+@@ -9116,7 +9116,7 @@
+   cmu_save_LIBS="$LIBS"
+   LIBS="$LIBS $GSSAPIBASE_LIBS"
+ 
+-for ac_func in gsskrb5_register_acceptor_identity
++for ac_func in gsskrb5_register_acceptor_identity krb5_gss_regster_acceptor_identity
+ do
+ as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
+ { $as_echo "$as_me:$LINENO: checking for $ac_func" >&5
+--- cyrus-sasl2.git.orig/saslauthd/saslauthd.h.in
++++ cyrus-sasl2.git/saslauthd/saslauthd.h.in
+@@ -62,6 +62,10 @@
+    */
+ #undef HAVE_GSSKRB5_REGISTER_ACCEPTOR_IDENTITY
+ 
++/* Define to 1 if you have the `krb5_gss_register_acceptor_identity' function.
++   */
++#undef HAVE_KRB5_GSS_REGISTER_ACCEPTOR_IDENTITY
++
+ /* Define if your GSSAPI implementation defines GSS_C_NT_HOSTBASED_SERVICE */
+ #undef HAVE_GSS_C_NT_HOSTBASED_SERVICE
+ 

@@ -1,0 +1,45 @@
+From ce82eeca1526adb977c5f9a4168cad4ba976e94d Mon Sep 17 00:00:00 2001
+From: John Underwood <johnx.underwood@intel.com>
+Date: Thu, 18 Feb 2016 09:19:24 -0800
+Subject: [PATCH 168/224] i40e: add check for null VSI
+
+Return from i40e_vsi_reinit_setup() if vsi param is NULL.
+This makes this code consistent with all the other code that
+checks for NULL before using one of the VSI pointers accessed
+with an indexed variable. (Indexed VSI pointers are
+intentionally set to NULL in i40e_vsi_clear() and
+i40e_remove().
+
+Change-ID: I3bc8b909c70fd2439334eeae994d151f61480985
+Signed-off-by: John Underwood <johnx.underwood@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_main.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_main.c b/drivers/net/ethernet/intel/i40e/i40e_main.c
+index 5452175..215028b 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_main.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_main.c
+@@ -9583,10 +9583,15 @@ vector_setup_out:
+  **/
+ static struct i40e_vsi *i40e_vsi_reinit_setup(struct i40e_vsi *vsi)
+ {
+-	struct i40e_pf *pf = vsi->back;
++	struct i40e_pf *pf;
+ 	u8 enabled_tc;
+ 	int ret;
+ 
++	if (!vsi)
++		return NULL;
++
++	pf = vsi->back;
++
+ 	i40e_put_lump(pf->qp_pile, vsi->base_queue, vsi->idx);
+ 	i40e_vsi_clear_rings(vsi);
+ 
+-- 
+1.9.1
+

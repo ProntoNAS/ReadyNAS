@@ -1,0 +1,27 @@
+#!/bin/sh
+# autopkgtest check: Build and run a program against glib, to verify that the
+# headers and pkg-config file are installed correctly
+# (C) 2012 Canonical Ltd.
+# Author: Martin Pitt <martin.pitt@ubuntu.com>
+
+set -e
+
+WORKDIR=$(mktemp -d)
+trap "rm -rf $WORKDIR" 0 INT QUIT ABRT PIPE TERM
+cd $WORKDIR
+cat <<EOF > glibtest.c
+#include <glib.h>
+
+int main()
+{
+    g_assert_cmpint (g_strcmp0 (NULL, "hello"), ==, -1);
+    g_assert_cmpstr (g_find_program_in_path ("bash"), ==, "/bin/bash");
+    return 0;
+}
+EOF
+
+gcc -o glibtest glibtest.c `pkg-config --cflags --libs glib-2.0`
+echo "build: OK"
+[ -x glibtest ]
+./glibtest
+echo "run: OK"

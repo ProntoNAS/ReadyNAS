@@ -1,0 +1,39 @@
+From 36070a69420f966dec122dbea73386d842bf2d5d Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 5 Jul 2017 16:19:54 -0700
+Subject: [PATCH 7/7] grow: Restore critical backup_file symlink
+
+At the beginning of a reshape, mdadm makes a symlink from the specified
+backup_file to its own map directory.  The map directory by default lives
+in /run, which is generally tmpfs.  So after reboot, the map directory
+and the backup_file symlink disappear.  Then when we assemble the array,
+mdadm asks systemd to start mdadm --grow --continue, which depends on the
+symlink being in place.
+
+This patch re-creates the symlink when opening the backup_file during
+assembly of a reshaping array.
+---
+ Grow.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/Grow.c b/Grow.c
+index bfbc6cf..c3e098d 100755
+--- a/Grow.c
++++ b/Grow.c
+@@ -4515,6 +4515,13 @@ int Grow_restart(struct supertype *st, struct mdinfo *info, int *fdlist, int cnt
+ 					backup_file, strerror(errno));
+ 				continue;
+ 			}
++			if (strncmp(backup_file, MAP_DIR, strlen(MAP_DIR)) != 0) {
++				char *bu = make_backup(info->sys_name);
++				if (symlink(backup_file, bu))
++					pr_err("Recording backup file in " MAP_DIR " failed: %s\n",
++					       strerror(errno));
++				free(bu);
++			}
+ 			devname = backup_file;
+ 		} else {
+ 			fd = fdlist[i];
+-- 
+2.13.0
+

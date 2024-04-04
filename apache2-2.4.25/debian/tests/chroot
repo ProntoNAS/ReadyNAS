@@ -1,0 +1,39 @@
+#!/bin/sh
+set -ex
+
+# Check that ChrootDir works correctly. Written in response to LP: #1251939.
+#
+# Author: Robie Basak <robie.basak@ubuntu.com>
+#
+# This test requires:
+#  * wget
+#  * The dpkg-dev package for the dpkg-architecture command
+#
+# This is a "breaks-testbed" dep8 test.
+#
+# This test sets up a minimal environment to exercise ChrootDir. Do not use
+# it as an example of how to set up Apache in a secure chroot environment.
+
+sed -i 's_DocumentRoot.*$_DocumentRoot /_' /etc/apache2/sites-available/000-default.conf
+
+LIBGCC_S_PATH=/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)/libgcc_s.so.1
+cat > /etc/apache2/conf-available/chroot.conf <<EOT
+LoadFile $LIBGCC_S_PATH
+ChrootDir /var/www
+<Directory />
+       Options Indexes FollowSymLinks
+       AllowOverride None
+       Require all granted
+</Directory>
+EOT
+a2enconf chroot
+
+echo "Hello, world!" > /var/www/hello.txt
+
+service apache2 restart
+
+result=`wget -qO- http://localhost/hello.txt`
+if [ "$result" != "Hello, world!" ]; then
+    echo "Unexpected result from wget" >&2
+    exit 1
+fi

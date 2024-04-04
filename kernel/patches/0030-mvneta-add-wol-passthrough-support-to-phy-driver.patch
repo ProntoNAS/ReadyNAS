@@ -1,0 +1,62 @@
+From 427a53fb9ca28139c7023efdb9d7bdd85367b935 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 15:17:55 -0800
+Subject: [PATCH 30/33] mvneta: add wol passthrough support to phy driver
+
+The Marvell PHY driver has support for WoL, so just pass the ethtool ioctls
+through to it.
+---
+ drivers/net/ethernet/marvell/mvneta.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/drivers/net/ethernet/marvell/mvneta.c b/drivers/net/ethernet/marvell/mvneta.c
+index 71ec9cb..d63073d 100644
+--- a/drivers/net/ethernet/marvell/mvneta.c
++++ b/drivers/net/ethernet/marvell/mvneta.c
+@@ -2928,6 +2928,34 @@ static int mvneta_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+ 
+ /* Ethtool methods */
+ 
++static void
++mvneta_eth_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
++{
++	struct mvneta_port *pp = netdev_priv(dev);
++	wol->supported = 0;
++	wol->wolopts = 0;
++	if (pp->phy_dev)
++		phy_ethtool_get_wol(pp->phy_dev, wol);
++}
++
++static int
++mvneta_eth_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
++{
++	struct mvneta_port *pp = netdev_priv(dev);
++	int err;
++
++	if (pp->phy_dev == NULL)
++		return -EOPNOTSUPP;
++
++	err = phy_ethtool_set_wol(pp->phy_dev, wol);
++	/* Given that mvneta works without the marvell-specific PHY driver,
++	 * this debugging hint is useful to have.
++	 */
++	if (err == -EOPNOTSUPP)
++		netdev_info(dev, "The PHY does not support set_wol, was CONFIG_MARVELL_PHY enabled?\n");
++	return err;
++}
++
+ /* Get settings (phy address, speed) for ethtools */
+ int mvneta_ethtool_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+ {
+@@ -3122,6 +3150,8 @@ const struct ethtool_ops mvneta_eth_tool_ops = {
+ 	.get_strings	= mvneta_ethtool_get_strings,
+ 	.get_ethtool_stats = mvneta_ethtool_get_stats,
+ 	.get_sset_count	= mvneta_ethtool_get_sset_count,
++	.get_wol        = mvneta_eth_get_wol,
++	.set_wol        = mvneta_eth_set_wol,
+ };
+ 
+ /* Initialize hw */
+-- 
+1.9.1
+

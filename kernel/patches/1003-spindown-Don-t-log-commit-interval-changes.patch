@@ -1,0 +1,61 @@
+From 6580bb2eb1e667f2d5f5acb2770b6def3d5032ca Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 7 Dec 2016 17:00:24 -0800
+Subject: [PATCH] spindown: Don't log commit interval changes
+
+Don't log journal commit interval changes, since we need to do them frequently
+for disk spindown
+---
+ fs/btrfs/super.c | 9 ++++++---
+ fs/ext4/super.c  | 3 ++-
+ 2 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/fs/btrfs/super.c b/fs/btrfs/super.c
+index b18bd3e..97ba067 100644
+--- a/fs/btrfs/super.c
++++ b/fs/btrfs/super.c
+@@ -389,6 +389,8 @@ int btrfs_parse_options(struct btrfs_root *root, char *options)
+ 	enum btrfs_compression_type saved_compress_type;
+ 	bool saved_compress_force;
+ 	int no_compress = 0;
++	bool remounting = test_bit(BTRFS_FS_STATE_REMOUNTING,
++				&root->fs_info->fs_state);
+ 
+ 	if (!options)
+ 		goto out;
+@@ -734,14 +736,15 @@ int btrfs_parse_options(struct btrfs_root *root, char *options)
+ 				goto out;
+ 			}
+ 			if (intarg > 0) {
+-				if (intarg > 300) {
++				if (intarg > 300 && !remounting) {
+ 					btrfs_warn(root->fs_info, "excessive commit interval %d",
+ 							intarg);
+ 				}
+ 				info->commit_interval = intarg;
+ 			} else {
+-				btrfs_info(root->fs_info, "using default commit interval %ds",
+-				    BTRFS_DEFAULT_COMMIT_INTERVAL);
++				if (!remounting)
++					btrfs_info(root->fs_info, "using default commit interval %ds",
++					    BTRFS_DEFAULT_COMMIT_INTERVAL);
+ 				info->commit_interval = BTRFS_DEFAULT_COMMIT_INTERVAL;
+ 			}
+ 			break;
+diff --git a/fs/ext4/super.c b/fs/ext4/super.c
+index 68640e6..76c1431 100644
+--- a/fs/ext4/super.c
++++ b/fs/ext4/super.c
+@@ -4830,7 +4830,8 @@ static int ext4_remount(struct super_block *sb, int *flags, char *data)
+ #endif
+ 
+ 	*flags = (*flags & ~MS_LAZYTIME) | (sb->s_flags & MS_LAZYTIME);
+-	ext4_msg(sb, KERN_INFO, "re-mounted. Opts: %s", orig_data);
++	if (orig_data && strncmp(orig_data, "commit=", 7) != 0)
++		ext4_msg(sb, KERN_INFO, "re-mounted. Opts: %s", orig_data);
+ 	kfree(orig_data);
+ 	return 0;
+ 
+-- 
+1.9.1
+

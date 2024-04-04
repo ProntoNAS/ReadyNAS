@@ -46,7 +46,6 @@ AC_GCC_TRADITIONAL
 AC_SYS_LARGEFILE
 
 AC_ISC_POSIX
-AM_C_PROTOTYPES
 
 AC_CHECK_HEADERS(float.h fnmatch.h glob.h langinfo.h libintl.h mcheck.h unistd.h)
 
@@ -82,7 +81,7 @@ AC_ARG_ENABLE(build-gcov,
 AC_CHECK_FUNC(setreuid, [], [
     AC_CHECK_LIB(ucb, setreuid, [if echo $LIBS | grep -- -lucb >/dev/null ;then :; else LIBS="$LIBS -lc -lucb" USEUCB=y;fi])
 ])
-AC_CHECK_FUNCS(getuid geteuid iconv mtrace __secure_getenv setregid stpcpy strerror vasprintf srandom)
+AC_CHECK_FUNCS(getuid geteuid iconv mtrace __secure_getenv secure_getenv setregid stpcpy strerror vasprintf srandom)
 
 AM_GNU_GETTEXT([external])
 AM_ICONV_LINK

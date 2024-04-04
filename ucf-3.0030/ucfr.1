@@ -1,0 +1,157 @@
+.\"                             -*- Mode: Nroff -*-
+.\" ucfr.1 ---
+.\" Author           : Manoj Srivastava ( srivasta@glaurung.internal.golden-gryphon.com )
+.\" Created On       : Tue Apr 11 13:58:23 2006
+.\" Created On Node  : glaurung.internal.golden-gryphon.com
+.\" Last Modified By : Manoj Srivastava
+.\" Last Modified On : Tue Apr 11 14:43:23 2006
+.\" Last Machine Used: glaurung.internal.golden-gryphon.com
+.\" Update Count     : 14
+.\" Status           : Unknown, Use with caution!
+.\" HISTORY          :
+.\" Description      :
+.\"
+.\" arch-tag: f2f569c2-5b54-4e5d-83f0-d2a39e103ecb
+.\"
+.\" Copyright (c) 2006 Manoj Srivastava <srivasta@debian.org>
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" The GNU General Public License's references to "object code"
+.\" and "executables" are to be interpreted as the output of any
+.\" document formatting or typesetting system, including
+.\" intermediate and printed output.
+.\"
+.\" This manual is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public
+.\" License along with this manual; if not, write to the Free
+.\" Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+.\" 02111-1307, USA.
+.\"
+.TH UCFR 1 "Apr 11 2006" "Debian" "Debian GNU/Linux manual"
+.SH NAME
+ucfr \- Update Configuration File Registry:  associate packages with configuration files
+.SH SYNOPSIS
+.B ucfr
+.RI [ options "] "
+.I <Package>
+.I <Path to configuration file>
+.SH DESCRIPTION
+Where
+.I Package
+is the package associated with the configuration file (and, in some
+sense, its owner), and
+.I Path to configuration file
+is the full path to the location (usually under /etc) where the
+configuration file lives, and is potentially modified by the end
+user. Please note that usually this means that we register actual
+files, and not symbolic links to files.
+.B ucfr
+will follow symbolic links and register the real file,  and not the
+symbolic link.
+.PP
+This script maintains an association between configuration files and
+packages, and is meant to help provide facilities that
+.I dpkg
+provides conffiles for configuration files and not shipped in a
+.B Debian
+package, but handled by the postinst by
+.I ucf
+instead. This script is idempotent, associating a package to a file
+multiple times is not an error.  It is normally an error to try to
+associate a file which is already associated with another package, but
+this can be over ridden by using the
+.I \-\-force
+option.
+.SH OPTIONS
+.TP
+.B "\-h, \-\-help"
+Print a short usage message
+.TP
+.B "\-n, \-\-no\-action"
+Dry run. Print the actions that would be taken if the script is
+invoked, but take no action.
+.TP
+.B "\-d [n], \-\-debug [n]"
+Set the debug level to the (optional) level
+.I n
+(n defaults to 1). This turns on copious debugging information.
+.TP
+.B "\-p, \-\-purge"
+Removes all vestiges of the association between the named package and
+the configuration file from the registry. The association must already
+exist; if the configuration file is associated with some other
+package, an error happens, unless the option
+.I \-\-force
+is also given. In that case, the any associations for the
+configuration file are removed from the registry, whether or not the
+package name matches. This action is idempotent, asking for an
+association to be purged multiple times does not result in an error,
+since attempting to remove an non-existent association is silently
+ignored unless the
+.I \-\-verbose
+option is used (in which case it just issues a diagnostic).
+.TP
+.B "\-v, \-\-verbose"
+Make the script be very verbose about setting internal variables.
+.TP
+.B "\-f, \-\-force"
+This option forces operations requested even if the configuration file
+in consideration is owned by another package. This allows a package to
+.I "hijack"
+a configuration file from another package, or to purge the
+association between the file and some other package in the registry.
+.TP
+.B "\-\-state\-dir /path/to/dir"
+Set the state directory to /path/to/dir instead of the default
+.I /var/lib/ucf.
+Used mostly for testing.
+.SH USAGE
+The most common case usage is pretty simple: a single line invocation
+in the postinst on configure, and another single line in the postrm to
+tell
+.B ucfr
+to forget about the association with the configuration file on purge
+(using the  \-\-purge option) is all that is needed (assuming ucfr is
+still on the system).
+.SH FILES
+.I /var/lib/ucf/registry,
+and
+.I /var/lib/ucf/registry.X,
+where
+.I X
+is a small integer, where previous versions of the registry are
+stored.
+.PP
+.I /etc/ucf.conf
+.SH EXAMPLES
+If the package
+.I foo
+wants to use ucfr to associate itself with a configuration file
+.I foo.conf,
+a simple invocation of ucfr in the postinst file is all that is
+needed:
+.PP
+.B ucfr
+.I foo
+.I /etc/foo.conf
+.PP
+On purge, one should tell ucf to forget about the file (see detailed
+examples in /usr/share/doc/examples):
+.PP
+.B ucfr
+.I \-\-purge
+.I foo
+.I /etc/foo.conf
+.SH "SEE ALSO"
+ucf(1), ucf.conf(5).
+.SH AUTHOR
+This manual page was written Manoj Srivastava <srivasta@debian.org>,
+for the Debian GNU/Linux system.

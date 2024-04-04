@@ -1,0 +1,263 @@
+From bb020ee536e0e321b62a9ef23053688894fd2bd7 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 18 Aug 2015 11:32:04 -0700
+Subject: [PATCH] btrfs: Add physical address ouput of FIEMAP
+
+Allows BTRFS to report physical address for FIEMAP ioctl.
+---
+ fs/btrfs/Kconfig            |  6 ++++
+ fs/btrfs/Makefile           |  1 +
+ fs/btrfs/extent_io.c        | 37 ++++++++++++++++++---
+ fs/btrfs/fiemap_physical.c  | 79 +++++++++++++++++++++++++++++++++++++++++++++
+ fs/btrfs/inode.c            | 15 +++++++++
+ include/uapi/linux/fiemap.h | 13 ++++++--
+ 6 files changed, 145 insertions(+), 6 deletions(-)
+ create mode 100644 fs/btrfs/fiemap_physical.c
+
+diff --git a/fs/btrfs/Kconfig b/fs/btrfs/Kconfig
+index 394116c..4930f39 100644
+--- a/fs/btrfs/Kconfig
++++ b/fs/btrfs/Kconfig
+@@ -104,3 +104,9 @@ config BTRFS_MDCSREPAIR
+ 	  Enable kernel to user program NETLINK communication for
+ 	  automtically repairing of corrupted data using CRC chechsum
+ 	  and RAID data redundancy.
++
++config BTRFS_FIEMAP_PHYSICAL
++	bool "Btrfs physical address ouput of FIEMAP"
++	depends on BTRFS_FS
++	help
++	  Enable BTRFS to report physical address for FIEMAP ioctl.
+diff --git a/fs/btrfs/Makefile b/fs/btrfs/Makefile
+index f3356b1..60e7b29 100644
+--- a/fs/btrfs/Makefile
++++ b/fs/btrfs/Makefile
+@@ -19,3 +19,4 @@ btrfs-$(CONFIG_BTRFS_FS_RUN_SANITY_TESTS) += tests/free-space-tests.o \
+ 	tests/extent-io-tests.o tests/inode-tests.o tests/qgroup-tests.o
+ 
+ btrfs-$(CONFIG_BTRFS_MDCSREPAIR) += cslink.o
++btrfs-$(CONFIG_BTRFS_FIEMAP_PHYSICAL) += fiemap_physical.o
+diff --git a/fs/btrfs/extent_io.c b/fs/btrfs/extent_io.c
+index bf45d9e..621d465 100644
+--- a/fs/btrfs/extent_io.c
++++ b/fs/btrfs/extent_io.c
+@@ -4341,8 +4341,15 @@ static struct extent_map *get_extent_skip_holes(struct inode *inode,
+ 	return NULL;
+ }
+ 
+-int extent_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
+-		__u64 start, __u64 len, get_extent_t *get_extent)
++#ifdef CONFIG_BTRFS_FIEMAP_PHYSICAL
++int extent_fiemap_log2phys(struct inode *inode,
++			struct fiemap_extent_info *fieinfo,
++			u64 foffset, u64 loffset, u64 len, u32 flags);
++#endif
++
++static int __extent_fiemap(struct inode *inode,
++		struct fiemap_extent_info *fieinfo,
++		__u64 start, __u64 len, get_extent_t *get_extent, bool dophys)
+ {
+ 	int ret = 0;
+ 	u64 off = start;
+@@ -4518,8 +4525,15 @@ int extent_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
+ 			flags |= FIEMAP_EXTENT_LAST;
+ 			end = 1;
+ 		}
+-		ret = fiemap_fill_next_extent(fieinfo, em_start, disko,
+-					      em_len, flags);
++#ifdef CONFIG_BTRFS_FIEMAP_PHYSICAL
++		if (dophys)
++			ret = extent_fiemap_log2phys(inode, fieinfo,
++							em_start, disko,
++							em_len, flags);
++		else
++#endif
++			ret = fiemap_fill_next_extent(fieinfo, em_start, disko,
++						      em_len, flags);
+ 		if (ret) {
+ 			if (ret == 1)
+ 				ret = 0;
+@@ -4535,6 +4549,21 @@ out:
+ 	return ret;
+ }
+ 
++#ifdef CONFIG_BTRFS_FIEMAP_PHYSICAL
++int extent_fiemap_physical(struct inode *inode,
++		struct fiemap_extent_info *fieinfo,
++		__u64 start, __u64 len, get_extent_t *get_extent)
++{
++	return __extent_fiemap(inode, fieinfo, start, len, get_extent, true);
++}
++#endif
++
++int extent_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
++		__u64 start, __u64 len, get_extent_t *get_extent)
++{
++	return __extent_fiemap(inode, fieinfo, start, len, get_extent, false);
++}
++
+ static void __free_extent_buffer(struct extent_buffer *eb)
+ {
+ 	btrfs_leak_debug_del(&eb->leak_list);
+diff --git a/fs/btrfs/fiemap_physical.c b/fs/btrfs/fiemap_physical.c
+new file mode 100644
+index 0000000..b37c2ee
+--- /dev/null
++++ b/fs/btrfs/fiemap_physical.c
+@@ -0,0 +1,79 @@
++/*
++ * Copyright (C) 2014 NETGEAR, Inc.  All rights reserved.
++ * Copyright (C) 2014 Hiro Sugawara  All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public
++ * License v2 as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public
++ * License along with this program; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 021110-1307, USA.
++ */
++
++#include <linux/types.h>
++#include <linux/blkdev.h>
++#include <linux/kdev_t.h>
++#include <linux/proc_fs.h>
++#include <linux/kthread.h>
++#include <linux/list.h>
++#include <net/netlink.h>
++#include <net/genetlink.h>
++#include "ctree.h"
++#include "disk-io.h"
++#include "btrfs_inode.h"
++#include "volumes.h"
++
++static int fiemap_fill_next_extent_physical(struct fiemap_extent_info *fieinfo,
++			u64 fpos, u64 llength, u64 phys, u64 len, u32 flags,
++			dev_t dev)
++{
++	struct fiemap_extent __user *extent =
++			fieinfo->fi_extents_start + fieinfo->fi_extents_mapped;
++	typeof(extent->fe_pdev) pdev = new_encode_dev(dev);
++	typeof(extent->fe_loglength) llen = llength;
++
++	int ret = fiemap_fill_next_extent(fieinfo, fpos, phys, len,
++		flags | FIEMAP_EXTENT_PHYSICAL | FIEMAP_EXTENT_LOGLENGTH);
++
++	if (ret < 0)
++		return ret;
++	if (copy_to_user(&extent->fe_pdev, &pdev, sizeof(pdev)))
++		return -EFAULT;
++	if (copy_to_user(&extent->fe_loglength, &llen, sizeof(llen)))
++		return -EFAULT;
++	return ret;
++}
++
++int extent_fiemap_log2phys(struct inode *inode,
++				struct fiemap_extent_info *fieinfo,
++				u64 foffset, u64 logical, u64 len, u32 flags)
++{
++	struct btrfs_fs_info *fs_info = BTRFS_I(inode)->root->fs_info;
++	struct btrfs_bio *bbio;
++	int ret, i;
++	u64 length = len;
++
++	if ((ret = btrfs_map_block(fs_info, REQ_DISCARD, logical, &length, &bbio, 0)))
++		return ret;
++	for (i = 0; i < bbio->num_stripes; i++) {
++		if ((ret = fiemap_fill_next_extent_physical(fieinfo, foffset,
++				length,
++				bbio->stripes[i].physical,
++				bbio->stripes[i].length,
++				(bbio->num_stripes > 1) &&
++					(i < bbio->num_stripes - 1)
++						? FIEMAP_EXTENT_MORESTRIPE
++						: 0,
++				bbio->stripes[i].dev->bdev->bd_dev)))
++			break;
++	}
++	kfree(bbio);
++	return ret;
++}
+diff --git a/fs/btrfs/inode.c b/fs/btrfs/inode.c
+index 1dcca80..c8a89b04 100644
+--- a/fs/btrfs/inode.c
++++ b/fs/btrfs/inode.c
+@@ -8665,16 +8665,31 @@ out:
+ }
+ 
+ #define BTRFS_FIEMAP_FLAGS	(FIEMAP_FLAG_SYNC)
++#ifdef CONFIG_BTRFS_FIEMAP_PHYSICAL
++extern int extent_fiemap_physical(struct inode *inode,
++				struct fiemap_extent_info *fieinfo,
++				__u64 start, __u64 len,
++				get_extent_t *get_extent);
++#endif
+ 
+ static int btrfs_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
+ 		__u64 start, __u64 len)
+ {
+ 	int	ret;
++#ifdef CONFIG_BTRFS_FIEMAP_PHYSICAL
++	unsigned int physical = fieinfo->fi_flags & FIEMAP_FLAG_PHYSICAL;
+ 
++	fieinfo->fi_flags &= ~FIEMAP_FLAG_PHYSICAL;
++#endif
+ 	ret = fiemap_check_flags(fieinfo, BTRFS_FIEMAP_FLAGS);
+ 	if (ret)
+ 		return ret;
+ 
++#ifdef CONFIG_BTRFS_FIEMAP_PHYSICAL
++	if (physical)
++		return extent_fiemap_physical(inode, fieinfo, start, len,
++					btrfs_get_extent_fiemap);
++#endif
+ 	return extent_fiemap(inode, fieinfo, start, len, btrfs_get_extent_fiemap);
+ }
+ 
+diff --git a/include/uapi/linux/fiemap.h b/include/uapi/linux/fiemap.h
+index 0c51d61..9c20c8e 100644
+--- a/include/uapi/linux/fiemap.h
++++ b/include/uapi/linux/fiemap.h
+@@ -19,9 +19,12 @@ struct fiemap_extent {
+ 	__u64 fe_physical; /* physical offset in bytes for the start
+ 			    * of the extent from the beginning of the disk */
+ 	__u64 fe_length;   /* length in bytes for this extent */
+-	__u64 fe_reserved64[2];
++	__u64 fe_reserved64[1];
++	__u64 fe_loglength;/* logical extent length
++			    * if FIEMAP_EXTENT_LOGLENGTH */
+ 	__u32 fe_flags;    /* FIEMAP_EXTENT_* flags for this extent */
+-	__u32 fe_reserved[3];
++	__u32 fe_reserved[2];
++	__u32 fe_pdev;	   /* physical dev_t if FIEMAP_EXTENT_PHYSICAL */
+ };
+ 
+ struct fiemap {
+@@ -43,6 +46,7 @@ struct fiemap {
+ #define FIEMAP_FLAG_CACHE	0x00000004 /* request caching of the extents */
+ 
+ #define FIEMAP_FLAGS_COMPAT	(FIEMAP_FLAG_SYNC | FIEMAP_FLAG_XATTR)
++#define FIEMAP_FLAG_PHYSICAL	0x80000000 /* report physical device extents */
+ 
+ #define FIEMAP_EXTENT_LAST		0x00000001 /* Last extent in file. */
+ #define FIEMAP_EXTENT_UNKNOWN		0x00000002 /* Data location unknown. */
+@@ -65,5 +69,10 @@ struct fiemap {
+ 						    * merged for efficiency. */
+ #define FIEMAP_EXTENT_SHARED		0x00002000 /* Space shared with other
+ 						    * files. */
++#define FIEMAP_EXTENT_LOGLENGTH		0x20000000 /* fe_loglength is valid. */
++#define FIEMAP_EXTENT_MORESTRIPE	0x40000000 /* One ore more physical
++						    * extent will follow. */
++#define FIEMAP_EXTENT_PHYSICAL		0x80000000 /* This extent represents
++						    * physical device */
+ 
+ #endif /* _LINUX_FIEMAP_H */
+-- 
+1.9.1
+

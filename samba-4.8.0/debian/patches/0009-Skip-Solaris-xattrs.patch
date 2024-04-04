@@ -1,0 +1,29 @@
+From e3674f95d1745c909a73d02ce358fb0aeb1dd9d0 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Fri, 30 Jan 2015 12:10:38 -0800
+Subject: [PATCH 09/16] Skip Solaris xattrs
+
+Skip Solaris xattr's, to improve directory listing performance on very large directories.
+---
+ source3/smbd/trans2.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/source3/smbd/trans2.c b/source3/smbd/trans2.c
+index de6073a973f..2f04dcef80a 100644
+--- a/source3/smbd/trans2.c
++++ b/source3/smbd/trans2.c
+@@ -196,6 +196,11 @@ bool samba_private_attr_name(const char *unix_ea_name)
+ 			strlen(SAMBA_XATTR_DOSSTREAM_PREFIX)) == 0) {
+ 		return true;
+ 	}
++#ifdef SUNOS5
++	if (strncasecmp_m(unix_ea_name, "SUNW", 4) == 0) {
++		return true;
++	}
++#endif
+ 	return false;
+ }
+ 
+-- 
+2.15.1
+

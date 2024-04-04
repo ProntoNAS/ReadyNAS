@@ -481,7 +481,7 @@ static int process_name_response(int fd, const char *name, usec_t timeout, uint1
 /*                     else  */
 #endif                        
 #ifndef NSS_IPV4_ONLY
-                    if (ipv6_func &&
+                    if (!done && ipv6_func &&
                         type == DNS_TYPE_AAAA &&
                         class == DNS_CLASS_IN &&
                         !domain_cmp(name, pname) &&

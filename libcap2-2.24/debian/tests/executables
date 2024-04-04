@@ -1,0 +1,132 @@
+#!/bin/sh
+# Test getting and setting of capabilities using getcap(8) and setcap(8).
+# a simple test program. Assumes $ADTTMP is set, see
+# /usr/share/doc/autopkgtest/README.package-tests.gz
+set -e
+
+echo "@@@ Running test for getcap/setcap... @@@"
+
+
+#########
+# Preconditions
+#########
+if [ `id -u` -ne 0 ]
+then
+	echo "This test must be run as root" >&2
+	exit 1
+elif [ -z "$ADTTMP" ]
+then
+	echo "This test requires that \$ADTTMP be set" >&2
+	exit 1
+fi
+
+# Make sure that we undo all our changes to the system
+cleanup_testenv() {
+	if mountpoint -q "$ADTTMP"
+	then
+		cd /
+		umount "$ADTTMP"
+	fi
+}
+trap cleanup_testenv EXIT HUP INT QUIT TERM
+
+
+#########
+# Set some names. We are modifying capabilities, so paths should be absolute.
+#########
+testuser=nobody
+testfile="$ADTTMP/testfile"
+testprog="$ADTTMP/chown_testfile"
+testprog_src="${testprog}.c"
+
+
+#########
+# Step 1: Mount a small tmpfs on $ADTTMP. This is the only way to ensure that we
+#         are in a filesystem mounted without the nosuid option. Then, cd to it.
+#########
+
+mount -t tmpfs -o size=1048576 tmpfs "$ADTTMP"
+
+
+#########
+# Step 2: Prepare a trivial program that changes permissions of file $testfile
+#########
+
+cat > "$testprog_src" <<EOF
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+int main(int argc, char **argv)
+{
+	/* See if we can chown the given file */
+	if (chown("$testfile", getuid(), getgid()) != 0) {
+		perror("chown");
+		exit(EXIT_FAILURE);
+	}
+
+	printf("OK\n");
+	exit(EXIT_SUCCESS);
+}
+EOF
+
+gcc -Wall -o "$testprog" "$testprog_src"
+chmod 755 "$testprog"
+
+
+#########
+# Step 3: Ceate a file with root ownership
+#########
+
+touch "$testfile"
+
+
+#########
+# Step 4: Verify that our test program fails to chown the file due to
+#         insufficient permissions
+#########
+
+echo "Attempt to chown *without* CAP_CHOWN should fail:"
+if su -c "$testprog" -s /bin/sh nobody
+then
+	echo "Test file chown was successful although it shouldn't have been" >&2
+	exit 1
+fi
+
+
+#########
+# Step 5: Set CAP_CHOWN and ensure that our test program succeeds this time
+#########
+
+if ! setcap cap_chown+ep "$testprog"
+then
+	echo "Failed to set CAP_CHOWN on $testprog" >&2
+	exit 1
+elif ! setcap -v cap_chown+ep > /dev/null "$testprog"
+then
+	echo "Setting CAP_CHOWN on $testprog succeeded but verification failed" >&2
+	exit 1
+fi
+
+echo "Attempt to chown *with* CAP_CHOWN should succeed:"
+if ! su -c "$testprog" -s /bin/sh nobody
+then
+	echo "Test file chown failed although it shouldn't have" >&2
+	exit 1
+fi
+
+
+#########
+# Step 6:
+#   Final verification
+#########
+
+if [ `stat -c '%u:%g' "$testfile"` != "`id -u $testuser`:`id -g $testuser`" ]
+then
+	echo "chown suceeded but resuling ownership doesn't match expecations" >&2
+	exit 1
+fi
+
+# End of test
+echo "@@@ Test: OK @@@"

@@ -1,0 +1,74 @@
+From b51778b93979853dbf8321bcdef14465c51b070f Mon Sep 17 00:00:00 2001
+From: Hao Wu <hao.wu@netgear.com>
+Date: Mon, 6 Aug 2018 08:02:55 +0000
+Subject: [PATCH] Fix bug #44, Can't update "Device Attr" to window 2008 iSNS
+ server.
+
+The device has two Ethernet cards, if pull out an ethernet cable, target-isns
+will not be able to successfully replace "Device Attr" to the server.
+target-isns should send all target attribute to server when any target state changes.
+
+Signed-off-by: Hao Wu <hao.wu@netgear.com>
+---
+ src/isns.c | 31 -------------------------------
+ 1 file changed, 31 deletions(-)
+
+diff --git a/src/isns.c b/src/isns.c
+index e2de457..7036666 100644
+--- a/src/isns.c
++++ b/src/isns.c
+@@ -448,23 +448,6 @@ static void isns_target_set_registered(const char *iscsi_name)
+ 		target->registered = true;
+ }
+ 
+-static bool portal_is_solely_used(const struct portal *portal,
+-				  const struct target *target)
+-{
+-	struct target *tgt;
+-
+-	assert(target_has_portal(target, portal));
+-
+-	list_for_each(&targets, tgt, node) {
+-		if (tgt == target)
+-			continue;
+-		if (tgt->registered && target_has_portal(tgt, portal))
+-			return false;
+-	}
+-
+-	return true;
+-}
+-
+ #define TGT_REG_BUFSIZE		8192
+ #define TGT_REG_BUFTHRESH	(TGT_REG_BUFSIZE - 256)
+ /*
+@@ -568,17 +551,6 @@ static int isns_target_register(const struct target *target)
+ 		if (!target_has_portal(target, portal) && !all_targets)
+ 			continue;
+ 
+-		/*
+-		 * The Microsoft iSNS server returns an "invalid
+-		 * update" error if "an object specified in a
+-		 * DevAttrReg request to update an Entity already
+-		 * exists in another Entity".
+-		 *
+-		 * https://docs.microsoft.com/en-us/previous-versions/windows/hardware/design/dn653564(v=vs.85)#invalid-update-status-code-14
+-		 */
+-		if (!portal_is_solely_used(portal, target))
+-			continue;
+-
+ 		uint32_t port = htonl(portal->port);
+ 		uint8_t ip_addr[16];
+ 		isns_ip_addr_set(portal, ip_addr);
+@@ -591,9 +563,6 @@ static int isns_target_register(const struct target *target)
+ 	}
+ 
+ 	list_for_each(&targets, tgt, node) {
+-		if (tgt != target && !all_targets)
+-			continue;
+-
+ 		/* Register the iSCSI target. */
+ 		length += isns_tlv_set_string(&tlv, ISNS_ATTR_ISCSI_NAME,
+ 					      tgt->name);
+-- 
+2.1.4
+

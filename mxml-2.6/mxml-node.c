@@ -46,6 +46,7 @@
  * Local functions...
  */
 
+static void		mxml_free(mxml_node_t *node);
 static mxml_node_t	*mxml_new(mxml_node_t *parent, mxml_type_t type);
 
 
@@ -197,7 +198,8 @@ mxmlAdd(mxml_node_t *parent,		/* I - Parent node */
 void
 mxmlDelete(mxml_node_t *node)		/* I - Node to delete */
 {
-  int	i;				/* Looping var */
+  mxml_node_t	*current,		/* Current node */
+		*next;			/* Next node */
 
 
 #ifdef DEBUG
@@ -221,60 +223,50 @@ mxmlDelete(mxml_node_t *node)		/* I - Node to delete */
   * Delete children...
   */
 
-  while (node->child)
-    mxmlDelete(node->child);
-
- /*
-  * Now delete any node data...
-  */
-
-  switch (node->type)
+    for (current = node->child; current; current = next)
   {
-    case MXML_ELEMENT :
-        if (node->value.element.name)
-	  free(node->value.element.name);
+   /*
+    * Get the next node...
+    */
 
-	if (node->value.element.num_attrs)
-	{
-	  for (i = 0; i < node->value.element.num_attrs; i ++)
-	  {
-	    if (node->value.element.attrs[i].name)
-	      free(node->value.element.attrs[i].name);
-	    if (node->value.element.attrs[i].value)
-	      free(node->value.element.attrs[i].value);
-	  }
+    if ((next = current->child) != NULL)
+    {
+     /*
+      * Free parent nodes after child nodes have been freed...
+      */
 
-          free(node->value.element.attrs);
-	}
-        break;
-    case MXML_INTEGER :
-       /* Nothing to do */
-        break;
-    case MXML_OPAQUE :
-        if (node->value.opaque)
-	  free(node->value.opaque);
-        break;
-    case MXML_REAL :
-       /* Nothing to do */
-        break;
-    case MXML_TEXT :
-        if (node->value.text.string)
-	  free(node->value.text.string);
-        break;
-    case MXML_CUSTOM :
-        if (node->value.custom.data &&
-	    node->value.custom.destroy)
-	  (*(node->value.custom.destroy))(node->value.custom.data);
-	break;
-    default :
-        break;
+      current->child = NULL;
+      continue;
+    }
+
+    if ((next = current->next) == NULL)
+    {
+      mxml_node_t *temp = current->parent;
+					/* Pointer to parent node */
+
+      if (temp == node)
+      {
+       /*
+        * Got back to the top node...
+        */
+
+        next = NULL;
+      }
+      else if ((next = temp->next) == NULL)
+      {
+	if ((next = temp->parent) == node)
+	  next = NULL;
+      }
+    }
+
+mxml_free(current);
   }
 
  /*
-  * Free this node...
+  * Then free the memory used by this node...
   */
 
-  free(node);
+  mxml_free(node);
 }
 
 
@@ -719,6 +711,68 @@ mxmlRetain(mxml_node_t *node)		/* I - Node */
   else
     return (-1);
 }
+
+/*
+ * 'mxml_free()' - Free the memory used by a node.
+ *
+ * Note: Does not free child nodes, does not remove from parent.
+ */
+
+static void
+mxml_free(mxml_node_t *node)		/* I - Node */
+{
+  int	i;				/* Looping var */
+
+
+  switch (node->type)
+  {
+    case MXML_ELEMENT :
+        if (node->value.element.name)
+	  free(node->value.element.name);
+
+	if (node->value.element.num_attrs)
+	{
+	  for (i = 0; i < node->value.element.num_attrs; i ++)
+	  {
+	    if (node->value.element.attrs[i].name)
+	      free(node->value.element.attrs[i].name);
+	    if (node->value.element.attrs[i].value)
+	      free(node->value.element.attrs[i].value);
+	  }
+
+          free(node->value.element.attrs);
+	}
+        break;
+    case MXML_INTEGER :
+       /* Nothing to do */
+        break;
+    case MXML_OPAQUE :
+        if (node->value.opaque)
+	  free(node->value.opaque);
+        break;
+    case MXML_REAL :
+       /* Nothing to do */
+        break;
+    case MXML_TEXT :
+        if (node->value.text.string)
+	  free(node->value.text.string);
+        break;
+    case MXML_CUSTOM :
+        if (node->value.custom.data &&
+	    node->value.custom.destroy)
+	  (*(node->value.custom.destroy))(node->value.custom.data);
+	break;
+    default :
+        break;
+  }
+
+ /*
+  * Free this node...
+  */
+
+  free(node);
+}
+
 
 
 /*

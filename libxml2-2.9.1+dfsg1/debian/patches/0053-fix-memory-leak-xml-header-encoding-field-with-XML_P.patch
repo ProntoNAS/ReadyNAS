@@ -1,0 +1,50 @@
+From: Bart De Schuymer <deschuyb@b-virtual.org>
+Date: Thu, 16 Oct 2014 12:17:20 +0800
+Subject: fix memory leak xml header encoding field with XML_PARSE_IGNORE_ENC
+
+When the xml parser encounters an xml encoding in an xml header while
+configured with option XML_PARSE_IGNORE_ENC, it fails to free memory
+allocated for storing the encoding.
+The patch below fixes this.
+How to reproduce:
+1. Change doc/examples/parse4.c to add xmlCtxtUseOptions(ctxt,
+XML_PARSE_IGNORE_ENC); after the call to xmlCreatePushParserCtxt.
+2. Rebuild
+3. run the following command from the top libxml2 directory:
+LD_LIBRARY_PATH=.libs/ valgrind --leak-check=full
+./doc/examples/.libs/parse4 ./test.xml , where test.xml contains
+following
+input:
+<?xml version="1.0" encoding="UTF-81" ?><hi/>
+valgrind will report:
+==1964== 10 bytes in 1 blocks are definitely lost in loss record 1 of 1
+==1964==    at 0x4C272DB: malloc (in
+/usr/lib/valgrind/vgpreload_memcheck-amd64-linux.so)
+==1964==    by 0x4E88497: xmlParseEncName (parser.c:10224)
+==1964==    by 0x4E888FE: xmlParseEncodingDecl (parser.c:10295)
+==1964==    by 0x4E89630: xmlParseXMLDecl (parser.c:10534)
+==1964==    by 0x4E8B737: xmlParseTryOrFinish (parser.c:11293)
+==1964==    by 0x4E8E775: xmlParseChunk (parser.c:12283)
+
+Signed-off-by: Bart De Schuymer <bart at amplidata com>
+---
+ parser.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/parser.c b/parser.c
+index b02333b..ab69d56 100644
+--- a/parser.c
++++ b/parser.c
+@@ -10338,8 +10338,10 @@ xmlParseEncodingDecl(xmlParserCtxtPtr ctxt) {
+         /*
+          * Non standard parsing, allowing the user to ignore encoding
+          */
+-        if (ctxt->options & XML_PARSE_IGNORE_ENC)
+-            return(encoding);
++        if (ctxt->options & XML_PARSE_IGNORE_ENC) {
++	    xmlFree((xmlChar *) encoding);
++            return(NULL);
++	}
+ 
+ 	/*
+ 	 * UTF-16 encoding stwich has already taken place at this stage,

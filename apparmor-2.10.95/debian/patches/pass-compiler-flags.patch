@@ -1,0 +1,34 @@
+Description: pass LDFLAGS fully into build.
+Author: Kees Cook <kees@debian.org>
+
+--- a/libraries/libapparmor/swig/perl/Makefile.PL.in
++++ b/libraries/libapparmor/swig/perl/Makefile.PL.in
+@@ -13,5 +13,6 @@
+ 	'INC' => q[@CPPFLAGS@ -I@top_srcdir@/include @CFLAGS@],
+ 	'LIBS' => q[-L@top_builddir@/src/.libs/ -lapparmor @LIBS@],
+ 	'OBJECT' => 'libapparmor_wrap.o', # $(OBJ_EXT)
++	'dynamic_lib' => { 'OTHERLDFLAGS' => q[@LDFLAGS@], },
+ ) ;
+ 
+--- a/changehat/pam_apparmor/Makefile
++++ b/changehat/pam_apparmor/Makefile
+@@ -54,7 +54,7 @@
+   AA_LDLIBS = -lapparmor
+ endif
+ EXTRA_CFLAGS=$(CFLAGS) $(CPPFLAGS) -fPIC -shared -Wall $(LIBAPPARMOR_INCLUDE)
+-LINK_FLAGS=-Xlinker -x $(AA_LINK_FLAGS)
++LINK_FLAGS=-Xlinker -x $(AA_LINK_FLAGS) $(LDFLAGS)
+ LIBS=-lpam $(AA_LDLIBS)
+ OBJECTS=${NAME}.o get_options.o
+ 
+--- a/parser/Makefile
++++ b/parser/Makefile
+@@ -86,7 +86,7 @@
+ AAREDIR= libapparmor_re
+ AAREOBJECT = ${AAREDIR}/libapparmor_re.a
+ AAREOBJECTS = $(AAREOBJECT)
+-AARE_LDFLAGS = -static-libgcc -static-libstdc++ -L.
++AARE_LDFLAGS = -static-libgcc -static-libstdc++ -L. $(LDFLAGS)
+ AALIB = -Wl,-Bstatic -lapparmor -Wl,-Bdynamic -lpthread
+ 
+ ifdef USE_SYSTEM

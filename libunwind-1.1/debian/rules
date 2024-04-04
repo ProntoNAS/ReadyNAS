@@ -1,0 +1,47 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=-all,+format
+
+%:
+	dh $@ --parallel --with autoreconf
+
+binary binary-arch: debian/libunwind-setjmp0.preinst debian/libunwind-setjmp0.postrm
+
+debian/libunwind-setjmp0.%: debian/libunwind-setjmp0.%.in
+	$(if $(DEB_HOST_MULTIARCH),:,$(error DEB_HOST_MULTIARCH is not defined))
+	sed 's/@DEB_HOST_MULTIARCH@/$(DEB_HOST_MULTIARCH)/g' $< > $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- --with-pic --enable-cxx-exceptions --enable-minidebuginfo
+
+override_dh_install:
+	dh_install
+	for d in libunwind8 libunwind-dev ; do \
+	  find "debian/$$d/usr/lib" -name "libunwind*-setjmp*" -delete ; \
+	done
+
+override_dh_installchangelogs:
+	dh_installchangelogs ChangeLog
+
+override_dh_auto_test:
+ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
+# Test suite is only useful on amd64 architecture;
+# other ARCH's have quite a few know test faulures.
+ifeq (amd64, $(DEB_BUILD_ARCH))
+	-$(MAKE) check
+endif # amd64
+endif # nocheck
+
+override_dh_strip:
+	dh_strip -plibunwind8 --dbg-package=libunwind8-dbg
+	dh_strip -plibunwind-setjmp0 --dbg-package=libunwind-setjmp0-dbg
+
+get-orig-source:
+	uscan --verbose --force-download --rename --repack --destdir=..
+
+.PHONY: override_dh_auto_configure override_dh_install override_dh_installchangelogs override_dh_strip get-orig-source
+

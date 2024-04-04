@@ -1,0 +1,34 @@
+From: Ludovic Brenta <lbrenta@debian.org>
+Forwarded: no
+Bug-Debian: http://bugs.debian.org/749574
+Description: Constraint_Error, range check failed at gnatlink.adb:2195, when called from gnatmake with -D option
+ The procedure gnatlink assumes that the Linker_Options.Table contains access
+ values to strings whose 'First index is always 1.  This assumption is wrong
+ for the string returned by function Base_Name.
+.
+ Instead of fixing the assumption in many places, this patch changes the
+ function Base_Name always to return a string with 'First=1.
+.
+ This looks like an upstream bug but strangely the reporter of this bug
+ says it does not happen on GCC built from upstream sources.  Further
+ investigation is required to determine whether or not to forward this
+ bug and patch upstream.
+
+Index: b/src/gcc/ada/gnatlink.adb
+===================================================================
+--- a/src/gcc/ada/gnatlink.adb
++++ b/src/gcc/ada/gnatlink.adb
+@@ -273,7 +273,12 @@
+          Findex2 := File_Name'Last + 1;
+       end if;
+ 
+-      return File_Name (Findex1 .. Findex2 - 1);
++      declare
++         Result : String (1 .. Findex2 - Findex1);
++      begin
++         Result (1 .. Findex2 - Findex1) := File_Name (Findex1 .. Findex2 - 1);
++         return Result;
++      end;
+    end Base_Name;
+ 
+    -------------------------------

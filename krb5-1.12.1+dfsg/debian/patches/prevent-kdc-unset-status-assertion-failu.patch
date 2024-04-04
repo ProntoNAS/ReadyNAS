@@ -1,0 +1,101 @@
+From: Greg Hudson <ghudson@mit.edu>
+Date: Thu, 13 Jul 2017 12:14:20 -0400
+X-Dgit-Generated: 1.12.1+dfsg-19+deb8u3 b90fe523a8aa9b4b6059d1a39eaea373ceeda37b
+Subject: Prevent KDC unset status assertion failures
+
+Assign status values if S4U2Self padata fails to decode, if an
+S4U2Proxy request uses invalid KDC options, or if an S4U2Proxy request
+uses an evidence ticket which does not match the canonicalized request
+server principal name.  Reported by Samuel Cabrero.
+
+If a status value is not assigned during KDC processing, default to
+"UNKNOWN_REASON" rather than failing an assertion.  This change will
+prevent future denial of service bugs due to similar mistakes, and
+will allow us to omit assigning status values for unlikely errors such
+as small memory allocation failures.
+
+CVE-2017-11368:
+
+In MIT krb5 1.7 and later, an authenticated attacker can cause an
+assertion failure in krb5kdc by sending an invalid S4U2Self or
+S4U2Proxy request.
+
+  CVSSv3 Vector: AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H/E:H/RL:O/RC:C
+
+ticket: 8599 (new)
+target_version: 1.15-next
+target_version: 1.14-next
+tags: pullup
+
+Patch-Category: upstream
+(cherry picked from commit 38903df0ecd26089efefd0cd52cf4ebe8e3e1dd3)
+
+---
+
+--- krb5-1.12.1+dfsg.orig/src/kdc/do_as_req.c
++++ krb5-1.12.1+dfsg/src/kdc/do_as_req.c
+@@ -343,8 +343,8 @@ finish_process_as_req(struct as_req_stat
+     did_log = 1;
+ 
+ egress:
+-    if (errcode != 0)
+-        assert (state->status != 0);
++    if (errcode != 0 && state->status == NULL)
++        state->status = "UNKNOWN_REASON";
+ 
+     au_state->status = state->status;
+     au_state->reply = &state->reply;
+--- krb5-1.12.1+dfsg.orig/src/kdc/do_tgs_req.c
++++ krb5-1.12.1+dfsg/src/kdc/do_tgs_req.c
+@@ -826,7 +826,8 @@ process_tgs_req(struct server_handle *ha
+     free(reply.enc_part.ciphertext.data);
+ 
+ cleanup:
+-    assert(status != NULL);
++    if (status == NULL)
++        status = "UNKNOWN_REASON";
+     if (reply_key)
+         krb5_free_keyblock(kdc_context, reply_key);
+     if (errcode)
+--- krb5-1.12.1+dfsg.orig/src/kdc/kdc_util.c
++++ krb5-1.12.1+dfsg/src/kdc/kdc_util.c
+@@ -1133,8 +1133,10 @@ kdc_process_for_user(kdc_realm_t *kdc_ac
+     req_data.data = (char *)pa_data->contents;
+ 
+     code = decode_krb5_pa_for_user(&req_data, &for_user);
+-    if (code)
++    if (code) {
++        *status = "DECODE_PA_FOR_USER";
+         return code;
++    }
+ 
+     code = verify_for_user_checksum(kdc_context, tgs_session, for_user);
+     if (code) {
+@@ -1233,8 +1235,10 @@ kdc_process_s4u_x509_user(krb5_context c
+     req_data.data = (char *)pa_data->contents;
+ 
+     code = decode_krb5_pa_s4u_x509_user(&req_data, s4u_x509_user);
+-    if (code)
++    if (code) {
++        *status = "DECODE_PA_S4U_X509_USER";
+         return code;
++    }
+ 
+     code = verify_s4u_x509_user_checksum(context,
+                                          tgs_subkey ? tgs_subkey :
+@@ -1537,6 +1541,7 @@ kdc_process_s4u2proxy_req(kdc_realm_t *k
+      * that is validated previously in validate_tgs_request().
+      */
+     if (request->kdc_options & (NON_TGT_OPTION | KDC_OPT_ENC_TKT_IN_SKEY)) {
++        *status = "INVALID_S4U2PROXY_OPTIONS";
+         return KRB5KDC_ERR_BADOPTION;
+     }
+ 
+@@ -1544,6 +1549,7 @@ kdc_process_s4u2proxy_req(kdc_realm_t *k
+     if (!krb5_principal_compare(kdc_context,
+                                 server->princ, /* after canon */
+                                 server_princ)) {
++        *status = "EVIDENCE_TICKET_MISMATCH";
+         return KRB5KDC_ERR_SERVER_NOMATCH;
+     }
+ 

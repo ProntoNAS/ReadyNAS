@@ -1,0 +1,34 @@
+From 35721a99c4706cb07d4fbf70a5c04d7cfcad4c24 Mon Sep 17 00:00:00 2001
+From: Mitch Williams <mitch.a.williams@intel.com>
+Date: Wed, 17 Feb 2016 16:12:23 -0800
+Subject: [PATCH 173/224] i40e: let go of the past
+
+If we reset a VF, its VSI goes away, and it gets a new one. So don't
+hang on to the now-stale local VSI pointer. It just leads to suffering
+and kernel panics.
+
+Change-ID: Ia8823b4e85893e95e963acee284968022b29177a
+Signed-off-by: Mitch Williams <mitch.a.williams@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c b/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
+index 93d8d98..acd2693 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
+@@ -2203,6 +2203,8 @@ int i40e_ndo_set_vf_port_vlan(struct net_device *netdev,
+ 		 * and then reloading the VF driver.
+ 		 */
+ 		i40e_vc_disable_vf(pf, vf);
++		/* During reset the VF got a new VSI, so refresh the pointer. */
++		vsi = pf->vsi[vf->lan_vsi_idx];
+ 	}
+ 
+ 	/* Check for condition where there was already a port VLAN ID
+-- 
+1.9.1
+

@@ -1,0 +1,80 @@
+From 28f18d9ca091d66853d85d1e0a87f651b554243c Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Mon, 8 Aug 2016 12:16:09 -0700
+Subject: [PATCH 1/2] Add '%' compute operator to define a minimum value
+
+---
+ lib/access.c     | 3 +++
+ lib/conf-lex.l   | 1 +
+ lib/conf-parse.y | 8 ++++++++
+ lib/data.h       | 2 +-
+ 4 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/lib/access.c b/lib/access.c
+index 2adeed44..4d8b3eab 100644
+--- a/lib/access.c
++++ b/lib/access.c
+@@ -492,6 +492,9 @@ static int sensors_eval_expr(const sensors_chip_features *chip_features,
+ 			return -SENSORS_ERR_DIV_ZERO;
+ 		*result = log(res1);
+ 		return 0;
++	case sensors_min:
++		*result = res1 >= res2 ? res1 : res2;
++		return 0;
+ 	}
+ 	return 0;
+ }
+diff --git a/lib/conf-lex.l b/lib/conf-lex.l
+index 43ddbd8f..0034f673 100644
+--- a/lib/conf-lex.l
++++ b/lib/conf-lex.l
+@@ -229,6 +229,7 @@ ignore{BLANK}*	{
+ "@"		return '@';
+ "^"		return '^';
+ "`"		return '`';
++"%"		return '%';
+ 
+  /* Quoted string */
+ 
+diff --git a/lib/conf-parse.y b/lib/conf-parse.y
+index 1937f544..5add103e 100644
+--- a/lib/conf-parse.y
++++ b/lib/conf-parse.y
+@@ -91,6 +91,7 @@ static sensors_chip *current_chip = NULL;
+ %left <nothing> '*' '/'
+ %left <nothing> NEG
+ %right <nothing> '^' '`'
++%left <nothing> '%'
+ 
+ %token <nothing> ','
+ %token <nothing> EOL
+@@ -293,6 +294,13 @@ expression:	  FLOAT
+ 		    $$->data.subexpr.sub1 = $2;
+ 		    $$->data.subexpr.sub2 = NULL;
+ 		  }
++		| expression '%' expression
++		  { $$ = malloc_expr();
++		    $$->kind = sensors_kind_sub;
++		    $$->data.subexpr.op = sensors_min;
++		    $$->data.subexpr.sub1 = $1;
++		    $$->data.subexpr.sub2 = $3;
++		  }
+ ;
+ 
+ bus_id:		  NAME
+diff --git a/lib/data.h b/lib/data.h
+index aaf87ef0..f47b8397 100644
+--- a/lib/data.h
++++ b/lib/data.h
+@@ -32,7 +32,7 @@
+ /* Kinds of expression operators recognized */
+ typedef enum sensors_operation {
+ 	sensors_add, sensors_sub, sensors_multiply, sensors_divide,
+-	sensors_negate, sensors_exp, sensors_log,
++	sensors_negate, sensors_exp, sensors_log, sensors_min,
+ } sensors_operation;
+ 
+ /* An expression can have several forms */
+-- 
+2.13.0
+

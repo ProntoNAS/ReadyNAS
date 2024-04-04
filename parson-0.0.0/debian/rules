@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+
+export CFLAGS := -g -O0 -fstack-protector-strong -Wformat -Werror=format-security -Wall -Wextra -std=c89 -pedantic-errors -D_FORTIFY_SOURCE=2
+export LDFLAGS := -Wl,-z,relro
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	libtool --tag=CC --mode=compile $(CC) $(CFLAGS) -o parson.lo -c parson.c
+	libtool --tag=CC --mode=link $(CC) $(CFLAGS) $(LDFLAGS) -o libparson.la parson.lo -rpath /usr/lib/$(DEB_HOST_MULTIARCH) -version-info '0:0:0'
+
+override_dh_clean:
+	rm -rf .libs *.la *.lo
+	dh_clean
+
+override_dh_auto_test:

@@ -1,0 +1,35 @@
+From 598771b2a74bb641eaaacc378d2233dd254f097e Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 24 Jan 2017 01:50:56 -0800
+Subject: [PATCH 1001/1005] winbind: reconnect after dssetup drop
+
+We've seen a firewall drop our connection to the DC once we
+make this DSSETUP call.  This causes all further calls to
+fail, and prevents AD from working at all.  So we'll check
+the connection and reset if necessary.
+---
+ source3/winbindd/winbindd_cm.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/source3/winbindd/winbindd_cm.c b/source3/winbindd/winbindd_cm.c
+index b24a5f253f7..2ef43489ec7 100644
+--- a/source3/winbindd/winbindd_cm.c
++++ b/source3/winbindd/winbindd_cm.c
+@@ -2342,6 +2342,14 @@ static void set_dc_type_and_flags_connect( struct winbindd_domain *domain )
+ 		 * identifying so that we can in the end return with
+ 		 * domain->initialized = True - gd */
+ 
++		/* We've seen a firewall drop our connection to the DC once we
++		 * make this DSSETUP call.  This causes all further calls to
++		 * fail, and prevents AD from working at all.  So we'll check
++		 * the connection and reset if necessary. */
++		if (!connection_ok(domain)) {
++			invalidate_cm_connection(domain);
++			cm_open_connection(domain, &domain->conn, false);
++		}
+ 		goto no_dssetup;
+ 	}
+ 
+-- 
+2.15.0
+

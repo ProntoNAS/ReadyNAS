@@ -1,0 +1,36 @@
+From b524298cc707307ca812f6631437d87e6817f052 Mon Sep 17 00:00:00 2001
+From: Father Chrysostomos <sprout@cpan.org>
+Date: Mon, 10 Nov 2014 18:22:43 -0800
+Subject: =?UTF-8?q?Don=E2=80=99t=20treat=20setpgrp($nonzero)=20as=20setpgr?=
+ =?UTF-8?q?p(1)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This was broken inadvertently by 92f2ac5f (5.15.3).
+
+I really have no idea how to test this.  I only confirmed the bug and
+its fix via a temporary warn statement in pp_setpgrp (obviously not
+included in this commit).
+
+(cherry picked from commit bae8cfc6926f9b04d8adac6a9ee6d563cc18263f)
+
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/setpgrp.diff
+---
+ pp_sys.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/pp_sys.c b/pp_sys.c
+index 9de4dfff7..967b1dd06 100644
+--- a/pp_sys.c
++++ b/pp_sys.c
+@@ -4324,7 +4324,7 @@ PP(pp_setpgrp)
+     Pid_t pgrp;
+     Pid_t pid;
+     pgrp = MAXARG == 2 && (TOPs||POPs) ? POPi : 0;
+-    if (MAXARG > 0) pid = TOPs && TOPi;
++    if (MAXARG > 0) pid = TOPs ? TOPi : 0;
+     else {
+ 	pid = 0;
+ 	XPUSHi(-1);

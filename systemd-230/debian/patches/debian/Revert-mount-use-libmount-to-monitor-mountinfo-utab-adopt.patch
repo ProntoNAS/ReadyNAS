@@ -1,0 +1,391 @@
+From: Michael Prokop <mika@grml.org>
+Date: Fri, 1 Jul 2016 14:04:02 +0200
+Subject: Revert "mount: use libmount to monitor mountinfo & utab" + adopt for
+ jessie
+
+This reverts commit d379d44255469f03994832ab5821bf1b9034f4dc and
+further adjusts code for usage with jessie-backports (include
+fd-util.h + fs-util.h accordingly).
+---
+ Makefile.am        |  33 +++++----------
+ README             |   5 +--
+ configure.ac       |   2 +-
+ src/core/manager.c |   4 +-
+ src/core/manager.h |   5 ++-
+ src/core/mount.c   | 118 ++++++++++++++++++++++++++++++++---------------------
+ 6 files changed, 90 insertions(+), 77 deletions(-)
+
+diff --git a/Makefile.am b/Makefile.am
+index 4965144..236df2c 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -1408,8 +1408,7 @@ systemd_SOURCES = \
+ 
+ systemd_CFLAGS = \
+ 	$(AM_CFLAGS) \
+-	$(SECCOMP_CFLAGS) \
+-	$(MOUNT_CFLAGS)
++	$(SECCOMP_CFLAGS)
+ 
+ systemd_LDADD = \
+ 	libcore.la
+@@ -1681,8 +1680,7 @@ test_engine_SOURCES = \
+ 
+ test_engine_CFLAGS = \
+ 	$(AM_CFLAGS) \
+-	$(SECCOMP_CFLAGS) \
+-	$(MOUNT_CFLAGS)
++	$(SECCOMP_CFLAGS)
+ 
+ test_engine_LDADD = \
+ 	libcore.la
+@@ -1692,8 +1690,7 @@ test_job_type_SOURCES = \
+ 
+ test_job_type_CFLAGS = \
+ 	$(AM_CFLAGS) \
+-	$(SECCOMP_CFLAGS) \
+-	$(MOUNT_CFLAGS)
++	$(SECCOMP_CFLAGS)
+ 
+ test_job_type_LDADD = \
+ 	libcore.la
+@@ -1744,8 +1741,7 @@ test_unit_name_SOURCES = \
+ 
+ test_unit_name_CFLAGS = \
+ 	$(AM_CFLAGS) \
+-	$(SECCOMP_CFLAGS) \
+-	$(MOUNT_CFLAGS)
++	$(SECCOMP_CFLAGS)
+ 
+ test_unit_name_LDADD = \
+ 	libcore.la
+@@ -1755,8 +1751,7 @@ test_unit_file_SOURCES = \
+ 
+ test_unit_file_CFLAGS = \
+ 	$(AM_CFLAGS) \
+-	$(SECCOMP_CFLAGS) \
+-	$(MOUNT_CFLAGS)
++	$(SECCOMP_CFLAGS)
+ 
+ test_unit_file_LDADD = \
+ 	libcore.la
+@@ -2105,8 +2100,7 @@ test_tables_CPPFLAGS = \
+ 
+ test_tables_CFLAGS = \
+ 	$(AM_CFLAGS) \
+-	$(SECCOMP_CFLAGS) \
+-	$(MOUNT_CFLAGS)
++	$(SECCOMP_CFLAGS)
+ 
+ test_tables_LDADD = \
+ 	libjournal-core.la \
+@@ -2238,8 +2232,7 @@ test_cgroup_mask_SOURCES = \
+ 	src/test/test-cgroup-mask.c
+ 
+ test_cgroup_mask_CPPFLAGS = \
+-	$(AM_CPPFLAGS) \
+-	$(MOUNT_CFLAGS)
++	$(AM_CPPFLAGS)
+ 
+ test_cgroup_mask_CFLAGS = \
+ 	$(AM_CFLAGS) \
+@@ -2282,8 +2275,7 @@ test_path_SOURCES = \
+ 	src/test/test-path.c
+ 
+ test_path_CFLAGS = \
+-	$(AM_CFLAGS) \
+-	$(MOUNT_CFLAGS)
++	$(AM_CFLAGS)
+ 
+ test_path_LDADD = \
+ 	libcore.la
+@@ -2292,8 +2284,7 @@ test_execute_SOURCES = \
+ 	src/test/test-execute.c
+ 
+ test_execute_CFLAGS = \
+-	$(AM_CFLAGS) \
+-	$(MOUNT_CFLAGS)
++	$(AM_CFLAGS)
+ 
+ test_execute_LDADD = \
+ 	libcore.la
+@@ -2326,8 +2317,7 @@ test_sched_prio_SOURCES = \
+ 	src/test/test-sched-prio.c
+ 
+ test_sched_prio_CPPFLAGS = \
+-	$(AM_CPPFLAGS) \
+-	$(MOUNT_CFLAGS)
++	$(AM_CPPFLAGS)
+ 
+ test_sched_prio_CFLAGS = \
+ 	$(AM_CFLAGS) \
+@@ -2407,8 +2397,7 @@ systemd_analyze_SOURCES = \
+ 
+ systemd_analyze_CFLAGS = \
+ 	$(AM_CFLAGS) \
+-	$(SECCOMP_CFLAGS) \
+-	$(MOUNT_CFLAGS)
++	$(SECCOMP_CFLAGS)
+ 
+ systemd_analyze_LDADD = \
+ 	libcore.la
+diff --git a/README b/README
+index ca8993c..35d1964 100644
+--- a/README
++++ b/README
+@@ -117,8 +117,7 @@ REQUIREMENTS:
+ 
+         glibc >= 2.16
+         libcap
+-        libmount >= 2.27.1 (from util-linux)
+-                (util-linux *must* be built with --enable-libmount-force-mountinfo)
++        libmount >= 2.20 (from util-linux)
+         libseccomp >= 1.0.0 (optional)
+         libblkid >= 2.24 (from util-linux) (optional)
+         libkmod >= 15 (optional)
+@@ -140,7 +139,7 @@ REQUIREMENTS:
+         During runtime, you need the following additional
+         dependencies:
+ 
+-        util-linux >= v2.27.1 required
++        util-linux >= v2.26 required
+         dbus >= 1.4.0 (strictly speaking optional, but recommended)
+         dracut (optional)
+         PolicyKit (optional)
+diff --git a/configure.ac b/configure.ac
+index 6e18b75..1fbdecd 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -442,7 +442,7 @@ AM_CONDITIONAL(HAVE_BLKID, [test "$have_blkid" = "yes"])
+ 
+ # ------------------------------------------------------------------------------
+ have_libmount=no
+-PKG_CHECK_MODULES(MOUNT, [ mount >= 2.27 ],
++PKG_CHECK_MODULES(MOUNT, [ mount >= 2.20 ],
+         [AC_DEFINE(HAVE_LIBMOUNT, 1, [Define if libmount is available]) have_libmount=yes], have_libmount=no)
+ if test "x$have_libmount" = xno; then
+         AC_MSG_ERROR([*** libmount support required but libraries not found])
+diff --git a/src/core/manager.c b/src/core/manager.c
+index 7339652..e514abe 100644
+--- a/src/core/manager.c
++++ b/src/core/manager.c
+@@ -583,8 +583,8 @@ int manager_new(UnitFileScope scope, bool test_run, Manager **_m) {
+         m->idle_pipe[0] = m->idle_pipe[1] = m->idle_pipe[2] = m->idle_pipe[3] = -1;
+ 
+         m->pin_cgroupfs_fd = m->notify_fd = m->cgroups_agent_fd = m->signal_fd = m->time_change_fd =
+-                m->dev_autofs_fd = m->private_listen_fd = m->kdbus_fd = m->cgroup_inotify_fd =
+-                m->ask_password_inotify_fd = -1;
++                m->dev_autofs_fd = m->private_listen_fd = m->kdbus_fd = m->utab_inotify_fd =
++                m->cgroup_inotify_fd = m->ask_password_inotify_fd = -1;
+ 
+         m->current_job_id = 1; /* start as id #1, so that we can leave #0 around as "null-like" value */
+ 
+diff --git a/src/core/manager.h b/src/core/manager.h
+index 6ed15c1..d945a75 100644
+--- a/src/core/manager.h
++++ b/src/core/manager.h
+@@ -19,7 +19,6 @@
+   along with systemd; If not, see <http://www.gnu.org/licenses/>.
+ ***/
+ 
+-#include <libmount.h>
+ #include <stdbool.h>
+ #include <stdio.h>
+ 
+@@ -174,8 +173,10 @@ struct Manager {
+         Hashmap *devices_by_sysfs;
+ 
+         /* Data specific to the mount subsystem */
+-        struct libmnt_monitor *mount_monitor;
++        FILE *proc_self_mountinfo;
+         sd_event_source *mount_event_source;
++        int utab_inotify_fd;
++        sd_event_source *mount_utab_event_source;
+ 
+         /* Data specific to the swap filesystem */
+         FILE *proc_swaps;
+diff --git a/src/core/mount.c b/src/core/mount.c
+index 665a60b..ff8a6d6 100644
+--- a/src/core/mount.c
++++ b/src/core/mount.c
+@@ -21,6 +21,9 @@
+ #include <signal.h>
+ #include <stdio.h>
+ #include <sys/epoll.h>
++#include <signal.h>
++#include <libmount.h>
++#include <sys/inotify.h>
+ 
+ #include "sd-messages.h"
+ 
+@@ -28,7 +31,9 @@
+ #include "dbus-mount.h"
+ #include "escape.h"
+ #include "exit-status.h"
++#include "fd-util.h"
+ #include "formats-util.h"
++#include "fs-util.h"
+ #include "fstab-util.h"
+ #include "log.h"
+ #include "manager.h"
+@@ -1545,13 +1550,13 @@ static int mount_load_proc_self_mountinfo(Manager *m, bool set_flags) {
+ }
+ 
+ static void mount_shutdown(Manager *m) {
+-
+         assert(m);
+ 
+         m->mount_event_source = sd_event_source_unref(m->mount_event_source);
++        m->mount_utab_event_source = sd_event_source_unref(m->mount_utab_event_source);
+ 
+-        mnt_unref_monitor(m->mount_monitor);
+-        m->mount_monitor = NULL;
++        m->proc_self_mountinfo = safe_fclose(m->proc_self_mountinfo);
++        m->utab_inotify_fd = safe_close(m->utab_inotify_fd);
+ }
+ 
+ static int mount_get_timeout(Unit *u, usec_t *timeout) {
+@@ -1574,52 +1579,53 @@ static int mount_get_timeout(Unit *u, usec_t *timeout) {
+ 
+ static void mount_enumerate(Manager *m) {
+         int r;
+-
+         assert(m);
+ 
+         mnt_init_debug(0);
+ 
+-        if (!m->mount_monitor) {
+-                int fd;
++        if (!m->proc_self_mountinfo) {
++                m->proc_self_mountinfo = fopen("/proc/self/mountinfo", "re");
++                if (!m->proc_self_mountinfo)
++                        return -errno;
+ 
+-                m->mount_monitor = mnt_new_monitor();
+-                if (!m->mount_monitor) {
+-                        log_oom();
++                r = sd_event_add_io(m->event, &m->mount_event_source, fileno(m->proc_self_mountinfo), EPOLLPRI, mount_dispatch_io, m);
++                if (r < 0)
+                         goto fail;
+-                }
+ 
+-                r = mnt_monitor_enable_kernel(m->mount_monitor, 1);
+-                if (r < 0) {
+-                        log_error_errno(r, "Failed to enable watching of kernel mount events: %m");
++                /* Dispatch this before we dispatch SIGCHLD, so that
++                 * we always get the events from /proc/self/mountinfo
++                 * before the SIGCHLD of /usr/bin/mount. */
++                r = sd_event_source_set_priority(m->mount_event_source, -10);
++                if (r < 0)
+                         goto fail;
+-                }
+ 
+-                r = mnt_monitor_enable_userspace(m->mount_monitor, 1, NULL);
+-                if (r < 0) {
+-                        log_error_errno(r, "Failed to enable watching of userspace mount events: %m");
++                (void) sd_event_source_set_description(m->mount_event_source, "mount-mountinfo-dispatch");
++        }
++
++        if (m->utab_inotify_fd < 0) {
++                m->utab_inotify_fd = inotify_init1(IN_NONBLOCK|IN_CLOEXEC);
++                if (m->utab_inotify_fd < 0) {
++                        r = -errno;
+                         goto fail;
+                 }
+ 
+-                /* mnt_unref_monitor() will close the fd */
+-                fd = r = mnt_monitor_get_fd(m->mount_monitor);
++                (void) mkdir_p_label("/run/mount", 0755);
++
++                r = inotify_add_watch(m->utab_inotify_fd, "/run/mount", IN_MOVED_TO);
+                 if (r < 0) {
+-                        log_error_errno(r, "Failed to acquire watch file descriptor: %m");
++                        r = -errno;
+                         goto fail;
+                 }
+ 
+-                r = sd_event_add_io(m->event, &m->mount_event_source, fd, EPOLLIN, mount_dispatch_io, m);
+-                if (r < 0) {
+-                        log_error_errno(r, "Failed to watch mount file descriptor: %m");
++                r = sd_event_add_io(m->event, &m->mount_utab_event_source, m->utab_inotify_fd, EPOLLIN, mount_dispatch_io, m);
++                if (r < 0)
+                         goto fail;
+-                }
+ 
+-                r = sd_event_source_set_priority(m->mount_event_source, -10);
+-                if (r < 0) {
+-                        log_error_errno(r, "Failed to adjust mount watch priority: %m");
++                r = sd_event_source_set_priority(m->mount_utab_event_source, -10);
++                if (r < 0)
+                         goto fail;
+-                }
+ 
+-                (void) sd_event_source_set_description(m->mount_event_source, "mount-monitor-dispatch");
++                (void) sd_event_source_set_description(m->mount_utab_event_source, "mount-utab-dispatch");
+         }
+ 
+         r = mount_load_proc_self_mountinfo(m, false);
+@@ -1641,27 +1647,45 @@ static int mount_dispatch_io(sd_event_source *source, int fd, uint32_t revents,
+         int r;
+ 
+         assert(m);
+-        assert(revents & EPOLLIN);
++        assert(revents & (EPOLLPRI | EPOLLIN));
++
++        /* The manager calls this for every fd event happening on the
++         * /proc/self/mountinfo file, which informs us about mounting
++         * table changes, and for /run/mount events which we watch
++         * for mount options. */
+ 
+-        if (fd == mnt_monitor_get_fd(m->mount_monitor)) {
++        if (fd == m->utab_inotify_fd) {
+                 bool rescan = false;
+ 
+-                /* Drain all events and verify that the event is valid.
+-                 *
+-                 * Note that libmount also monitors /run/mount mkdir if the
+-                 * directory does not exist yet. The mkdir may generate event
+-                 * which is irrelevant for us.
+-                 *
+-                 * error: r < 0; valid: r == 0, false positive: rc == 1 */
+-                do {
+-                        r = mnt_monitor_next_change(m->mount_monitor, NULL, NULL);
+-                        if (r == 0)
+-                                rescan = true;
+-                        else if (r < 0)
+-                                return log_error_errno(r, "Failed to drain libmount events");
+-                } while (r == 0);
+-
+-                log_debug("libmount event [rescan: %s]", yes_no(rescan));
++                /* FIXME: We *really* need to replace this with
++                 * libmount's own API for this, we should not hardcode
++                 * internal behaviour of libmount here. */
++
++                for (;;) {
++                        union inotify_event_buffer buffer;
++                        struct inotify_event *e;
++                        ssize_t l;
++
++                        l = read(fd, &buffer, sizeof(buffer));
++                        if (l < 0) {
++                                if (errno == EAGAIN || errno == EINTR)
++                                        break;
++
++                                log_error_errno(errno, "Failed to read utab inotify: %m");
++                                break;
++                        }
++
++                        FOREACH_INOTIFY_EVENT(e, buffer, l) {
++                                /* Only care about changes to utab,
++                                 * but we have to monitor the
++                                 * directory to reliably get
++                                 * notifications about when utab is
++                                 * replaced using rename(2) */
++                                if ((e->mask & IN_Q_OVERFLOW) || streq(e->name, "utab"))
++                                        rescan = true;
++                        }
++                }
++
+                 if (!rescan)
+                         return 0;
+         }

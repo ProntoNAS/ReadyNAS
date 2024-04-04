@@ -1,0 +1,1125 @@
+From 3d9c98d8162922bc30e024f72010ae7278224cb5 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 16:47:22 -0800
+Subject: [PATCH 120/121] armada: dts updates
+
+---
+ arch/arm/boot/dts/Makefile                         |   3 +
+ arch/arm/boot/dts/armada-370-netgear-rn102.dts     |  14 +-
+ arch/arm/boot/dts/armada-370-netgear-rn104.dts     |  43 +++-
+ arch/arm/boot/dts/armada-370.dtsi                  |   6 +-
+ arch/arm/boot/dts/armada-380-netgear-rn35.dts      | 236 +++++++++++++++++
+ arch/arm/boot/dts/armada-385-netgear-rn112.dts     | 251 +++++++++++++++++++
+ arch/arm/boot/dts/armada-385-netgear-rn114.dts     | 278 +++++++++++++++++++++
+ arch/arm/boot/dts/armada-xp-netgear-rn2120.dts     |   3 +-
+ .../boot/dts/kirkwood-netgear_readynas_duo_v2.dts  |  12 +-
+ .../boot/dts/kirkwood-netgear_readynas_nv+_v2.dts  |  15 +-
+ 10 files changed, 833 insertions(+), 28 deletions(-)
+ create mode 100644 arch/arm/boot/dts/armada-380-netgear-rn35.dts
+ create mode 100644 arch/arm/boot/dts/armada-385-netgear-rn112.dts
+ create mode 100644 arch/arm/boot/dts/armada-385-netgear-rn114.dts
+
+diff --git a/arch/arm/boot/dts/Makefile b/arch/arm/boot/dts/Makefile
+index 1c063dd..f0c2c7d 100644
+--- a/arch/arm/boot/dts/Makefile
++++ b/arch/arm/boot/dts/Makefile
+@@ -745,6 +745,9 @@ dtb-$(CONFIG_MACH_ARMADA_370) += \
+ dtb-$(CONFIG_MACH_ARMADA_375) += \
+ 	armada-375-db.dtb
+ dtb-$(CONFIG_MACH_ARMADA_38X) += \
++	armada-380-netgear-rn35.dtb \
++	armada-385-netgear-rn114.dtb \
++	armada-385-netgear-rn112.dtb \
+ 	armada-385-db-ap.dtb \
+ 	armada-385-linksys-caiman.dtb \
+ 	armada-385-linksys-cobra.dtb \
+diff --git a/arch/arm/boot/dts/armada-370-netgear-rn102.dts b/arch/arm/boot/dts/armada-370-netgear-rn102.dts
+index 5555875..df2d78f 100644
+--- a/arch/arm/boot/dts/armada-370-netgear-rn102.dts
++++ b/arch/arm/boot/dts/armada-370-netgear-rn102.dts
+@@ -154,12 +154,11 @@
+ 				partition@0 {
+ 					label = "u-boot";
+ 					reg = <0x0000000 0x180000>;  /* 1.5MB */
+-					read-only;
+ 				};
+ 
+ 				partition@180000 {
+ 					label = "u-boot-env";
+-					reg = <0x180000 0x20000>;    /* 128KB */
++					reg = <0x180000 0x80000>;    /* 512KB */
+ 					read-only;
+ 				};
+ 
+@@ -182,6 +181,11 @@
+ 		};
+ 	};
+ 
++	xor-pref {
++		xor = <&xor0 &xor1>;
++		dmacap = "xor", "xor", "crc32c", "crc32c";
++	};
++
+ 	clocks {
+ 	       g762_clk: g762-oscillator {
+ 			 compatible = "fixed-clock";
+@@ -207,19 +211,19 @@
+ 		blue-sata1-led {
+ 			label = "rn102:blue:sata1";
+ 			gpios = <&gpio0 15 GPIO_ACTIVE_LOW>;
+-			default-state = "on";
++			default-state = "keep";
+ 		};
+ 
+ 		blue-sata2-led {
+ 			label = "rn102:blue:sata2";
+ 			gpios = <&gpio0 14 GPIO_ACTIVE_LOW>;
+-			default-state = "on";
++			default-state = "keep";
+ 		};
+ 
+ 		blue-backup-led {
+ 			label = "rn102:blue:backup";
+ 			gpios = <&gpio1 24 GPIO_ACTIVE_LOW>;
+-			default-state = "on";
++			default-state = "off";
+ 		};
+ 	};
+ 
+diff --git a/arch/arm/boot/dts/armada-370-netgear-rn104.dts b/arch/arm/boot/dts/armada-370-netgear-rn104.dts
+index 78b563c..cae552a 100644
+--- a/arch/arm/boot/dts/armada-370-netgear-rn104.dts
++++ b/arch/arm/boot/dts/armada-370-netgear-rn104.dts
+@@ -93,6 +93,12 @@
+ 				status = "okay";
+ 			};
+ 
++			/* eSATA interface */
++			sata@a0000 {
++				nr-ports = <1>;
++				status = "okay";
++			};
++
+ 			mdio {
+ 				pinctrl-0 = <&mdio_pins>;
+ 				pinctrl-names = "default";
+@@ -167,12 +173,11 @@
+ 				partition@0 {
+ 					label = "u-boot";
+ 					reg = <0x0000000 0x180000>;  /* 1.5MB */
+-					read-only;
+ 				};
+ 
+ 				partition@180000 {
+ 					label = "u-boot-env";
+-					reg = <0x180000 0x20000>;    /* 128KB */
++					reg = <0x180000 0x80000>;    /* 512KB */
+ 					read-only;
+ 				};
+ 
+@@ -195,6 +200,11 @@
+ 		};
+ 	};
+ 
++	xor-pref {
++		xor = <&xor0 &xor1>;
++		dmacap = "xor", "xor", "crc32c", "crc32c";
++	};
++
+ 	clocks {
+ 	       g762_clk: g762-oscillator {
+ 			 compatible = "fixed-clock";
+@@ -223,25 +233,25 @@
+ 		blue-sata1-led {
+ 			label = "rn104:blue:sata1";
+ 			gpios = <&pca9554 0 GPIO_ACTIVE_LOW>;
+-			default-state = "off";
++			default-state = "keep";
+ 		};
+ 
+ 		blue-sata2-led {
+ 			label = "rn104:blue:sata2";
+ 			gpios = <&pca9554 1 GPIO_ACTIVE_LOW>;
+-			default-state = "off";
++			default-state = "keep";
+ 		};
+ 
+ 		blue-sata3-led {
+ 			label = "rn104:blue:sata3";
+ 			gpios = <&pca9554 2 GPIO_ACTIVE_LOW>;
+-			default-state = "off";
++			default-state = "keep";
+ 		};
+ 
+ 		blue-sata4-led {
+ 			label = "rn104:blue:sata4";
+ 			gpios = <&pca9554 3 GPIO_ACTIVE_LOW>;
+-			default-state = "off";
++			default-state = "keep";
+ 		};
+ 	};
+ 
+@@ -277,6 +287,25 @@
+ 		pinctrl-names = "default";
+ 		gpios = <&gpio1 28 GPIO_ACTIVE_LOW>;
+ 	};
++
++	gpio_lcd: gpio_lcd {
++		compatible = "gpio-lcd";
++		lcm-data-4bit;
++		lcm-lines  = <2>;
++		lcm-bits = <&gpio1 25 GPIO_ACTIVE_HIGH>,
++			   <&gpio1 26 GPIO_ACTIVE_HIGH>,
++			   <&gpio1 27 GPIO_ACTIVE_HIGH>,
++			   <&gpio1 29 GPIO_ACTIVE_HIGH>;
++		lcm-rs   = <&gpio1 22 GPIO_ACTIVE_HIGH>;
++		lcm-bl   = <&gpio1 21 GPIO_ACTIVE_LOW>;
++		lcm-rw   = <&gpio1 23 GPIO_ACTIVE_HIGH>;
++		lcm-en   = <&gpio1 24 GPIO_ACTIVE_HIGH>;
++	};
++
++	readynas_lcd {
++		compatible = "readynas-lcd";
++		lcd-device = <&gpio_lcd>;
++	};
+ };
+ 
+ &pinctrl {
+@@ -297,7 +326,7 @@
+ 
+ 	backup_led_pin: backup-led-pin {
+ 		marvell,pins = "mpp63";
+-		marvell,function = "gpo";
++		marvell,function = "gpio";
+ 	};
+ 
+ 	power_led_pin: power-led-pin {
+diff --git a/arch/arm/boot/dts/armada-370.dtsi b/arch/arm/boot/dts/armada-370.dtsi
+index 3b06aa8..a5f1f15 100644
+--- a/arch/arm/boot/dts/armada-370.dtsi
++++ b/arch/arm/boot/dts/armada-370.dtsi
+@@ -279,7 +279,7 @@
+ 				clocks = <&coreclk 0>;
+ 			};
+ 
+-			xor@60800 {
++			xor0: xor@60800 {
+ 				compatible = "marvell,orion-xor";
+ 				reg = <0x60800 0x100
+ 				       0x60A00 0x100>;
+@@ -289,6 +289,7 @@
+ 					interrupts = <51>;
+ 					dmacap,memcpy;
+ 					dmacap,xor;
++					dmacap,crc32c;
+ 				};
+ 				xor01 {
+ 					interrupts = <52>;
+@@ -298,7 +299,7 @@
+ 				};
+ 			};
+ 
+-			xor@60900 {
++			xor1: xor@60900 {
+ 				compatible = "marvell,orion-xor";
+ 				reg = <0x60900 0x100
+ 				       0x60b00 0x100>;
+@@ -308,6 +309,7 @@
+ 					interrupts = <94>;
+ 					dmacap,memcpy;
+ 					dmacap,xor;
++					dmacap,crc32c;
+ 				};
+ 				xor11 {
+ 					interrupts = <95>;
+diff --git a/arch/arm/boot/dts/armada-380-netgear-rn35.dts b/arch/arm/boot/dts/armada-380-netgear-rn35.dts
+new file mode 100644
+index 0000000..1fa74f0
+--- /dev/null
++++ b/arch/arm/boot/dts/armada-380-netgear-rn35.dts
+@@ -0,0 +1,236 @@
++/*
++ * Device Tree file for NETGEAR ReadyNAS 35
++ *
++ * Copyright (C) 2015, NETGEAR
++ *
++ * Justin Maggard <justin.maggard@netgear.com>
++ *
++ * This file is licensed under the terms of the GNU General Public
++ * License version 2.  This program is licensed "as is" without any
++ * warranty of any kind, whether express or implied.
++ */
++
++/dts-v1/;
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/gpio/gpio.h>
++#include "armada-380.dtsi"
++
++/ {
++	model = "NETGEAR ReadyNAS 35";
++	compatible = "netgear,readynas-35", "marvell,armada380", "marvell,armada-370-xp";
++
++	chosen {
++		bootargs = "console=ttyS0,115200 earlyprintk";
++	};
++
++	memory {
++		device_type = "memory";
++		reg = <0x00000000 0x20000000>; /* 512 MB */
++	};
++
++	soc {
++		ranges = <MBUS_ID(0xf0, 0x01) 0 0xf1000000 0x100000
++			  MBUS_ID(0x01, 0x1d) 0 0xfff00000 0x100000>;
++
++		internal-regs {
++			spi@10600 {
++				status = "okay";
++
++				spi-flash@0 {
++					#address-cells = <1>;
++					#size-cells = <1>;
++					compatible = "w25q32";
++					reg = <0>; /* Chip select 0 */
++					spi-max-frequency = <108000000>;
++				};
++			};
++
++			i2c@11000 {
++				status = "okay";
++				clock-frequency = <100000>;
++			};
++
++			i2c@11100 {
++				status = "okay";
++				clock-frequency = <100000>;
++			};
++
++			serial@12000 {
++				status = "okay";
++			};
++
++			usb@50000 {
++				status = "ok";
++			};
++
++			ethernet@70000 {
++				status = "okay";
++				phy = <&phy0>;
++				phy-mode = "rgmii-id";
++			};
++
++			mdio {
++				phy0: ethernet-phy@0 {
++					reg = <0>;
++				};
++
++				phy1: ethernet-phy@1 {
++					reg = <1>;
++				};
++			};
++
++			sata@a8000 {
++				status = "okay";
++			};
++
++			flash@d0000 {
++				status = "okay";
++				num-cs = <1>;
++				marvell,nand-keep-config;
++				marvell,nand-enable-arbiter;
++				nand-on-flash-bbt;
++				nand-ecc-strength = <4>;
++				nand-ecc-step-size = <512>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0000000 0x180000>;  /* 1.5MB */
++				};
++
++				partition@1a0000 {
++					label = "u-boot-env";
++					reg = <0x01a0000 0x20000>;   /* 128KB */
++					read-only;
++				};
++
++				partition@200000 {
++					label = "uImage";
++					reg = <0x0200000 0x600000>;  /* 6MB */
++				};
++
++				partition@800000 {
++					label = "minirootfs";
++					reg = <0x0800000 0x400000>;  /* 4MB */
++				};
++
++				partition@c00000 {
++					label = "ubifs";
++					reg = <0x0c00000 0x7200000>; /* 100MB */
++				};
++
++				partition@7e00000 {
++					label = "dtb";
++					reg = <0x7e00000 0x20000>;   /* 128KB */
++				};
++			};
++
++			sdhci@d8000 {
++				broken-cd;
++				wp-inverted;
++				bus-width = <8>;
++				status = "okay";
++				no-1-8-v;
++			};
++
++			usb3@f0000 {
++				status = "okay";
++			};
++
++			usb3@f8000 {
++				status = "okay";
++			};
++		};
++
++		pcie-controller {
++			status = "okay";
++			/*
++			 * The two PCIe units are accessible through
++			 * standard PCIe slots on the board.
++			 */
++			pcie@1,0 {
++				/* Port 0, Lane 0 */
++				status = "okay";
++			};
++			pcie@2,0 {
++				/* Port 1, Lane 0 */
++				status = "okay";
++			};
++		};
++	};
++
++	gpio-leds{
++		compatible = "gpio-leds";
++		backup {
++			gpios = <&gpio1 11 GPIO_ACTIVE_LOW>;
++			label = "backup";
++			default-state = "off";
++		};
++		power {
++			gpios = <&gpio1 17 GPIO_ACTIVE_LOW>;
++			label = "pwr";
++			default-state = "keep";
++		};
++		sata1 {
++			gpios = <&gpio1 5 GPIO_ACTIVE_LOW>;
++			label = "sata1";
++			default-state = "keep";
++		};
++		sata2 {
++			gpios = <&gpio1 7 GPIO_ACTIVE_LOW>;
++			label = "sata2";
++			default-state = "keep";
++		};
++	};
++
++	gpio_keys {
++		compatible = "gpio-keys";
++		#address-cells = <1>;
++		#size-cells = <0>;
++		button@1 {
++			label = "BT Reset";
++			linux,code = <0x198>;
++			gpios = <&gpio0 19 GPIO_ACTIVE_LOW>;
++			debounce-interval = <0x64>;
++		};
++		button@2 {
++			label = "BT Power";
++			linux,code = <0x74>;
++			gpios = <&gpio1 13 GPIO_ACTIVE_HIGH>;
++			debounce-interval = <0x64>;
++		};
++		button@3 {
++			label = "BT Backup";
++			linux,code = <0x165>;
++			gpios = <&gpio0 20 GPIO_ACTIVE_LOW>;
++			debounce-interval = <0x64>;
++		};
++	};
++
++	gpio-poweroff {
++		compatible = "gpio-poweroff";
++		gpios = <&gpio1 27 GPIO_ACTIVE_LOW>;
++	};
++
++	gpio-hdds-power {
++		compatible = "gpio-hdds-power";
++		power-sata1 {
++			present-gpio = <&gpio0 24 GPIO_ACTIVE_LOW>;
++			power-gpio = <&gpio0 29 GPIO_ACTIVE_HIGH>;
++			led-gpio = <&gpio1 5 GPIO_ACTIVE_LOW>;
++			label = "power-sata1";
++		};
++		power-sata2 {
++			gpios = <&gpio0 26 GPIO_ACTIVE_LOW &gpio1 27 GPIO_ACTIVE_HIGH>;
++			present-gpio = <&gpio0 26 GPIO_ACTIVE_LOW>;
++			power-gpio = <&gpio1 26 GPIO_ACTIVE_HIGH>;
++			led-gpio = <&gpio1 7 GPIO_ACTIVE_LOW>;
++			label = "power-sata2";
++		};
++	};
++
++	pwm-fan-armada-38x {
++		compatible = "pwm-fan-armada-38x";
++		ctrl-gpio = <&gpio0 2 GPIO_ACTIVE_HIGH>;
++		fb-gpio   = <&gpio0 3 GPIO_ACTIVE_HIGH>;
++	};
++};
+diff --git a/arch/arm/boot/dts/armada-385-netgear-rn112.dts b/arch/arm/boot/dts/armada-385-netgear-rn112.dts
+new file mode 100644
+index 0000000..865a636
+--- /dev/null
++++ b/arch/arm/boot/dts/armada-385-netgear-rn112.dts
+@@ -0,0 +1,251 @@
++/*
++ * Device Tree file for NETGEAR ReadyNAS 112
++ *
++ * Copyright (C) 2015, NETGEAR
++ *
++ * Justin Maggard <justin.maggard@netgear.com>
++ *
++ * This file is licensed under the terms of the GNU General Public
++ * License version 2.  This program is licensed "as is" without any
++ * warranty of any kind, whether express or implied.
++ */
++
++/dts-v1/;
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/gpio/gpio.h>
++#include "armada-385.dtsi"
++
++/ {
++	model = "NETGEAR ReadyNAS 112";
++	compatible = "netgear,readynas-112", "marvell,armada385", "marvell,armada-370-xp";
++
++	chosen {
++		bootargs = "console=ttyS0,115200 earlyprintk";
++	};
++
++	memory {
++		device_type = "memory";
++		reg = <0x00000000 0x20000000>; /* 512 MB */
++	};
++
++	soc {
++		ranges = <MBUS_ID(0xf0, 0x01) 0 0xf1000000 0x100000
++			  MBUS_ID(0x01, 0x1d) 0 0xfff00000 0x100000>;
++
++		internal-regs {
++			spi@10600 {
++				status = "okay";
++
++				spi-flash@0 {
++					#address-cells = <1>;
++					#size-cells = <1>;
++					compatible = "w25q32";
++					reg = <0>; /* Chip select 0 */
++					spi-max-frequency = <108000000>;
++				};
++			};
++
++			i2c@11000 {
++				status = "okay";
++				clock-frequency = <100000>;
++			};
++
++			i2c@11100 {
++				status = "okay";
++				clock-frequency = <100000>;
++			};
++
++			serial@12000 {
++				status = "okay";
++			};
++
++			usb@50000 {
++				status = "ok";
++			};
++
++			ethernet@70000 {
++				status = "okay";
++				phy = <&phy0>;
++				phy-mode = "rgmii-id";
++			};
++
++			mdio {
++				phy0: ethernet-phy@0 {
++					reg = <0>;
++				};
++
++				phy1: ethernet-phy@1 {
++					reg = <1>;
++				};
++			};
++
++			sata@a8000 {
++				status = "okay";
++			};
++
++			flash@d0000 {
++				status = "okay";
++				num-cs = <1>;
++				marvell,nand-keep-config;
++				marvell,nand-enable-arbiter;
++				nand-on-flash-bbt;
++				nand-ecc-strength = <4>;
++				nand-ecc-step-size = <512>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0000000 0x180000>;  /* 1.5MB */
++				};
++
++				partition@1a0000 {
++					label = "u-boot-env";
++					reg = <0x01a0000 0x20000>;   /* 128KB */
++					read-only;
++				};
++
++				partition@200000 {
++					label = "uImage";
++					reg = <0x0200000 0x600000>;  /* 6MB */
++				};
++
++				partition@800000 {
++					label = "minirootfs";
++					reg = <0x0800000 0x400000>;  /* 4MB */
++				};
++
++				partition@c00000 {
++					label = "ubifs";
++					reg = <0x0c00000 0x7200000>; /* 100MB */
++				};
++
++				partition@7e00000 {
++					label = "dtb";
++					reg = <0x7e00000 0x20000>;   /* 128KB */
++				};
++			};
++
++			sdhci@d8000 {
++				broken-cd;
++				wp-inverted;
++				bus-width = <8>;
++				status = "okay";
++				no-1-8-v;
++			};
++
++			usb3@f0000 {
++				status = "okay";
++			};
++
++			usb3@f8000 {
++				status = "okay";
++			};
++
++			usb@50000 {
++				status = "okay";
++			};
++		};
++
++		pcie-controller {
++			status = "okay";
++			/*
++			 * The two PCIe units are accessible through
++			 * standard PCIe slots on the board.
++			 */
++			pcie@1,0 {
++				/* Port 0, Lane 0 */
++				status = "okay";
++			};
++			pcie@2,0 {
++				/* Port 1, Lane 0 */
++				status = "okay";
++			};
++		};
++	};
++
++	gpio-leds{
++		compatible = "gpio-leds";
++		backup {
++			gpios = <&gpio1 11 GPIO_ACTIVE_LOW>;
++			label = "backup";
++			default-state = "off";
++		};
++		power {
++			gpios = <&gpio1 17 GPIO_ACTIVE_LOW>;
++			label = "pwr";
++			default-state = "keep";
++		};
++		sata1 {
++			gpios = <&gpio1 5 GPIO_ACTIVE_LOW>;
++			label = "sata1";
++			default-state = "keep";
++		};
++		sata2 {
++			gpios = <&gpio1 7 GPIO_ACTIVE_LOW>;
++			label = "sata2";
++			default-state = "keep";
++		};
++	};
++
++	gpio_keys {
++		compatible = "gpio-keys";
++		#address-cells = <1>;
++		#size-cells = <0>;
++		button@1 {
++			label = "BT Reset";
++			linux,code = <0x198>;
++			gpios = <&gpio0 19 GPIO_ACTIVE_LOW>;
++			debounce-interval = <0x64>;
++		};
++		button@2 {
++			label = "BT Power";
++			linux,code = <0x74>;
++			gpios = <&gpio1 13 GPIO_ACTIVE_HIGH>;
++			debounce-interval = <0x64>;
++		};
++		button@3 {
++			label = "BT Backup";
++			linux,code = <0x165>;
++			gpios = <&gpio0 20 GPIO_ACTIVE_LOW>;
++			debounce-interval = <0x64>;
++		};
++	};
++
++	gpio-poweroff {
++		compatible = "gpio-poweroff";
++		gpios = <&gpio1 27 GPIO_ACTIVE_LOW>;
++	};
++
++	gpio-hdds-power {
++		compatible = "gpio-hdds-power";
++		power-sata1 {
++			present-gpio = <&gpio0 24 GPIO_ACTIVE_LOW>;
++			power-gpio = <&gpio0 29 GPIO_ACTIVE_HIGH>;
++			led-gpio = <&gpio1 5 GPIO_ACTIVE_LOW>;
++			label = "power-sata1";
++		};
++		power-sata2 {
++			present-gpio = <&gpio0 26 GPIO_ACTIVE_LOW>;
++			power-gpio = <&gpio1 26 GPIO_ACTIVE_HIGH>;
++			led-gpio = <&gpio1 7 GPIO_ACTIVE_LOW>;
++			label = "power-sata2";
++		};
++		power-sata3 {
++			present-gpio = <&gpio0 27 GPIO_ACTIVE_LOW>;
++			power-gpio = <&gpio1 20 GPIO_ACTIVE_HIGH>;
++			//led-gpio = <&gpio1 7 GPIO_ACTIVE_LOW>;
++			label = "power-sata3";
++		};
++		power-sata4 {
++			present-gpio = <&gpio1 18 GPIO_ACTIVE_LOW>;
++			power-gpio = <&gpio1 15 GPIO_ACTIVE_HIGH>;
++			//led-gpio = <&gpio1 7 GPIO_ACTIVE_LOW>;
++			label = "power-sata4";
++		};
++	};
++
++	pwm-fan-armada-38x {
++		compatible = "pwm-fan-armada-38x";
++		ctrl-gpio = <&gpio0 2 GPIO_ACTIVE_HIGH>;
++		fb-gpio   = <&gpio0 3 GPIO_ACTIVE_HIGH>;
++	};
++};
+diff --git a/arch/arm/boot/dts/armada-385-netgear-rn114.dts b/arch/arm/boot/dts/armada-385-netgear-rn114.dts
+new file mode 100644
+index 0000000..25bb355
+--- /dev/null
++++ b/arch/arm/boot/dts/armada-385-netgear-rn114.dts
+@@ -0,0 +1,278 @@
++/*
++ * Device Tree file for NETGEAR ReadyNAS 114
++ *
++ * Copyright (C) 2015, NETGEAR
++ *
++ * Justin Maggard <justin.maggard@netgear.com>
++ *
++ * This file is licensed under the terms of the GNU General Public
++ * License version 2.  This program is licensed "as is" without any
++ * warranty of any kind, whether express or implied.
++ */
++
++/dts-v1/;
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/gpio/gpio.h>
++#include "armada-385.dtsi"
++
++/ {
++	model = "NETGEAR ReadyNAS 114";
++	compatible = "netgear,readynas-114", "marvell,armada385", "marvell,armada-370-xp";
++
++	chosen {
++		bootargs = "console=ttyS0,115200 earlyprintk";
++	};
++
++	memory {
++		device_type = "memory";
++		reg = <0x00000000 0x10000000>; /* 1 GB */
++	};
++
++	soc {
++		ranges = <MBUS_ID(0xf0, 0x01) 0 0xf1000000 0x100000
++			  MBUS_ID(0x01, 0x1d) 0 0xfff00000 0x100000>;
++
++		internal-regs {
++			spi@10600 {
++				status = "okay";
++
++				spi-flash@0 {
++					#address-cells = <1>;
++					#size-cells = <1>;
++					compatible = "w25q32";
++					reg = <0>; /* Chip select 0 */
++					spi-max-frequency = <108000000>;
++				};
++			};
++
++			i2c@11000 {
++				status = "okay";
++				clock-frequency = <100000>;
++			};
++
++			i2c@11100 {
++				status = "okay";
++				clock-frequency = <100000>;
++			};
++
++			serial@12000 {
++				status = "okay";
++			};
++
++			usb@50000 {
++				status = "ok";
++			};
++
++			ethernet@70000 {
++				status = "okay";
++				phy = <&phy0>;
++				phy-mode = "rgmii-id";
++			};
++
++			ethernet@74000 {
++				status = "okay";
++				phy = <&phy1>;
++				phy-mode = "rgmii-id";
++			};
++
++			mdio {
++				phy0: ethernet-phy@0 {
++					reg = <0>;
++				};
++
++				phy1: ethernet-phy@1 {
++					reg = <1>;
++				};
++			};
++
++			sata@a8000 {
++				status = "okay";
++			};
++
++			flash@d0000 {
++				status = "okay";
++				num-cs = <1>;
++				marvell,nand-keep-config;
++				marvell,nand-enable-arbiter;
++				nand-on-flash-bbt;
++				nand-ecc-strength = <4>;
++				nand-ecc-step-size = <512>;
++
++				partition@0 {
++					label = "u-boot";
++					reg = <0x0000000 0x180000>;  /* 1.5MB */
++				};
++
++				partition@1a0000 {
++					label = "u-boot-env";
++					reg = <0x01a0000 0x20000>;   /* 128KB */
++					read-only;
++				};
++
++				partition@200000 {
++					label = "uImage";
++					reg = <0x0200000 0x600000>;  /* 6MB */
++				};
++
++				partition@800000 {
++					label = "minirootfs";
++					reg = <0x0800000 0x400000>;  /* 4MB */
++				};
++
++				partition@c00000 {
++					label = "ubifs";
++					reg = <0x0c00000 0x7200000>; /* 100MB */
++				};
++
++				partition@7e00000 {
++					label = "dtb";
++					reg = <0x7e00000 0x20000>;   /* 128KB */
++				};
++			};
++
++			sdhci@d8000 {
++				broken-cd;
++				wp-inverted;
++				bus-width = <8>;
++				status = "okay";
++				no-1-8-v;
++			};
++
++			usb3@f0000 {
++				status = "okay";
++			};
++
++			usb3@f8000 {
++				status = "okay";
++			};
++
++			usb@50000 {
++				status = "okay";
++			};
++		};
++
++		pcie-controller {
++			status = "okay";
++			/*
++			 * The two PCIe units are accessible through
++			 * standard PCIe slots on the board.
++			 */
++			pcie@1,0 {
++				/* Port 0, Lane 0 */
++				status = "okay";
++			};
++			pcie@2,0 {
++				/* Port 1, Lane 0 */
++				status = "okay";
++			};
++		};
++	};
++
++	gpio-leds{
++		compatible = "gpio-leds";
++		backup {
++			gpios = <&gpio1 11 GPIO_ACTIVE_LOW>;
++			label = "backup";
++			default-state = "off";
++		};
++		power {
++			gpios = <&gpio1 17 GPIO_ACTIVE_LOW>;
++			label = "pwr";
++			default-state = "keep";
++		};
++		sata1 {
++			gpios = <&gpio1 5 GPIO_ACTIVE_LOW>;
++			label = "sata1";
++			default-state = "keep";
++		};
++		sata2 {
++			gpios = <&gpio1 7 GPIO_ACTIVE_LOW>;
++			label = "sata2";
++			default-state = "keep";
++		};
++	};
++
++	gpio_keys {
++		compatible = "gpio-keys";
++		#address-cells = <1>;
++		#size-cells = <0>;
++		button@1 {
++			label = "BT Reset";
++			linux,code = <0x198>;
++			gpios = <&gpio0 19 GPIO_ACTIVE_LOW>;
++			debounce-interval = <0x64>;
++		};
++		button@2 {
++			label = "BT Power";
++			linux,code = <0x74>;
++			gpios = <&gpio1 13 GPIO_ACTIVE_HIGH>;
++			debounce-interval = <0x64>;
++		};
++		/*
++		button@3 {
++			label = "BT Backup";
++			linux,code = <0x165>;
++			gpios = <&gpio0 20 GPIO_ACTIVE_LOW>;
++			debounce-interval = <0x64>;
++		};
++		*/
++	};
++
++	gpio-poweroff {
++		compatible = "gpio-poweroff";
++		gpios = <&gpio1 27 GPIO_ACTIVE_LOW>;
++	};
++
++	gpio-hdds-power {
++		compatible = "gpio-hdds-power";
++		power-sata1 {
++			present-gpio = <&gpio0 24 GPIO_ACTIVE_LOW>;
++			power-gpio = <&gpio0 29 GPIO_ACTIVE_HIGH>;
++			led-gpio = <&gpio1 5 GPIO_ACTIVE_LOW>;
++			label = "power-sata1";
++		};
++		power-sata2 {
++			present-gpio = <&gpio0 26 GPIO_ACTIVE_LOW>;
++			power-gpio = <&gpio1 26 GPIO_ACTIVE_HIGH>;
++			led-gpio = <&gpio1 7 GPIO_ACTIVE_LOW>;
++			label = "power-sata2";
++		};
++		power-sata3 {
++			present-gpio = <&gpio0 27 GPIO_ACTIVE_LOW>;
++			power-gpio = <&gpio1 20 GPIO_ACTIVE_HIGH>;
++			//led-gpio = <&gpio1 7 GPIO_ACTIVE_LOW>;
++			label = "power-sata3";
++		};
++		power-sata4 {
++			present-gpio = <&gpio1 18 GPIO_ACTIVE_LOW>;
++			power-gpio = <&gpio1 15 GPIO_ACTIVE_HIGH>;
++			//led-gpio = <&gpio1 7 GPIO_ACTIVE_LOW>;
++			label = "power-sata4";
++		};
++	};
++
++	pwm-fan-armada-38x {
++		compatible = "pwm-fan-armada-38x";
++		ctrl-gpio = <&gpio0 2 GPIO_ACTIVE_HIGH>;
++		fb-gpio   = <&gpio0 3 GPIO_ACTIVE_HIGH>;
++	};
++
++	gpio_lcd: gpio_lcd {
++		compatible = "gpio-lcd";
++		lcm-data-4bit;
++		lcm-lines  = <2>;
++		lcm-bits = <&gpio1 22 GPIO_ACTIVE_HIGH>,
++			   <&gpio1 23 GPIO_ACTIVE_HIGH>,
++			   <&gpio1 24 GPIO_ACTIVE_HIGH>,
++			   <&gpio1 25 GPIO_ACTIVE_HIGH>;
++		lcm-rs   = <&gpio1 12 GPIO_ACTIVE_HIGH>;
++		lcm-bl   = <&gpio0 31 GPIO_ACTIVE_LOW>;
++		lcm-rw   = <&gpio1 19 GPIO_ACTIVE_HIGH>;
++		lcm-en   = <&gpio1 21 GPIO_ACTIVE_HIGH>;
++	};
++
++	readynas_lcd {
++		compatible = "readynas-lcd";
++		lcd-device = <&gpio_lcd>;
++	};
++};
+diff --git a/arch/arm/boot/dts/armada-xp-netgear-rn2120.dts b/arch/arm/boot/dts/armada-xp-netgear-rn2120.dts
+index 3eddad3..cf6a0df 100644
+--- a/arch/arm/boot/dts/armada-xp-netgear-rn2120.dts
++++ b/arch/arm/boot/dts/armada-xp-netgear-rn2120.dts
+@@ -196,12 +196,11 @@
+ 				partition@0 {
+ 					label = "u-boot";
+ 					reg = <0x0000000 0x180000>;  /* 1.5MB */
+-					read-only;
+ 				};
+ 
+ 				partition@180000 {
+ 					label = "u-boot-env";
+-					reg = <0x180000 0x20000>;    /* 128KB */
++					reg = <0x180000 0x80000>;    /* 512KB */
+ 					read-only;
+ 				};
+ 
+diff --git a/arch/arm/boot/dts/kirkwood-netgear_readynas_duo_v2.dts b/arch/arm/boot/dts/kirkwood-netgear_readynas_duo_v2.dts
+index fd733c6..897cc4c 100644
+--- a/arch/arm/boot/dts/kirkwood-netgear_readynas_duo_v2.dts
++++ b/arch/arm/boot/dts/kirkwood-netgear_readynas_duo_v2.dts
+@@ -130,29 +130,31 @@
+ 		pinctrl-names = "default";
+ 
+ 		power_led {
+-			label = "status:blue:power_led";
++			label = "status:blue:pwr";
+ 			gpios = <&gpio0 31 GPIO_ACTIVE_LOW>;
+ 			default-state = "keep";
++			linux,default-trigger = "timer";
+ 		};
+ 
+ 		activity_led {
+-			label = "status:blue:activity_led";
++			label = "status:blue:act";
+ 			gpios = <&gpio1 6 GPIO_ACTIVE_LOW>;
+ 		};
+ 
+ 		disk1_led {
+-			label = "status:blue:disk1_led";
++			label = "status:blue:sata1";
+ 			gpios = <&gpio0 23 GPIO_ACTIVE_LOW>;
+ 		};
+ 
+ 		disk2_led {
+-			label = "status:blue:disk2_led";
++			label = "status:blue:sata2";
+ 			gpios = <&gpio0 22 GPIO_ACTIVE_LOW>;
+ 		};
+ 
+ 		backup_led {
+-			label = "status:blue:backup_led";
++			label = "status:blue:backup";
+ 			gpios = <&gpio0 29 GPIO_ACTIVE_LOW>;
++			default-state = "off";
+ 		};
+ 	};
+ 
+diff --git a/arch/arm/boot/dts/kirkwood-netgear_readynas_nv+_v2.dts b/arch/arm/boot/dts/kirkwood-netgear_readynas_nv+_v2.dts
+index b514d64..421e5de 100644
+--- a/arch/arm/boot/dts/kirkwood-netgear_readynas_nv+_v2.dts
++++ b/arch/arm/boot/dts/kirkwood-netgear_readynas_nv+_v2.dts
+@@ -137,33 +137,34 @@
+ 		pinctrl-names = "default";
+ 
+ 		power_led {
+-			label = "status:blue:power_led";
++			label = "status:blue:pwr";
+ 			gpios = <&gpio0 31 GPIO_ACTIVE_LOW>;
+-			linux,default-trigger = "default-on";
++			linux,default-trigger = "timer";
+ 		};
+ 
+ 		backup_led {
+-			label = "status:blue:backup_led";
++			label = "status:blue:backup";
+ 			gpios = <&gpio0 22 GPIO_ACTIVE_LOW>;
++			default-state = "off";
+ 		};
+ 
+ 		disk1_led {
+-			label = "status:blue:disk1_led";
++			label = "status:blue:sata1";
+ 			gpios = <&gpio0 20 GPIO_ACTIVE_LOW>;
+ 		};
+ 
+ 		disk2_led {
+-			label = "status:blue:disk2_led";
++			label = "status:blue:sata2";
+ 			gpios = <&gpio0 23 GPIO_ACTIVE_LOW>;
+ 		};
+ 
+ 		disk3_led {
+-			label = "status:blue:disk3_led";
++			label = "status:blue:sata3";
+ 			gpios = <&gpio0 24 GPIO_ACTIVE_LOW>;
+ 		};
+ 
+ 		disk4_led {
+-			label = "status:blue:disk4_led";
++			label = "status:blue:sata4";
+ 			gpios = <&gpio0 29 GPIO_ACTIVE_LOW>;
+ 		};
+ 	};
+-- 
+1.9.1
+

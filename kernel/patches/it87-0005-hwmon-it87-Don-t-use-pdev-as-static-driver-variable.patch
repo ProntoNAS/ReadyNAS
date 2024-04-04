@@ -1,0 +1,67 @@
+From 35b9f3499696f66be4d3309f22fa181e641a0639 Mon Sep 17 00:00:00 2001
+From: Guenter Roeck <linux@roeck-us.net>
+Date: Sat, 28 Mar 2015 07:49:14 -0700
+Subject: [PATCH 05/28] hwmon: (it87) Don't use pdev as static driver variable
+
+Using the same varible name for function names and as static
+variable invites misuse and prevents us from adding support
+for a second chip. Rename pdev to it87_pdev and limit its use
+to where it is needed.
+
+Tested-by: Martin Blumenstingl <martin.blumenstingl@googlemail.com>
+Signed-off-by: Guenter Roeck <linux@roeck-us.net>
+(cherry picked from commit 8e50e3c3f60c84b96956d37cbbf109b75569c6ba)
+---
+ drivers/hwmon/it87.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/hwmon/it87.c b/drivers/hwmon/it87.c
+index 9b36987..8f28f9b 100644
+--- a/drivers/hwmon/it87.c
++++ b/drivers/hwmon/it87.c
+@@ -78,7 +78,7 @@ static unsigned short force_id;
+ module_param(force_id, ushort, 0);
+ MODULE_PARM_DESC(force_id, "Override the detected device ID");
+ 
+-static struct platform_device *pdev;
++static struct platform_device *it87_pdev;
+ 
+ #define	REG	0x2e	/* The register to read/write */
+ #define	DEV	0x07	/* Register: Logical device select */
+@@ -2285,7 +2285,7 @@ exit:
+ 
+ static void it87_remove_files(struct device *dev)
+ {
+-	struct it87_data *data = platform_get_drvdata(pdev);
++	struct it87_data *data = dev_get_drvdata(dev);
+ 	struct it87_sio_data *sio_data = dev_get_platdata(dev);
+ 	int i;
+ 
+@@ -2888,6 +2888,7 @@ static struct it87_data *it87_update_device(struct device *dev)
+ static int __init it87_device_add(unsigned short address,
+ 				  const struct it87_sio_data *sio_data)
+ {
++	struct platform_device *pdev;
+ 	struct resource res = {
+ 		.start	= address + IT87_EC_OFFSET,
+ 		.end	= address + IT87_EC_OFFSET + IT87_EC_EXTENT - 1,
+@@ -2923,6 +2924,7 @@ static int __init it87_device_add(unsigned short address,
+ 		goto exit_device_put;
+ 	}
+ 
++	it87_pdev = pdev;
+ 	return 0;
+ 
+ exit_device_put:
+@@ -2955,7 +2957,7 @@ static int __init sm_it87_init(void)
+ 
+ static void __exit sm_it87_exit(void)
+ {
+-	platform_device_unregister(pdev);
++	platform_device_unregister(it87_pdev);
+ 	platform_driver_unregister(&it87_driver);
+ }
+ 
+-- 
+1.9.1
+

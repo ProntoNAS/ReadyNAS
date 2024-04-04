@@ -1,0 +1,66 @@
+Description: When cupsd is started by systemd, let it die after 30 seconds by default
+Author: Didier Raboud <odyx@debian.org>
+Last-Update: 2014-10-23
+--- a/scheduler/conf.c
++++ b/scheduler/conf.c
+@@ -80,6 +80,7 @@
+   { "DirtyCleanInterval",	&DirtyCleanInterval,	CUPSD_VARTYPE_TIME },
+   { "ErrorPolicy",		&ErrorPolicy,		CUPSD_VARTYPE_STRING },
+   { "IdleExitTimeout",		&IdleExitTimeout,	CUPSD_VARTYPE_TIME },
++  { "SystemdIdleExit",		&SystemdIdleExit,	CUPSD_VARTYPE_BOOLEAN },
+   { "FilterLimit",		&FilterLimit,		CUPSD_VARTYPE_INTEGER },
+   { "FilterNice",		&FilterNice,		CUPSD_VARTYPE_INTEGER },
+ #ifdef HAVE_GSSAPI
+@@ -758,6 +759,7 @@
+   DefaultLeaseDuration       = 86400;
+   MaxLeaseDuration           = 0;
+   IdleExitTimeout            = 0;
++  SystemdIdleExit            = FALSE;
+ 
+ #ifdef HAVE_LAUNCHD
+   LaunchdTimeout = 10;
+--- a/scheduler/conf.h
++++ b/scheduler/conf.h
+@@ -253,6 +253,9 @@
+ VAR int			IdleExitTimeout		VALUE(0);
+ 					/* Time after which an idle cupsd will exit */
+ 
++VAR int			SystemdIdleExit		VALUE(FALSE);
++					/* Whether cups when launched by systemd should exit on idle */
++
+ #ifdef HAVE_LAUNCHD
+ VAR int			LaunchdTimeout		VALUE(10);
+ 					/* Time after which an idle cupsd will exit */
+--- a/scheduler/main.c
++++ b/scheduler/main.c
+@@ -1736,6 +1736,15 @@
+ #  endif /* HAVE_SSL */
+   }
+ 
++  if(SystemdIdleExit)
++  {
++    /* As we are started on-demand, stop on idle */
++    if (!IdleExitTimeout)
++      IdleExitTimeout = 30;
++
++    cupsdLogMessage(CUPSD_LOG_DEBUG, "systemd_checkin: Activate exit-on-idle mode, timeout: %d seconds.",
++                                     IdleExitTimeout);
++  }
+   return (0);
+ }
+ #endif /* HAVE_SYSTEMD */
+--- a/man/cupsd.conf.man.in
++++ b/man/cupsd.conf.man.in
+@@ -528,6 +528,12 @@
+ "notify-events", "notify-pull-method", "notify-recipient-uri",
+ "notify-subscriber-user-name", and "notify-user-data".
+ .TP 5
++SystemdIdleExit No
++.TP 5
++SystemdIdleExit Yes
++.br
++Specifies whether to exit on inactivity when launched by systemd.
++.TP 5
+ Timeout seconds
+ .br
+ Specifies the HTTP request timeout in seconds.

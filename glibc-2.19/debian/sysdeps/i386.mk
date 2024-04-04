@@ -1,4 +1,4 @@
-extra_config_options = --enable-multi-arch --enable-lock-elision
+extra_config_options = --enable-multi-arch
 
 # We use -march=i686 and glibc's i686 routines use cmov, so require it.
 # A Debian-local glibc patch adds cmov to the search path.

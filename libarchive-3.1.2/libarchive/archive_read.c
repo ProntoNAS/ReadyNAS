@@ -541,16 +541,20 @@ archive_read_open1(struct archive *_a)
  * it wants to handle this stream.  Repeat until we've finished
  * building the pipeline.
  */
+
+/* We won't build a filter pipeline with more stages than this. */
+#define MAX_NUMBER_FILTERS 25
+
 static int
 choose_filters(struct archive_read *a)
 {
-	int number_bidders, i, bid, best_bid;
+	int number_bidders, i, bid, best_bid, number_filters;
 	struct archive_read_filter_bidder *bidder, *best_bidder;
 	struct archive_read_filter *filter;
 	ssize_t avail;
 	int r;
 
-	for (;;) {
+	for (number_filters = 0; number_filters < MAX_NUMBER_FILTERS; ++number_filters) {
 		number_bidders = sizeof(a->bidders) / sizeof(a->bidders[0]);
 
 		best_bid = 0;
@@ -596,6 +600,9 @@ choose_filters(struct archive_read *a)
 			return (ARCHIVE_FATAL);
 		}
 	}
+	archive_set_error(&a->archive, ARCHIVE_ERRNO_FILE_FORMAT,
+	    "Input requires too many filters for decoding");
+	return (ARCHIVE_FATAL);
 }
 
 /*
@@ -1394,6 +1401,8 @@ __archive_read_filter_consume(struct archive_read_filter * filter,
 {
 	int64_t skipped;
 
+	if (request < 0)
+		return ARCHIVE_FATAL;
 	if (request == 0)
 		return 0;
 

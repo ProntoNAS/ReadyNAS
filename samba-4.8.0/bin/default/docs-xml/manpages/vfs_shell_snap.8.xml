@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
+<refentry id="vfs_shell_snap.8">
+
+<refmeta>
+	<refentrytitle>vfs_shell_snap</refentrytitle>
+	<manvolnum>8</manvolnum>
+	<refmiscinfo class="source">Samba</refmiscinfo>
+	<refmiscinfo class="manual">System Administration tools</refmiscinfo>
+	<refmiscinfo class="version">4.8.0</refmiscinfo>
+</refmeta>
+
+
+<refnamediv>
+	<refname>vfs_shell_snap</refname>
+	<refpurpose>
+		Shell script callouts for snapshot creation and deletion
+	</refpurpose>
+</refnamediv>
+
+<refsynopsisdiv>
+	<cmdsynopsis sepchar=" ">
+		<literal>vfs objects = shell_snap</literal>
+	</cmdsynopsis>
+</refsynopsisdiv>
+
+<refsect1>
+	<title>DESCRIPTION</title>
+
+	<para>This VFS module is part of the
+	<citerefentry><refentrytitle>samba</refentrytitle>
+	<manvolnum>8</manvolnum></citerefentry> suite.</para>
+
+	<para>
+		The <literal>vfs_shell_snap</literal> VFS provides shell-script
+		callouts for snapshot creation and deletion operations issued
+		by remote clients using the File Server Remote VSS Protocol
+		(FSRVP).
+	</para>
+
+	<para>
+		The following shell callouts may be configured in smb.conf:
+	</para>
+	<para>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="SHELL_SNAP:CHECKPATHCOMMAND" xlink:href="smb.conf.5.html#SHELL_SNAP:CHECKPATHCOMMAND">shell_snap:check path command</link>
+		<itemizedlist>
+			<listitem><para>
+				Called when an FSRVP client wishes to check
+				whether a given share supports snapshot
+				create/delete requests.
+			</para></listitem>
+			<listitem><para>
+				The command is called with a single
+				<parameter moreinfo="none">share_path</parameter> argument.
+			</para></listitem>
+			<listitem><para>
+				The command must return 0 if
+				<parameter moreinfo="none">share_path</parameter> is capable of
+				being snapshotted.
+			</para></listitem>
+		</itemizedlist>
+	</para>
+	<para>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="SHELL_SNAP:CREATECOMMAND" xlink:href="smb.conf.5.html#SHELL_SNAP:CREATECOMMAND">shell_snap:create command</link>
+		<itemizedlist>
+			<listitem><para>
+				Called when an FSRVP client wishes to create
+				a snapshot.
+			</para></listitem>
+			<listitem><para>
+				The command is called with a single
+				<parameter moreinfo="none">share_path</parameter> argument.
+			</para></listitem>
+			<listitem><para>
+				The command must return 0 status if the
+				snapshot was successfully taken.
+			</para></listitem>
+			<listitem><para>
+				The command must output the path of the newly
+				created snapshot to stdout.
+			</para></listitem>
+		</itemizedlist>
+	</para>
+	<para>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="SHELL_SNAP:DELETECOMMAND" xlink:href="smb.conf.5.html#SHELL_SNAP:DELETECOMMAND">shell_snap:delete command</link>
+		<itemizedlist>
+			<listitem><para>
+				Called when an FSRVP client wishes to delete
+				a snapshot.
+			</para></listitem>
+			<listitem><para>
+				The command is called with
+				<parameter moreinfo="none">base_share_path</parameter> and
+				<parameter moreinfo="none">snapshot_share_path</parameter>
+				arguments.
+			</para></listitem>
+			<listitem><para>
+				The command must return 0 status if the
+				snapshot was successfully removed.
+			</para></listitem>
+		</itemizedlist>
+		All commands are executed as the authenticated FSRVP client
+		user.
+	</para>
+
+	<para>
+		This module is stackable.
+	</para>
+</refsect1>
+
+<refsect1>
+	<title>CONFIGURATION</title>
+
+	<programlisting format="linespecific">
+		<parameter>[share]</parameter>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="VFSOBJECTS" xlink:href="smb.conf.5.html#VFSOBJECTS">vfs objects = shell_snap</link>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="SHELL_SNAP:CHECKPATHCOMMAND" xlink:href="smb.conf.5.html#SHELL_SNAP:CHECKPATHCOMMAND">shell_snap:check path command = 
+			snap_check_path.sh</link>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="SHELL_SNAP:CREATECOMMAND" xlink:href="smb.conf.5.html#SHELL_SNAP:CREATECOMMAND">shell_snap:create command = 
+			snap_create.sh</link>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="SHELL_SNAP:DELETECOMMAND" xlink:href="smb.conf.5.html#SHELL_SNAP:DELETECOMMAND">shell_snap:delete command = 
+			snap_delete.sh</link>
+	</programlisting>
+
+	<para>
+		Samba's FSRVP server must be configured in the [global] section:
+	</para>
+
+	<programlisting format="linespecific">
+		<parameter>[global]</parameter>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="RPC_DAEMON:FSSD" xlink:href="smb.conf.5.html#RPC_DAEMON:FSSD">rpc_daemon:fssd = fork</link>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="REGISTRYSHARES" xlink:href="smb.conf.5.html#REGISTRYSHARES">registry shares = yes</link>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="INCLUDE" xlink:href="smb.conf.5.html#INCLUDE">include = registry</link>
+	</programlisting>
+</refsect1>
+
+<refsect1>
+	<title>VERSION</title>
+
+	<para>
+		This man page is part of version 4.8.0 of the Samba suite.
+	</para>
+</refsect1>
+
+<refsect1>
+	<title>AUTHOR</title>
+
+	<para>The original Samba software and related utilities
+	were created by Andrew Tridgell. Samba is now developed
+	by the Samba Team as an Open Source project similar
+	to the way the Linux kernel is developed.</para>
+
+</refsect1>
+
+</refentry>

@@ -1,0 +1,111 @@
+From: Christian Kastner <debian@kvr.at>
+Date: Mon, 26 May 2014 00:44:59 +0200
+Subject: Enable skipping tests requiring root
+
+We don't have root privileges at build time.
+
+Forwarded: yes
+Last-Update: 2014-07-26
+
+---
+ tests/keyctl/padd/useradd/runtest.sh | 59 ++++++++++++++++++++----------------
+ tests/prepare.inc.sh                 |  8 +++++
+ 2 files changed, 41 insertions(+), 26 deletions(-)
+
+diff --git a/tests/keyctl/padd/useradd/runtest.sh b/tests/keyctl/padd/useradd/runtest.sh
+index 00aec03..94c9609 100644
+--- a/tests/keyctl/padd/useradd/runtest.sh
++++ b/tests/keyctl/padd/useradd/runtest.sh
+@@ -40,40 +40,47 @@ expect_payload payload "lizard"
+ marker "UNLINK KEY"
+ unlink_key $keyid @s
+ 
+-# add keys with huge payloads
+ old_root_quota=`cat /proc/sys/kernel/keys/root_maxbytes`
+-if [ $old_root_quota -lt 65536 ]
++
++if [ $skip_root_required -ne 1 ]
+ then
+-    marker "INCREASE QUOTA"
+-    echo 65536 >/proc/sys/kernel/keys/root_maxbytes
++	# add keys with huge payloads
++	if [ $old_root_quota -lt 65536 ]
++	then
++		marker "INCREASE QUOTA"
++		echo 65536 >/proc/sys/kernel/keys/root_maxbytes
++	fi
++
++	marker "ADD LARGE USER KEY"
++	pcreate_key_by_size 32767 user large @s
++	expect_keyid keyid
++	md5sum_key $keyid
++	expect_payload payload "f128f774ede3fe931e7c6745c4292f40"
++
++	marker "ADD SMALL BIG KEY"
++	pcreate_key_by_size 128 big_key small @s
++	expect_keyid keyid
++	md5sum_key $keyid
++	expect_payload payload "f09f35a5637839458e462e6350ecbce4"
++
++	marker "ADD HUGE BIG KEY"
++	pcreate_key_by_size $((1024*1024-1)) big_key huge @s
++	expect_keyid keyid
++	md5sum_key $keyid
++	expect_payload payload "e57598cd670284cf7d09e16ed9d4b2ac"
+ fi
+ 
+-marker "ADD LARGE USER KEY"
+-pcreate_key_by_size 32767 user large @s
+-expect_keyid keyid
+-md5sum_key $keyid
+-expect_payload payload "f128f774ede3fe931e7c6745c4292f40"
+-
+-marker "ADD SMALL BIG KEY"
+-pcreate_key_by_size 128 big_key small @s
+-expect_keyid keyid
+-md5sum_key $keyid
+-expect_payload payload "f09f35a5637839458e462e6350ecbce4"
+-
+-marker "ADD HUGE BIG KEY"
+-pcreate_key_by_size $((1024*1024-1)) big_key huge @s
+-expect_keyid keyid
+-md5sum_key $keyid
+-expect_payload payload "e57598cd670284cf7d09e16ed9d4b2ac"
+-
+ marker "CLEAR KEYRING"
+ clear_keyring @s
+ 
+-if [ $old_root_quota -lt 65536 ]
++if [ $skip_root_required -ne 1 ]
+ then
+-    marker "RESET QUOTA"
+-    echo $old_root_quota >/proc/sys/kernel/keys/root_maxbytes
+-    sleep 1
++	if [ $old_root_quota -lt 65536 ]
++	then
++		marker "RESET QUOTA"
++		echo $old_root_quota >/proc/sys/kernel/keys/root_maxbytes
++		sleep 1
++	fi
+ fi
+ 
+ echo "++++ FINISHED TEST: $result" >>$OUTPUTFILE
+diff --git a/tests/prepare.inc.sh b/tests/prepare.inc.sh
+index 03ce2ff..6860e30 100644
+--- a/tests/prepare.inc.sh
++++ b/tests/prepare.inc.sh
+@@ -41,3 +41,11 @@ else
+ fi
+ 
+ KEYUTILSVER=`expr "$KEYUTILSVER" : '.*keyutils-\([0-9.]*\).*'`
++
++# Allow skipping of tests requiring root
++if [ -n "$SKIPROOT" ]
++then
++	skip_root_required=1
++else
++	skip_root_required=0
++fi
+-- 
+2.0.0.rc4
+

@@ -1,0 +1,93 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>SPARQL query builder: Tracker SPARQL Library Reference Manual</title>
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Tracker SPARQL Library Reference Manual">
+<link rel="up" href="tracker-examples.html" title="Part III. Examples">
+<link rel="prev" href="tracker-examples.html" title="Part III. Examples">
+<link rel="next" href="tracker-examples-readonly.html" title="Querying the Store">
+<meta name="generator" content="GTK-Doc V1.25 (XML mode)">
+<link rel="stylesheet" href="style.css" type="text/css">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<table class="navigation" id="top" width="100%" summary="Navigation header" cellpadding="2" cellspacing="5"><tr valign="middle">
+<td width="100%" align="left" class="shortcuts"></td>
+<td><a accesskey="h" href="index.html"><img src="home.png" width="16" height="16" border="0" alt="Home"></a></td>
+<td><a accesskey="u" href="tracker-examples.html"><img src="up.png" width="16" height="16" border="0" alt="Up"></a></td>
+<td><a accesskey="p" href="tracker-examples.html"><img src="left.png" width="16" height="16" border="0" alt="Prev"></a></td>
+<td><a accesskey="n" href="tracker-examples-readonly.html"><img src="right.png" width="16" height="16" border="0" alt="Next"></a></td>
+</tr></table>
+<div class="chapter">
+<div class="titlepage"><div><div><h2 class="title">
+<a name="tracker-examples-builder"></a>SPARQL query builder</h2></div></div></div>
+<p>
+      The Tracker SPARQL library provides an easy and secure way of creating
+      SPARQL queries with the proper syntax. This is achieved using the
+      <span class="type"><a class="link" href="TrackerSparqlBuilder.html#TrackerSparqlBuilder-struct" title="TrackerSparqlBuilder">TrackerSparqlBuilder</a></span>
+      object.
+    </p>
+<p>
+</p>
+<pre class="programlisting">
+#include &lt;tracker-sparql.h&gt;
+
+int main (int argc, char **argv)
+{
+  <span class="type"><a class="link" href="TrackerSparqlBuilder.html#TrackerSparqlBuilder-struct" title="TrackerSparqlBuilder">TrackerSparqlBuilder</a></span> *builder;
+  const gchar *iri = "urn:example:0001";
+  const gchar *query_str;
+  time_t now;
+
+  /* Create builder */
+  builder = <code class="function"><a class="link" href="TrackerSparqlBuilder.html#tracker-sparql-builder-new-update" title="tracker_sparql_builder_new_update ()">tracker_sparql_builder_new_update</a></code> ();
+
+  /* Insert new data */
+  <code class="function"><a class="link" href="TrackerSparqlBuilder.html#tracker-sparql-builder-insert-open" title="tracker_sparql_builder_insert_open ()">tracker_sparql_builder_insert_open</a></code> (builder, NULL);
+
+  <code class="function"><a class="link" href="TrackerSparqlBuilder.html#tracker-sparql-builder-subject-iri" title="tracker_sparql_builder_subject_iri ()">tracker_sparql_builder_subject_iri</a></code> (builder, iri);
+
+  <code class="function"><a class="link" href="TrackerSparqlBuilder.html#tracker-sparql-builder-predicate" title="tracker_sparql_builder_predicate ()">tracker_sparql_builder_predicate</a></code> (builder, "a");
+  <code class="function"><a class="link" href="TrackerSparqlBuilder.html#tracker-sparql-builder-object" title="tracker_sparql_builder_object ()">tracker_sparql_builder_object</a></code> (builder, "nie:DataObject");
+  <code class="function"><a class="link" href="TrackerSparqlBuilder.html#tracker-sparql-builder-object" title="tracker_sparql_builder_object ()">tracker_sparql_builder_object</a></code> (builder, "nfo:FileDataObject");
+
+  now = time (NULL);
+  <code class="function"><a class="link" href="TrackerSparqlBuilder.html#tracker-sparql-builder-predicate" title="tracker_sparql_builder_predicate ()">tracker_sparql_builder_predicate</a></code> (builder, "nfo:fileLastModified");
+  <code class="function"><a class="link" href="TrackerSparqlBuilder.html#tracker-sparql-builder-object-date" title="tracker_sparql_builder_object_date ()">tracker_sparql_builder_object_date</a></code> (builder, &amp;now);
+
+  <code class="function"><a class="link" href="TrackerSparqlBuilder.html#tracker-sparql-builder-insert-close" title="tracker_sparql_builder_insert_close ()">tracker_sparql_builder_insert_close</a></code> (builder);
+
+  /* Get query as string. Do NOT g_free() the resulting string! */
+  query_str = <code class="function"><a class="link" href="TrackerSparqlBuilder.html#tracker-sparql-builder-get-result" title="tracker_sparql_builder_get_result ()">tracker_sparql_builder_get_result</a></code> (builder);
+
+  /* Print it */
+  g_print ("Generated SPARQL query: '%s'\n", query_str);
+
+  /* Once builder no longer needed, unref it. Note that after
+   * this operation, you must not use the returned query result
+   * any more
+   */
+  g_object_unref (builder);
+
+  return 0;
+}
+</pre>
+<p>
+
+      The previous code will generate the following SPARQL query:
+</p>
+<pre class="programlisting">
+  DROP GRAPH &lt;urn:example:0001&gt;
+  INSERT INTO &lt;urn:example:0001&gt; {
+    &lt;urn:example:0001&gt; a nie:DataObject , nfo:FileDataObject ;
+                       nfo:fileLastModified "2010-08-04T13:09:26Z" .
+}
+</pre>
+<p>
+    </p>
+</div>
+<div class="footer">
+<hr>Generated by GTK-Doc V1.25</div>
+</body>
+</html>

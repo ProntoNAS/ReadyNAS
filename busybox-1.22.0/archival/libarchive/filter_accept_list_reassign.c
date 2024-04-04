@@ -28,10 +28,21 @@ char FAST_FUNC filter_accept_list_reassign(archive_handle_t *archive_handle)
 		name_ptr++;
 
 		/* Modify the subarchive handler based on the extension */
+		if (strcmp(name_ptr, "tar") == 0
+		) {
+			archive_handle->dpkg__action_data_subarchive = get_header_tar;
+			return EXIT_SUCCESS;
+		}
 		if (ENABLE_FEATURE_SEAMLESS_GZ
 		 && strcmp(name_ptr, "gz") == 0
 		) {
 			archive_handle->dpkg__action_data_subarchive = get_header_tar_gz;
+			return EXIT_SUCCESS;
+		}
+		if (ENABLE_FEATURE_SEAMLESS_XZ
+		 && strcmp(name_ptr, "xz") == 0
+		) {
+			archive_handle->dpkg__action_data_subarchive = get_header_tar_xz;
 			return EXIT_SUCCESS;
 		}
 		if (ENABLE_FEATURE_SEAMLESS_BZ2

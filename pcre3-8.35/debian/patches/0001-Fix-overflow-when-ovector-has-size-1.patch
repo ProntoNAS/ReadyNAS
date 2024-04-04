@@ -1,0 +1,50 @@
+Description: Fix overflow when ovector has size 1.
+ .
+ Addresses CVE-2015-8380.
+Origin: upstream, http://vcs.pcre.org/pcre?view=revision&revision=1565
+Bug: https://bugs.exim.org/show_bug.cgi?id=1637
+Bug-Debian: https://bugs.debian.org/806467
+Forwarded: not-needed
+Author: Salvatore Bonaccorso <carnil@debian.org>
+Last-Update: 2015-12-29
+Applied-Upstream: 8.38
+
+---
+ pcre_exec.c          | 3 ++-
+ testdata/testinput2  | 3 +++
+ testdata/testoutput2 | 4 ++++
+ 4 files changed, 12 insertions(+), 1 deletion(-)
+
+--- a/pcre_exec.c
++++ b/pcre_exec.c
+@@ -6705,7 +6705,8 @@ if (md->offset_vector != NULL)
+   register int *iend = iptr - re->top_bracket;
+   if (iend < md->offset_vector + 2) iend = md->offset_vector + 2;
+   while (--iptr >= iend) *iptr = -1;
+-  md->offset_vector[0] = md->offset_vector[1] = -1;
++  if (offsetcount > 0) md->offset_vector[0] = -1;
++  if (offsetcount > 1) md->offset_vector[1] = -1;
+   }
+ 
+ /* Set up the first character to match, if available. The first_char value is
+--- a/testdata/testinput2
++++ b/testdata/testinput2
+@@ -4083,4 +4083,7 @@ backtracking verbs. --/
+ 
+ /(?<=|(\,\$(?73591620449005828816)\xa8.{7}){6}\x09)/
+ 
++//
++\O1
++
+ /-- End of testinput2 --/
+--- a/testdata/testoutput2
++++ b/testdata/testoutput2
+@@ -14207,4 +14207,8 @@ Failed: unmatched parentheses at offset
+ /(?<=|(\,\$(?73591620449005828816)\xa8.{7}){6}\x09)/
+ Failed: number is too big at offset 32
+ 
++//
++\O1
++Matched, but too many substrings
++
+ /-- End of testinput2 --/

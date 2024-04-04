@@ -1,0 +1,43 @@
+From 2b4809406b6536cbb67a2282bf855710b8454dc2 Mon Sep 17 00:00:00 2001
+From: Werner Koch <wk@gnupg.org>
+Date: Mon, 24 Nov 2014 19:38:04 +0100
+Subject: [PATCH 17/20] gpg: Fix off-by-one read in the attribute subpacket
+ parser.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+* g10/parse-packet.c (parse_attribute_subpkts): Check that the
+attribute packet is large enough for the subpacket type.
+--
+
+Reported-by: Hanno Böck
+Signed-off-by: Werner Koch <wk@gnupg.org>
+
+(backported from commit 0988764397f99db4efef1eabcdb8072d6159af76)
+---
+ g10/parse-packet.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/g10/parse-packet.c b/g10/parse-packet.c
+index dcda8ef..db1702f 100644
+--- a/g10/parse-packet.c
++++ b/g10/parse-packet.c
+@@ -2026,6 +2026,14 @@ parse_attribute_subpkts(PKT_user_id *uid)
+       if( buflen < n )
+ 	goto too_short;
+ 
++      if (!n)
++        {
++          /* Too short to encode the subpacket type.  */
++          if (opt.verbose)
++            log_info ("attribute subpacket too short\n");
++          break;
++        }
++
+       attribs=xrealloc(attribs,(count+1)*sizeof(struct user_attribute));
+       memset(&attribs[count],0,sizeof(struct user_attribute));
+ 
+-- 
+2.1.3
+

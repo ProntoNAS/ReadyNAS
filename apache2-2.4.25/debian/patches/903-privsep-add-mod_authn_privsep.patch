@@ -1,0 +1,90 @@
+From b9af501a20c1927df4ad00b1dc65b66767a2b2da Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 8 Aug 2017 14:13:13 -0700
+Subject: [PATCH 903/903] privsep: add mod_authn_privsep
+
+---
+ modules/aaa/config.m4           |  1 +
+ modules/aaa/mod_authn_privsep.c | 58 +++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 59 insertions(+)
+ create mode 100644 modules/aaa/mod_authn_privsep.c
+
+diff --git a/modules/aaa/config.m4 b/modules/aaa/config.m4
+index b443761d2b..20aeaf932c 100644
+--- a/modules/aaa/config.m4
++++ b/modules/aaa/config.m4
+@@ -14,6 +14,7 @@ APACHE_MODULE(authn_dbm, DBM-based authentication control, , , most)
+ APACHE_MODULE(authn_anon, anonymous user authentication control, , , most)
+ APACHE_MODULE(authn_dbd, SQL-based authentication control, , , most)
+ APACHE_MODULE(authn_socache, Cached authentication control, , , most)
++APACHE_MODULE(authn_privsep, Privilege Separated PAM authentication, , , no)
+ 
+ dnl General Authentication modules; module which implements the 
+ dnl non-authn module specific directives.
+diff --git a/modules/aaa/mod_authn_privsep.c b/modules/aaa/mod_authn_privsep.c
+new file mode 100644
+index 0000000000..1d1dae615c
+--- /dev/null
++++ b/modules/aaa/mod_authn_privsep.c
+@@ -0,0 +1,58 @@
++/* Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#include "httpd.h"
++#include "http_config.h"
++#include "http_core.h"
++#include "mod_auth.h"
++
++#include "mod_privsep.h"
++#include "privsep.h"
++
++
++static authn_status authn_privsep_check_password(request_rec *r,
++						 const char *user, const char *password)
++{
++  privsep_token_t *token = ap_privsep_token(r);
++
++  /* subrequest have the token copied from their parent request -
++     if one exists we ask the privsep process to check to make sure
++     nothing suspicious is going on */
++  if(token)
++    return ap_privsep_verify_token(token, user);
++  else
++    return ap_privsep_authenticate(r, user, password);
++}
++
++static const authn_provider authn_privsep_provider =
++{
++    &authn_privsep_check_password,
++};
++
++static void register_hooks(apr_pool_t *p)
++{
++     /* Register authn provider */
++    ap_register_provider(p, AUTHN_PROVIDER_GROUP, "privsep", "0",
++                         &authn_privsep_provider);
++}
++
++module AP_MODULE_DECLARE_DATA authn_privsep_module =
++{
++    STANDARD20_MODULE_STUFF,
++    NULL,                          /* dir config creater */
++    NULL,                          /* dir merger --- default is to override */
++    NULL,                          /* server config */
++    NULL,                          /* merge server config */
++    NULL,                          /* command apr_table_t */
++    register_hooks                 /* register hooks */
++};
+-- 
+2.13.0
+

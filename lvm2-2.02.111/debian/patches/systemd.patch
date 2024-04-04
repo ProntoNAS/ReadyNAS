@@ -1,0 +1,56 @@
+Author: Bastian Blank <waldi@debian.org>
+---
+--- a/scripts/Makefile.in
++++ b/scripts/Makefile.in
+@@ -99,6 +99,8 @@
+ 
+ install_systemd_units:
+ 	$(INSTALL_DIR) $(systemd_unit_dir)
++	$(INSTALL_DATA) lvm2-activation_systemd_debian.service $(systemd_unit_dir)/lvm2-activation.service
++	$(INSTALL_DATA) lvm2-activation-early_systemd_debian.service $(systemd_unit_dir)/lvm2-activation-early.service
+ ifeq ("@BUILD_DMEVENTD@", "yes")
+ 	$(INSTALL_DATA) dm_event_systemd_red_hat.socket $(systemd_unit_dir)/dm-event.socket
+ 	$(INSTALL_DATA) dm_event_systemd_red_hat.service $(systemd_unit_dir)/dm-event.service
+--- /dev/null
++++ b/scripts/lvm2-activation-early_systemd_debian.service
+@@ -0,0 +1,14 @@
++[Unit]
++Description=Activation of LVM2 logical volumes
++Documentation=man:lvm(8) man:vgchange(8)
++DefaultDependencies=no
++After=systemd-udev-settle.service
++Before=cryptsetup.target local-fs.target shutdown.target
++Wants=systemd-udev-settle.service
++
++[Service]
++ExecStart=/sbin/lvm vgchange -aay --sysinit
++Type=oneshot
++
++[Install]
++WantedBy=local-fs.target
+--- /dev/null
++++ b/scripts/lvm2-activation_systemd_debian.service
+@@ -0,0 +1,14 @@
++[Unit]
++Description=Activation of LVM2 logical volumes
++Documentation=man:lvm(8) man:vgchange(8)
++DefaultDependencies=no
++After=lvm2-activation-early.service cryptsetup.target
++Before=local-fs.target shutdown.target
++Wants=systemd-udev-settle.service
++
++[Service]
++ExecStart=/sbin/lvm vgchange -aay --sysinit
++Type=oneshot
++
++[Install]
++WantedBy=local-fs.target
+--- a/scripts/lvm2_lvmetad_systemd_red_hat.service.in
++++ b/scripts/lvm2_lvmetad_systemd_red_hat.service.in
+@@ -13,6 +13,3 @@
+ Environment=SD_ACTIVATION=1
+ Restart=on-abort
+ PIDFile=@LVMETAD_PIDFILE@
+-
+-[Install]
+-WantedBy=sysinit.target

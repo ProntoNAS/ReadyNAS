@@ -1,0 +1,90 @@
+From 095bf04699a141b9c45d07553fcb881cfb986858 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 5 Oct 2016 18:48:30 +0000
+Subject: [PATCH 12/21] dnsproxy: Only add one listener
+
+Adding both IPv4 and IPv6 listeners makes DNS timeouts take twice as
+long, since the glibc resolver will try both.  So instead let's try
+IPv4 first, and only add IPv6 if IPv4 fails.
+---
+ src/dnsproxy.c | 46 ++++++++++++++++++++++++++++------------------
+ 1 file changed, 28 insertions(+), 18 deletions(-)
+
+diff --git a/src/dnsproxy.c b/src/dnsproxy.c
+index 896fcf4..44383cc 100644
+--- a/src/dnsproxy.c
++++ b/src/dnsproxy.c
+@@ -3683,42 +3683,52 @@ static int create_dns_listener(int protocol, struct listener_data *ifdata)
+ 		ifdata->tcp4_listener_channel = get_listener(AF_INET, protocol,
+ 							ifdata->index);
+ 		if (ifdata->tcp4_listener_channel)
++		{
+ 			ifdata->tcp4_listener_watch =
+ 				g_io_add_watch(ifdata->tcp4_listener_channel,
+ 					G_IO_IN, tcp4_listener_event,
+ 					(gpointer)ifdata);
++			ret |= TCP_IPv6_FAILED;
++		}
+ 		else
++		{
+ 			ret |= TCP_IPv4_FAILED;
+ 
+-		ifdata->tcp6_listener_channel = get_listener(AF_INET6, protocol,
+-							ifdata->index);
+-		if (ifdata->tcp6_listener_channel)
+-			ifdata->tcp6_listener_watch =
+-				g_io_add_watch(ifdata->tcp6_listener_channel,
+-					G_IO_IN, tcp6_listener_event,
+-					(gpointer)ifdata);
+-		else
+-			ret |= TCP_IPv6_FAILED;
++			ifdata->tcp6_listener_channel = get_listener(AF_INET6, protocol,
++								ifdata->index);
++			if (ifdata->tcp6_listener_channel)
++				ifdata->tcp6_listener_watch =
++					g_io_add_watch(ifdata->tcp6_listener_channel,
++						G_IO_IN, tcp6_listener_event,
++						(gpointer)ifdata);
++			else
++				ret |= TCP_IPv6_FAILED;
++		}
+ 	} else {
+ 		ifdata->udp4_listener_channel = get_listener(AF_INET, protocol,
+ 							ifdata->index);
+ 		if (ifdata->udp4_listener_channel)
++		{
+ 			ifdata->udp4_listener_watch =
+ 				g_io_add_watch(ifdata->udp4_listener_channel,
+ 					G_IO_IN, udp4_listener_event,
+ 					(gpointer)ifdata);
++			ret |= UDP_IPv6_FAILED;
++		}
+ 		else
++		{
+ 			ret |= UDP_IPv4_FAILED;
+ 
+-		ifdata->udp6_listener_channel = get_listener(AF_INET6, protocol,
+-							ifdata->index);
+-		if (ifdata->udp6_listener_channel)
+-			ifdata->udp6_listener_watch =
+-				g_io_add_watch(ifdata->udp6_listener_channel,
+-					G_IO_IN, udp6_listener_event,
+-					(gpointer)ifdata);
+-		else
+-			ret |= UDP_IPv6_FAILED;
++			ifdata->udp6_listener_channel = get_listener(AF_INET6, protocol,
++								ifdata->index);
++			if (ifdata->udp6_listener_channel)
++				ifdata->udp6_listener_watch =
++					g_io_add_watch(ifdata->udp6_listener_channel,
++						G_IO_IN, udp6_listener_event,
++						(gpointer)ifdata);
++			else
++				ret |= UDP_IPv6_FAILED;
++		}
+ 	}
+ 
+ 	return ret;
+-- 
+2.1.4
+

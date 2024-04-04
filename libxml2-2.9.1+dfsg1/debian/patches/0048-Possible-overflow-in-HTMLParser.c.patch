@@ -1,0 +1,38 @@
+From: Daniel Veillard <veillard@redhat.com>
+Date: Mon, 6 Oct 2014 18:51:04 +0800
+Subject: Possible overflow in HTMLParser.c
+
+For https://bugzilla.gnome.org/show_bug.cgi?id=720615
+
+make sure that the encoding string passed is of reasonable size
+---
+ HTMLparser.c | 16 ++++++++++------
+ 1 file changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/HTMLparser.c b/HTMLparser.c
+index 4c51cc5..8d34fd1 100644
+--- a/HTMLparser.c
++++ b/HTMLparser.c
+@@ -6288,12 +6288,16 @@ htmlCreateFileParserCtxt(const char *filename, const char *encoding)
+ 
+     /* set encoding */
+     if (encoding) {
+-        content = xmlMallocAtomic (xmlStrlen(content_line) + strlen(encoding) + 1);
+-	if (content) {
+-	    strcpy ((char *)content, (char *)content_line);
+-            strcat ((char *)content, (char *)encoding);
+-            htmlCheckEncoding (ctxt, content);
+-	    xmlFree (content);
++        size_t l = strlen(encoding);
++
++	if (l < 1000) {
++	    content = xmlMallocAtomic (xmlStrlen(content_line) + l + 1);
++	    if (content) {
++		strcpy ((char *)content, (char *)content_line);
++		strcat ((char *)content, (char *)encoding);
++		htmlCheckEncoding (ctxt, content);
++		xmlFree (content);
++	    }
+ 	}
+     }
+ 

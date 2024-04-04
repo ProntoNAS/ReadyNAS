@@ -364,6 +364,7 @@ libarchive_test_SOURCES=					\
 	libarchive/test/test_read_disk_entry_from_file.c	\
 	libarchive/test/test_read_extract.c			\
 	libarchive/test/test_read_file_nonexistent.c		\
+	libarchive/test/test_read_filter_compress.c		\
 	libarchive/test/test_read_filter_grzip.c		\
 	libarchive/test/test_read_filter_lrzip.c		\
 	libarchive/test/test_read_filter_lzop.c			\
@@ -372,6 +373,7 @@ libarchive_test_SOURCES=					\
 	libarchive/test/test_read_filter_program_signature.c	\
 	libarchive/test/test_read_filter_uudecode.c		\
 	libarchive/test/test_read_format_7zip.c			\
+	libarchive/test/test_read_format_7zip_malformed.c	\
 	libarchive/test/test_read_format_ar.c			\
 	libarchive/test/test_read_format_cab.c			\
 	libarchive/test/test_read_format_cab_filename.c		\
@@ -410,8 +412,10 @@ libarchive_test_SOURCES=					\
 	libarchive/test/test_read_format_lha.c			\
 	libarchive/test/test_read_format_lha_filename.c		\
 	libarchive/test/test_read_format_mtree.c		\
+	libarchive/test/test_read_format_mtree_crash747.c \
 	libarchive/test/test_read_format_pax_bz2.c		\
 	libarchive/test/test_read_format_rar.c			\
+	libarchive/test/test_read_format_rar_invalid1.c		\
 	libarchive/test/test_read_format_raw.c			\
 	libarchive/test/test_read_format_tar.c			\
 	libarchive/test/test_read_format_tar_empty_filename.c	\
@@ -427,11 +431,13 @@ libarchive_test_SOURCES=					\
 	libarchive/test/test_read_format_zip_comment_stored.c	\
 	libarchive/test/test_read_format_zip_filename.c		\
 	libarchive/test/test_read_format_zip_mac_metadata.c	\
+	libarchive/test/test_read_format_zip_malformed.c	\
 	libarchive/test/test_read_format_zip_sfx.c		\
 	libarchive/test/test_read_large.c			\
 	libarchive/test/test_read_pax_truncated.c		\
 	libarchive/test/test_read_position.c			\
 	libarchive/test/test_read_set_format.c			\
+	libarchive/test/test_read_too_many_filters.c		\
 	libarchive/test/test_read_truncated.c			\
 	libarchive/test/test_read_truncated_filter.c		\
 	libarchive/test/test_sparse_basic.c			\
@@ -449,6 +455,9 @@ libarchive_test_SOURCES=					\
 	libarchive/test/test_write_disk_no_hfs_compression.c	\
 	libarchive/test/test_write_disk_perms.c			\
 	libarchive/test/test_write_disk_secure.c		\
+	libarchive/test/test_write_disk_secure744.c		\
+	libarchive/test/test_write_disk_secure745.c		\
+	libarchive/test/test_write_disk_secure746.c		\
 	libarchive/test/test_write_disk_sparse.c		\
 	libarchive/test/test_write_disk_symlink.c		\
 	libarchive/test/test_write_disk_times.c			\
@@ -598,6 +607,8 @@ libarchive_test_EXTRA_DIST=\
 	libarchive/test/test_read_format_7zip_lzma1_2.7z.uu		\
 	libarchive/test/test_read_format_7zip_lzma1_lzma2.7z.uu		\
 	libarchive/test/test_read_format_7zip_lzma2.7z.uu		\
+	libarchive/test/test_read_format_7zip_malformed.7z.uu		\
+	libarchive/test/test_read_format_7zip_malformed2.7z.uu		\
 	libarchive/test/test_read_format_7zip_ppmd.7z.uu		\
 	libarchive/test/test_read_format_7zip_symbolic_name.7z.uu	\
 	libarchive/test/test_read_format_ar.ar.uu			\
@@ -681,6 +692,7 @@ libarchive_test_EXTRA_DIST=\
 	libarchive/test/test_read_format_zip_filename_utf8_ru.zip.uu	\
 	libarchive/test/test_read_format_zip_length_at_end.zip.uu	\
 	libarchive/test/test_read_format_zip_mac_metadata.zip.uu	\
+	libarchive/test/test_read_format_zip_malformed1.zip.uu		\
 	libarchive/test/test_read_format_zip_sfx.uu			\
 	libarchive/test/test_read_format_zip_symlink.zip.uu		\
 	libarchive/test/test_read_format_zip_ux.zip.uu			\
@@ -693,6 +705,7 @@ libarchive_test_EXTRA_DIST=\
 	libarchive/test/test_read_splitted_rar_ab.uu			\
 	libarchive/test/test_read_splitted_rar_ac.uu			\
 	libarchive/test/test_read_splitted_rar_ad.uu			\
+	libarchive/test/test_read_too_many_filters.gz.uu		\
 	libarchive/test/test_splitted_rar_seek_support_aa.uu		\
 	libarchive/test/test_splitted_rar_seek_support_ab.uu		\
 	libarchive/test/test_splitted_rar_seek_support_ac.uu		\

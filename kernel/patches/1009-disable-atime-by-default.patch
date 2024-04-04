@@ -1,0 +1,46 @@
+From 993b8c51a84d9fd62998ae1b8f19cb569bcf4381 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 16:41:50 -0800
+Subject: [PATCH 1009/1014] disable atime by default
+
+---
+ fs/namespace.c | 13 +++++++------
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/fs/namespace.c b/fs/namespace.c
+index 5be02a0..8d1d5ff 100644
+--- a/fs/namespace.c
++++ b/fs/namespace.c
+@@ -2683,9 +2683,8 @@ long do_mount(const char *dev_name, const char __user *dir_name,
+ 	if (retval)
+ 		goto dput_out;
+ 
+-	/* Default to relatime unless overriden */
+-	if (!(flags & MS_NOATIME))
+-		mnt_flags |= MNT_RELATIME;
++	/* Default to noatime,nodiratime unless overriden */
++	mnt_flags |= MNT_NOATIME | MNT_NODIRATIME;
+ 
+ 	/* Separate the per-mountpoint flags */
+ 	if (flags & MS_NOSUID)
+@@ -2694,12 +2693,14 @@ long do_mount(const char *dev_name, const char __user *dir_name,
+ 		mnt_flags |= MNT_NODEV;
+ 	if (flags & MS_NOEXEC)
+ 		mnt_flags |= MNT_NOEXEC;
+-	if (flags & MS_NOATIME)
+-		mnt_flags |= MNT_NOATIME;
++	if (flags & MS_RELATIME) {
++		mnt_flags |= MNT_RELATIME;
++		mnt_flags &= ~(MNT_NOATIME | MNT_NODIRATIME);
++	}
+ 	if (flags & MS_NODIRATIME)
+ 		mnt_flags |= MNT_NODIRATIME;
+ 	if (flags & MS_STRICTATIME)
+-		mnt_flags &= ~(MNT_RELATIME | MNT_NOATIME);
++		mnt_flags &= ~(MNT_RELATIME | MNT_NOATIME | MNT_NODIRATIME);
+ 	if (flags & MS_RDONLY)
+ 		mnt_flags |= MNT_READONLY;
+ 
+-- 
+1.9.1
+

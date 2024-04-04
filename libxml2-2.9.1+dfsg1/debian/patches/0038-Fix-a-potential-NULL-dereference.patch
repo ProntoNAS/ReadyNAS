@@ -1,0 +1,29 @@
+From: Daniel Veillard <veillard@redhat.com>
+Date: Mon, 14 Jul 2014 16:39:50 +0800
+Subject: Fix a potential NULL dereference
+
+For https://bugzilla.gnome.org/show_bug.cgi?id=733040
+
+xmlDictLookup() may return NULL in case of allocation error,
+though very unlikely it need to be checked.
+---
+ parser.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/parser.c b/parser.c
+index ea0ea65..b02333b 100644
+--- a/parser.c
++++ b/parser.c
+@@ -9313,6 +9313,12 @@ reparse:
+ 	        const xmlChar *URL = xmlDictLookup(ctxt->dict, attvalue, len);
+ 		xmlURIPtr uri;
+ 
++                if (URL == NULL) {
++		    xmlErrMemory(ctxt, "dictionary allocation failure");
++		    if ((attvalue != NULL) && (alloc != 0))
++			xmlFree(attvalue);
++		    return(NULL);
++		}
+                 if (*URL != 0) {
+ 		    uri = xmlParseURI((const char *) URL);
+ 		    if (uri == NULL) {

@@ -1,0 +1,61 @@
+From: Daniel Veillard <veillard@redhat.com>
+Date: Mon, 6 Oct 2014 20:07:19 +0800
+Subject: Pointer dereferenced before null check
+
+For https://bugzilla.gnome.org/show_bug.cgi?id=707027
+
+A few pointer dereference before NULL check fixed.
+Removed a useless test
+---
+ xmlreader.c | 17 +++++++++++++----
+ 1 file changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/xmlreader.c b/xmlreader.c
+index 9620f52..8834f50 100644
+--- a/xmlreader.c
++++ b/xmlreader.c
+@@ -282,7 +282,10 @@ static void
+ xmlTextReaderFreeProp(xmlTextReaderPtr reader, xmlAttrPtr cur) {
+     xmlDictPtr dict;
+ 
+-    dict = reader->ctxt->dict;
++    if ((reader != NULL) && (reader->ctxt != NULL))
++	dict = reader->ctxt->dict;
++    else
++        dict = NULL;
+     if (cur == NULL) return;
+ 
+     if ((__xmlRegisterCallbacks) && (xmlDeregisterNodeDefaultValue))
+@@ -319,7 +322,7 @@ xmlTextReaderFreeProp(xmlTextReaderPtr reader, xmlAttrPtr cur) {
+ static void
+ xmlTextReaderFreePropList(xmlTextReaderPtr reader, xmlAttrPtr cur) {
+     xmlAttrPtr next;
+-    if (cur == NULL) return;
++
+     while (cur != NULL) {
+         next = cur->next;
+         xmlTextReaderFreeProp(reader, cur);
+@@ -340,7 +343,10 @@ xmlTextReaderFreeNodeList(xmlTextReaderPtr reader, xmlNodePtr cur) {
+     xmlNodePtr next;
+     xmlDictPtr dict;
+ 
+-    dict = reader->ctxt->dict;
++    if ((reader != NULL) && (reader->ctxt != NULL))
++	dict = reader->ctxt->dict;
++    else
++        dict = NULL;
+     if (cur == NULL) return;
+     if (cur->type == XML_NAMESPACE_DECL) {
+ 	xmlFreeNsList((xmlNsPtr) cur);
+@@ -417,7 +423,10 @@ static void
+ xmlTextReaderFreeNode(xmlTextReaderPtr reader, xmlNodePtr cur) {
+     xmlDictPtr dict;
+ 
+-    dict = reader->ctxt->dict;
++    if ((reader != NULL) && (reader->ctxt != NULL))
++	dict = reader->ctxt->dict;
++    else
++        dict = NULL;
+     if (cur->type == XML_DTD_NODE) {
+ 	xmlFreeDtd((xmlDtdPtr) cur);
+ 	return;

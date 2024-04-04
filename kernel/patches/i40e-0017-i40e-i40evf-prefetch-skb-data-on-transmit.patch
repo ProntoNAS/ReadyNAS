@@ -1,0 +1,51 @@
+From 0cc2e22f5f0cfc7341431f885f397f977d4d0242 Mon Sep 17 00:00:00 2001
+From: Jesse Brandeburg <jesse.brandeburg@intel.com>
+Date: Mon, 26 Oct 2015 19:44:30 -0400
+Subject: [PATCH 017/224] i40e/i40evf: prefetch skb data on transmit
+
+Issue a prefetch for data early in the transmit path.
+This should not be generally needed for Tx traffic, but
+it helps immensely for pktgen workloads and should help
+for forwarding workloads as well.
+
+Change-ID: Iefee870c20599e0c4240e1d8637e4f16b625f83a
+Signed-off-by: Jesse Brandeburg <jesse.brandeburg@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_txrx.c   | 3 +++
+ drivers/net/ethernet/intel/i40evf/i40e_txrx.c | 3 +++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_txrx.c b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+index ffb0763..6c11610 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+@@ -2820,6 +2820,9 @@ static netdev_tx_t i40e_xmit_frame_ring(struct sk_buff *skb,
+ 	int tsyn;
+ 	int tso;
+ 
++	/* prefetch the data, we'll need it later */
++	prefetch(skb->data);
++
+ 	if (0 == i40e_xmit_descriptor_count(skb, tx_ring))
+ 		return NETDEV_TX_BUSY;
+ 
+diff --git a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+index 7816e75..bd1529a 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+@@ -1998,6 +1998,9 @@ static netdev_tx_t i40e_xmit_frame_ring(struct sk_buff *skb,
+ 	u8 hdr_len = 0;
+ 	int tso;
+ 
++	/* prefetch the data, we'll need it later */
++	prefetch(skb->data);
++
+ 	if (0 == i40evf_xmit_descriptor_count(skb, tx_ring))
+ 		return NETDEV_TX_BUSY;
+ 
+-- 
+1.9.1
+

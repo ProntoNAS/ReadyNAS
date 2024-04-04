@@ -1,0 +1,640 @@
+From b0ae75b3fe8e3ab1c62c0c12329d624a68f02375 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 8 Aug 2017 14:10:24 -0700
+Subject: [PATCH 901/903] privsep: core changes
+
+---
+ include/http_request.h             |   8 ++
+ include/privsep.h                  | 157 +++++++++++++++++++++++++++++++++++++
+ modules/generators/mod_autoindex.c |  26 +++---
+ server/Makefile.in                 |   2 +-
+ server/core.c                      |   8 +-
+ server/privsep.c                   | 155 ++++++++++++++++++++++++++++++++++++
+ server/request.c                   |  48 ++++++++----
+ 7 files changed, 374 insertions(+), 30 deletions(-)
+ create mode 100644 include/privsep.h
+ create mode 100644 server/privsep.c
+
+diff --git a/include/http_request.h b/include/http_request.h
+index 0013d39fa6..b964a61f2d 100644
+--- a/include/http_request.h
++++ b/include/http_request.h
+@@ -363,6 +363,14 @@ AP_DECLARE(apr_status_t) ap_check_pipeline(conn_rec *c, apr_bucket_brigade *bb,
+ AP_DECLARE_HOOK(int,create_request,(request_rec *r))
+ 
+ /**
++ * Gives modules a chance to add any information to a subrequest from the
++ * parent request when it is created.
++ * @param r The current request
++ * @ingroup hooks
++ */
++AP_DECLARE_HOOK(int,create_subrequest,(request_rec *rnew, const request_rec *r))
++
++/**
+  * This hook allow modules an opportunity to translate the URI into an
+  * actual filename.  If no modules do anything special, the server's default
+  * rules will be followed.
+diff --git a/include/privsep.h b/include/privsep.h
+new file mode 100644
+index 0000000000..bca519b59a
+--- /dev/null
++++ b/include/privsep.h
+@@ -0,0 +1,157 @@
++/* Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#ifndef PRIVSEP_H
++#define PRIVSEP_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#include "apr.h"
++#include "apr_file_io.h"
++
++#ifndef HAVE_PRIVSEP_TOKEN_T
++#include "apr_md5.h"
++#define PRIVSEP_TOKEN_SALT_LEN          8
++typedef struct {
++  uid_t uid;
++  gid_t gid;
++  unsigned char salt[PRIVSEP_TOKEN_SALT_LEN];
++  unsigned char digest[APR_MD5_DIGESTSIZE];
++} privsep_token_t;
++#endif
++
++
++/* privsep token functions */
++
++AP_DECLARE(privsep_token_t*) ap_privsep_preauth_stat_token(const request_rec *r);
++
++AP_DECLARE(privsep_token_t*) ap_privsep_token(const request_rec *r);
++
++
++/* apr privileged wrapper functions */
++
++AP_DECLARE(apr_status_t) ap_privsep_stat(privsep_token_t *token,
++					 apr_finfo_t *finfo, 
++					 const char *fname, 
++					 apr_int32_t wanted,
++					 apr_pool_t *pool);
++
++AP_DECLARE(apr_status_t) ap_privsep_file_perms_set(privsep_token_t *token,
++						    const char *fname, 
++						    apr_fileperms_t perms);
++
++AP_DECLARE(apr_status_t) ap_privsep_dir_make(privsep_token_t *token,
++					      const char *path,
++					      apr_fileperms_t perm, 
++					      apr_pool_t *pool);
++
++AP_DECLARE(apr_status_t) ap_privsep_dir_remove(privsep_token_t *token,
++						const char *path,
++						apr_pool_t *pool);
++
++AP_DECLARE(apr_status_t) ap_privsep_file_remove(privsep_token_t *token,
++						 const char *path,
++						 apr_pool_t *pool);
++
++AP_DECLARE(apr_status_t) ap_privsep_file_rename(privsep_token_t *token,
++						 const char *from_path, 
++						 const char *to_path,
++						 apr_pool_t *p);
++
++AP_DECLARE(apr_status_t) ap_privsep_file_open(privsep_token_t *token,
++					       apr_file_t **new, 
++					       const char *fname, 
++					       apr_int32_t flag, 
++					       apr_fileperms_t perm, 
++					       apr_pool_t *pool);
++
++AP_DECLARE(apr_status_t) ap_privsep_dir_open(privsep_token_t *token,
++					      apr_dir_t **new,
++					      const char *dirname, 
++					      apr_pool_t *pool);
++
++AP_DECLARE(apr_status_t) ap_privsep_dir_read(privsep_token_t *token,
++					      apr_finfo_t *finfo,
++					      apr_int32_t wanted,
++					      apr_dir_t *thedir);
++
++/* privileged wrapper typedefs for hook functions */
++
++typedef privsep_token_t* (ap_privsep_preauth_token_fn)(const request_rec *r);
++
++typedef privsep_token_t* (ap_privsep_token_fn)(const request_rec *r);
++
++typedef apr_status_t (ap_privsep_stat_fn)(privsep_token_t *token,
++					  apr_finfo_t *finfo, 
++					  const char *fname, 
++					  apr_int32_t wanted,
++					  apr_pool_t *pool);
++
++typedef apr_status_t (ap_privsep_file_perms_set_fn)(privsep_token_t *token,
++						    const char *fname, 
++						    apr_fileperms_t perms);
++
++typedef apr_status_t (ap_privsep_dir_make_fn)(privsep_token_t *token,
++					      const char *path,
++					      apr_fileperms_t perm, 
++					      apr_pool_t *pool);
++
++typedef apr_status_t (ap_privsep_dir_remove_fn)(privsep_token_t *token,
++						const char *path,
++						apr_pool_t *pool);
++
++typedef apr_status_t (ap_privsep_file_remove_fn)(privsep_token_t *token,
++						 const char *path,
++						 apr_pool_t *pool);
++
++typedef apr_status_t (ap_privsep_file_rename_fn)(privsep_token_t *token,
++						 const char *from_path, 
++						 const char *to_path,
++						 apr_pool_t *p);
++
++typedef apr_status_t (ap_privsep_file_open_fn)(privsep_token_t *token,
++					       apr_file_t **new, 
++					       const char *fname, 
++					       apr_int32_t flag, 
++					       apr_fileperms_t perm, 
++					       apr_pool_t *pool);
++
++typedef apr_status_t (ap_privsep_dir_open_fn)(privsep_token_t *token,
++					      apr_dir_t **new,
++					      const char *dirname, 
++					      apr_pool_t *pool);
++
++typedef apr_status_t (ap_privsep_dir_read_fn)(privsep_token_t *token,
++					      apr_finfo_t *finfo,
++					      apr_int32_t wanted,
++					      apr_dir_t *thedir);
++
++/* privsep apr file io dispatch hook structure */
++
++typedef struct {
++    ap_privsep_preauth_token_fn   *get_preauth_token;
++    ap_privsep_token_fn           *get_token;
++    ap_privsep_stat_fn            *stat;
++    ap_privsep_file_perms_set_fn  *file_perms_set;
++    ap_privsep_dir_make_fn        *dir_make;
++    ap_privsep_dir_remove_fn      *dir_remove;
++    ap_privsep_file_remove_fn     *file_remove;
++    ap_privsep_file_rename_fn     *file_rename;
++    ap_privsep_file_open_fn       *file_open;
++    ap_privsep_dir_open_fn        *dir_open;
++    ap_privsep_dir_read_fn        *dir_read;
++} ap_privsep_hooks_t;
++
++#endif
+diff --git a/modules/generators/mod_autoindex.c b/modules/generators/mod_autoindex.c
+index 9094e307f2..b5465eae2d 100644
+--- a/modules/generators/mod_autoindex.c
++++ b/modules/generators/mod_autoindex.c
+@@ -44,6 +44,7 @@
+ #include "util_script.h"
+ 
+ #include "mod_core.h"
++#include "privsep.h"
+ 
+ module AP_MODULE_DECLARE_DATA autoindex_module;
+ 
+@@ -1077,8 +1078,9 @@ static void emit_head(request_rec *r, char *header_fname, int suppress_amble,
+                  * the file's contents, any HTML header it had won't end up
+                  * where it belongs.
+                  */
+-                if (apr_file_open(&f, rr->filename, APR_READ,
+-                                  APR_OS_DEFAULT, r->pool) == APR_SUCCESS) {
++                if (ap_privsep_file_open(ap_privsep_token(r),
++                                         &f, rr->filename, APR_READ,
++                                         APR_OS_DEFAULT, r->pool) == APR_SUCCESS) {
+                     emit_preamble(r, emit_xhtml, title);
+                     emit_amble = 0;
+                     do_emit_plain(r, f);
+@@ -1169,8 +1171,9 @@ static void emit_tail(request_rec *r, char *readme_fname, int suppress_amble)
+                 /*
+                  * If we can open the file, suppress the signature.
+                  */
+-                if (apr_file_open(&f, rr->filename, APR_READ,
+-                                  APR_OS_DEFAULT, r->pool) == APR_SUCCESS) {
++                if (ap_privsep_file_open(ap_privsep_token(r),
++                                         &f, rr->filename, APR_READ,
++                                         APR_OS_DEFAULT, r->pool) == APR_SUCCESS) {
+                     do_emit_plain(r, f);
+                     apr_file_close(f);
+                     suppress_sig = 1;
+@@ -1205,8 +1208,9 @@ static char *find_title(request_rec *r)
+         && (response_is_html(r)
+             || !strcmp(r->content_type, INCLUDES_MAGIC_TYPE))
+         && !r->content_encoding) {
+-        if (apr_file_open(&thefile, r->filename, APR_READ,
+-                          APR_OS_DEFAULT, r->pool) != APR_SUCCESS) {
++        if (ap_privsep_file_open(ap_privsep_token(r),
++                                 &thefile, r->filename, APR_READ,
++                                 APR_OS_DEFAULT, r->pool) != APR_SUCCESS) {
+             return NULL;
+         }
+         n = sizeof(char) * (MAX_STRING_LEN - 1);
+@@ -2030,7 +2034,8 @@ static int index_directory(request_rec *r,
+     char *ctype = "text/html";
+     char *charset;
+ 
+-    if ((status = apr_dir_open(&thedir, name, r->pool)) != APR_SUCCESS) {
++    if ((status = ap_privsep_dir_open(ap_privsep_token(r),
++                                      &thedir, name, r->pool)) != APR_SUCCESS) {
+         ap_log_rerror(APLOG_MARK, APLOG_ERR, status, r, APLOGNO(01275)
+                       "Can't open directory for index: %s", r->filename);
+         return HTTP_FORBIDDEN;
+@@ -2217,7 +2222,8 @@ static int index_directory(request_rec *r,
+     memcpy(fullpath, name, dirpathlen);
+ 
+     do {
+-        status = apr_dir_read(&dirent, APR_FINFO_MIN | APR_FINFO_NAME, thedir);
++        status = ap_privsep_dir_read(ap_privsep_token(r), &dirent,
++                                     APR_FINFO_MIN | APR_FINFO_NAME, thedir);
+         if (APR_STATUS_IS_INCOMPLETE(status)) {
+             continue; /* ignore un-stat()able files */
+         }
+@@ -2233,8 +2239,8 @@ static int index_directory(request_rec *r,
+             savename = dirent.name;
+             apr_cpystrn(fullpath + dirpathlen, dirent.name,
+                         APR_PATH_MAX - dirpathlen);
+-            status = apr_stat(&fi, fullpath,
+-                              dirent.valid & ~(APR_FINFO_NAME), r->pool);
++            status = ap_privsep_stat(ap_privsep_token(r), &fi, fullpath,
++                                     dirent.valid & ~(APR_FINFO_NAME), r->pool);
+             if (status != APR_SUCCESS) {
+                 /* Something bad happened, skip this file. */
+                 continue;
+diff --git a/server/Makefile.in b/server/Makefile.in
+index 9663eec7dc..e41e455d1a 100644
+--- a/server/Makefile.in
++++ b/server/Makefile.in
+@@ -7,7 +7,7 @@ SUBDIRS = mpm
+ 
+ LTLIBRARY_NAME    = libmain.la
+ LTLIBRARY_SOURCES = \
+-	config.c log.c main.c vhost.c util.c util_fcgi.c \
++	config.c log.c main.c vhost.c util.c util_fcgi.c privsep.c \
+ 	util_script.c util_md5.c util_cfgtree.c util_ebcdic.c util_time.c \
+ 	connection.c listen.c util_mutex.c mpm_common.c mpm_unix.c \
+ 	util_charset.c util_cookies.c util_debug.c util_xml.c \
+diff --git a/server/core.c b/server/core.c
+index 20fa583bdb..8a1d7f0f86 100644
+--- a/server/core.c
++++ b/server/core.c
+@@ -49,6 +49,7 @@
+ #include "ap_listen.h"
+ #include "ap_regex.h"
+ 
++#include "privsep.h"
+ #include "mod_so.h" /* for ap_find_loaded_module_symbol */
+ 
+ #if defined(RLIMIT_CPU) || defined (RLIMIT_DATA) || defined (RLIMIT_VMEM) || defined(RLIMIT_AS) || defined (RLIMIT_NPROC)
+@@ -4704,7 +4705,9 @@ static int default_handler(request_rec *r)
+         }
+ 
+ 
+-        if ((status = apr_file_open(&fd, r->filename, APR_READ | APR_BINARY
++        if ((status = ap_privsep_file_open(ap_privsep_token(r),
++					   &fd, r->filename,
++					   APR_READ | APR_BINARY
+ #if APR_HAS_SENDFILE
+                             | AP_SENDFILE_ENABLED(d->enable_sendfile)
+ #endif
+@@ -5196,7 +5199,8 @@ static apr_status_t core_insert_network_bucket(conn_rec *c,
+ static apr_status_t core_dirwalk_stat(apr_finfo_t *finfo, request_rec *r,
+                                       apr_int32_t wanted) 
+ {
+-    return apr_stat(finfo, r->filename, wanted, r->pool);
++    return ap_privsep_stat(ap_privsep_token(r),
++                           finfo, r->filename, wanted, r->pool);
+ }
+ 
+ static void core_dump_config(apr_pool_t *p, server_rec *s)
+diff --git a/server/privsep.c b/server/privsep.c
+new file mode 100644
+index 0000000000..bec58be74f
+--- /dev/null
++++ b/server/privsep.c
+@@ -0,0 +1,155 @@
++/* Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#include "apr.h"
++#include "apr_file_io.h"
++
++#include "httpd.h"
++
++#include "privsep.h"
++
++
++static ap_privsep_hooks_t *hook = NULL;
++
++
++/* set hooks for a privsep module to intercept token requests and apr file io */
++
++APR_DECLARE(void) ap_privsep_set_hooks(ap_privsep_hooks_t *hooks)
++{
++    hook = hooks;
++}
++
++
++/* hookable privsep token functions */
++
++/* returns special preauth stat token for use in ap_directory_walk before
++   any authentication has been performed */
++AP_DECLARE(privsep_token_t*) ap_privsep_preauth_stat_token(const request_rec *r)
++{
++    if(hook && hook->get_preauth_token)
++	return hook->get_preauth_token(r);
++    else
++	return NULL;
++}
++
++/* returns the privileged token associated with the request by using
++   authentication context information from the request */
++AP_DECLARE(privsep_token_t*) ap_privsep_token(const request_rec *r)
++{
++    if(hook && hook->get_token)
++	return hook->get_token(r);
++    else
++	return NULL;
++}
++
++
++/* apr hookable privileged wrapper functions */
++
++APR_DECLARE(apr_status_t) ap_privsep_stat(privsep_token_t *token,
++					  apr_finfo_t *finfo, 
++					  const char *fname, 
++					  apr_int32_t wanted,
++					  apr_pool_t *pool)
++{
++    if(hook && hook->stat)
++	return hook->stat(token, finfo, fname, wanted, pool);
++    else
++	return apr_stat(finfo, fname, wanted, pool);
++}
++
++APR_DECLARE(apr_status_t) ap_privsep_file_perms_set(privsep_token_t *token,
++						    const char *fname, 
++						    apr_fileperms_t perms)
++{
++    if(hook && hook->file_perms_set)
++	return hook->file_perms_set(token, fname, perms);
++    else
++	return apr_file_perms_set(fname, perms);
++}
++
++APR_DECLARE(apr_status_t) ap_privsep_dir_make(privsep_token_t *token,
++					      const char *path,
++					      apr_fileperms_t perm, 
++					      apr_pool_t *pool)
++{
++    if(hook && hook->dir_make)
++	return hook->dir_make(token, path, perm, pool);
++    else
++	return apr_dir_make(path, perm, pool);
++}
++
++APR_DECLARE(apr_status_t) ap_privsep_dir_remove(privsep_token_t *token,
++						const char *path,
++						apr_pool_t *pool)
++{
++    if(hook && hook->dir_remove)
++	return hook->dir_remove(token, path, pool);
++    else
++	return apr_dir_remove(path, pool);
++}
++
++APR_DECLARE(apr_status_t) ap_privsep_file_remove(privsep_token_t *token,
++						 const char *path,
++						 apr_pool_t *pool)
++{
++    if(hook && hook->file_remove)
++	return hook->file_remove(token, path, pool);
++    else
++	return apr_file_remove(path, pool);
++}
++
++APR_DECLARE(apr_status_t) ap_privsep_file_rename(privsep_token_t *token,
++						 const char *from_path, 
++						 const char *to_path,
++						 apr_pool_t *p)
++{
++    if(hook && hook->file_rename)
++	return hook->file_rename(token, from_path, to_path, p);
++    else
++	return apr_file_rename(from_path, to_path, p);  
++}
++
++APR_DECLARE(apr_status_t) ap_privsep_file_open(privsep_token_t *token,
++					       apr_file_t **new, 
++					       const char *fname, 
++					       apr_int32_t flag, 
++					       apr_fileperms_t perm, 
++					       apr_pool_t *pool)
++{
++    if(hook && hook->file_open)
++	return hook->file_open(token, new, fname, flag, perm, pool);
++    else
++	return apr_file_open(new, fname, flag, perm, pool);
++}
++
++APR_DECLARE(apr_status_t) ap_privsep_dir_open(privsep_token_t *token,
++					      apr_dir_t **new,
++					      const char *dirname, 
++					      apr_pool_t *pool)
++{
++    if(hook && hook->dir_open)
++	return hook->dir_open(token, new, dirname, pool);
++    else
++	return apr_dir_open(new, dirname, pool);
++}
++
++APR_DECLARE(apr_status_t) ap_privsep_dir_read(privsep_token_t *token,
++					      apr_finfo_t *finfo,
++					      apr_int32_t wanted,
++					      apr_dir_t *thedir)
++{
++    if(hook && hook->dir_read)
++	return hook->dir_read(token, finfo, wanted, thedir);
++    else
++	return apr_dir_read(finfo, wanted, thedir);
++}
+diff --git a/server/request.c b/server/request.c
+index 7cead3bffb..f9946ac326 100644
+--- a/server/request.c
++++ b/server/request.c
+@@ -44,6 +44,7 @@
+ #include "util_filter.h"
+ #include "util_charset.h"
+ #include "util_script.h"
++#include "privsep.h"
+ #include "ap_expr.h"
+ #include "mod_request.h"
+ 
+@@ -72,6 +73,7 @@ APR_HOOK_STRUCT(
+     APR_HOOK_LINK(post_perdir_config)
+     APR_HOOK_LINK(dirwalk_stat)
+     APR_HOOK_LINK(force_authn)
++    APR_HOOK_LINK(create_subrequest)
+ )
+ 
+ AP_IMPLEMENT_HOOK_RUN_FIRST(int,translate_name,
+@@ -100,6 +102,8 @@ AP_IMPLEMENT_HOOK_RUN_FIRST(apr_status_t,dirwalk_stat,
+                             (finfo, r, wanted), AP_DECLINED)
+ AP_IMPLEMENT_HOOK_RUN_FIRST(int,force_authn,
+                           (request_rec *r), (r), DECLINED)
++AP_IMPLEMENT_HOOK_RUN_ALL(int, create_subrequest,
++                          (request_rec *rnew, const request_rec *r), (rnew, r), OK, DECLINED)
+ 
+ static int auth_internal_per_conf = 0;
+ static int auth_internal_per_conf_hooks = 0;
+@@ -472,7 +476,7 @@ static walk_cache_t *prep_walk_cache(apr_size_t t, request_rec *r)
+  * we start off with an lstat().  Every lstat() must be dereferenced in case
+  * it points at a 'nasty' - we must always rerun check_safe_file (or similar.)
+  */
+-static int resolve_symlink(char *d, apr_finfo_t *lfi, int opts, apr_pool_t *p)
++static int resolve_symlink(const request_rec *r, char *d, apr_finfo_t *lfi, int opts, apr_pool_t *p)
+ {
+     apr_finfo_t fi;
+     const char *savename;
+@@ -486,7 +490,9 @@ static int resolve_symlink(char *d, apr_finfo_t *lfi, int opts, apr_pool_t *p)
+ 
+     /* if OPT_SYM_OWNER is unset, we only need to check target accessible */
+     if (!(opts & OPT_SYM_OWNER)) {
+-        if (apr_stat(&fi, d, lfi->valid & ~(APR_FINFO_NAME | APR_FINFO_LINK), p)
++        if (ap_privsep_stat(ap_privsep_token(r), &fi, d,
++                                   lfi->valid & ~(APR_FINFO_NAME
++                                                | APR_FINFO_LINK), p)
+             != APR_SUCCESS)
+         {
+             return HTTP_FORBIDDEN;
+@@ -507,14 +513,17 @@ static int resolve_symlink(char *d, apr_finfo_t *lfi, int opts, apr_pool_t *p)
+      * owner of the symlink, then get the info of the target.
+      */
+     if (!(lfi->valid & APR_FINFO_OWNER)) {
+-        if (apr_stat(lfi, d, lfi->valid | APR_FINFO_LINK | APR_FINFO_OWNER, p)
++        if (ap_privsep_stat(ap_privsep_token(r), lfi, d,
++                            lfi->valid | APR_FINFO_LINK | APR_FINFO_OWNER, p)
+             != APR_SUCCESS)
+         {
+             return HTTP_FORBIDDEN;
+         }
+     }
+ 
+-    if (apr_stat(&fi, d, lfi->valid & ~(APR_FINFO_NAME), p) != APR_SUCCESS) {
++    if (ap_privsep_stat(ap_privsep_token(r), &fi, d,
++                               lfi->valid & ~(APR_FINFO_NAME), p)
++        != APR_SUCCESS) {
+         return HTTP_FORBIDDEN;
+     }
+ 
+@@ -752,7 +761,7 @@ AP_DECLARE(int) ap_directory_walk(request_rec *r)
+                 }
+                 if (thisinfo.filetype == APR_LNK) {
+                     /* Is this a possibly acceptable symlink? */
+-                    if ((res = resolve_symlink(r->filename, &thisinfo,
++                    if ((res = resolve_symlink(r, r->filename, &thisinfo,
+                                                opts, r->pool)) != OK) {
+                         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(00032)
+                                       "Symbolic link not allowed "
+@@ -1188,7 +1197,7 @@ AP_DECLARE(int) ap_directory_walk(request_rec *r)
+             if (thisinfo.filetype == APR_LNK) {
+                 /* Is this a possibly acceptable symlink?
+                  */
+-                if ((res = resolve_symlink(r->filename, &thisinfo,
++                if ((res = resolve_symlink(r, r->filename, &thisinfo,
+                                            opts.opts, r->pool)) != OK) {
+                     ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(00037)
+                                   "Symbolic link not allowed "
+@@ -2031,6 +2040,7 @@ static request_rec *make_sub_request(const request_rec *r,
+      * or the r->main pointer won't be setup
+      */
+     ap_run_create_request(rnew);
++    ap_run_create_subrequest(rnew, r);
+ 
+     /* Begin by presuming any module can make its own path_info assumptions,
+      * until some module interjects and changes the value.
+@@ -2304,16 +2314,18 @@ AP_DECLARE(request_rec *) ap_sub_req_lookup_dirent(const apr_finfo_t *dirent,
+          */
+         apr_status_t rv;
+         if (ap_allow_options(rnew) & OPT_SYM_LINKS) {
+-            if (((rv = apr_stat(&rnew->finfo, rnew->filename,
+-                                APR_FINFO_MIN, rnew->pool)) != APR_SUCCESS)
++            if (((rv = ap_privsep_stat(ap_privsep_token(r),
++				       &rnew->finfo, rnew->filename,
++				       APR_FINFO_MIN, rnew->pool)) != APR_SUCCESS)
+                 && (rv != APR_INCOMPLETE)) {
+                 rnew->finfo.filetype = APR_NOFILE;
+             }
+         }
+         else {
+-            if (((rv = apr_stat(&rnew->finfo, rnew->filename,
+-                                APR_FINFO_LINK | APR_FINFO_MIN,
+-                                rnew->pool)) != APR_SUCCESS)
++            if (((rv = ap_privsep_stat(ap_privsep_token(r),
++				       &rnew->finfo, rnew->filename,
++				       APR_FINFO_LINK | APR_FINFO_MIN,
++				       rnew->pool)) != APR_SUCCESS)
+                 && (rv != APR_INCOMPLETE)) {
+                 rnew->finfo.filetype = APR_NOFILE;
+             }
+@@ -2327,7 +2339,7 @@ AP_DECLARE(request_rec *) ap_sub_req_lookup_dirent(const apr_finfo_t *dirent,
+         /*
+          * Resolve this symlink.  We should tie this back to dir_walk's cache
+          */
+-        if ((res = resolve_symlink(rnew->filename, &rnew->finfo,
++        if ((res = resolve_symlink(r, rnew->filename, &rnew->finfo,
+                                    ap_allow_options(rnew), rnew->pool))
+             != OK) {
+             rnew->status = res;
+@@ -2410,16 +2422,18 @@ AP_DECLARE(request_rec *) ap_sub_req_lookup_file(const char *new_file,
+         && ap_strchr_c(rnew->filename + fdirlen, '/') == NULL) {
+         apr_status_t rv;
+         if (ap_allow_options(rnew) & OPT_SYM_LINKS) {
+-            if (((rv = apr_stat(&rnew->finfo, rnew->filename,
+-                                APR_FINFO_MIN, rnew->pool)) != APR_SUCCESS)
++            if (((rv = ap_privsep_stat(ap_privsep_token(r),
++				       &rnew->finfo, rnew->filename,
++				       APR_FINFO_MIN, rnew->pool)) != APR_SUCCESS)
+                 && (rv != APR_INCOMPLETE)) {
+                 rnew->finfo.filetype = APR_NOFILE;
+             }
+         }
+         else {
+-            if (((rv = apr_stat(&rnew->finfo, rnew->filename,
+-                                APR_FINFO_LINK | APR_FINFO_MIN,
+-                                rnew->pool)) != APR_SUCCESS)
++            if (((rv = ap_privsep_stat(ap_privsep_token(r),
++                                       &rnew->finfo, rnew->filename,
++                                       APR_FINFO_LINK | APR_FINFO_MIN,
++                                       rnew->pool)) != APR_SUCCESS)
+                 && (rv != APR_INCOMPLETE)) {
+                 rnew->finfo.filetype = APR_NOFILE;
+             }
+-- 
+2.13.0
+

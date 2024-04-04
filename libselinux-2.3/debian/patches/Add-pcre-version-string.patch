@@ -1,0 +1,74 @@
+From ac33098a807671204720aae97d6bcf6429d3fa92 Mon Sep 17 00:00:00 2001
+From: Stephen Smalley <sds@tycho.nsa.gov>
+Date: Wed, 9 Jul 2014 13:02:46 -0400
+Subject: [PATCH] Add pcre version string to the compiled file_contexts format.
+
+Signed-off-by: Stephen Smalley <sds@tycho.nsa.gov>
+---
+ libselinux/src/label_file.c           | 13 +++++++++++++
+ libselinux/src/label_file.h           |  4 +++-
+ libselinux/utils/sefcontext_compile.c | 11 +++++++++++
+ 3 files changed, 27 insertions(+), 1 deletion(-)
+
+--- a/src/label_file.c
++++ b/src/label_file.c
+@@ -314,6 +314,19 @@ static int load_mmap(struct selabel_hand
+ 		return -1;
+ 	addr += sizeof(uint32_t);
+ 
++	if (*section_len >= SELINUX_COMPILED_FCONTEXT_PCRE_VERS) {
++		len = strlen(pcre_version());
++		plen = (uint32_t *)addr;
++		if (*plen > mmap_area->len)
++			return -1; /* runs off the end of the map */
++		if (len != *plen)
++			return -1; /* pcre version length mismatch */
++		addr += sizeof(uint32_t);
++		if (memcmp((char *)addr, pcre_version(), len))
++			return -1; /* pcre version content mismatch */
++		addr += *plen;
++	}
++
+ 	/* allocate the stems_data array */
+ 	section_len = (uint32_t *)addr;
+ 	addr += sizeof(uint32_t);
+--- a/src/label_file.h
++++ b/src/label_file.h
+@@ -6,7 +6,9 @@
+ #include "label_internal.h"
+ 
+ #define SELINUX_MAGIC_COMPILED_FCONTEXT	0xf97cff8a
+-#define SELINUX_COMPILED_FCONTEXT_MAX_VERS	1
++#define SELINUX_COMPILED_FCONTEXT_NOPCRE_VERS	1
++#define SELINUX_COMPILED_FCONTEXT_PCRE_VERS	2
++#define SELINUX_COMPILED_FCONTEXT_MAX_VERS	2
+ 
+ /* Prior to verison 8.20, libpcre did not have pcre_free_study() */
+ #if (PCRE_MAJOR < 8 || (PCRE_MAJOR == 8 && PCRE_MINOR < 20))
+--- a/utils/sefcontext_compile.c
++++ b/utils/sefcontext_compile.c
+@@ -127,6 +127,8 @@ static int process_file(struct saved_dat
+  *
+  * u32 - magic number
+  * u32 - version
++ * u32 - length of pcre version EXCLUDING nul
++ * char - pcre version string EXCLUDING nul
+  * u32 - number of stems
+  * ** Stems
+  * 	u32  - length of stem EXCLUDING nul
+@@ -172,6 +174,15 @@ static int write_binary_file(struct save
+ 	if (len != 1)
+ 		goto err;
+ 
++	/* write the pcre version */
++	section_len = strlen(pcre_version());
++	len = fwrite(&section_len, sizeof(uint32_t), 1, bin_file);
++	if (len != 1)
++		goto err;
++	len = fwrite(pcre_version(), sizeof(char), section_len, bin_file);
++	if (len != section_len)
++		goto err;
++
+ 	/* write the number of stems coming */
+ 	section_len = data->num_stems;
+ 	len = fwrite(&section_len, sizeof(uint32_t), 1, bin_file);

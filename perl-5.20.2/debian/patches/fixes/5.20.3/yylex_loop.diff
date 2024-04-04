@@ -1,0 +1,91 @@
+From 34a34cb6a6bd27650c33647ad794947e8644fa65 Mon Sep 17 00:00:00 2001
+From: Father Chrysostomos <sprout@cpan.org>
+Date: Fri, 28 Aug 2015 20:53:11 +0100
+Subject: Fix hang with "@{"
+
+Commit v5.21.8-320-ge47d32d stopped code interpolated into quote-like
+operators from reading more lines of input, by making lex_next_chunk
+ignore the open filehandle and return false.  That causes this block
+under case 0 in yylex to loop:
+
+	    if (!lex_next_chunk(fake_eof)) {
+		CopLINE_dec(PL_curcop);
+		s = PL_bufptr;
+		TOKEN(';');	/* not infinite loop because rsfp is NULL now */
+	    }
+
+(rsfp is not null there.)  This commit makes it check for quote-like
+operators above, in the same place where it checks whether the file is
+open, to avoid falling through to this code that can loop.
+
+This changes the syntax errors for a couple of cases recently added
+to t/op/lex.t, though I think the error output is now more consis-
+tent overall.
+
+(cherry picked from commit 0f9d53bbcafba2b30e50a1ad22c7759be170e14a)
+
+https://rt.perl.org/Ticket/Display.html?id=123893
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/yylex_loop.diff
+---
+ t/op/lex.t | 19 +++++++++++++++----
+ toke.c     |  3 ++-
+ 2 files changed, 17 insertions(+), 5 deletions(-)
+
+diff --git a/t/op/lex.t b/t/op/lex.t
+index ac094f8d5..cbb72efaf 100644
+--- a/t/op/lex.t
++++ b/t/op/lex.t
+@@ -4,7 +4,7 @@ use warnings;
+ 
+ BEGIN { chdir 't'; require './test.pl'; }
+ 
+-plan(tests => 10);
++plan(tests => 11);
+ 
+ {
+     no warnings 'deprecated';
+@@ -91,15 +91,26 @@ is runperl(
+ 
+ fresh_perl_is(
+   '/$a[/<<a',
+-  "syntax error at - line 1, next char ;\n" .
+-  "Can't find string terminator \"a\" anywhere before EOF at - line 1.\n",
++  "Missing right curly or square bracket at - line 1, within pattern\n" .
++  "syntax error at - line 1, at EOF\n" .
++  "Execution of - aborted due to compilation errors.\n",
+    { stderr => 1 },
+   '/$a[/<<a with no newline [perl #123712]'
+ );
+ fresh_perl_is(
+   '/$a[m||/<<a',
+-  "syntax error at - line 1, next char ;\n" .
++  "Missing right curly or square bracket at - line 1, within pattern\n" .
++  "syntax error at - line 1, at EOF\n" .
+   "Execution of - aborted due to compilation errors.\n",
+    { stderr => 1 },
+   '/$a[m||/<<a with no newline [perl #123712]'
+ );
++
++fresh_perl_is(
++  '"@{"',
++  "Missing right curly or square bracket at - line 1, within string\n" .
++  "syntax error at - line 1, at EOF\n" .
++  "Execution of - aborted due to compilation errors.\n",
++   { stderr => 1 },
++  '"@{" [perl #123712]'
++);
+diff --git a/toke.c b/toke.c
+index f59f91348..50e2d5919 100644
+--- a/toke.c
++++ b/toke.c
+@@ -5198,7 +5198,8 @@ Perl_yylex(pTHX)
+ 	if (PL_madskills)
+ 	    PL_faketokens = 0;
+ #endif
+-	if (!PL_rsfp && (!PL_parser->filtered || s+1 < PL_bufend)) {
++	if ((!PL_rsfp || PL_lex_inwhat)
++	 && (!PL_parser->filtered || s+1 < PL_bufend)) {
+ 	    PL_last_uni = 0;
+ 	    PL_last_lop = 0;
+ 	    if (PL_lex_brackets &&

@@ -1,0 +1,113 @@
+From 4fd936acd9a596584251f2488adc37a1b2592063 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 3 Nov 2015 10:15:24 -0800
+Subject: [PATCH 04/12] alpine: flush packets from queue when the link is down
+
+From Slava @ Annapurna:
+
+As I mentioned before, now I can replicate the LACP issue on Alpine DB
+board. Each time I observe this, at least on my DB, one or more of the
+transmit queues in kernel reaches timeout condition - when the link is
+down, packets are not flushed from the queue. The common solution for
+this is to restart the interface when Tx timeout occurs.
+
+Please find attached the patch that completely fixed this issue on my
+Alpine DB board. The patch was tested using bidirectional iperf TCP/UDP
+connections and plugging/unplugging cables on both GbE interfaces at the
+same time - the traffic was always recovered.
+
+kernel: ------------[ cut here ]------------
+kernel: WARNING: CPU: 3 PID: 0 at net/sched/sch_generic.c:303 dev_watchdog+0x264/0x284()
+kernel: NETDEV WATCHDOG: eth0 (al_eth): transmit queue 3 timed out
+kernel: Modules linked in: vpd(PO)
+kernel: CPU: 3 PID: 0 Comm: swapper/3 Tainted: P       O    4.1.5-al #1
+kernel: Hardware name: Annapurna Labs Alpine
+kernel: [<c00164a8>] (unwind_backtrace) from [<c00125cc>] (show_stack+0x10/0x14)
+kernel: [<c00125cc>] (show_stack) from [<c06b2c1c>] (dump_stack+0x74/0x90)
+kernel: [<c06b2c1c>] (dump_stack) from [<c0024848>] (warn_slowpath_common+0x74/0xb0)
+kernel: [<c0024848>] (warn_slowpath_common) from [<c0024918>] (warn_slowpath_fmt+0x30/0x40)
+kernel: [<c0024918>] (warn_slowpath_fmt) from [<c05d7130>] (dev_watchdog+0x264/0x284)
+kernel: [<c05d7130>] (dev_watchdog) from [<c006e438>] (call_timer_fn.isra.22+0x24/0x98)
+kernel: [<c006e438>] (call_timer_fn.isra.22) from [<c006e6c0>] (run_timer_softirq+0x1a0/0x224)
+kernel: [<c006e6c0>] (run_timer_softirq) from [<c0027998>] (__do_softirq+0xf0/0x240)
+kernel: [<c0027998>] (__do_softirq) from [<c0027d7c>] (irq_exit+0xa8/0x114)
+kernel: [<c0027d7c>] (irq_exit) from [<c0061204>] (__handle_domain_irq+0x58/0xb0)
+kernel: [<c0061204>] (__handle_domain_irq) from [<c00093b8>] (gic_handle_irq+0x20/0x60)
+kernel: [<c00093b8>] (gic_handle_irq) from [<c0013080>] (__irq_svc+0x40/0x54)
+kernel: Exception stack(0xee087f90 to 0xee087fd8)
+kernel: 7f80:                                     ee087fe0 00000000 00000000 c001fba0
+kernel: 7fa0: c091b5d0 c091b570 00000000 00000000 c0914c58 00000001 c09157c0 00000000
+kernel: 7fc0: 01000000 ee087fd8 c0010524 c0010528 60000013 ffffffff
+kernel: [<c0013080>] (__irq_svc) from [<c0010528>] (arch_cpu_idle+0x30/0x3c)
+kernel: [<c0010528>] (arch_cpu_idle) from [<c0057e10>] (cpu_startup_entry+0x188/0x2a0)
+kernel: [<c0057e10>] (cpu_startup_entry) from [<0000948c>] (0x948c)
+kernel: ---[ end trace f7023cb7bd4c752b ]---
+
+Fixes: Bug #19924 (Network: SMB connection would be lost when copy to
+Annapurna boxes in Bond mode.)
+---
+ drivers/net/ethernet/al/al_eth.c | 15 +++++++++++++++
+ drivers/net/ethernet/al/al_eth.h |  1 +
+ 2 files changed, 16 insertions(+)
+
+diff --git a/drivers/net/ethernet/al/al_eth.c b/drivers/net/ethernet/al/al_eth.c
+index eb368e7..4691a64 100644
+--- a/drivers/net/ethernet/al/al_eth.c
++++ b/drivers/net/ethernet/al/al_eth.c
+@@ -458,12 +458,23 @@ static void al_eth_mdiobus_teardown(struct al_eth_adapter *adapter)
+ 	phy_device_free(adapter->phydev);
+ }
+ 
++static void al_eth_reset_task(struct work_struct *work)
++{
++	struct al_eth_adapter *adapter;
++	adapter = container_of(work, struct al_eth_adapter, reset_task);
++	netdev_err(adapter->netdev, "%s restarting interface\n", __func__);
++	/*restart interface*/
++	al_eth_down(adapter);
++	al_eth_up(adapter);
++}
++
+ static void al_eth_tx_timeout(struct net_device *dev)
+ {
+ 	struct al_eth_adapter *adapter = netdev_priv(dev);
+ 
+ 	if (netif_msg_tx_err(adapter))
+ 		netdev_err(dev, "transmit timed out!!!!\n");
++	schedule_work(&adapter->reset_task);
+ }
+ 
+ static int al_eth_change_mtu(struct net_device *dev, int new_mtu)
+@@ -3439,6 +3450,8 @@ static int al_eth_close(struct net_device *netdev)
+ 	netdev_dbg(adapter->netdev, "%s\n", __func__);
+ 
+ 	cancel_delayed_work_sync(&adapter->link_status_task);
++	cancel_work_sync(&adapter->reset_task);
++
+ 
+ 	if (adapter->phydev) {
+ 		phy_stop(adapter->phydev);
+@@ -4336,6 +4349,8 @@ al_eth_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+ 
+ 	al_eth_init_rings(adapter);
+ 
++	INIT_WORK(&adapter->reset_task, al_eth_reset_task);
++
+ 	netdev->netdev_ops = &al_eth_netdev_ops;
+ 	netdev->watchdog_timeo = TX_TIMEOUT;
+ 	netdev->ethtool_ops = &al_eth_ethtool_ops;
+diff --git a/drivers/net/ethernet/al/al_eth.h b/drivers/net/ethernet/al/al_eth.h
+index c1222aa..6b4d2dc1 100644
+--- a/drivers/net/ethernet/al/al_eth.h
++++ b/drivers/net/ethernet/al/al_eth.h
+@@ -320,6 +320,7 @@ struct al_eth_adapter {
+ 	struct al_eth_retimer_params	retimer;
+ 
+ 	bool				phy_fixup_needed;
++	struct 	work_struct 		reset_task;
+ };
+ 
+ #endif /* !(AL_ETH_H) */
+-- 
+1.9.1
+

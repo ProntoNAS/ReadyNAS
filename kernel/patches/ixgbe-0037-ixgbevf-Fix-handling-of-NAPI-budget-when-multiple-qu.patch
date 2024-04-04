@@ -1,0 +1,34 @@
+From 67fb72afa7a496fdbc8d9a1b65037ee4b7ed739c Mon Sep 17 00:00:00 2001
+From: William Dauchy <william@gandi.net>
+Date: Fri, 30 Oct 2015 18:16:30 +0100
+Subject: [PATCH 37/82] ixgbevf: Fix handling of NAPI budget when multiple
+ queues are enabled per vector
+
+This is the same patch as for ixgbe but applied differently according to
+busy polling.  See commit 5d6002b7b822c74 ("ixgbe: Fix handling of NAPI
+budget when multiple queues are enabled per vector")
+
+Signed-off-by: William Dauchy <william@gandi.net>
+Tested-by: Phil Schmitt <phillip.j.schmitt@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: Benjamin Poirier <bpoirier@suse.com>
+---
+ drivers/net/ethernet/intel/ixgbevf/ixgbevf_main.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/net/ethernet/intel/ixgbevf/ixgbevf_main.c b/drivers/net/ethernet/intel/ixgbevf/ixgbevf_main.c
+index 2a35765..a52988d 100644
+--- a/drivers/net/ethernet/intel/ixgbevf/ixgbevf_main.c
++++ b/drivers/net/ethernet/intel/ixgbevf/ixgbevf_main.c
+@@ -1016,6 +1016,8 @@ static int ixgbevf_poll(struct napi_struct *napi, int budget)
+ 	ixgbevf_for_each_ring(ring, q_vector->tx)
+ 		clean_complete &= ixgbevf_clean_tx_irq(q_vector, ring);
+ 
++	if (budget <= 0)
++		return budget;
+ #ifdef CONFIG_NET_RX_BUSY_POLL
+ 	if (!ixgbevf_qv_lock_napi(q_vector))
+ 		return budget;
+-- 
+1.9.1
+

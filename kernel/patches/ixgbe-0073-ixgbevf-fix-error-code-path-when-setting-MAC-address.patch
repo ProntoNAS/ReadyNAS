@@ -1,0 +1,70 @@
+From 503d86cbd6c168b638b40c49d7d1bea44bc12cb4 Mon Sep 17 00:00:00 2001
+From: Emil Tantilov <emil.s.tantilov@intel.com>
+Date: Wed, 10 Feb 2016 15:16:30 -0800
+Subject: [PATCH 73/82] ixgbevf: fix error code path when setting MAC address
+
+Return error when a MAC address change is rejected by the PF.
+
+This will prevent the user from modifying the MAC address when
+that operation is not permitted.
+
+Signed-off-by: Emil Tantilov <emil.s.tantilov@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: Benjamin Poirier <bpoirier@suse.com>
+---
+ drivers/net/ethernet/intel/ixgbevf/ixgbevf_main.c | 12 ++++++++----
+ drivers/net/ethernet/intel/ixgbevf/vf.c           |  4 +++-
+ 2 files changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/ixgbevf/ixgbevf_main.c b/drivers/net/ethernet/intel/ixgbevf/ixgbevf_main.c
+index b131969..f88ee5c 100644
+--- a/drivers/net/ethernet/intel/ixgbevf/ixgbevf_main.c
++++ b/drivers/net/ethernet/intel/ixgbevf/ixgbevf_main.c
+@@ -3695,19 +3695,23 @@ static int ixgbevf_set_mac(struct net_device *netdev, void *p)
+ 	struct ixgbevf_adapter *adapter = netdev_priv(netdev);
+ 	struct ixgbe_hw *hw = &adapter->hw;
+ 	struct sockaddr *addr = p;
++	int err;
+ 
+ 	if (!is_valid_ether_addr(addr->sa_data))
+ 		return -EADDRNOTAVAIL;
+ 
+-	ether_addr_copy(netdev->dev_addr, addr->sa_data);
+-	ether_addr_copy(hw->mac.addr, addr->sa_data);
+-
+ 	spin_lock_bh(&adapter->mbx_lock);
+ 
+-	hw->mac.ops.set_rar(hw, 0, hw->mac.addr, 0);
++	err = hw->mac.ops.set_rar(hw, 0, addr->sa_data, 0);
+ 
+ 	spin_unlock_bh(&adapter->mbx_lock);
+ 
++	if (err)
++		return -EPERM;
++
++	ether_addr_copy(hw->mac.addr, addr->sa_data);
++	ether_addr_copy(netdev->dev_addr, addr->sa_data);
++
+ 	return 0;
+ }
+ 
+diff --git a/drivers/net/ethernet/intel/ixgbevf/vf.c b/drivers/net/ethernet/intel/ixgbevf/vf.c
+index 61a98f4..4d613a4 100644
+--- a/drivers/net/ethernet/intel/ixgbevf/vf.c
++++ b/drivers/net/ethernet/intel/ixgbevf/vf.c
+@@ -408,8 +408,10 @@ static s32 ixgbevf_set_rar_vf(struct ixgbe_hw *hw, u32 index, u8 *addr,
+ 
+ 	/* if nacked the address was rejected, use "perm_addr" */
+ 	if (!ret_val &&
+-	    (msgbuf[0] == (IXGBE_VF_SET_MAC_ADDR | IXGBE_VT_MSGTYPE_NACK)))
++	    (msgbuf[0] == (IXGBE_VF_SET_MAC_ADDR | IXGBE_VT_MSGTYPE_NACK))) {
+ 		ixgbevf_get_mac_addr_vf(hw, hw->mac.addr);
++		return IXGBE_ERR_MBX;
++	}
+ 
+ 	return ret_val;
+ }
+-- 
+1.9.1
+

@@ -1,0 +1,71 @@
+Subject: Correct the Makefile for the binaries build
+Author: Michael van der Kolff <mvanderkolff@gmail.com>
+Forwarded: no
+
+Upstream Makefile is barebones, and doesn't make any shared libraries.
+
+This corrects the pbmtools part (jbig <-> pbm tools) so that they
+use the shared libraries.
+
+Now with hardening!
+--- a/pbmtools/Makefile
++++ b/pbmtools/Makefile
+@@ -5,7 +5,9 @@ CC = gcc
+ 
+ # Options for the compiler
+ CFLAGS = -g -O -W -Wall -Wno-unused-result -ansi -pedantic # --coverage
+-CPPFLAGS = -I../libjbig 
++override CPPFLAGS += -I../libjbig
++override CFLAGS += -I../libjbig
++export LD_LIBRARY_PATH = ../libjbig/.libs
+ 
+ .SUFFIXES: .1 .5 .txt $(SUFFIXES)
+ .PHONY: txt test test82 test85 clean
+@@ -15,30 +16,22 @@ all: pbmtojbg jbgtopbm pbmtojbg85 jbgtopbm85 txt
+ txt: pbmtojbg.txt jbgtopbm.txt pbm.txt pgm.txt
+ 
+-pbmtojbg: pbmtojbg.o ../libjbig/libjbig.a
+-	$(CC) $(CFLAGS) -o pbmtojbg pbmtojbg.o -L../libjbig -ljbig
++pbmtojbg: pbmtojbg.o
++	$(CC) $(LDFLAGS) $(CFLAGS) -o pbmtojbg pbmtojbg.o -L../libjbig/.libs -ljbig
+ 
+-jbgtopbm: jbgtopbm.o ../libjbig/libjbig.a
+-	$(CC) $(CFLAGS) -o jbgtopbm jbgtopbm.o -L../libjbig -ljbig
++jbgtopbm: jbgtopbm.o
++	$(CC) $(LDFLAGS) $(CFLAGS) -o jbgtopbm jbgtopbm.o -L../libjbig/.libs -ljbig
+ 
+-pbmtojbg85: pbmtojbg85.o ../libjbig/libjbig85.a
+-	$(CC) $(CFLAGS) -o pbmtojbg85 pbmtojbg85.o -L../libjbig -ljbig85
++pbmtojbg85: pbmtojbg85.o
++	$(CC) $(LDFLAGS) $(CFLAGS) -o pbmtojbg85 pbmtojbg85.o -L../libjbig/.libs -ljbig
+ 
+-jbgtopbm85: jbgtopbm85.o ../libjbig/libjbig85.a
+-	$(CC) $(CFLAGS) -o jbgtopbm85 jbgtopbm85.o -L../libjbig -ljbig85
++jbgtopbm85: jbgtopbm85.o
++	$(CC) $(LDFLAGS) $(CFLAGS) -o jbgtopbm85 jbgtopbm85.o -L../libjbig/.libs -ljbig
+ 
+ jbgtopbm.o: jbgtopbm.c ../libjbig/jbig.h
+ pbmtojbg.o: pbmtojbg.c ../libjbig/jbig.h
+ jbgtopbm85.o: jbgtopbm85.c ../libjbig/jbig85.h
+ pbmtojbg85.o: pbmtojbg85.c ../libjbig/jbig85.h
+ 
+-../libjbig/libjbig.a: ../libjbig/jbig.c ../libjbig/jbig.h \
+-	../libjbig/jbig_ar.c ../libjbig/jbig_ar.h
+-	make -C ../libjbig libjbig.a
+-
+-../libjbig/libjbig85.a: ../libjbig/jbig85.c ../libjbig/jbig85.h \
+-	../libjbig/jbig_ar.c ../libjbig/jbig_ar.h
+-	make -C ../libjbig libjbig85.a
+-
+ analyze:
+ 	clang $(CPPFLAGS) --analyze *.c
+ 
+@@ -96,6 +89,8 @@ dotest2g:
+ 	cmp test-$(IMG).pgm ../examples/$(IMG).pgm
+ 
+ test85: pbmtojbg jbgtopbm pbmtojbg85 jbgtopbm85 test-t82.pbm
++	export LD_LIBRARY_PATH=`pwd`/../libjbig/.libs
++	echo $(LD_LIBRARY_PATH)
+ 	make IMG=t82 "OPTIONSP=-p 0"      dotest85
+ 	make IMG=t82 "OPTIONSP=-p 8"      dotest85
+ 	make IMG=t82 "OPTIONSP=-p 8 -r"   dotest85b

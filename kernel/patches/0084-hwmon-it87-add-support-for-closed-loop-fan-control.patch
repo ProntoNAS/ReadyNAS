@@ -1,0 +1,277 @@
+From 7ba5455c022d3f3600dc861ac5ff648e2b207153 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 7 Dec 2016 16:10:17 -0800
+Subject: [PATCH 84/85] hwmon: (it87) add support for closed-loop fan control
+
+At least IT8721, IT8732, and IT8772 support a fan tachometer closed-loop
+automatic fan control mode.  This sort of feature is supported already
+in a few different hwmon drivers, but to this point not in it87.  So add
+support for this by adding a new mode to pwm_enable, and adding the
+requisite fanX_target sysfs entries.
+---
+ drivers/hwmon/it87.c | 114 +++++++++++++++++++++++++++++++++++++++++----------
+ 1 file changed, 93 insertions(+), 21 deletions(-)
+
+diff --git a/drivers/hwmon/it87.c b/drivers/hwmon/it87.c
+index 80806a9..49f2006 100644
+--- a/drivers/hwmon/it87.c
++++ b/drivers/hwmon/it87.c
+@@ -303,6 +303,7 @@ struct it87_devices {
+ #define FEAT_SIX_TEMP		BIT(16)	/* Up to 6 temp sensors */
+ #define FEAT_11MV_ADC		BIT(17)
+ #define FEAT_ON_OFF_MODE	BIT(18) /* Chip supports fan on/off mode */
++#define FEAT_TACH_CLOSED_LOOP	BIT(19)
+ 
+ static const struct it87_devices it87_devices[] = {
+ 	[it87] = {
+@@ -346,7 +347,7 @@ static const struct it87_devices it87_devices[] = {
+ 		.features = FEAT_NEWER_AUTOPWM | FEAT_12MV_ADC | FEAT_16BIT_FANS
+ 		  | FEAT_TEMP_OFFSET | FEAT_TEMP_OLD_PECI | FEAT_TEMP_PECI
+ 		  | FEAT_FAN16_CONFIG | FEAT_FIVE_FANS | FEAT_IN7_INTERNAL
+-		  | FEAT_PWM_FREQ2 | FEAT_ON_OFF_MODE,
++		  | FEAT_PWM_FREQ2 | FEAT_ON_OFF_MODE | FEAT_TACH_CLOSED_LOOP,
+ 		.peci_mask = 0x05,
+ 		.old_peci_mask = 0x02,	/* Actually reports PCH */
+ 	},
+@@ -363,7 +364,8 @@ static const struct it87_devices it87_devices[] = {
+ 		.suffix = "F",
+ 		.features = FEAT_NEWER_AUTOPWM | FEAT_16BIT_FANS
+ 		  | FEAT_TEMP_OFFSET | FEAT_TEMP_OLD_PECI | FEAT_TEMP_PECI
+-		  | FEAT_10_9MV_ADC | FEAT_IN7_INTERNAL | FEAT_ON_OFF_MODE,
++		  | FEAT_10_9MV_ADC | FEAT_IN7_INTERNAL | FEAT_ON_OFF_MODE
++		  | FEAT_TACH_CLOSED_LOOP,
+ 		.peci_mask = 0x07,
+ 		.old_peci_mask = 0x02,	/* Actually reports PCH */
+ 	},
+@@ -384,7 +386,7 @@ static const struct it87_devices it87_devices[] = {
+ 		.suffix = "E",
+ 		.features = FEAT_NEWER_AUTOPWM | FEAT_12MV_ADC | FEAT_16BIT_FANS
+ 		  | FEAT_TEMP_OFFSET | FEAT_TEMP_PECI | FEAT_IN7_INTERNAL
+-		  | FEAT_PWM_FREQ2 | FEAT_ON_OFF_MODE,
++		  | FEAT_PWM_FREQ2 | FEAT_ON_OFF_MODE | FEAT_TACH_CLOSED_LOOP,
+ 				/* PECI (coreboot) */
+ 				/* 12mV ADC (HWSensors4, OHM) */
+ 				/* 16 bit fans (HWSensors4, OHM) */
+@@ -445,7 +447,7 @@ static const struct it87_devices it87_devices[] = {
+ 		.features = FEAT_NEWER_AUTOPWM | FEAT_11MV_ADC | FEAT_16BIT_FANS
+ 		  | FEAT_TEMP_OFFSET | FEAT_TEMP_PECI | FEAT_FIVE_FANS
+ 		  | FEAT_IN7_INTERNAL | FEAT_SIX_PWM | FEAT_AVCC3
+-		  | FEAT_PWM_FREQ2,
++		  | FEAT_PWM_FREQ2 | FEAT_TACH_CLOSED_LOOP,
+ 		.peci_mask = 0x07,
+ 	},
+ 	[it8620] = {
+@@ -491,6 +493,8 @@ static const struct it87_devices it87_devices[] = {
+ #define has_pwm_freq2(data)	((data)->features & FEAT_PWM_FREQ2)
+ #define has_six_temp(data)	((data)->features & FEAT_SIX_TEMP)
+ #define has_on_off_mode(data)	((data)->features & FEAT_ON_OFF_MODE)
++#define has_tach_closed_loop(data) \
++				((data)->features & FEAT_TACH_CLOSED_LOOP)
+ 
+ struct it87_sio_data {
+ 	enum chips type;
+@@ -1103,8 +1107,12 @@ static int pwm_mode(const struct it87_data *data, int nr)
+ {
+ 	if (has_on_off_mode(data) && nr < 3 && !(data->fan_main_ctrl & BIT(nr)))
+ 		return 0;				/* Full speed */
+-	if (data->pwm_ctrl[nr] & 0x80)
+-		return 2;				/* Automatic mode */
++	if (data->pwm_ctrl[nr] & 0x80) {
++		if (data->pwm_ctrl[nr] & 0x04)
++			return 3;			/* Tach closed-loop */
++		else
++			return 2;			/* Automatic mode */
++	}
+ 	if ((!has_on_off_mode(data) || nr >= 3) &&
+ 	    data->pwm_duty[nr] == pwm_to_reg(data, 0xff))
+ 		return 0;			/* Full speed */
+@@ -1128,6 +1136,18 @@ static ssize_t show_fan(struct device *dev, struct device_attribute *attr,
+ 	return sprintf(buf, "%d\n", speed);
+ }
+ 
++static ssize_t show_fan_target(struct device *dev, struct device_attribute *attr,
++			       char *buf)
++{
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	struct it87_data *data = it87_update_device(dev);
++	int factor = data->type == it8613 ? 32 : 16;
++	int nr = sensor_attr->index;
++
++	return sprintf(buf, "%d\n",
++		       pwm_from_reg(data, data->pwm_duty[nr]) * factor);
++}
++
+ static ssize_t show_fan_div(struct device *dev, struct device_attribute *attr,
+ 			    char *buf)
+ {
+@@ -1223,6 +1243,38 @@ static ssize_t set_fan(struct device *dev, struct device_attribute *attr,
+ 	return count;
+ }
+ 
++static ssize_t set_fan_target(struct device *dev, struct device_attribute *attr,
++			       const char *buf, size_t count)
++{
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	struct it87_data *data = dev_get_drvdata(dev);
++	int factor = data->type == it8613 ? 32 : 16;
++	int nr = sensor_attr->index;
++	long val, tolerance;
++
++	if (kstrtol(buf, 10, &val) < 0)
++		return -EINVAL;
++
++	val = DIV_ROUND_UP(val, factor);
++	if (val < 0 || val > 255)
++		return -EINVAL;
++
++	if ((data->pwm_ctrl[nr] & 0x84) != 0x84)
++		return -EINVAL;
++
++	mutex_lock(&data->update_lock);
++	data->pwm_duty[nr] = pwm_to_reg(data, val);
++	tolerance = min_t(long, val / 18, 6);
++	it87_write_value(data, IT87_REG_PWM_DUTY[nr],
++			 data->pwm_duty[nr]);
++	it87_write_value(data, IT87_REG_AUTO_TEMP(nr, 4),
++			 0x80 | (tolerance / 2));
++	it87_write_value(data, IT87_REG_AUTO_TEMP(nr, 6),
++			 tolerance);
++	mutex_unlock(&data->update_lock);
++	return count;
++}
++
+ static ssize_t set_fan_div(struct device *dev, struct device_attribute *attr,
+ 			   const char *buf, size_t count)
+ {
+@@ -1306,7 +1358,10 @@ static ssize_t set_pwm_enable(struct device *dev, struct device_attribute *attr,
+ 	int nr = sensor_attr->index;
+ 	long val;
+ 
+-	if (kstrtol(buf, 10, &val) < 0 || val < 0 || val > 2)
++	if (kstrtol(buf, 10, &val) < 0 || val < 0 || val > 3)
++		return -EINVAL;
++
++	if (val == 3 && !has_tach_closed_loop(data))
+ 		return -EINVAL;
+ 
+ 	/* Check trip points before switching to automatic mode */
+@@ -1344,8 +1399,13 @@ static ssize_t set_pwm_enable(struct device *dev, struct device_attribute *attr,
+ 			data->pwm_ctrl[nr] = has_newer_autopwm(data) ?
+ 					     data->pwm_temp_map[nr] :
+ 					     data->pwm_duty[nr];
+-		else					/* Automatic mode */
+-			data->pwm_ctrl[nr] = 0x80 | data->pwm_temp_map[nr];
++		else {					/* Automatic mode */
++			data->pwm_ctrl[nr] = 0x80;
++			if (val == 2)
++				data->pwm_ctrl[nr] |= data->pwm_temp_map[nr];
++			else
++				data->pwm_ctrl[nr] |= 0x04;
++		}
+ 		it87_write_value(data, IT87_REG_PWM[nr], data->pwm_ctrl[nr]);
+ 
+ 		if (has_on_off_mode(data) && nr < 3) {
+@@ -1642,18 +1702,24 @@ static SENSOR_DEVICE_ATTR_2(fan1_min, S_IRUGO | S_IWUSR, show_fan, set_fan,
+ 			    0, 1);
+ static SENSOR_DEVICE_ATTR(fan1_div, S_IRUGO | S_IWUSR, show_fan_div,
+ 			  set_fan_div, 0);
++static SENSOR_DEVICE_ATTR(fan1_target, S_IRUGO | S_IWUSR, show_fan_target,
++			  set_fan_target, 0);
+ 
+ static SENSOR_DEVICE_ATTR_2(fan2_input, S_IRUGO, show_fan, NULL, 1, 0);
+ static SENSOR_DEVICE_ATTR_2(fan2_min, S_IRUGO | S_IWUSR, show_fan, set_fan,
+ 			    1, 1);
+ static SENSOR_DEVICE_ATTR(fan2_div, S_IRUGO | S_IWUSR, show_fan_div,
+ 			  set_fan_div, 1);
++static SENSOR_DEVICE_ATTR(fan2_target, S_IRUGO | S_IWUSR, show_fan_target,
++			  set_fan_target, 1);
+ 
+ static SENSOR_DEVICE_ATTR_2(fan3_input, S_IRUGO, show_fan, NULL, 2, 0);
+ static SENSOR_DEVICE_ATTR_2(fan3_min, S_IRUGO | S_IWUSR, show_fan, set_fan,
+ 			    2, 1);
+ static SENSOR_DEVICE_ATTR(fan3_div, S_IRUGO | S_IWUSR, show_fan_div,
+ 			  set_fan_div, 2);
++static SENSOR_DEVICE_ATTR(fan3_target, S_IRUGO | S_IWUSR, show_fan_target,
++			  set_fan_target, 2);
+ 
+ static SENSOR_DEVICE_ATTR_2(fan4_input, S_IRUGO, show_fan, NULL, 3, 0);
+ static SENSOR_DEVICE_ATTR_2(fan4_min, S_IRUGO | S_IWUSR, show_fan, set_fan,
+@@ -2283,18 +2349,18 @@ static umode_t it87_fan_is_visible(struct kobject *kobj,
+ {
+ 	struct device *dev = container_of(kobj, struct device, kobj);
+ 	struct it87_data *data = dev_get_drvdata(dev);
+-	int i = index / 5;	/* fan index */
+-	int a = index % 5;	/* attribute index */
++	int i = index / 6;	/* fan index */
++	int a = index % 6;	/* attribute index */
+ 
+-	if (index >= 15) {	/* fan 4..6 don't have divisor attributes */
+-		i = (index - 15) / 4 + 3;
+-		a = (index - 15) % 4;
++	if (index >= 18) {	/* fan 4..6 don't have divisor attributes */
++		i = (index - 18) / 4 + 3;
++		a = (index - 18) % 4;
+ 	}
+ 
+ 	if (!(data->has_fan & BIT(i)))
+ 		return 0;
+ 
+-	if (a == 3) {				/* beep */
++	if (a == 3) {					/* beep */
+ 		if (!data->has_beep)
+ 			return 0;
+ 		/* first fan beep attribute is writable */
+@@ -2302,7 +2368,10 @@ static umode_t it87_fan_is_visible(struct kobject *kobj,
+ 			return attr->mode | S_IWUSR;
+ 	}
+ 
+-	if (a == 4 && has_16bit_fans(data))	/* divisor */
++	if (a == 4 && has_16bit_fans(data))		/* divisor */
++		return 0;
++
++	if (a == 5 && !has_tach_closed_loop(data))	/* target */
+ 		return 0;
+ 
+ 	return attr->mode;
+@@ -2314,30 +2383,33 @@ static struct attribute *it87_attributes_fan[] = {
+ 	&sensor_dev_attr_fan1_alarm.dev_attr.attr,
+ 	&sensor_dev_attr_fan1_beep.dev_attr.attr,	/* 3 */
+ 	&sensor_dev_attr_fan1_div.dev_attr.attr,	/* 4 */
++	&sensor_dev_attr_fan1_target.dev_attr.attr,	/* 5 */
+ 
+ 	&sensor_dev_attr_fan2_input.dev_attr.attr,
+ 	&sensor_dev_attr_fan2_min.dev_attr.attr,
+ 	&sensor_dev_attr_fan2_alarm.dev_attr.attr,
+ 	&sensor_dev_attr_fan2_beep.dev_attr.attr,
+-	&sensor_dev_attr_fan2_div.dev_attr.attr,	/* 9 */
++	&sensor_dev_attr_fan2_div.dev_attr.attr,	/* 10 */
++	&sensor_dev_attr_fan2_target.dev_attr.attr,	/* 11 */
+ 
+ 	&sensor_dev_attr_fan3_input.dev_attr.attr,
+ 	&sensor_dev_attr_fan3_min.dev_attr.attr,
+ 	&sensor_dev_attr_fan3_alarm.dev_attr.attr,
+ 	&sensor_dev_attr_fan3_beep.dev_attr.attr,
+-	&sensor_dev_attr_fan3_div.dev_attr.attr,	/* 14 */
++	&sensor_dev_attr_fan3_div.dev_attr.attr,	/* 16 */
++	&sensor_dev_attr_fan3_target.dev_attr.attr,	/* 17 */
+ 
+-	&sensor_dev_attr_fan4_input.dev_attr.attr,	/* 15 */
++	&sensor_dev_attr_fan4_input.dev_attr.attr,	/* 18 */
+ 	&sensor_dev_attr_fan4_min.dev_attr.attr,
+ 	&sensor_dev_attr_fan4_alarm.dev_attr.attr,
+ 	&sensor_dev_attr_fan4_beep.dev_attr.attr,
+ 
+-	&sensor_dev_attr_fan5_input.dev_attr.attr,	/* 19 */
++	&sensor_dev_attr_fan5_input.dev_attr.attr,	/* 22 */
+ 	&sensor_dev_attr_fan5_min.dev_attr.attr,
+ 	&sensor_dev_attr_fan5_alarm.dev_attr.attr,
+ 	&sensor_dev_attr_fan5_beep.dev_attr.attr,
+ 
+-	&sensor_dev_attr_fan6_input.dev_attr.attr,	/* 23 */
++	&sensor_dev_attr_fan6_input.dev_attr.attr,	/* 26 */
+ 	&sensor_dev_attr_fan6_min.dev_attr.attr,
+ 	&sensor_dev_attr_fan6_alarm.dev_attr.attr,
+ 	&sensor_dev_attr_fan6_beep.dev_attr.attr,
+-- 
+1.9.1
+

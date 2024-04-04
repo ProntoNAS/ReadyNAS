@@ -318,6 +318,12 @@ fd_read_body (const char *downloaded_filename, int fd, FILE *out, wgint toread, 
               remaining_chunk_size = strtol (line, &endl, 16);
               xfree (line);
 
+              if (remaining_chunk_size < 0)
+                {
+                  ret = -1;
+                  break;
+                }
+
               if (remaining_chunk_size == 0)
                 {
                   ret = 0;
@@ -803,7 +809,8 @@ retrieve_url (struct url * orig_parsed, const char *origurl, char **file,
       if (redirection_count)
         oldrec = glob = false;
 
-      result = ftp_loop (u, &local_file, dt, proxy_url, recursive, glob);
+      result = ftp_loop (u, orig_parsed, &local_file, dt, proxy_url,
+                         recursive, glob);
       recursive = oldrec;
 
       /* There is a possibility of having HTTP being redirected to

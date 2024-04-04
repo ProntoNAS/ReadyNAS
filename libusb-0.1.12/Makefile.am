@@ -17,7 +17,7 @@ libusb-config: libusb-config.in
 EXTRA_DIST = LICENSE libusb.spec.in libusb.spec libusb-config.in README.in README \
              INSTALL.libusb.in INSTALL.libusb Doxyfile apidocs/header.html \
              apidocs/footer.html apidocs/doxygen.css apidocs/doxygen.png libusb.pc.in
-EXTRA_libusb_la_SOURCE = linux.c linux.h bsd.c darwin.c
+EXTRA_libusb_la_SOURCE = linux.c linux.h bsd.c darwin.c dummy.c
 
 lib_LTLIBRARIES = libusb.la libusbpp.la
 
@@ -36,7 +36,7 @@ LDADDS = -Wl,-framework -Wl,IOKit -Wl,-framework -Wl,CoreFoundation -Wl,-prebind
 PREBIND_FLAGS=-Wl,-seg1addr,0x01666000
 PREBIND_FLAGSPP=-Wl,-seg1addr,0x01676000
 else
-OS_SUPPORT = 
+OS_SUPPORT = dummy.c
 endif
 endif
 endif

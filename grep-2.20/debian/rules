@@ -1,0 +1,47 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+export DH_VERBOSE=1
+
+# true prevents autoreconf from invoking these tools
+export AUTOPOINT=true
+export AUTOHEADER=true
+export LIBTOOLIZE=true
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+CPPFLAGS=-DHAVE_DYNAMIC_LIBPCRE
+LIBS=-Wl,--no-as-needed -ldl -Wl,--as-needed
+
+##########################################################################
+# I need to investigate why CDBS doesn't export automatically build flags 
+# needed for hardening. This block should be temporal.
+CFLAGS = `dpkg-buildflags --get CFLAGS`
+CFLAGS += -O3
+LDFLAGS = `dpkg-buildflags --get LDFLAGS`
+LDFLAGS += -Wl,-z,defs
+CPPFLAGS += `dpkg-buildflags --get CPPFLAGS`
+DEB_CONFIGURE_SCRIPT_ENV += CFLAGS="$(CFLAGS)"
+DEB_CONFIGURE_SCRIPT_ENV += LDFLAGS="$(LDFLAGS)"
+DEB_CONFIGURE_SCRIPT_ENV += CPPFLAGS="$(CPPFLAGS)"
+##########################################################################
+
+DEB_UPSTREAM_URL = http://ftp.gnu.org/gnu/grep/
+DEB_UPSTREAM_TARBALL_EXTENSION = tar.xz
+
+DEB_CONFIGURE_EXTRA_FLAGS += --without-included-regex
+DEB_CONFIGURE_SCRIPT_ENV += LIBS="$(LIBS)"
+
+# FIXME: CDBS should include a specific var for this 
+# (e.g. DEB_CONFIGURE_EXECDIR in autotools-vars.mk)?
+DEB_CONFIGURE_EXTRA_FLAGS += --exec-prefix=/
+
+DEB_MAKE_CHECK_TARGET = check
+
+include /usr/share/cdbs/1/rules/upstream-tarball.mk
+include /usr/share/cdbs/1/rules/autoreconf.mk
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/autotools.mk
+
+binary-fixup/grep::
+	rm -f debian/grep/usr/share/info/dir.gz

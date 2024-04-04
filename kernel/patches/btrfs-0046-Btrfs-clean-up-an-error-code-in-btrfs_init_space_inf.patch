@@ -1,0 +1,33 @@
+From d401c59dd43301c2e5b303321169ded28f8d890b Mon Sep 17 00:00:00 2001
+From: Dan Carpenter <dan.carpenter@oracle.com>
+Date: Wed, 13 Jan 2016 15:21:17 +0300
+Subject: [PATCH 046/165] Btrfs: clean up an error code in
+ btrfs_init_space_info()
+
+If we return 1 here, then the caller treats it as an error and returns
+-EINVAL.  It causes a static checker warning to treat positive returns
+as an error.
+
+Fixes: 1aba86d67f34 ('Btrfs: fix easily get into ENOSPC in mixed case')
+Signed-off-by: Dan Carpenter <dan.carpenter@oracle.com>
+Signed-off-by: David Sterba <dsterba@suse.com>
+---
+ fs/btrfs/extent-tree.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/btrfs/extent-tree.c b/fs/btrfs/extent-tree.c
+index f304fc7..6b6502d 100644
+--- a/fs/btrfs/extent-tree.c
++++ b/fs/btrfs/extent-tree.c
+@@ -10577,7 +10577,7 @@ int btrfs_init_space_info(struct btrfs_fs_info *fs_info)
+ 
+ 	disk_super = fs_info->super_copy;
+ 	if (!btrfs_super_root(disk_super))
+-		return 1;
++		return -EINVAL;
+ 
+ 	features = btrfs_super_incompat_flags(disk_super);
+ 	if (features & BTRFS_FEATURE_INCOMPAT_MIXED_GROUPS)
+-- 
+1.9.1
+

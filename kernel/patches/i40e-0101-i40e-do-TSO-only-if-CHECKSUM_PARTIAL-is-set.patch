@@ -1,0 +1,49 @@
+From 5937e9553c5aedfa9b9067bfd2c3d052734a950e Mon Sep 17 00:00:00 2001
+From: Shannon Nelson <shannon.nelson@intel.com>
+Date: Mon, 4 Jan 2016 10:33:04 -0800
+Subject: [PATCH 101/224] i40e: do TSO only if CHECKSUM_PARTIAL is set
+
+Don't bother trying to set up a TSO if the skb->ip_summed is not
+set to CHECKSUM_PARTIAL.
+
+Change-ID: I6495b3568e404907a2965b48cf3e2effa7c9ab55
+Signed-off-by: Shannon Nelson <shannon.nelson@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_txrx.c   | 3 +++
+ drivers/net/ethernet/intel/i40evf/i40e_txrx.c | 3 +++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_txrx.c b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+index 38d027c..92febd4 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_txrx.c
+@@ -2222,6 +2222,9 @@ static int i40e_tso(struct i40e_ring *tx_ring, struct sk_buff *skb,
+ 	u32 l4len;
+ 	int err;
+ 
++	if (skb->ip_summed != CHECKSUM_PARTIAL)
++		return 0;
++
+ 	if (!skb_is_gso(skb))
+ 		return 0;
+ 
+diff --git a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+index 00e9db3..c09628b 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+@@ -1472,6 +1472,9 @@ static int i40e_tso(struct i40e_ring *tx_ring, struct sk_buff *skb,
+ 	u32 l4len;
+ 	int err;
+ 
++	if (skb->ip_summed != CHECKSUM_PARTIAL)
++		return 0;
++
+ 	if (!skb_is_gso(skb))
+ 		return 0;
+ 
+-- 
+1.9.1
+

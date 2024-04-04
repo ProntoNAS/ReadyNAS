@@ -4,10 +4,11 @@ following revisions:
 * 1.57: Enable netstat -s for IPv6 (Debian Bug #453859 from Varun Chandramohan)
 * 1.55: use new page aliged proc_fopen for address families
 
-Index: net-tools/netstat.c
-===================================================================
---- net-tools.orig/netstat.c
-+++ net-tools/netstat.c
+Updated on 2014/05/11 to fix #541172
+ (patch by Hannes von Haugwitz <hannes@vonhaugwitz.com>).
+
+--- a/netstat.c
++++ b/netstat.c
 @@ -6,7 +6,7 @@
   *              NET-3 Networking Distribution for the LINUX operating
   *              system.
@@ -34,7 +35,7 @@ Index: net-tools/netstat.c
  
  typedef enum {
      SS_FREE = 0,		/* not allocated                */
-@@ -153,7 +156,7 @@ int flag_ver = 0;
+@@ -153,7 +156,7 @@
  FILE *procinfo;
  
  #define INFO_GUTS1(file,name,proc)			\
@@ -43,7 +44,7 @@ Index: net-tools/netstat.c
    if (procinfo == NULL) {				\
      if (errno != ENOENT) {				\
        perror((file));					\
-@@ -174,7 +177,7 @@ FILE *procinfo;
+@@ -174,7 +177,7 @@
  #if HAVE_AFINET6
  #define INFO_GUTS2(file,proc)				\
    lnr = 0;						\
@@ -52,7 +53,7 @@ Index: net-tools/netstat.c
    if (procinfo != NULL) {				\
      do {						\
        if (fgets(buffer, sizeof(buffer), procinfo))	\
-@@ -454,7 +457,7 @@ static int netrom_info(void)
+@@ -454,7 +457,7 @@
      char buffer[256], dev[16];
      int st, vs, vr, sendq, recvq, ret;
  
@@ -61,7 +62,7 @@ Index: net-tools/netstat.c
      if (f == NULL) {
  	if (errno != ENOENT) {
  	    perror(_PATH_PROCNET_NR);
-@@ -650,7 +653,7 @@ static void igmp_do_one(int lnr, const c
+@@ -650,7 +653,7 @@
  #if HAVE_AFX25
  static int x25_info(void)
  {
@@ -70,7 +71,7 @@ Index: net-tools/netstat.c
         char buffer[256],dev[16];
         int st,vs,vr,sendq,recvq,lci;
         static char *x25_state[5]=
-@@ -661,7 +664,7 @@ static int x25_info(void)
+@@ -661,7 +664,7 @@
                 "ESTABLISHED",
                 "RECOVERY"
         };
@@ -79,7 +80,7 @@ Index: net-tools/netstat.c
         {
                 if (errno != ENOENT) {
                         perror(_PATH_PROCNET_X25);
-@@ -1269,7 +1272,7 @@ static int ax25_info(void)
+@@ -1269,7 +1272,7 @@
  	N_("ESTABLISHED"),
  	N_("RECOVERY")
      };
@@ -88,7 +89,7 @@ Index: net-tools/netstat.c
  	if (errno != ENOENT) {
  	    perror(_PATH_PROCNET_AX25);
  	    return (-1);
-@@ -1365,13 +1368,13 @@ static int ipx_info(void)
+@@ -1365,13 +1368,13 @@
      unsigned sport = 0, dport = 0;
      struct stat s;
      
@@ -104,7 +105,7 @@ Index: net-tools/netstat.c
  
          /* We need to check for directory */
          if (f) {
-@@ -1728,9 +1731,28 @@ int main
+@@ -1728,9 +1731,30 @@
      }
  
      if (flag_sta) {
@@ -127,12 +128,14 @@ Index: net-tools/netstat.c
 +                 parsesnmp6(flag_raw, flag_tcp, flag_udp);
 +#else
 +                 printf("Address type not supported for stats\n");
++                 exit(1);
 +#endif
-+            }
-+            else
++            } else {
 +                 printf("Address type not supported for stats\n");
++                 exit(1);
++            }
 +        }
-+        exit(1);
++        exit(0);
      }
      
      if (flag_rou) {

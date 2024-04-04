@@ -1,0 +1,46 @@
+From f49ac5f63c7e704aac57e1a9042c3386b06492a9 Mon Sep 17 00:00:00 2001
+From: Liu Bo <bo.li.liu@oracle.com>
+Date: Thu, 23 Jun 2016 16:32:45 -0700
+Subject: [PATCH 1105/1107] Btrfs: error out if generic_bin_search get invalid
+ arguments
+
+With btrfs-corrupt-block, one can set btree node/leaf's field, if
+we assign a negative value to node/leaf, we can get various hangs,
+eg. if extent_root's nritems is -2ULL, then we get stuck in
+ btrfs_read_block_groups() because it has a while loop and
+btrfs_search_slot() on extent_root will always return the first
+ child.
+
+This lets us know what's happening and returns a EINVAL to callers
+instead of returning the first item.
+
+Signed-off-by: Liu Bo <bo.li.liu@oracle.com>
+Reviewed-by: David Sterba <dsterba@suse.com>
+Signed-off-by: David Sterba <dsterba@suse.com>
+(cherry picked from commit 5e24e9af01abcb151173bb133f1a72b94239c670)
+---
+ fs/btrfs/ctree.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/fs/btrfs/ctree.c b/fs/btrfs/ctree.c
+index ce57ed8..45183b3 100644
+--- a/fs/btrfs/ctree.c
++++ b/fs/btrfs/ctree.c
+@@ -1768,6 +1768,14 @@ static noinline int generic_bin_search(struct extent_buffer *eb,
+ 	unsigned long map_len = 0;
+ 	int err;
+ 
++	if (low > high) {
++		btrfs_err(eb->fs_info,
++		 "%s: low (%d) > high (%d) eb %llu owner %llu level %d",
++			  __func__, low, high, eb->start,
++			  btrfs_header_owner(eb), btrfs_header_level(eb));
++		return -EINVAL;
++	}
++
+ 	while (low < high) {
+ 		mid = (low + high) / 2;
+ 		offset = p + mid * item_size;
+-- 
+1.9.1
+

@@ -1,0 +1,68 @@
+diff --git a/tools/nut-scanner/scan_usb.c- b/tools/nut-scanner/scan_usb.c
+index 1027e93..5b06a38 100644
+--- a/tools/nut-scanner/scan_usb.c-
++++ b/tools/nut-scanner/scan_usb.c
+@@ -44,6 +44,36 @@ static struct usb_bus * (*nut_usb_busses);
+ static usb_dev_handle * (*nut_usb_open)(struct usb_device *dev);
+ static int (*nut_usb_find_devices)(void);
+ 
++static inline char	*_str_rtrim_m(char *string, const char *characters)
++{
++	char	*ptr;
++
++	if (
++		string == NULL ||
++		*string == '\0' ||
++		characters == NULL ||
++		*characters == '\0'
++	)
++		return string;
++
++	ptr = &string[strlen(string) - 1];
++
++	while (
++		ptr >= string &&
++		strchr(characters, *ptr) != NULL
++	)
++		*ptr-- = '\0';
++
++	return string;
++}
++
++static inline char	*_str_rtrim(char *string, const char character)
++{
++	char	characters[2] = { character, '\0' };
++
++	return _str_rtrim_m(string, characters);
++}
++
+ /* return 0 on error */
+ int nutscan_load_usb_library(const char *libname_path)
+ {
+@@ -185,7 +215,7 @@ nutscan_device_t * nutscan_scan_usb()
+ 						dev->descriptor.iSerialNumber,
+ 						string, sizeof(string));
+ 					if (ret > 0) {
+-						serialnumber = strdup(str_rtrim(string, ' '));
++						serialnumber = strdup(_str_rtrim(string, ' '));
+ 					}
+ 				}
+ 				/* get product name */
+@@ -194,7 +224,7 @@ nutscan_device_t * nutscan_scan_usb()
+ 						dev->descriptor.iProduct,
+ 						string, sizeof(string));
+ 					if (ret > 0) {
+-						device_name = strdup(str_rtrim(string, ' '));
++						device_name = strdup(_str_rtrim(string, ' '));
+ 					}
+ 				}
+ 
+@@ -204,7 +234,7 @@ nutscan_device_t * nutscan_scan_usb()
+ 						dev->descriptor.iManufacturer, 
+ 						string, sizeof(string));
+ 					if (ret > 0) {
+-						vendor_name = strdup(str_rtrim(string, ' '));
++						vendor_name = strdup(_str_rtrim(string, ' '));
+ 					}
+ 				}
+ 

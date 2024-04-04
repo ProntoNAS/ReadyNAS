@@ -1,0 +1,48 @@
+From aab282855ada8dddee99c777c91829344e91f31a Mon Sep 17 00:00:00 2001
+From: Werner Koch <wk@gnupg.org>
+Date: Fri, 12 Dec 2014 10:41:25 +0100
+Subject: [PATCH 22/45] gpg: Fix possible read of unallocated memory
+
+* g10/parse-packet.c (can_handle_critical): Check content length
+before calling can_handle_critical_notation.
+--
+
+The problem was found by Jan Bee and gniibe proposed the used fix.
+Thanks.
+
+This bug can't be exploited: Only if the announced length of the
+notation is 21 or 32 a memcmp against fixed strings using that length
+would be done.  The compared data is followed by the actual signature
+and thus it is highly likely that not even read of unallocated memory
+will happen.  Nevertheless such a bug needs to be fixed.
+
+Signed-off-by: Werner Koch <wk@gnupg.org>
+---
+ g10/parse-packet.c | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/g10/parse-packet.c b/g10/parse-packet.c
+index 01600e4..e4e524c 100644
+--- a/g10/parse-packet.c
++++ b/g10/parse-packet.c
+@@ -1123,10 +1123,13 @@ can_handle_critical( const byte *buffer, size_t n, int type )
+   switch( type )
+     {
+     case SIGSUBPKT_NOTATION:
+-      if(n>=8)
+-	return can_handle_critical_notation(buffer+8,(buffer[4]<<8)|buffer[5]);
+-      else
+-	return 0;
++      if (n >= 8)
++	{
++	  size_t notation_len = ((buffer[4] << 8) | buffer[5]);
++	  if (n - 8 >= notation_len)
++	    return can_handle_critical_notation (buffer + 8, notation_len);
++	}
++      return 0;
+     case SIGSUBPKT_SIGNATURE:
+     case SIGSUBPKT_SIG_CREATED:
+     case SIGSUBPKT_SIG_EXPIRE:
+-- 
+2.1.4
+

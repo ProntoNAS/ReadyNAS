@@ -1,0 +1,39 @@
+From cf1e8eb0e3fb010214872d1c5ab825ee7b729c29 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 16:50:51 -0800
+Subject: [PATCH 1013/1014] mtd: allow read-only toggling using ioctl.
+
+Sometimes machines will leave the factory without having the flash
+properly programmed.  Other times, the env NAND block may go bad, and
+need to be relocated.  So allow RO/RW toggling via ioctl for convenience.
+---
+ drivers/mtd/mtdchar.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/drivers/mtd/mtdchar.c b/drivers/mtd/mtdchar.c
+index 6d19835..72aa923 100644
+--- a/drivers/mtd/mtdchar.c
++++ b/drivers/mtd/mtdchar.c
+@@ -960,6 +960,19 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
+ 		break;
+ 	}
+ 
++	case BLKROSET:
++	{
++		unsigned long ro;
++
++		if (copy_from_user(&ro, argp, sizeof(ro)))
++			return -EFAULT;
++		if (ro)
++			mtd->flags &= ~MTD_WRITEABLE;
++		else
++			mtd->flags |= MTD_WRITEABLE;
++		break;
++	}
++
+ 	case BLKPG:
+ 	{
+ 		struct blkpg_ioctl_arg __user *blk_arg = argp;
+-- 
+1.9.1
+

@@ -234,7 +234,7 @@ void warn(int mins)
 }
 
 /*
- *	Create the /etc/nologin file.
+ *	Create the /run/nologin file.
  */
 void donologin(int min)
 {

@@ -1,0 +1,38 @@
+From 7bdc38ccb21133155658279895b10ceb347b0b5a Mon Sep 17 00:00:00 2001
+From: Stephen Smalley <sds@tycho.nsa.gov>
+Date: Tue, 8 Jul 2014 14:03:39 -0400
+Subject: [PATCH] Log an error on unknown classes and permissions.
+
+Signed-off-by: Stephen Smalley <sds@tycho.nsa.gov>
+---
+ libselinux/src/checkAccess.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/checkAccess.c b/src/checkAccess.c
+index 4d70ebe..cd2a817 100644
+--- a/src/checkAccess.c
++++ b/src/checkAccess.c
+@@ -7,6 +7,7 @@
+ #include <selinux/flask.h>
+ #include <selinux/avc.h>
+ #include <selinux/av_permissions.h>
++#include "avc_internal.h"
+ 
+ static pthread_once_t once = PTHREAD_ONCE_INIT;
+ 
+@@ -38,6 +39,7 @@ int selinux_check_access(const char *scon, const char *tcon, const char *class,
+        sclass = string_to_security_class(class);
+        if (sclass == 0) {
+ 	       rc = errno;
++	       avc_log(SELINUX_ERROR, "Unknown class %s", class);
+ 	       if (security_deny_unknown() == 0)
+ 		       return 0;
+ 	       errno = rc;
+@@ -47,6 +49,7 @@ int selinux_check_access(const char *scon, const char *tcon, const char *class,
+        av = string_to_av_perm(sclass, perm);
+        if (av == 0) {
+ 	       rc = errno;
++	       avc_log(SELINUX_ERROR, "Unknown permission %s for class %s", perm, class);
+ 	       if (security_deny_unknown() == 0)
+ 		       return 0;
+ 	       errno = rc;

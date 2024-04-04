@@ -1,0 +1,267 @@
+From ede922382bc45998a469bf6fdce74ddfeafc375c Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Fri, 21 Aug 2015 14:06:02 -0700
+Subject: [PATCH] regulator: add gpio toggle support
+
+RN2120 has disk presence LEDs and SATA port power control tied to the same
+GPIO.  So we can't blindly power a port, or else the presence LED will be lit
+regardless of whether there is a disk connected or not.
+
+So we need to monitor the SATA presence GPIO, and toggle the power GPIO as
+needed on hotplug.  This adds generic support to be able to configure it as
+such in DTS.
+---
+ arch/arm/boot/dts/armada-xp-netgear-rn2120.dts |  64 ++++++++++++++
+ drivers/regulator/fixed.c                      | 113 +++++++++++++++++++++++++
+ include/linux/regulator/fixed.h                |   2 +
+ 3 files changed, 179 insertions(+)
+
+diff --git a/arch/arm/boot/dts/armada-xp-netgear-rn2120.dts b/arch/arm/boot/dts/armada-xp-netgear-rn2120.dts
+index db54c71..3eddad3 100644
+--- a/arch/arm/boot/dts/armada-xp-netgear-rn2120.dts
++++ b/arch/arm/boot/dts/armada-xp-netgear-rn2120.dts
+@@ -293,6 +293,70 @@
+ 		pinctrl-names = "default";
+ 		gpios = <&gpio1 10 GPIO_ACTIVE_LOW>;
+ 	};
++
++	sata1_regulator: sata1-regulator {
++		compatible = "regulator-fixed";
++		pinctrl-0 = <&sata1_power_pin &sata1_pres_pin>;
++		pinctrl-names = "default";
++		regulator-type = "voltage";
++		reg = <1>;
++		regulator-name = "SATA1 Power";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++
++		gpio = <&gpio0 24 GPIO_ACTIVE_LOW>;
++		toggle-gpio = <&gpio1 0 GPIO_ACTIVE_LOW>;
++
++		startup-delay-us = <3000000>;
++	};
++
++	sata2_regulator: sata2-regulator {
++		compatible = "regulator-fixed";
++		pinctrl-0 = <&sata2_power_pin &sata2_pres_pin>;
++		pinctrl-names = "default";
++		regulator-type = "voltage";
++		reg = <1>;
++		regulator-name = "SATA2 Power";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++
++		gpio = <&gpio0 25 GPIO_ACTIVE_LOW>;
++		toggle-gpio = <&gpio1 1 GPIO_ACTIVE_LOW>;
++
++		startup-delay-us = <3000000>;
++	};
++
++	sata3_regulator: sata3-regulator {
++		compatible = "regulator-fixed";
++		pinctrl-0 = <&sata3_power_pin &sata3_pres_pin>;
++		pinctrl-names = "default";
++		regulator-type = "voltage";
++		reg = <1>;
++		regulator-name = "SATA3 Power";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++
++		gpio = <&gpio0 26 GPIO_ACTIVE_LOW>;
++		toggle-gpio = <&gpio1 2 GPIO_ACTIVE_LOW>;
++
++		startup-delay-us = <3000000>;
++	};
++
++	sata4_regulator: sata4-regulator {
++		compatible = "regulator-fixed";
++		pinctrl-0 = <&sata4_power_pin &sata4_pres_pin>;
++		pinctrl-names = "default";
++		regulator-type = "voltage";
++		reg = <1>;
++		regulator-name = "SATA4 Power";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++
++		gpio = <&gpio0 28 GPIO_ACTIVE_LOW>;
++		toggle-gpio = <&gpio1 3 GPIO_ACTIVE_LOW>;
++
++		startup-delay-us = <3000000>;
++	};
+ };
+ 
+ &pinctrl {
+diff --git a/drivers/regulator/fixed.c b/drivers/regulator/fixed.c
+index ff62d69..1d30e68 100644
+--- a/drivers/regulator/fixed.c
++++ b/drivers/regulator/fixed.c
+@@ -26,6 +26,7 @@
+ #include <linux/regulator/fixed.h>
+ #include <linux/gpio.h>
+ #include <linux/slab.h>
++#include <linux/interrupt.h>
+ #include <linux/of.h>
+ #include <linux/of_gpio.h>
+ #include <linux/regulator/of_regulator.h>
+@@ -34,8 +35,65 @@
+ struct fixed_voltage_data {
+ 	struct regulator_desc desc;
+ 	struct regulator_dev *dev;
++	struct work_struct toggle_work;
++	int enable_gpio;
++	int toggle_gpio;
++	unsigned toggle_gpio_high:1;
++	unsigned enable_gpio_high:1;
+ };
+ 
++static void _check_toggle_needed(struct fixed_voltage_data *data)
++{
++	int curval, expval;
++
++	if (!data->toggle_gpio)
++		return;
++
++	/* XXX we can do better: */
++	expval = !!gpio_get_value(data->toggle_gpio);
++	if (data->toggle_gpio_high)
++		expval = !expval;
++
++	curval = !!gpio_get_value(data->enable_gpio);
++	if (data->enable_gpio_high)
++		curval = !curval;
++
++	/* Only modify if not already */
++	if (expval == curval) {
++		dev_dbg(&data->dev->dev, "toggling value\n");
++		curval = !gpio_get_value(data->enable_gpio);
++		gpio_set_value(data->enable_gpio, curval);
++	} else {
++		dev_dbg(&data->dev->dev, "not toggling value\n");
++	}
++	/*
++	 * XXX
++	 * - Read IRQ value, i.e. if we are now high or low,
++	 * - check against logic
++	 * - act if needed
++	 */
++	/* XXX see if we need to mask/unmask irq during that work */
++}
++
++static void toggle_worker(struct work_struct *ws)
++{
++	struct fixed_voltage_data *data;
++
++	data = container_of(ws, struct fixed_voltage_data, toggle_work);
++
++	_check_toggle_needed(data);
++}
++
++static irqreturn_t toggle_irq_handler(int irq, void *data)
++{
++	struct fixed_voltage_data *handler_data = data;
++
++	/* XXX should we somehow mask out interrupt here and reenable it
++	 * at the end of our worker */
++	schedule_work(&handler_data->toggle_work);
++
++	return IRQ_NONE;
++}
+ 
+ /**
+  * of_get_fixed_voltage_config - extract fixed_voltage_config structure info
+@@ -98,6 +156,19 @@ of_get_fixed_voltage_config(struct device *dev,
+ 	config->gpio_is_open_drain = of_property_read_bool(np,
+ 							   "gpio-open-drain");
+ 
++	if (of_gpio_named_count(dev->of_node, "toggle-gpio") > 0) {
++		enum of_gpio_flags flags;
++		int ret;
++
++		ret = of_get_named_gpio_flags(dev->of_node, "toggle-gpio",
++					      0, &flags);
++		if (ret < 0)
++			return ERR_PTR(ret);
++
++		config->toggle_gpio = ret;
++		config->toggle_gpio_high = !(flags & OF_GPIO_ACTIVE_LOW);
++	}
++
+ 	if (of_find_property(np, "vin-supply", NULL))
+ 		config->input_supply = "vin";
+ 
+@@ -144,6 +215,46 @@ static int reg_fixed_voltage_probe(struct platform_device *pdev)
+ 
+ 	drvdata->desc.enable_time = config->startup_delay;
+ 
++	if (config->toggle_gpio) {
++		int toggle_irq;
++
++		/* Add a useful name (from GPIO or .dts) instead of NULL */
++		ret = devm_gpio_request_one(&pdev->dev, config->toggle_gpio,
++					    GPIOF_DIR_IN, NULL);
++		if (ret) {
++			dev_err(&pdev->dev, "Unable to request gpio %d\n", ret);
++			return ret;
++		}
++
++		toggle_irq = gpio_to_irq(config->toggle_gpio);
++		if (toggle_irq < 0) {
++			dev_err(&pdev->dev, "GPIO %d unusable as interrupt\n",
++				config->toggle_gpio);
++			return toggle_irq;
++		}
++
++		INIT_WORK(&drvdata->toggle_work, toggle_worker);
++		/*
++		 * XXX Why setting IRQ_TYPE_EDGE_BOTH via irq_set_irq_type() instead
++		 * of using IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING in
++		 * devm_request_irq()
++		 * XXX Add a way to pass a name for the GPIO via the .dts */
++		irq_set_irq_type(toggle_irq, IRQ_TYPE_EDGE_BOTH);
++		ret = devm_request_irq(&pdev->dev, toggle_irq,
++				       toggle_irq_handler, IRQF_SHARED,
++				       "Toggling GPIO", drvdata);
++		if (ret) {
++			dev_err(&pdev->dev, "Unable to request IRQ %d\n",
++				toggle_irq);
++			return ret;
++		}
++
++		drvdata->enable_gpio = config->gpio;
++		drvdata->toggle_gpio = config->toggle_gpio;
++		drvdata->toggle_gpio_high = config->toggle_gpio_high;
++		drvdata->enable_gpio_high = config->enable_high;
++	}
++
+ 	if (config->input_supply) {
+ 		drvdata->desc.supply_name = devm_kstrdup(&pdev->dev,
+ 					    config->input_supply,
+@@ -198,6 +309,8 @@ static int reg_fixed_voltage_probe(struct platform_device *pdev)
+ 	dev_dbg(&pdev->dev, "%s supplying %duV\n", drvdata->desc.name,
+ 		drvdata->desc.fixed_uV);
+ 
++	_check_toggle_needed(drvdata);
++
+ 	return 0;
+ }
+ 
+diff --git a/include/linux/regulator/fixed.h b/include/linux/regulator/fixed.h
+index 48918be..b2c1c94 100644
+--- a/include/linux/regulator/fixed.h
++++ b/include/linux/regulator/fixed.h
+@@ -50,10 +50,12 @@ struct fixed_voltage_config {
+ 	const char *input_supply;
+ 	int microvolts;
+ 	int gpio;
++	int toggle_gpio;
+ 	unsigned startup_delay;
+ 	unsigned gpio_is_open_drain:1;
+ 	unsigned enable_high:1;
+ 	unsigned enabled_at_boot:1;
++	unsigned toggle_gpio_high:1;
+ 	struct regulator_init_data *init_data;
+ };
+ 
+-- 
+1.9.1
+

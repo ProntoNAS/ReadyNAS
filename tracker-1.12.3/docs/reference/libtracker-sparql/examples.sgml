@@ -1,0 +1,385 @@
+<?xml version='1.0' encoding="ISO-8859-1"?>
+
+<part id="tracker-examples">
+  <title>Examples</title>
+  <partintro>
+    <para>
+      This chapters shows some real examples of usage of the Tracker SPARQL Library.
+    </para>
+  </partintro>
+
+
+  <chapter id="tracker-examples-builder">
+    <title>SPARQL query builder</title>
+
+    <para>
+      The Tracker SPARQL library provides an easy and secure way of creating
+      SPARQL queries with the proper syntax. This is achieved using the
+      <type><link linkend="TrackerSparqlBuilder-struct">TrackerSparqlBuilder</link></type>
+      object.
+    </para>
+
+    <para>
+<programlisting>
+#include &lt;tracker-sparql.h&gt;
+
+int main (int argc, char **argv)
+{
+  <type><link linkend="TrackerSparqlBuilder-struct">TrackerSparqlBuilder</link></type> *builder;
+  const gchar *iri = "urn:example:0001";
+  const gchar *query_str;
+  time_t now;
+
+  /* Create builder */
+  builder = <function><link linkend="tracker-sparql-builder-new-update">tracker_sparql_builder_new_update</link></function> ();
+
+  /* Insert new data */
+  <function><link linkend="tracker-sparql-builder-insert-open">tracker_sparql_builder_insert_open</link></function> (builder, NULL);
+
+  <function><link linkend="tracker-sparql-builder-subject-iri">tracker_sparql_builder_subject_iri</link></function> (builder, iri);
+
+  <function><link linkend="tracker-sparql-builder-predicate">tracker_sparql_builder_predicate</link></function> (builder, "a");
+  <function><link linkend="tracker-sparql-builder-object">tracker_sparql_builder_object</link></function> (builder, "nie:DataObject");
+  <function><link linkend="tracker-sparql-builder-object">tracker_sparql_builder_object</link></function> (builder, "nfo:FileDataObject");
+
+  now = time (NULL);
+  <function><link linkend="tracker-sparql-builder-predicate">tracker_sparql_builder_predicate</link></function> (builder, "nfo:fileLastModified");
+  <function><link linkend="tracker-sparql-builder-object-date">tracker_sparql_builder_object_date</link></function> (builder, &amp;now);
+
+  <function><link linkend="tracker-sparql-builder-insert-close">tracker_sparql_builder_insert_close</link></function> (builder);
+
+  /* Get query as string. Do NOT g_free() the resulting string! */
+  query_str = <function><link linkend="tracker-sparql-builder-get-result">tracker_sparql_builder_get_result</link></function> (builder);
+
+  /* Print it */
+  g_print ("Generated SPARQL query: '%s'\n", query_str);
+
+  /* Once builder no longer needed, unref it. Note that after
+   * this operation, you must not use the returned query result
+   * any more
+   */
+  g_object_unref (builder);
+
+  return 0;
+}
+</programlisting>
+
+      The previous code will generate the following SPARQL query:
+<programlisting>
+  DROP GRAPH &lt;urn:example:0001&gt;
+  INSERT INTO &lt;urn:example:0001&gt; {
+    &lt;urn:example:0001&gt; a nie:DataObject , nfo:FileDataObject ;
+                       nfo:fileLastModified "2010-08-04T13:09:26Z" .
+}
+</programlisting>
+    </para>
+  </chapter>
+
+  <chapter id="tracker-examples-readonly">
+    <title>Querying the Store</title>
+
+    <para>
+      In order to perform read-only queries to the store, a new
+      <type><link linkend="TrackerSparqlConnection-struct">TrackerSparqlConnection</link></type>
+      object must be acquired. In this case, as there is no intention of updating any
+      value in the store, both the general connection (with
+      <function><link linkend="tracker-sparql-connection-get">tracker_sparql_connection_get</link></function>)
+      or a specific direct-access connection (with
+      <function><link linkend="tracker-sparql-connection-get-direct">tracker_sparql_connection_get_direct</link></function>)
+      may be acquired. Note that in the latter case, every non read-only operation will result
+      in an error being thrown by the TrackerSparqlConnection.
+    </para>
+
+    <para>
+      Once a proper connection object has been acquired, the read-only query can be launched either
+      synchronously (<function><link linkend="tracker-sparql-connection-query">tracker_sparql_connection_query</link></function>)
+      or asynchronously (<function><link linkend="tracker-sparql-connection-query-async">tracker_sparql_connection_query_async</link></function>).
+      If launched asynchronously, the results of the query can be obtained with
+      <function><link linkend="tracker-sparql-connection-query-finish">tracker_sparql_connection_query_finish</link></function>.
+    </para>
+
+    <para>
+      If the query was successful, a <type><link linkend="TrackerSparqlCursor-struct">TrackerSparqlCursor</link></type>
+      will be available. You can now iterate the results of the query both synchronously (with
+      <function><link linkend="tracker-sparql-cursor-next">tracker_sparql_cursor_next</link></function>) or
+      asynchronously (with
+      <function><link linkend="tracker-sparql-cursor-next-async">tracker_sparql_cursor_next_async</link></function> and
+      <function><link linkend="tracker-sparql-cursor-next-finish">tracker_sparql_cursor_next_finish</link></function>)
+    </para>
+
+    <para>
+      Once you end up with the query, remember to call <function><link linkend="g-object-unref">g_object_unref</link></function>
+      for the <type><link linkend="TrackerSparqlCursor-struct">TrackerSparqlCursor</link></type>. And the same applies to the
+      <type><link linkend="TrackerSparqlConnection-struct">TrackerSparqlConnection</link></type> when no longer needed.
+    </para>
+
+    <para>
+      The following program shows how Read-Only queries can be done to the store in a
+      synchronous way:
+
+<programlisting>
+#include &lt;tracker-sparql.h&gt;
+
+int main (int argc, const char **argv)
+{
+  GError *error = NULL;
+  <type><link linkend="TrackerSparqlConnection-struct">TrackerSparqlConnection</link></type> *connection;
+  <type><link linkend="TrackerSparqlCursor-struct">TrackerSparqlCursor</link></type> *cursor;
+  const gchar *query = "SELECT nie:url(?u) WHERE { ?u a nfo:FileDataObject }";
+
+  /* As we know only read-only queries will be done, it's enough
+   * to use a connection with only direct-access setup. The NULL
+   * represents a possible GCancellable.
+   */
+  connection = <function><link linkend="tracker-sparql-connection-get-direct">tracker_sparql_connection_get_direct</link></function> (NULL, &amp;error);
+  if (!connection) {
+    g_printerr ("Couldn't obtain a direct connection to the Tracker store: %s",
+                error ? error-&gt;message : "unknown error");
+    g_clear_error (&amp;error);
+
+    return 1;
+  }
+
+  /* Make a synchronous query to the store */
+  cursor = <function><link linkend="tracker-sparql-connection-query">tracker_sparql_connection_query</link></function> (connection,
+                                            query,
+                                            NULL,
+                                            &amp;error);
+
+  if (error) {
+    /* Some error happened performing the query, not good */
+    g_printerr ("Couldn't query the Tracker Store: '%s'",
+                error ? error-&gt;message : "unknown error");
+    g_clear_error (&amp;error);
+
+    return 1;
+  }
+
+  /* Check results... */
+  if (!cursor) {
+    g_print ("No results found :-/\n");
+  } else {
+    gint i = 0;
+
+    /* Iterate, synchronously, the results... */
+    while (<function><link linkend="tracker-sparql-cursor-next">tracker_sparql_cursor_next</link></function> (cursor, NULL, &amp;error)) {
+      g_print ("Result [%d]: %s\n",
+	       i++,
+	       <function><link linkend="tracker-sparql-cursor-get-string">tracker_sparql_cursor_get_string</link></function> (cursor, 0, NULL));
+    }
+
+    g_print ("A total of '%d' results were found\n", i);
+
+    g_object_unref (cursor);
+  }
+
+  g_object_unref (connection);
+
+  return 0;
+}
+</programlisting>
+    </para>
+  </chapter>
+
+  <chapter id="tracker-examples-writeonly">
+    <title>Updating the Store</title>
+
+    <para>
+      In order to perform updates in the store, a new
+      <type><link linkend="TrackerSparqlConnection-struct">TrackerSparqlConnection</link></type>
+      object must be acquired with
+      <function><link linkend="tracker-sparql-connection-get">tracker_sparql_connection_get</link></function>.
+      Note that you MUST NOT use a specific direct-access connection obtained with
+      <function><link linkend="tracker-sparql-connection-get-direct">tracker_sparql_connection_get_direct</link></function>, as the direct-access method only supports read-only queries.
+    </para>
+
+    <para>
+      Once a proper connection object has been acquired, the update can be launched either
+      synchronously (<function><link linkend="tracker-sparql-connection-update">tracker_sparql_connection_update</link></function>)
+      or asynchronously (<function><link linkend="tracker-sparql-connection-update-async">tracker_sparql_connection_update_async</link></function>).
+      If launched asynchronously, the result of the operation can be obtained with
+      <function><link linkend="tracker-sparql-connection-update-finish">tracker_sparql_connection_update_finish</link></function>.
+    </para>
+
+    <para>
+      Once you no longer need the connection, remember to call <function><link linkend="g-object-unref">g_object_unref</link></function>
+      for the <type><link linkend="TrackerSparqlConnection-struct">TrackerSparqlConnection</link></type>.
+    </para>
+
+    <para>
+      The following program shows how a synchronous update can be done to the store:
+
+<programlisting>
+#include &lt;tracker-sparql.h&gt;
+
+int main (int argc, const char **argv)
+{
+  GError *error = NULL;
+  <type><link linkend="TrackerSparqlConnection-struct">TrackerSparqlConnection</link></type> *connection;
+  const gchar *query =
+    "INSERT { "
+    "  _:tag a nao:Tag ; "
+    "        nao:prefLabel 'mylabel' . "
+    "} WHERE { "
+    "  OPTIONAL { "
+    "    ?tag a nao:Tag ; "
+    "    nao:prefLabel 'mylabel' "
+    "  } . "
+    "FILTER (!bound(?tag)) "
+    "}";
+
+  /* Do NOT get a direct connection if you're going to do some write
+   * operation in the Store. The NULL represents a possible
+   * GCancellable.
+   */
+  connection = <function><link linkend="tracker-sparql-connection-get">tracker_sparql_connection_get</link></function> (NULL, &amp;error);
+  if (!connection) {
+    g_printerr ("Couldn't obtain a connection to the Tracker store: %s",
+                error ? error-&gt;message : "unknown error");
+    g_clear_error (&amp;error);
+
+    return 1;
+  }
+
+  /* Run a synchronous update query */
+  <function><link linkend="tracker-sparql-connection-update">tracker_sparql_connection_update</link></function> (connection,
+                                            query,
+                                            G_PRIORITY_DEFAULT,
+                                            NULL,
+                                            &amp;error);
+  if (error) {
+    /* Some error happened performing the query, not good */
+    g_printerr ("Couldn't update the Tracker store: %s",
+                error ? error-&gt;message : "unknown error");
+
+    g_clear_error (&amp;error);
+    g_object_unref (connection);
+
+    return 1;
+  }
+
+  g_object_unref (connection);
+
+  return 0;
+}
+</programlisting>
+    </para>
+  </chapter>
+
+  <chapter id="tracker-examples-writeonly-with-blank-nodes">
+    <title>Updating the Store with Blank Nodes</title>
+
+    <para>
+      The majority of the work here is already described in the
+      <link linkend="tracker-examples-writeonly">previous example</link> where we talk about how to write the store.
+    </para>
+
+    <para>
+      The difference with this example is that sometimes you want to
+      insert data and have the URNs returned which were created to
+      avoid re-querying for them. This is done using
+      the <function><link linkend="tracker-sparql-connection-update-blank">tracker_sparql_connection_update_blank</link></function> function (or asynchronously <function><link linkend="tracker-sparql-connection-update-blank-async">tracker_sparql_connection_update_blank_async</link></function>).
+      If launched asynchronously, the result of the operation can be obtained with
+      <function><link linkend="tracker-sparql-connection-update-blank-finish">tracker_sparql_connection_update_blank_finish</link></function>.
+    </para>
+
+    <para>
+      The <emphasis>_:foo</emphasis> in the example is how a blank node is
+      represented in SPARQL. The <emphasis>foo</emphasis> part is used to generate the
+      unique ID that is used for the new URN. It is also used in the
+      <function><link linkend="GVariant">GVariant</link></function>
+      that is returned. In the example below, we are creating a new
+      blank node called <emphasis>foo</emphasis> for every class that
+      exists.
+    </para>
+
+    <para>
+      The format of the GVariant (in D-Bus terms) is an aaa{ss} (an
+      array of an array of dictionaries). This is rather complex but
+      for a good reason. The first array represents each INSERT that
+      may exist in the SPARQL. The second array represents each new
+      node for a given WHERE clause (the example below illustrates
+      this), you need this to differentiate between two INSERT
+      statments like the one below in the same SPARQL sent to the
+      store. Last, we have a final array to represent each new node's
+      name (in this case <emphasis>foo</emphasis>) and the actual URN which was
+      created. For most updates the first two outer arrays will only
+      have one item in them.
+    </para>
+
+    <para>
+      The following program shows how a synchronous blank node update can be done to the store:
+
+<programlisting>
+#include &lt;tracker-sparql.h&gt;
+
+int main (int argc, const char **argv)
+{
+  GError *error = NULL;
+  GVariant *v;
+  <type><link linkend="TrackerSparqlConnection-struct">TrackerSparqlConnection</link></type> *connection;
+  const gchar *query =
+    "INSERT { _:foo a nie:InformationElement } WHERE { ?x a rdfs:Class }";
+
+  /* Do NOT get a direct connection if you're going to do some write
+   * operation in the Store. The NULL represents a possible
+   * GCancellable.
+   */
+  connection = <function><link linkend="tracker-sparql-connection-get">tracker_sparql_connection_get</link></function> (NULL, &amp;error);
+  if (!connection) {
+    g_printerr ("Couldn't obtain a connection to the Tracker store: %s",
+                error ? error-&gt;message : "unknown error");
+    g_clear_error (&amp;error);
+
+    return 1;
+  }
+
+  /* Run a synchronous blank node update query */
+  v = <function><link linkend="tracker-sparql-connection-update-blank">tracker_sparql_connection_update_blank</link></function> (connection,
+  				              query,
+  				              G_PRIORITY_DEFAULT,
+  				              NULL,
+  				              &amp;error);
+
+  if (error) {
+    /* Some error happened performing the query, not good */
+    g_printerr ("Couldn't update the Tracker store: %s",
+                error ? error-&gt;message : "unknown error");
+
+    g_clear_error (&amp;error);
+    g_object_unref (connection);
+
+    return 1;
+  }
+
+  if (!v) {
+    g_print ("No results were returned\n");
+  } else {
+    GVariantIter iter1, *iter2, *iter3;
+    const gchar *node;
+    const gchar *urn;
+
+    g_print ("Results:\n");
+
+    g_variant_iter_init (&amp;iter1, v);
+    while (g_variant_iter_loop (&amp;iter1, "aa{ss}", &amp;iter2)) { /* aa{ss} */
+      while (g_variant_iter_loop (iter2, "a{ss}", &amp;iter3)) { /* a{ss} */
+        while (g_variant_iter_loop (iter3, "{ss}", &amp;node, &amp;urn)) { /* {ss} */
+	  g_print ("  Node:'%s', URN:'%s'\n", node, urn);
+	}
+      }
+    }
+
+    g_variant_unref (v);
+  }
+
+  g_object_unref (connection);
+
+  return 0;
+}
+</programlisting>
+    </para>
+  </chapter>
+
+</part>
+

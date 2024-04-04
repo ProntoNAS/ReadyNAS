@@ -1,0 +1,657 @@
+From ed42606bdab1c5d9e5ad828cd6fe1a0557f193b7 Mon Sep 17 00:00:00 2001
+From: "H.J. Lu" <hjl.tools@gmail.com>
+Date: Sat, 6 Jan 2018 22:29:56 -0800
+Subject: [PATCH] x86: Add -mindirect-branch-register
+
+Add -mindirect-branch-register to force indirect branch via register.
+This is implemented by disabling patterns of indirect branch via memory,
+similar to TARGET_X32.
+
+-mindirect-branch= and -mfunction-return= tests are updated with
+-mno-indirect-branch-register to avoid false test failures when
+-mindirect-branch-register is added to RUNTESTFLAGS for "make check".
+
+gcc/
+
+	Backport from mainline
+	2018-01-14  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* config/i386/constraints.md (Bs): Disallow memory operand for
+	-mindirect-branch-register.
+	(Bw): Likewise.
+	* config/i386/predicates.md (indirect_branch_operand): Likewise.
+	(GOT_memory_operand): Likewise.
+	(call_insn_operand): Likewise.
+	(sibcall_insn_operand): Likewise.
+	(GOT32_symbol_operand): Likewise.
+	* config/i386/i386.md (indirect_jump): Call convert_memory_address
+	for -mindirect-branch-register.
+	(tablejump): Likewise.
+	(*sibcall_memory): Likewise.
+	(*sibcall_value_memory): Likewise.
+	Disallow peepholes of indirect call and jump via memory for
+	-mindirect-branch-register.
+	(*call_pop): Replace m with Bw.
+	(*call_value_pop): Likewise.
+	(*sibcall_pop_memory): Replace m with Bs.
+	* config/i386/i386.opt (mindirect-branch-register): New option.
+
+gcc/testsuite/
+
+	Backport from mainline
+	2018-01-14  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* gcc.target/i386/indirect-thunk-1.c (dg-options): Add
+	-mno-indirect-branch-register.
+	* gcc.target/i386/indirect-thunk-2.c: Likewise.
+	* gcc.target/i386/indirect-thunk-3.c: Likewise.
+	* gcc.target/i386/indirect-thunk-4.c: Likewise.
+	* gcc.target/i386/indirect-thunk-7.c: Likewise.
+	* gcc.target/i386/indirect-thunk-attr-1.c: Likewise.
+	* gcc.target/i386/indirect-thunk-attr-2.c: Likewise.
+	* gcc.target/i386/indirect-thunk-attr-3.c: Likewise.
+	* gcc.target/i386/indirect-thunk-attr-4.c: Likewise.
+	* gcc.target/i386/indirect-thunk-attr-5.c: Likewise.
+	* gcc.target/i386/indirect-thunk-attr-6.c: Likewise.
+	* gcc.target/i386/indirect-thunk-attr-7.c: Likewise.
+	* gcc.target/i386/indirect-thunk-extern-1.c: Likewise.
+	* gcc.target/i386/indirect-thunk-extern-2.c: Likewise.
+	* gcc.target/i386/indirect-thunk-extern-3.c: Likewise.
+	* gcc.target/i386/indirect-thunk-extern-4.c: Likewise.
+	* gcc.target/i386/indirect-thunk-extern-7.c: Likewise.
+	* gcc.target/i386/indirect-thunk-inline-1.c: Likewise.
+	* gcc.target/i386/indirect-thunk-inline-2.c: Likewise.
+	* gcc.target/i386/indirect-thunk-inline-3.c: Likewise.
+	* gcc.target/i386/indirect-thunk-inline-4.c: Likewise.
+	* gcc.target/i386/indirect-thunk-inline-7.c: Likewise.
+	* gcc.target/i386/ret-thunk-10.c: Likewise.
+	* gcc.target/i386/ret-thunk-11.c: Likewise.
+	* gcc.target/i386/ret-thunk-12.c: Likewise.
+	* gcc.target/i386/ret-thunk-13.c: Likewise.
+	* gcc.target/i386/ret-thunk-14.c: Likewise.
+	* gcc.target/i386/ret-thunk-15.c: Likewise.
+	* gcc.target/i386/ret-thunk-9.c: Likewise.
+	* gcc.target/i386/indirect-thunk-register-1.c: New test.
+	* gcc.target/i386/indirect-thunk-register-2.c: Likewise.
+	* gcc.target/i386/indirect-thunk-register-3.c: Likewise.
+
+i386: Rename to ix86_indirect_branch_register
+
+Rename the variable for -mindirect-branch-register to
+ix86_indirect_branch_register to match the command-line option name.
+
+	Backport from mainline
+	2018-01-15  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* config/i386/constraints.md (Bs): Replace
+	ix86_indirect_branch_thunk_register with
+	ix86_indirect_branch_register.
+	(Bw): Likewise.
+	* config/i386/i386.md (indirect_jump): Likewise.
+	(tablejump): Likewise.
+	(*sibcall_memory): Likewise.
+	(*sibcall_value_memory): Likewise.
+	Peepholes of indirect call and jump via memory: Likewise.
+	* config/i386/i386.opt: Likewise.
+	* config/i386/predicates.md (indirect_branch_operand): Likewise.
+	(GOT_memory_operand): Likewise.
+	(call_insn_operand): Likewise.
+	(sibcall_insn_operand): Likewise.
+	(GOT32_symbol_operand): Likewise.
+
+x86: Rewrite ix86_indirect_branch_register logic
+
+Rewrite ix86_indirect_branch_register logic with
+
+(and (not (match_test "ix86_indirect_branch_register"))
+     (original condition before r256662))
+
+	Backport from mainline
+	2018-01-15  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* config/i386/predicates.md (constant_call_address_operand):
+	Rewrite ix86_indirect_branch_register logic.
+	(sibcall_insn_operand): Likewise.
+
+Don't check ix86_indirect_branch_register for GOT operand
+
+Since GOT_memory_operand and GOT32_symbol_operand are simple pattern
+matches, don't check ix86_indirect_branch_register here.  If needed,
+-mindirect-branch= will convert indirect branch via GOT slot to a call
+and return thunk.
+
+	Backport from mainline
+	2018-01-15  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* config/i386/constraints.md (Bs): Update
+	ix86_indirect_branch_register check.  Don't check
+	ix86_indirect_branch_register with GOT_memory_operand.
+	(Bw): Likewise.
+	* config/i386/predicates.md (GOT_memory_operand): Don't check
+	ix86_indirect_branch_register here.
+	(GOT32_symbol_operand): Likewise.
+
+i386: Rewrite indirect_branch_operand logic
+
+	Backport from mainline
+	2018-01-15  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* config/i386/predicates.md (indirect_branch_operand): Rewrite
+	ix86_indirect_branch_register logic.
+---
+ gcc/config/i386/constraints.md                     |  3 ++-
+ gcc/config/i386/i386.md                            |  4 ++--
+ gcc/config/i386/i386.opt                           |  4 ++++
+ gcc/config/i386/predicates.md                      |  6 ++++--
+ gcc/testsuite/gcc.target/i386/indirect-thunk-1.c   |  2 +-
+ gcc/testsuite/gcc.target/i386/indirect-thunk-2.c   |  2 +-
+ gcc/testsuite/gcc.target/i386/indirect-thunk-3.c   |  2 +-
+ gcc/testsuite/gcc.target/i386/indirect-thunk-4.c   |  2 +-
+ gcc/testsuite/gcc.target/i386/indirect-thunk-7.c   |  2 +-
+ .../gcc.target/i386/indirect-thunk-attr-1.c        |  2 +-
+ .../gcc.target/i386/indirect-thunk-attr-2.c        |  2 +-
+ .../gcc.target/i386/indirect-thunk-attr-3.c        |  2 +-
+ .../gcc.target/i386/indirect-thunk-attr-4.c        |  2 +-
+ .../gcc.target/i386/indirect-thunk-attr-5.c        |  2 +-
+ .../gcc.target/i386/indirect-thunk-attr-6.c        |  2 +-
+ .../gcc.target/i386/indirect-thunk-attr-7.c        |  2 +-
+ .../gcc.target/i386/indirect-thunk-extern-1.c      |  2 +-
+ .../gcc.target/i386/indirect-thunk-extern-2.c      |  2 +-
+ .../gcc.target/i386/indirect-thunk-extern-3.c      |  2 +-
+ .../gcc.target/i386/indirect-thunk-extern-4.c      |  2 +-
+ .../gcc.target/i386/indirect-thunk-extern-7.c      |  2 +-
+ .../gcc.target/i386/indirect-thunk-inline-1.c      |  2 +-
+ .../gcc.target/i386/indirect-thunk-inline-2.c      |  2 +-
+ .../gcc.target/i386/indirect-thunk-inline-3.c      |  2 +-
+ .../gcc.target/i386/indirect-thunk-inline-4.c      |  2 +-
+ .../gcc.target/i386/indirect-thunk-inline-7.c      |  2 +-
+ .../gcc.target/i386/indirect-thunk-register-1.c    | 22 ++++++++++++++++++++++
+ .../gcc.target/i386/indirect-thunk-register-2.c    | 20 ++++++++++++++++++++
+ .../gcc.target/i386/indirect-thunk-register-3.c    | 19 +++++++++++++++++++
+ gcc/testsuite/gcc.target/i386/ret-thunk-10.c       |  2 +-
+ gcc/testsuite/gcc.target/i386/ret-thunk-11.c       |  2 +-
+ gcc/testsuite/gcc.target/i386/ret-thunk-12.c       |  2 +-
+ gcc/testsuite/gcc.target/i386/ret-thunk-13.c       |  2 +-
+ gcc/testsuite/gcc.target/i386/ret-thunk-14.c       |  2 +-
+ gcc/testsuite/gcc.target/i386/ret-thunk-15.c       |  2 +-
+ gcc/testsuite/gcc.target/i386/ret-thunk-9.c        |  2 +-
+ 37 files changed, 107 insertions(+), 35 deletions(-)
+ create mode 100644 gcc/testsuite/gcc.target/i386/indirect-thunk-register-1.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/indirect-thunk-register-2.c
+ create mode 100644 gcc/testsuite/gcc.target/i386/indirect-thunk-register-3.c
+
+[jmm: Stripped texinfo doc changes, considered non-free by some]
+
+diff --git a/src/gcc/config/i386/constraints.md b/src/gcc/config/i386/constraints.md
+index b662f8747d6..4a4394d5973 100644
+--- a/src/gcc/config/i386/constraints.md
++++ b/src/gcc/config/i386/constraints.md
+@@ -153,7 +153,8 @@
+ 
+ (define_constraint "w"
+   "@internal Call memory operand."
+-  (and (not (match_test "TARGET_X32"))
++  (and (not (match_test "ix86_indirect_branch_register"))
++       (not (match_test "TARGET_X32"))
+        (match_operand 0 "memory_operand")))
+ 
+ (define_constraint "BC"
+diff --git a/src/gcc/config/i386/i386.md b/src/gcc/config/i386/i386.md
+index 2d439aa6d53..8a7db41a7b4 100644
+--- a/src/gcc/config/i386/i386.md
++++ b/src/gcc/config/i386/i386.md
+@@ -11157,7 +11157,7 @@
+   [(set (pc) (match_operand 0 "indirect_branch_operand"))]
+   ""
+ {
+-  if (TARGET_X32)
++  if (TARGET_X32 || ix86_indirect_branch_register)
+     operands[0] = convert_memory_address (word_mode, operands[0]);
+   cfun->machine->has_local_indirect_jump = true;
+ })
+@@ -11210,7 +11210,7 @@
+ 					 OPTAB_DIRECT);
+     }
+ 
+-  if (TARGET_X32)
++  if (TARGET_X32 || ix86_indirect_branch_register)
+     operands[0] = convert_memory_address (word_mode, operands[0]);
+   cfun->machine->has_local_indirect_jump = true;
+ })
+diff --git a/src/gcc/config/i386/i386.opt b/src/gcc/config/i386/i386.opt
+index e456c349b33..502037b6843 100644
+--- a/src/gcc/config/i386/i386.opt
++++ b/src/gcc/config/i386/i386.opt
+@@ -818,3 +818,7 @@ Enum(indirect_branch) String(thunk-inline) Value(indirect_branch_thunk_inline)
+ 
+ EnumValue
+ Enum(indirect_branch) String(thunk-extern) Value(indirect_branch_thunk_extern)
++
++mindirect-branch-register
++Target Report Var(ix86_indirect_branch_register) Init(0)
++Force indirect call and jump via register.
+diff --git a/src/gcc/config/i386/predicates.md b/src/gcc/config/i386/predicates.md
+index 4647cd7320f..ba654f714d1 100644
+--- a/src/gcc/config/i386/predicates.md
++++ b/src/gcc/config/i386/predicates.md
+@@ -590,7 +590,8 @@
+ ;; Test for a valid operand for indirect branch.
+ (define_predicate "indirect_branch_operand"
+   (ior (match_operand 0 "register_operand")
+-       (and (not (match_test "TARGET_X32"))
++       (and (not (match_test "ix86_indirect_branch_register"))
++	    (not (match_test "TARGET_X32"))
+ 	    (match_operand 0 "memory_operand"))))
+ 
+ ;; Test for a valid operand for a call instruction.
+@@ -599,7 +600,8 @@
+   (ior (match_test "constant_call_address_operand
+ 		     (op, mode == VOIDmode ? mode : Pmode)")
+        (match_operand 0 "call_register_no_elim_operand")
+-       (and (not (match_test "TARGET_X32"))
++       (and (not (match_test "ix86_indirect_branch_register"))
++	    (not (match_test "TARGET_X32"))
+ 	    (match_operand 0 "memory_operand"))))
+ 
+ ;; Similarly, but for tail calls, in which we cannot allow memory references.
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-1.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-1.c
+index e7c663f898e..555d6656b66 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-1.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-1.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-2.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-2.c
+index daa0855dabb..009732cb9a6 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-2.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-2.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-3.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-3.c
+index 3c0d4c39f0b..9e24a385387 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-3.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-3.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mno-indirect-branch-register -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-4.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-4.c
+index 14d4ef6dd98..127b5d94523 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-4.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-4.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mno-indirect-branch-register -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-7.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-7.c
+index bc6b47a636e..17c2d0faf88 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-7.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-7.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
+ 
+ void func0 (void);
+ void func1 (void);
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-1.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-1.c
+index 58ea9abaf78..a3c7e0071aa 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-1.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-1.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-2.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-2.c
+index 2fb45c6ea26..a8ca60ec6ee 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-2.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-2.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-3.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-3.c
+index f938db050f7..4aeec1833cd 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-3.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-3.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-4.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-4.c
+index 4e58599692a..ac0e5999f63 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-4.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-4.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-5.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-5.c
+index b8d50249d8b..573cf1ef09e 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-5.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-5.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-6.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-6.c
+index 455adabfe0e..b2b37fc6e2e 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-6.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-6.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-7.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-7.c
+index 4595b841ec0..4a43e199931 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-7.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-attr-7.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -fno-pic" } */
+ 
+ void func0 (void);
+ void func1 (void);
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-1.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-1.c
+index 952dbd402f6..be19d721925 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-1.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-1.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-2.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-2.c
+index 88fe5101c34..7e761bc464a 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-2.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-2.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-3.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-3.c
+index 06ebf1c9063..d9964c25bbd 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-3.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-3.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-4.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-4.c
+index 1c8f9446636..d4dca4dc5fe 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-4.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-4.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-7.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-7.c
+index 86e9fd1f1e4..aece9383697 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-7.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-extern-7.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
+ 
+ void func0 (void);
+ void func1 (void);
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-1.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-1.c
+index 16b77189662..a2d16771bdd 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-1.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-1.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-2.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-2.c
+index ab164cfa94d..1b93e8469d3 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-2.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-2.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-3.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-3.c
+index 9540996de01..2eef6f35a75 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-3.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-3.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-4.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-4.c
+index f3db6e2441f..e825a10f14c 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-4.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-4.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
+ 
+ typedef void (*dispatch_t)(long offset);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-7.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-7.c
+index 764a375fc37..c67066cf197 100644
+--- a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-7.c
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-inline-7.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
+ 
+ void func0 (void);
+ void func1 (void);
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-1.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-1.c
+new file mode 100644
+index 00000000000..7d396a31953
+--- /dev/null
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-1.c
+@@ -0,0 +1,22 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -mindirect-branch=thunk -mindirect-branch-register -fno-pic" } */
++
++typedef void (*dispatch_t)(long offset);
++
++dispatch_t dispatch;
++
++void
++male_indirect_jump (long offset)
++{
++  dispatch(offset);
++}
++
++/* { dg-final { scan-assembler "jmp\[ \t\]*__x86_indirect_thunk_(r|e)ax" } } */
++/* { dg-final { scan-assembler "jmp\[ \t\]*\.LIND" } } */
++/* { dg-final { scan-assembler "call\[ \t\]*\.LIND" } } */
++/* { dg-final { scan-assembler "mov\[ \t\](%eax|%rax), \\((%esp|%rsp)\\)" } } */
++/* { dg-final { scan-assembler {\tpause} } } */
++/* { dg-final { scan-assembler-not "push(?:l|q)\[ \t\]*_?dispatch"  } } */
++/* { dg-final { scan-assembler-not "pushq\[ \t\]%rax" } } */
++/* { dg-final { scan-assembler-not "__x86_indirect_thunk\n" } } */
++/* { dg-final { scan-assembler-not "__x86_indirect_thunk_bnd\n" } } */
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-2.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-2.c
+new file mode 100644
+index 00000000000..e7e616bb271
+--- /dev/null
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-2.c
+@@ -0,0 +1,20 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -mindirect-branch=thunk-inline -mindirect-branch-register -fno-pic" } */
++
++typedef void (*dispatch_t)(long offset);
++
++dispatch_t dispatch;
++
++void
++male_indirect_jump (long offset)
++{
++  dispatch(offset);
++}
++
++/* { dg-final { scan-assembler "jmp\[ \t\]*\.LIND" } } */
++/* { dg-final { scan-assembler "call\[ \t\]*\.LIND" } } */
++/* { dg-final { scan-assembler "mov\[ \t\](%eax|%rax), \\((%esp|%rsp)\\)" } } */
++/* { dg-final { scan-assembler {\tpause} } } */
++/* { dg-final { scan-assembler-not "push(?:l|q)\[ \t\]*_?dispatch"  } } */
++/* { dg-final { scan-assembler-not "pushq\[ \t\]%rax" } } */
++/* { dg-final { scan-assembler-not "__x86_indirect_thunk" } } */
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-3.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-3.c
+new file mode 100644
+index 00000000000..5320e923be2
+--- /dev/null
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-3.c
+@@ -0,0 +1,19 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -mindirect-branch=thunk-extern -mindirect-branch-register -fno-pic" } */
++
++typedef void (*dispatch_t)(long offset);
++
++dispatch_t dispatch;
++
++void
++male_indirect_jump (long offset)
++{
++  dispatch(offset);
++}
++
++/* { dg-final { scan-assembler "jmp\[ \t\]*__x86_indirect_thunk_(r|e)ax" } } */
++/* { dg-final { scan-assembler-not "push(?:l|q)\[ \t\]*_?dispatch"  } } */
++/* { dg-final { scan-assembler-not "pushq\[ \t\]%rax" } } */
++/* { dg-final { scan-assembler-not {\t(pause|pause|nop)} } } */
++/* { dg-final { scan-assembler-not "jmp\[ \t\]*\.LIND" } } */
++/* { dg-final { scan-assembler-not "call\[ \t\]*\.LIND" } } */
+diff --git a/src/gcc/testsuite/gcc.target/i386/ret-thunk-10.c b/src/gcc/testsuite/gcc.target/i386/ret-thunk-10.c
+index 3a6727b5c54..e6fea84a4d9 100644
+--- a/src/gcc/testsuite/gcc.target/i386/ret-thunk-10.c
++++ b/src/gcc/testsuite/gcc.target/i386/ret-thunk-10.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=thunk-inline -mindirect-branch=thunk -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mno-indirect-branch-register -mfunction-return=thunk-inline -mindirect-branch=thunk -fno-pic" } */
+ 
+ extern void (*bar) (void);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/ret-thunk-11.c b/src/gcc/testsuite/gcc.target/i386/ret-thunk-11.c
+index b8f68188313..e239ec4542f 100644
+--- a/src/gcc/testsuite/gcc.target/i386/ret-thunk-11.c
++++ b/src/gcc/testsuite/gcc.target/i386/ret-thunk-11.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=thunk-extern -mindirect-branch=thunk -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mno-indirect-branch-register -mno-indirect-branch-register -mno-indirect-branch-register -mfunction-return=thunk-extern -mindirect-branch=thunk -fno-pic" } */
+ 
+ extern void (*bar) (void);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/ret-thunk-12.c b/src/gcc/testsuite/gcc.target/i386/ret-thunk-12.c
+index 01b0a02f80b..fa3181303c9 100644
+--- a/src/gcc/testsuite/gcc.target/i386/ret-thunk-12.c
++++ b/src/gcc/testsuite/gcc.target/i386/ret-thunk-12.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mno-indirect-branch-register -mno-indirect-branch-register -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk -fno-pic" } */
+ 
+ extern void (*bar) (void);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/ret-thunk-13.c b/src/gcc/testsuite/gcc.target/i386/ret-thunk-13.c
+index 4b497b5f8af..fd5b41fdd3f 100644
+--- a/src/gcc/testsuite/gcc.target/i386/ret-thunk-13.c
++++ b/src/gcc/testsuite/gcc.target/i386/ret-thunk-13.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-inline -fno-pic" } */
+ 
+ extern void (*bar) (void);
+ extern int foo (void) __attribute__ ((function_return("thunk")));
+diff --git a/src/gcc/testsuite/gcc.target/i386/ret-thunk-14.c b/src/gcc/testsuite/gcc.target/i386/ret-thunk-14.c
+index 4ae4c44a3fd..d606373ead1 100644
+--- a/src/gcc/testsuite/gcc.target/i386/ret-thunk-14.c
++++ b/src/gcc/testsuite/gcc.target/i386/ret-thunk-14.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=thunk-extern -fno-pic" } */
+ 
+ extern void (*bar) (void);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/ret-thunk-15.c b/src/gcc/testsuite/gcc.target/i386/ret-thunk-15.c
+index 5b5bc765a7e..75e45e226b8 100644
+--- a/src/gcc/testsuite/gcc.target/i386/ret-thunk-15.c
++++ b/src/gcc/testsuite/gcc.target/i386/ret-thunk-15.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=keep -mindirect-branch=keep -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mno-indirect-branch-register -mno-indirect-branch-register -mno-indirect-branch-register -mfunction-return=keep -mindirect-branch=keep -fno-pic" } */
+ 
+ extern void (*bar) (void);
+ 
+diff --git a/src/gcc/testsuite/gcc.target/i386/ret-thunk-9.c b/src/gcc/testsuite/gcc.target/i386/ret-thunk-9.c
+index fa24a1f7365..d1db41cc128 100644
+--- a/src/gcc/testsuite/gcc.target/i386/ret-thunk-9.c
++++ b/src/gcc/testsuite/gcc.target/i386/ret-thunk-9.c
+@@ -1,5 +1,5 @@
+ /* { dg-do compile } */
+-/* { dg-options "-O2 -mfunction-return=thunk -mindirect-branch=thunk -fno-pic" } */
++/* { dg-options "-O2 -mno-indirect-branch-register -mno-indirect-branch-register -mfunction-return=thunk -mindirect-branch=thunk -fno-pic" } */
+ 
+ extern void (*bar) (void);
+ 
+-- 
+2.11.0
+

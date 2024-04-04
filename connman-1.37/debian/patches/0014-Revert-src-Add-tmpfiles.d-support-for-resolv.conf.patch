@@ -1,0 +1,81 @@
+From 6d4c8767804ed58c6893baed04fe82d64c485ebc Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 26 Oct 2016 20:16:05 +0000
+Subject: [PATCH] Revert "src: Add tmpfiles.d support for resolv.conf"
+
+This reverts commit 3a507111135e9f7905c955160890112426e73902.
+
+Conflicts:
+	Makefile.am
+---
+ Makefile.am  | 13 ++-----------
+ configure.ac |  8 --------
+ 2 files changed, 2 insertions(+), 19 deletions(-)
+
+diff --git a/Makefile.am b/Makefile.am
+index 745bef0..8e597ab 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -78,9 +78,6 @@ if SYSTEMD
+ systemdunitdir = @SYSTEMD_UNITDIR@
+ systemdunit_DATA = src/connman.service src/connman-wait-online.service
+ 
+-tmpfilesdir = @SYSTEMD_TMPFILESDIR@
+-nodist_tmpfiles_DATA = scripts/connman_resolvconf.conf
+-
+ if VPN
+ systemdunit_DATA += vpn/connman-vpn.service
+ endif
+@@ -464,8 +461,7 @@ EXTRA_DIST += doc/overview-api.txt doc/behavior-api.txt \
+ 				doc/connman.8.in doc/connman-vpn.8.in
+ 
+ EXTRA_DIST += src/main.conf \
+-		src/eduroam.config \
+-		scripts/connman_resolvconf.conf.in
++		src/eduroam.config
+ 
+ MANUAL_PAGES += doc/connmanctl.1 doc/connman.conf.5 \
+ 		doc/connman-service.config.5 doc/connman-vpn.conf.5 \
+@@ -537,8 +533,7 @@ do_subst = $(AM_V_GEN)$(SED) \
+ 		-e 's,[@]sysconfdir[@],$(sysconfdir),g' \
+ 		-e 's,[@]storagedir[@],$(storagedir),g' \
+ 		-e 's,[@]vpn_storagedir[@],$(vpn_storagedir),g' \
+-		-e 's,[@]localstatedir[@],$(localstatedir),g' \
+-		-e 's,[@]runstatedir[@],$(runstatedir),g'
++		-e 's,[@]localstatedir[@],$(localstatedir),g'
+ 
+ %.1 : %.1.in
+ 	$(AM_V_at)$(MKDIR_P) $(dir $@)
+@@ -560,10 +555,6 @@ scripts/connman: scripts/connman.in Makefile
+ 	$(AM_V_at)$(MKDIR_P) $(dir $@)
+ 	$(do_subst) < $< > $@
+ 
+-scripts/connman_resolvconf.conf: scripts/connman_resolvconf.conf.in
+-	$(AM_V_at)$(MKDIR_P) $(dir $@)
+-	$(do_subst) < $< > $@
+-
+ include/connman/version.h: include/version.h
+ 	$(AM_V_at)$(MKDIR_P) include/connman
+ 	$(AM_V_GEN)$(LN_S) $(abs_top_builddir)/$< $@
+diff --git a/configure.ac b/configure.ac
+index ee49a22..2406a8b 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -260,14 +260,6 @@ if (test -n "${path_systemdunit}"); then
+ fi
+ AM_CONDITIONAL(SYSTEMD, test -n "${path_systemdunit}")
+ 
+-AC_ARG_WITH([tmpfilesdir], AC_HELP_STRING([--with-tmpfilesdir=DIR],
+-	[path to systemd tmpfiles.d directory]), [path_tmpfiles=${withval}],
+-		[path_tmpfiles="`$PKG_CONFIG --variable=tmpfilesdir systemd`"])
+-if (test -n "${path_tmpfiles}"); then
+-	SYSTEMD_TMPFILESDIR="${path_tmpfiles}"
+-	AC_SUBST(SYSTEMD_TMPFILESDIR)
+-fi
+-
+ AC_ARG_WITH(firewall, AC_HELP_STRING([--with-firewall=TYPE],
+ 			[specify which firewall type is used iptables or nftables [default=iptables]]),
+ 		[firewall_type=${withval}],
+-- 
+2.1.4
+

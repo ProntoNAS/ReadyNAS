@@ -1,0 +1,48 @@
+From 79e2bad08fbec208ceda1a9e317fa78952eb3fc3 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 20 Apr 2017 11:28:46 -0700
+Subject: [PATCH 9/9] Close socket on address deletion
+
+This should get rid of annoying log messages like this after an IP
+address changes, or a network interface is unplugged:
+
+minissdpd[8157]: sendto(udp_notify=8, http://10.0.0.10:10000/nasService.xml): Invalid argument
+---
+ ifacewatch.c | 6 ++----
+ minissdpd.c  | 3 +++
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/ifacewatch.c b/ifacewatch.c
+index 8a521db..952a6a7 100644
+--- a/ifacewatch.c
++++ b/ifacewatch.c
+@@ -175,10 +175,8 @@ ProcessInterfaceWatch(int s, int s_ssdp, int s_ssdp6)
+ 				   (ifa->ifa_index == lan_addr->index)) {
+ 					getifaddr(lan_addr->ifname, lan_addr->str, sizeof(lan_addr->str),
+ 						  &lan_addr->addr, &lan_addr->mask);
+-					if (!is_del) {
+-						close(lan_addr->s_notify);
+-						lan_addr->s_notify = OpenAndConfSSDPNotifySocket(lan_addr);
+-					}
++					close(lan_addr->s_notify);
++					lan_addr->s_notify = is_del ? -1 : OpenAndConfSSDPNotifySocket(lan_addr);
+ 					if(ifa->ifa_family == AF_INET)
+ 						AddDropMulticastMembership(s_ssdp, lan_addr, 0, is_del);
+ 					else if(ifa->ifa_family == AF_INET6)
+diff --git a/minissdpd.c b/minissdpd.c
+index e10bac1..c638aeb 100644
+--- a/minissdpd.c
++++ b/minissdpd.c
+@@ -479,6 +479,9 @@ SendSSDPNotify(int s, struct service *serv, const char *nts)
+         char bufr[512];
+ 	int l, n;
+ 
++	if (s < 0)
++		return;
++
+ 	memset(&sockname, 0, sizeof(struct sockaddr_in));
+ 	sockname.sin_family = AF_INET;
+ 	sockname.sin_port = htons(PORT);
+-- 
+2.11.0
+

@@ -1,0 +1,87 @@
+From b373f4304ec49b952a9a9f0dc424d8e4c3f1c765 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 3 Feb 2016 16:41:19 -0800
+Subject: [PATCH 13/16] Do username mapping with email-style usernames
+
+OSX's SMB client mangles email-style usernames to domain.com\username
+by default.  Since Xcloud uses this style of account names, we need to
+de-mangle back to the original username@domain.com name.
+
+We'll add this as an automatic part of the "username map" handling code.
+If a non-email account exists in /etc/passwd, we'll use it.  Otherwise
+we'll search for a matching email account.
+---
+ source3/auth/user_util.c | 50 +++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 49 insertions(+), 1 deletion(-)
+
+diff --git a/source3/auth/user_util.c b/source3/auth/user_util.c
+index 1ddb7387307..c51179d3ec3 100644
+--- a/source3/auth/user_util.c
++++ b/source3/auth/user_util.c
+@@ -351,7 +351,7 @@ bool map_username(TALLOC_CTX *ctx, const char *user_in, char **p_user_out)
+ 
+ 	/* ok.  let's try the mapfile */
+ 	if (!*mapfile)
+-		return False;
++		goto map_email;
+ 
+ 	f = fopen(mapfile, "r");
+ 	if (!f) {
+@@ -425,6 +425,54 @@ bool map_username(TALLOC_CTX *ctx, const char *user_in, char **p_user_out)
+ 
+ 	fclose(f);
+ 
++map_email:
++	if (!mapped_user) {
++		char *unixname = NULL;
++
++		mapfile = "/etc/passwd";
++		f = fopen(mapfile, "r");
++		if (!f) {
++			DEBUG(0,("can't open username map %s. Error %s\n",mapfile, strerror(errno) ));
++			return False;
++		}
++
++		DEBUG(4,("Scanning system accounts %s\n",mapfile));
++
++		while ((s = fgets(buf,sizeof(buf),f)) != NULL) {
++			int user_len = strlen(user_in);
++			if (strncasecmp_m(s, user_in, user_len) == 0) {
++				if (s[user_len] == ':') {
++					TALLOC_FREE(unixname);
++					unixname = NULL;
++					break;
++				} else if (s[user_len] == '@') {
++					char *colon = strchr_m(s,':');
++					if (!colon)
++						continue;
++					*colon = '\0';
++					if (unixname)
++						TALLOC_FREE(unixname);
++					unixname = talloc_strdup(ctx, s);
++				}
++			}
++		}
++		if (unixname) {
++			DEBUG(3,("Mapped user %s to %s\n",user_in,unixname));
++			mapped_user = True;
++
++			set_last_from_to(user_in, unixname);
++			store_map_in_gencache(ctx, user_in, unixname);
++			TALLOC_FREE(*p_user_out);
++			*p_user_out = unixname;
++			if (!*p_user_out) {
++				fclose(f);
++				return false;
++			}
++		}
++
++		fclose(f);
++	}
++
+ 	/*
+ 	 * If we didn't successfully map a user in the loop above,
+ 	 * setup the last_from and last_to as an optimization so
+-- 
+2.15.1
+

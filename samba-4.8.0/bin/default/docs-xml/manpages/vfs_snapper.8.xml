@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
+<refentry id="vfs_snapper.8">
+
+<refmeta>
+	<refentrytitle>vfs_snapper</refentrytitle>
+	<manvolnum>8</manvolnum>
+	<refmiscinfo class="source">Samba</refmiscinfo>
+	<refmiscinfo class="manual">System Administration tools</refmiscinfo>
+	<refmiscinfo class="version">4.8.0</refmiscinfo>
+</refmeta>
+
+
+<refnamediv>
+	<refname>vfs_snapper</refname>
+	<refpurpose>
+		Expose snapshots managed by snapper as shadow-copies
+	</refpurpose>
+</refnamediv>
+
+<refsynopsisdiv>
+	<cmdsynopsis sepchar=" ">
+		<literal>vfs objects = snapper</literal>
+	</cmdsynopsis>
+</refsynopsisdiv>
+
+<refsect1>
+	<title>DESCRIPTION</title>
+
+	<para>This VFS module is part of the
+	<citerefentry><refentrytitle>samba</refentrytitle>
+	<manvolnum>8</manvolnum></citerefentry> suite.</para>
+
+	<para>
+		The <literal>vfs_snapper</literal> VFS module exposes snapshots
+		managed by snapper for use by Samba. This provides the ability
+		for remote SMB clients to access shadow-copies via Windows
+		Explorer using the "previous versions" dialog.
+	</para>
+
+	<para>
+		Snapshots can also be created and remove remotely, using the
+		File Server Remote VSS Protocol (FSRVP). Snapshot creation and
+		deletion requests are forwarded to snapper via DBus.
+	</para>
+
+	<para>
+		This module is stackable.
+	</para>
+</refsect1>
+
+<refsect1>
+	<title>CONFIGURATION</title>
+
+	<para>
+		The underlying share path must have a corresponding snapper
+		configuration file. The snapshot directory tree must allow
+		access for relevant users.
+	</para>
+
+	<programlisting format="linespecific">
+		<parameter>[share]</parameter>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="VFSOBJECTS" xlink:href="smb.conf.5.html#VFSOBJECTS">vfs objects = snapper</link>
+	</programlisting>
+
+	<para>
+		For remote snapshot creation and deletion, Samba's FSRVP
+		server must be configured in the [global] section:
+	</para>
+
+	<programlisting format="linespecific">
+		<parameter>[global]</parameter>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="RPC_DAEMON:FSSD" xlink:href="smb.conf.5.html#RPC_DAEMON:FSSD">rpc_daemon:fssd = fork</link>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="REGISTRYSHARES" xlink:href="smb.conf.5.html#REGISTRYSHARES">registry shares = yes</link>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="INCLUDE" xlink:href="smb.conf.5.html#INCLUDE">include = registry</link>
+	</programlisting>
+</refsect1>
+
+<refsect1>
+	<title>PERMISSIONS</title>
+	<para>
+		Snapper stores snapshots under a .snapshots subdirectory. This
+		directory must permit traversal for any users wishing to access
+		snapshots via the Windows Explorer previous versions dialog.
+		By default, traversal is forbidden for all non-root users.
+		Additionally, users must be granted permission to list snapshots
+		managed by snapper, via snapper's ALLOW_USERS or ALLOW_GROUPS
+		options. Snapper can grant these users and groups .snapshots
+		traversal access automatically via the SYNC_ACL option.
+	</para>
+	<para>
+		Remote snapshot creation and deletion is only permitted by Samba
+		for Active Directory administrators, backup operators, or users
+		explicitly granted SeBackupPrivilege. Snapper must also permit
+		creation and deletion for the appropriate user, via snapper's
+		ALLOW_USERS or ALLOW_GROUPS options.
+	</para>
+	<para>
+		The DiskShadow.exe FSRVP client initially authenticates as the
+		Active Directory computer account. This account must therefore
+		be granted the same permissions as the user account issuing the
+		snapshot creation and deletion requests.
+	</para>
+</refsect1>
+
+<refsect1>
+	<title>VERSION</title>
+
+	<para>
+		This man page is part of version 4.8.0 of the Samba suite.
+	</para>
+</refsect1>
+
+<refsect1>
+	<title>AUTHOR</title>
+
+	<para>The original Samba software and related utilities
+	were created by Andrew Tridgell. Samba is now developed
+	by the Samba Team as an Open Source project similar
+	to the way the Linux kernel is developed.</para>
+
+</refsect1>
+
+</refentry>

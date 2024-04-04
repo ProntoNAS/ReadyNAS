@@ -1,0 +1,46 @@
+From b474bbc528fac5e9c2c833b5f943d2c91fa35997 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 16:38:27 -0800
+Subject: [PATCH 1006/1014] rn2120: retry rtc
+
+---
+ drivers/rtc/hctosys.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/rtc/hctosys.c b/drivers/rtc/hctosys.c
+index e1cfa06..a56c06b 100644
+--- a/drivers/rtc/hctosys.c
++++ b/drivers/rtc/hctosys.c
+@@ -12,6 +12,7 @@
+ #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+ 
+ #include <linux/rtc.h>
++#include <linux/delay.h>
+ 
+ /* IMPORTANT: the RTC only stores whole seconds. It is arbitrary
+  * whether it stores the most close value or the value with partial
+@@ -32,6 +33,7 @@ static int __init rtc_hctosys(void)
+ 		.tv_nsec = NSEC_PER_SEC >> 1,
+ 	};
+ 	struct rtc_device *rtc = rtc_class_open(CONFIG_RTC_HCTOSYS_DEVICE);
++	int i;
+ 
+ 	if (rtc == NULL) {
+ 		pr_info("unable to open rtc device (%s)\n",
+@@ -39,7 +41,12 @@ static int __init rtc_hctosys(void)
+ 		goto err_open;
+ 	}
+ 
+-	err = rtc_read_time(rtc, &tm);
++	for (i = 0; i < 5; i++) {
++		err = rtc_read_time(rtc, &tm);
++		if (!err)
++			break;
++		mdelay(1000);
++	}
+ 	if (err) {
+ 		dev_err(rtc->dev.parent,
+ 			"hctosys: unable to read the hardware clock\n");
+-- 
+1.9.1
+

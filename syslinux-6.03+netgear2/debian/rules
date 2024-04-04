@@ -1,0 +1,158 @@
+#!/usr/bin/make -f
+
+SHELL := sh -e
+
+DATE=$(shell date +%Y%m%d)
+VERSION=$(word 1,$(shell cat version))
+
+unexport LDFLAGS
+
+%:
+	dh ${@}
+
+dfsg:
+	rm -f doc/rfc5071.txt
+
+override_dh_auto_build:
+	$(MAKE) DATE="$(DATE)" VERSION="$(VERSION)" bios
+
+override_dh_auto_clean:
+	#$(MAKE) clean
+
+	rm -f version.mk
+
+	rm -f core/.depend memdisk/.depend
+	rm -f com32/lib*/*.a com32/*/*.c32 core/*.0 core/*.bin core/*.bss core/*.sys dos/*.com gpxe/*.0 memdisk/memdisk memdump/*.com
+
+override_dh_auto_install:
+	$(MAKE) install INSTALLROOT=$(CURDIR)/debian/tmp
+
+	# removing keytab-lilo, already part of the lilo package
+	rm -f debian/tmp/usr/bin/keytab-lilo
+
+	# removing ms-dos executables
+	rm -f debian/tmp/usr/share/syslinux/*.com
+	rm -rf debian/tmp/usr/share/syslinux/dosutil
+
+	# removing com32 files
+	rm -rf debian/tmp/usr/share/syslinux/com32
+
+	# removing diag files
+	rm -rf debian/tmp/usr/share/syslinux/diag
+
+	# moving files for FHS compliance
+	mkdir -p debian/tmp/usr/bin
+	mv debian/tmp/sbin/* debian/tmp/usr/bin
+	-rmdir --ignore-fail-on-non-empty debian/tmp/sbin
+
+	mkdir -p debian/tmp/usr/lib
+	mv debian/tmp/usr/share/syslinux debian/tmp/usr/lib
+	-rmdir --ignore-fail-on-non-empty debian/tmp/usr/share
+
+	mkdir -p debian/tmp/usr/share
+	mv debian/tmp/usr/man debian/tmp/usr/share
+
+	# moving syslinux mbr file location
+	mkdir -p debian/tmp/usr/lib/syslinux/mbr
+	mv debian/tmp/usr/lib/syslinux/*mbr*.bin debian/tmp/usr/lib/syslinux/mbr
+
+	# moving syslinux modules file location
+	mkdir -p debian/tmp/usr/lib/syslinux/modules/bios
+	mv debian/tmp/usr/lib/syslinux/*.c32 debian/tmp/usr/lib/syslinux/modules/bios
+
+	mkdir -p debian/tmp/usr/lib/syslinux/modules/efi32
+	mv debian/tmp/usr/lib/syslinux/efi32/*.c32 debian/tmp/usr/lib/syslinux/modules/efi32
+	mv debian/tmp/usr/lib/syslinux/efi32/*.e32 debian/tmp/usr/lib/syslinux/modules/efi32
+
+	mkdir -p debian/tmp/usr/lib/syslinux/modules/efi64
+	mv debian/tmp/usr/lib/syslinux/efi64/*.c32 debian/tmp/usr/lib/syslinux/modules/efi64
+	mv debian/tmp/usr/lib/syslinux/efi64/*.e64 debian/tmp/usr/lib/syslinux/modules/efi64
+
+	# adding documentation
+	mkdir -p debian/tmp/usr/share/doc/syslinux-common
+	cp -aL README debian/tmp/usr/share/doc/syslinux-common
+	cp -aL doc debian/tmp/usr/share/doc/syslinux-common/txt
+	cp -aL txt debian/tmp/usr/share/doc/syslinux-common/asciidoc
+
+	rm -f debian/tmp/usr/share/doc/syslinux-common/txt/keytab-lilo.txt
+	rm -f debian/tmp/usr/share/doc/syslinux-common/asciidoc/.gitignore
+
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/logo debian/tmp/usr/share/doc/syslinux-common
+	rm -f debian/tmp/usr/share/doc/syslinux-common/logo/LICENSE
+
+	# moving bootloader specific documentation
+	mkdir -p debian/syslinux/usr/share/doc/syslinux
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/syslinux.txt debian/syslinux/usr/share/doc/syslinux/README.txt
+
+	mkdir -p debian/extlinux/usr/share/doc/extlinux
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/extlinux.txt debian/extlinux/usr/share/doc/extlinux/README.txt
+
+	mkdir -p debian/isolinux/usr/share/doc/isolinux
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/isolinux.txt debian/isolinux/usr/share/doc/isolinux/README.txt
+
+	mkdir -p debian/pxelinux/usr/share/doc/pxelinux
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/pxelinux.txt debian/pxelinux/usr/share/doc/pxelinux/README.txt
+
+	mkdir -p debian/syslinux-common/usr/share/doc/syslinux-common/txt
+	mv debian/tmp/usr/share/doc/syslinux-common/README debian/syslinux-common/usr/share/doc/syslinux-common/README.txt
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/chain.txt debian/syslinux-common/usr/share/doc/syslinux-common/txt
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/gpt.txt debian/syslinux-common/usr/share/doc/syslinux-common/txt
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/mboot.txt debian/syslinux-common/usr/share/doc/syslinux-common/txt
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/memdisk.txt debian/syslinux-common/usr/share/doc/syslinux-common/txt
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/menu.txt debian/syslinux-common/usr/share/doc/syslinux-common/txt
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/pxechn.txt debian/syslinux-common/usr/share/doc/syslinux-common/txt
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/sdi.txt debian/syslinux-common/usr/share/doc/syslinux-common/txt
+	mv debian/tmp/usr/share/doc/syslinux-common/txt/usbkey.txt debian/syslinux-common/usr/share/doc/syslinux-common/txt
+
+	# moving extlinux bootloader files
+	mkdir -p debian/extlinux/usr/bin
+	mv debian/tmp/usr/bin/extlinux debian/extlinux/usr/bin
+	mkdir -p debian/extlinux/usr/lib/EXTLINUX
+	cp debian/tmp/usr/lib/syslinux/mbr/*mbr.bin debian/extlinux/usr/lib/EXTLINUX
+	mkdir -p debian/extlinux/usr/share/man/man1
+	mv debian/tmp/usr/share/man/man1/extlinux.1 debian/extlinux/usr/share/man/man1
+
+	rm -f debian/tmp/usr/lib/syslinux/mbr/*_c.bin
+	rm -f debian/tmp/usr/lib/syslinux/mbr/*_f.bin
+
+	# moving isolinux bootloader files
+	mkdir -p debian/isolinux/usr/lib/ISOLINUX
+	mv debian/tmp/usr/lib/syslinux/isolinux.bin debian/isolinux/usr/lib/ISOLINUX
+	mv debian/tmp/usr/lib/syslinux/isohd*x.bin debian/isolinux/usr/lib/ISOLINUX
+
+	rm -f debian/tmp/usr/lib/syslinux/isolinux-debug.bin
+	rm -f debian/tmp/usr/lib/syslinux/isohd*x_c.bin
+	rm -f debian/tmp/usr/lib/syslinux/isohd*x_f.bin
+
+	# moving pxelinux bootloader files
+	mkdir -p debian/pxelinux/usr/lib/PXELINUX
+	mv debian/tmp/usr/lib/syslinux/*pxelinux.0 debian/pxelinux/usr/lib/PXELINUX
+
+	rm -f debian/tmp/usr/lib/syslinux/gpxelinuxk.0
+
+	# moving syslinux-efi bootloader files
+	mkdir -p debian/syslinux-efi/usr/lib/SYSLINUX.EFI/efi32
+	mv debian/tmp/usr/lib/syslinux/efi32/*.efi debian/syslinux-efi/usr/lib/SYSLINUX.EFI/efi32
+	rmdir debian/tmp/usr/lib/syslinux/efi32
+
+	mkdir -p debian/syslinux-efi/usr/lib/SYSLINUX.EFI/efi64
+	mv debian/tmp/usr/lib/syslinux/efi64/*.efi debian/syslinux-efi/usr/lib/SYSLINUX.EFI/efi64
+	rmdir debian/tmp/usr/lib/syslinux/efi64
+
+override_dh_auto_test:
+	# disabled
+
+override_dh_builddeb:
+	dh_builddeb -- -Zxz
+
+override_dh_fixperms:
+	dh_fixperms
+
+	chmod 0644 debian/*/usr/lib/*/efi*/*
+	chmod 0644 debian/*/usr/lib/*/modules/efi*/*
+
+override_dh_install:
+	dh_install --fail-missing
+
+override_dh_installchangelogs:
+	dh_installchangelogs NEWS

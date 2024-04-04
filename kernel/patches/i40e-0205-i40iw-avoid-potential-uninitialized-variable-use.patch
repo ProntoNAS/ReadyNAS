@@ -1,0 +1,89 @@
+From f231c24424c6bce2962242e77b8b8d92d8195980 Mon Sep 17 00:00:00 2001
+From: Arnd Bergmann <arnd@arndb.de>
+Date: Wed, 23 Mar 2016 11:34:36 +0100
+Subject: [PATCH 205/224] i40iw: avoid potential uninitialized variable use
+
+gcc finds that the i40iw_make_cm_node() function in the recently added
+i40iw driver uses an uninitilized variable as an index into an array
+if CONFIG_IPV6 is disabled and the driver uses IPv6 mode:
+
+drivers/infiniband/hw/i40iw/i40iw_cm.c: In function 'i40iw_make_cm_node':
+drivers/infiniband/hw/i40iw/i40iw_cm.c:2206:52: error: 'arpindex' may be used uninitialized in this function [-Werror=maybe-uninitialized]
+  ether_addr_copy(cm_node->rem_mac, iwdev->arp_table[arpindex].mac_addr);
+
+As far as I can tell, this code path can not be used because the ipv4
+variable is always set with CONFIG_IPV6 is disabled, but it's better
+to be sure and prevent the undefined behavior, as well as shut up
+that warning in a proper way.
+
+This adds an 'else' clause for the case we get the warning about,
+causing the function to return an error in a controlled way.
+To avoid adding extra mess with combined io()/#ifdef clauses,
+I'm also converting the existing #ifdef into a more readable
+if(IS_ENABLED()) check.
+
+Signed-off-by: Arnd Bergmann <arnd@arndb.de>
+Fixes: f27b4746f378 ("i40iw: add connection management code")
+Acked-by: Mustafa Ismail <Mustafa.ismail@intel.com>
+Signed-off-by: Doug Ledford <dledford@redhat.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/infiniband/hw/i40iw/i40iw_cm.c | 10 +++-------
+ 1 file changed, 3 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/infiniband/hw/i40iw/i40iw_cm.c b/drivers/infiniband/hw/i40iw/i40iw_cm.c
+index 92745d7..38f917a 100644
+--- a/drivers/infiniband/hw/i40iw/i40iw_cm.c
++++ b/drivers/infiniband/hw/i40iw/i40iw_cm.c
+@@ -1992,7 +1992,6 @@ static int i40iw_addr_resolve_neigh(struct i40iw_device *iwdev,
+ /**
+  * i40iw_get_dst_ipv6
+  */
+-#if IS_ENABLED(CONFIG_IPV6)
+ static struct dst_entry *i40iw_get_dst_ipv6(struct sockaddr_in6 *src_addr,
+ 					    struct sockaddr_in6 *dst_addr)
+ {
+@@ -2008,7 +2007,6 @@ static struct dst_entry *i40iw_get_dst_ipv6(struct sockaddr_in6 *src_addr,
+ 	dst = ip6_route_output(&init_net, NULL, &fl6);
+ 	return dst;
+ }
+-#endif
+ 
+ /**
+  * i40iw_addr_resolve_neigh_ipv6 - resolve neighbor ipv6 address
+@@ -2016,7 +2014,6 @@ static struct dst_entry *i40iw_get_dst_ipv6(struct sockaddr_in6 *src_addr,
+  * @dst_ip: remote ip address
+  * @arpindex: if there is an arp entry
+  */
+-#if IS_ENABLED(CONFIG_IPV6)
+ static int i40iw_addr_resolve_neigh_ipv6(struct i40iw_device *iwdev,
+ 					 u32 *src,
+ 					 u32 *dest,
+@@ -2089,7 +2086,6 @@ static int i40iw_addr_resolve_neigh_ipv6(struct i40iw_device *iwdev,
+ 	dst_release(dst);
+ 	return rc;
+ }
+-#endif
+ 
+ /**
+  * i40iw_ipv4_is_loopback - check if loopback
+@@ -2190,13 +2186,13 @@ static struct i40iw_cm_node *i40iw_make_cm_node(
+ 							    cm_info->loc_addr[0],
+ 							    cm_info->rem_addr[0],
+ 							    oldarpindex);
+-#if IS_ENABLED(CONFIG_IPV6)
+-		else
++		else if (IS_ENABLED(CONFIG_IPV6))
+ 			arpindex = i40iw_addr_resolve_neigh_ipv6(iwdev,
+ 								 cm_info->loc_addr,
+ 								 cm_info->rem_addr,
+ 								 oldarpindex);
+-#endif
++		else
++			arpindex = -EINVAL;
+ 	}
+ 	if (arpindex < 0) {
+ 		i40iw_pr_err("cm_node arpindex\n");
+-- 
+1.9.1
+

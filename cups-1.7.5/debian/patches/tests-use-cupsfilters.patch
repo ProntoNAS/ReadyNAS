@@ -1,0 +1,161 @@
+Description: Use cups-filter's filters, type declarations, conversions (from 1.0.38, patched)
+ and libraries. This fixes the tests that need those.
+Origin: vendor
+Author: Didier Raboud <odyx@debian.org>
+Last-Update: 2014-01-09
+--- a/test/run-stp-tests.sh
++++ b/test/run-stp-tests.sh
+@@ -434,6 +434,22 @@
+ 	instfilter pstoraster pstoraster raster
+ 	instfilter texttopdf texttopdf pdf
+ 
++	# cups-filters types, filters and banners
++	ln -s /usr/share/cups/mime/cupsfilters.types /tmp/cups-$user/share/mime
++	ln -s $root/test/cupsfilters.convs /tmp/cups-$user/share/mime
++
++	instfilter gstoraster gstoraster raster
++	instfilter imagetoraster imagetoraster raster
++	instfilter pstopdf pstopdf pdf
++	instfilter urftopdf urftopdf pdf
++
++	ln -sf /usr/share/cups/banners/classified /tmp/cups-$user/share/banners/
++	ln -sf /usr/share/cups/banners/confidential /tmp/cups-$user/share/banners/
++	ln -sf /usr/share/cups/banners/secret /tmp/cups-$user/share/banners/
++	ln -sf /usr/share/cups/banners/standard /tmp/cups-$user/share/banners/
++	ln -sf /usr/share/cups/banners/topsecret /tmp/cups-$user/share/banners/
++	ln -sf /usr/share/cups/banners/unclassified /tmp/cups-$user/share/banners/
++
+ 	if test -d /usr/share/cups/charsets; then
+ 		ln -s /usr/share/cups/charsets /tmp/cups-$user/share
+ 	fi
+--- /dev/null
++++ b/test/cupsfilters.convs
+@@ -0,0 +1,128 @@
++#
++# "$Id: $"
++#
++#   MIME conversions file for OpenPrinting CUPS Filters.
++#
++#   Copyright 2007-2011 by Apple Inc.
++#   Copyright 1997-2007 by Easy Software Products.
++#
++#   These coded instructions, statements, and computer programs are the
++#   property of Apple Inc. and are protected by Federal copyright
++#   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
++#   which should have been included with this file.  If this file is
++#   file is missing or damaged, see the license at "http://www.cups.org/".
++#
++
++########################################################################
++#
++# Format of Lines:
++#
++#   source/type destination/type cost filter
++#
++# General Notes:
++#
++#   The "cost" field is used to find the least costly filters to run
++#   when converting a job file to a printable format.
++#
++#   All filters *must* accept the standard command-line arguments
++#   (job-id, user, title, copies, options, [filename or stdin]) to
++#   work with CUPS.
++#
++
++########################################################################
++#
++# PDF filters
++#
++
++# CUPS file conversion rules for PostScript input when we are working with
++# the PDF printing workflow. General PostScript input should be converted to
++# PDF, so that pdftopdf is doing the page management on PDF data and the
++# renderer/driver part renders PDF. An exception is made for PostScript
++# coming from the Adobe Reader. As this PostScript cannot be converted to PDF
++# if it comes from an encrypted PDF file, we simply override pstopdf and the
++# PDF workflow.
++
++application/postscript	application/pdf				0	pstopdf
++application/vnd.adobe-reader-postscript	application/vnd.cups-postscript	66	pstops
++
++# Original:
++# application/pdf		application/vnd.cups-pdf		66	pdftopdf
++# Patched:
++application/pdf		application/vnd.cups-pdf		22	pdftopdf
++
++application/x-cshell	application/pdf				32	texttopdf
++application/x-csource	application/pdf				32	texttopdf
++application/x-perl	application/pdf				32	texttopdf
++application/x-shell	application/pdf				32	texttopdf
++text/plain		application/pdf				32	texttopdf
++text/html		application/pdf				32	texttopdf
++image/gif		application/vnd.cups-pdf		65	imagetopdf
++image/png		application/vnd.cups-pdf		65	imagetopdf
++image/jpeg		application/vnd.cups-pdf		65	imagetopdf
++image/tiff		application/vnd.cups-pdf		65	imagetopdf
++image/x-bitmap		application/vnd.cups-pdf		65	imagetopdf
++image/x-photocd		application/vnd.cups-pdf		65	imagetopdf
++image/x-portable-anymap	application/vnd.cups-pdf		65	imagetopdf
++image/x-portable-bitmap	application/vnd.cups-pdf		65	imagetopdf
++image/x-portable-graymap application/vnd.cups-pdf		65	imagetopdf
++image/x-portable-pixmap	application/vnd.cups-pdf		65	imagetopdf
++image/x-sgi-rgb		application/vnd.cups-pdf		65	imagetopdf
++image/x-xbitmap		application/vnd.cups-pdf		65	imagetopdf
++image/x-xpixmap		application/vnd.cups-pdf		65	imagetopdf
++image/x-xwindowdump	application/vnd.cups-pdf		65	imagetopdf
++image/x-sun-raster	application/vnd.cups-pdf		65	imagetopdf
++application/vnd.cups-pdf-banner	application/pdf			32	bannertopdf
++image/urf		application/pdf				0	urftopdf
++
++########################################################################
++#
++# PostScript filters
++#
++
++#application/pdf		application/vnd.cups-postscript	66	pdftops
++
++# Original:
++# application/vnd.cups-pdf	application/vnd.cups-postscript	100	pdftops
++# Patched:
++application/vnd.cups-pdf	application/vnd.cups-postscript	22	pdftops
++
++#application/postscript		application/vnd.cups-postscript	66	pstops
++
++########################################################################
++#
++# Raster filters...
++#
++
++application/vnd.cups-pdf	application/vnd.cups-raster	99	gstoraster
++application/vnd.cups-postscript	application/vnd.cups-raster	200	gstoraster
++application/vnd.cups-pdf	application/vnd.cups-raster	100	pdftoraster
++image/gif			application/vnd.cups-raster	100	imagetoraster
++image/png			application/vnd.cups-raster	100	imagetoraster
++image/jpeg			application/vnd.cups-raster	100	imagetoraster
++image/tiff			application/vnd.cups-raster	100	imagetoraster
++image/x-bitmap			application/vnd.cups-raster	100	imagetoraster
++image/x-photocd			application/vnd.cups-raster	100	imagetoraster
++image/x-portable-anymap		application/vnd.cups-raster	100	imagetoraster
++image/x-portable-bitmap		application/vnd.cups-raster	100	imagetoraster
++image/x-portable-graymap	application/vnd.cups-raster	100	imagetoraster
++image/x-portable-pixmap		application/vnd.cups-raster	100	imagetoraster
++image/x-sgi-rgb			application/vnd.cups-raster	100	imagetoraster
++image/x-xbitmap			application/vnd.cups-raster	100	imagetoraster
++image/x-xpixmap			application/vnd.cups-raster	100	imagetoraster
++image/x-sun-raster		application/vnd.cups-raster	100	imagetoraster
++
++########################################################################
++#
++# Text filters (only for text-only printers)...
++#
++
++application/x-cshell		text/plain			100	-
++application/x-csource		text/plain			100	-
++application/x-perl		text/plain			100	-
++application/x-shell		text/plain			100	-
++text/html			text/plain			100	-
++text/css			text/plain			100	-
++
++#
++# End of "$Id: $".
++#

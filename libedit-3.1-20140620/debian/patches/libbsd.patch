@@ -1,0 +1,101 @@
+Index: libedit/configure.ac
+===================================================================
+--- libedit.orig/configure.ac	2014-02-19 12:56:48.509023194 +0100
++++ libedit/configure.ac	2014-02-19 12:56:48.505023194 +0100
+@@ -61,6 +61,12 @@
+   )]
+ )
+ 
++PKG_CHECK_MODULES(LIBBSD, [libbsd-overlay],
++  [CFLAGS="$CFLAGS $LIBBSD_CFLAGS"
++   LDFLAGS="$LDFLAGS $LIBBSD_LIBS"
++   MODULES="$MODULES libbsd"
++   AC_SUBST([MODULES])]
++)
+ 
+ ### use option --enable-widec to turn on use of wide-character support
+ EL_ENABLE_WIDEC
+@@ -117,24 +123,32 @@
+ #AC_FUNC_REALLOC
+ AC_TYPE_SIGNAL
+ AC_FUNC_STAT
+-AC_CHECK_FUNCS([endpwent isascii memchr memset re_comp regcomp strcasecmp strchr strcspn strdup strerror strrchr strstr strtol issetugid wcsdup strlcpy strlcat fgetln vis strvis strunvis __secure_getenv secure_getenv])
++AC_CHECK_FUNCS([endpwent isascii memchr memset re_comp regcomp strcasecmp strchr strcspn strdup strerror strrchr strstr strtol issetugid __secure_getenv secure_getenv])
++
++# fgetln
++AC_CHECK_FUNCS(fgetln, found_fgetln=yes, found_fgetln=no)
++AM_CONDITIONAL(HAVE_FGETLN, [test "x$found_fgetln" = xyes])
+ 
+ # strlcpy
+-AC_CHECK_FUNC(strlcpy, found_strlcpy=yes, found_strlcpy=no)
++AC_CHECK_FUNCS(strlcpy, found_strlcpy=yes, found_strlcpy=no)
+ AM_CONDITIONAL(HAVE_STRLCPY, [test "x$found_strlcpy" = xyes])
+ 
+ # strlcat
+-AC_CHECK_FUNC(strlcat, found_strlcat=yes, found_strlcat=no)
++AC_CHECK_FUNCS(strlcat, found_strlcat=yes, found_strlcat=no)
+ AM_CONDITIONAL(HAVE_STRLCAT, [test "x$found_strlcat" = xyes])
+ 
+ # vis
+-AC_CHECK_FUNC(vis, found_vis=yes, found_vis=no)
++AC_CHECK_FUNCS(vis, found_vis=yes, found_vis=no)
+ AM_CONDITIONAL(HAVE_VIS, [test "x$found_vis" = xyes])
+ 
+ # unvis
+-AC_CHECK_FUNC(unvis, found_unvis=yes, found_unvis=no)
++AC_CHECK_FUNCS(unvis, found_unvis=yes, found_unvis=no)
+ AM_CONDITIONAL(HAVE_UNVIS, [test "x$found_unvis" = xyes])
+ 
++# wcsdup
++AC_CHECK_FUNCS(wcsdup, found_wcsdup=yes, found_wcsdup=no)
++AM_CONDITIONAL(HAVE_WCSDUP, [test "x$found_wcsdup" = xyes])
++
+ 
+ EL_GETPW_R_POSIX
+ EL_GETPW_R_DRAFT
+Index: libedit/libedit.pc.in
+===================================================================
+--- libedit.orig/libedit.pc.in	2014-02-19 12:56:48.509023194 +0100
++++ libedit/libedit.pc.in	2014-02-19 12:56:48.505023194 +0100
+@@ -6,7 +6,8 @@
+ Name: libedit
+ Description: command line editor library provides generic line editing, history, and tokenization functions.
+ Version: @VERSION@
+-Requires:
+-Libs: -L${libdir} -ledit @LIBS@
++Requires.private: @MODULES@
++Libs: -L${libdir} -ledit
++Libs.private: @LIBS@
+ Cflags: -I${includedir} -I${includedir}/editline
+ 
+Index: libedit/src/Makefile.am
+===================================================================
+--- libedit.orig/src/Makefile.am	2014-02-19 12:56:48.509023194 +0100
++++ libedit/src/Makefile.am	2014-02-19 12:56:48.505023194 +0100
+@@ -39,12 +39,15 @@
+ lib_LTLIBRARIES    = libedit.la
+ libedit_la_SOURCES = chared.c common.c el.c emacs.c hist.c keymacro.c map.c chartype.c parse.c \
+ 							prompt.c read.c refresh.c search.c sig.c terminal.c tty.c vi.c \
+-							fgetln.c wcsdup.c tokenizer.c \
++							tokenizer.c \
+ 							history.c filecomplete.c readline.c chared.h el.h hist.h \
+ 							histedit.h keymacro.h map.h chartype.h parse.h prompt.h read.h refresh.h \
+ 							search.h sig.h sys.h terminal.h tty.h vis.h filecomplete.h \
+ 							editline/readline.h
+ 
++if !HAVE_FGETLN
++libedit_la_SOURCES += fgetln.c
++endif
+ if !HAVE_STRLCPY
+ libedit_la_SOURCES += strlcpy.c
+ endif
+@@ -59,6 +62,9 @@
+ endif
+ if WIDECHAR
+ libedit_la_SOURCES += eln.c
++if !HAVE_WCSDUP
++libedit_la_SOURCES += wcsdup.c
++endif
+ endif
+ 
+ EXTRA_DIST = makelist shlib_version

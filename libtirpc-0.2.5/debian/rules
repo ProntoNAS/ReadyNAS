@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+%:
+	dh $@ --with autoreconf
+
+override_dh_autoreconf:
+	. ./autogen.sh
+	AUTOHEADER=true dh_autoreconf
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+override_dh_install:
+	# Move libtirpc.so.* to /lib
+	mkdir -p debian/tmp/lib/$(DEB_HOST_MULTIARCH)
+	mv debian/tmp/usr/lib/*/libtirpc.so.* debian/tmp/lib/$(DEB_HOST_MULTIARCH)
+
+	# Fix up the -dev symlink
+	LINKTARGET=`readlink debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/libtirpc.so`; \
+	ln -sf /lib/$(DEB_HOST_MULTIARCH)/$$LINKTARGET debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/libtirpc.so
+
+	dh_install

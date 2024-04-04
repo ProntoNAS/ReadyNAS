@@ -1,0 +1,202 @@
+.\" See file COPYING in distribution for details.
+.TH MDCSREPAIR 8 "" v0.1
+.SH NAME
+mdcsrepair \- automatic disk corruption repairer using filesystem checksum
+
+.SH SYNOPSIS
+
+.BI mdcsrepair " [options] /dev/mdX start length badchksum goodchksum"
+
+.BI mdcsrepaird " [options]"
+
+.SH DESCRIPTION
+.BR mdcsrepair
+automatically repairs a corrupted RAID disk data block
+reported by the filesystem's data error detection mechanism
+such as BTRFS's checksumming (CRC) by reconstructing the correct data
+from RAID redundancy..
+
+.BR mdcsrepair
+is a stand-alone program run for each repair request.
+.BR mdcsrepair
+is normally spawned by the
+.BR mdcsrepaird
+daemon that listens to kernel messages about
+detected data corruptions via
+.IR proc (5).
+
+.BR mdcsrepair
+currently supports RAID levels 1 (mirroring),
+5 (parity),
+6 (double-parity),
+and 10 (mirroring+striping).
+
+The target RAID disk system may have one or more failed disks
+(except for RAID level 5), but
+it must still keep redundancy for data reconstruction.
+
+.SH MDCSREPAIR ARGUMENTS
+.TP
+.B /dev/mdX
+The RAID device to repair.
+.TP
+.B start
+The starting byte position of the RAID device block to repair in decimal.
+.TP
+.B length
+The byte size of the RAID device block to repair in decimal.
+.TP
+.B badchksum
+The hexadecimal string of the detected (computed) checksum for the block.
+.TP
+.B goodchksum
+The hexadecimal string of the expected (recorded) checksum for the block.
+
+.SH MDCSREPAIR OPTIONS
+.TP
+.B \-B | \-\-invert-bad-chksum
+Inverts
+.IR badchksum
+bits for comparison.
+.TP
+.B \-G | \-\-invert-good-chksum
+Inverts
+.IR goodchksum
+bits for comparison.
+.TP
+.B \-X | \-\-xdebug
+Checks only if the RAID device really shows the badchksum symptom.
+.TP
+.B \-d | \-\-debug
+Prints out debug messages to stdout and log messages to stderr.
+.TP
+\fB\-b | \-\-bad-chksum=\fR\fIalgorithm\fR
+Algorithm name of the bad checksum computation (default is "crc32c_le").
+.TP
+\fB\-g | \-\-good-chksum=\fR\fIalgorithm\fR
+Algorithm name of the good checksum computation (default is "crc32c_le").
+.TP
+.B \-h | \-\-help
+Prints out help message.
+.TP
+.B \-l | \-\-log
+Logs to system log.
+.TP
+.B \-n | \-\-dry-run
+Will not modify disk contents.
+.TP
+.B \-v | \-\-verbose
+Prints out verbose messages to stdout.
+
+.SH MDCSREPAIRD OPTIONS
+.TP
+.B \-d
+Prints out debug messages to stdout and log messages to stderr.
+.TP
+\fB\-g\fR \fIseconds\fR
+Interval in seconds between internal rate control list garbage collections
+(default is 5 seconds).
+.TP
+.B \-h
+Prints out help message.
+.TP
+.B \-l
+Logs to system log (a \fB\-l\fR option is also passed to \fBmdcsrepair\fR).
+.TP
+.B \-n
+Disables spawning of \fBmdcsrepair\fR.
+.TP
+\fB\-o\fR \fI"mdcsrepair options"\fR
+Passes additional options to \fBmdcsrepair\fR.
+.TP
+\fB\-p\fR \fIrepairer\fR
+Uses an alternate repairer program name instead of \fBmdcsrepair\fR.
+.TP
+.B \-r
+Disables duplicated repair request rate limiting
+(i.e. all requests are processed
+even if duplicated in a short period of time).
+.TP
+.B \-v
+Prints out verbose messages to stdout.
+.TP
+.B \-x
+Prints out the XML message strings passed from the kernel to stdout.
+
+.SH KERNEL INTERFACE
+The \fBmdcsrepaird\fR daemon listens on a generic \fBproc\fR(5) file
+with the path /proc/fs/btrfs/mdcsevent to
+receive repair request in XML messages.
+Below are example XML messages whose content should be self-explanatory.
+
+<?xml version="1.0" encoding="UTF-8"?>
+  <mdcsrepair_procfs>
+    <data offset="65568" length="4064" position="disk"/>
+    <checksum expected="90e199da" computed="90e199da" length="4"
+      algorithm="crc32c_le"/>
+    <device major="9" minor="91" filesystem="btrfs"/>
+    <file inode="0"/>
+    <place function="btrfs_check_super_csum"/>
+.br
+  </mdcsrepair_procfs>
+
+<?xml version="1.0" encoding="UTF-8"?>
+  <mdcsrepair_procfs>
+    <data offset="5099520" length="4096" position="disk"/>
+    <checksum expected="b10998e0" computed="b10998e0" length="4"
+      algorithm="crc32c_le"/>
+    <device major="9" minor="91" filesystem="btrfs"/>
+    <file inode="569"/>
+    <place function="scrub_checksum_data"/>
+.br
+  </mdcsrepair_procfs>
+
+<?xml version="1.0" encoding="UTF-8"?>
+  <mdcsrepair_procfs>
+    <data offset="122880" length="4096" position="file"/>
+    <checksum expected="324399b0" computed="324399b0" length="4"
+      algorithm="crc32c_le"/>
+    <device major="0" minor="35" filesystem="btrfs"/>
+    <file inode="513"/>
+    <place function="btrfs_readpage_end_io_hook"/>
+.br
+  </mdcsrepair_procfs>
+
+XML messages are assembled and transmitted by special filesystem
+patch code. \fBBtrfs\fR is currently the only file system with such a patch.
+
+Depending on the request origin, kernel (filesystem) may be able to
+pass only indirect information for the repair, such as
+.TP
+.B anon vs. real device ID
+0:35 vs. 9:91 in the above examples.
+.TP
+.B file-relative vs. absolute on-disk position
+position="file" vs. position="disk" in the above examples.
+.PP
+It is the responsibility of the user space \fBmdcsrepaird\fR code to
+map these values to appropriate ones
+that \fBmdcsrepair\fR can correctly process.
+.SH FILES
+.TP
+.B /sys/block/\fImd-device\fB/md/stripe_cache_invalidate\fR
+The Linux RAID system holds data in stripe cache.
+In order to synchronize the RAID device read-outs to component device
+read-outs, \fBmdcsrepair\fR uses this entry
+that accepts an absolute RAID disk position in decimal to invalidate
+the stripe cache page containing the designated disk position.
+.TP
+.B /proc/fs/btrfs/mdcsrepair
+This entry accepts a string in the form of "\fIfile\fR\fB:\fR\fIfunction\fR"
+for debugging purposes.
+The kernel internal code for checksum checking compares the current
+function name and its source file name with the string and, if they match,
+submits a repair request even if there is no checksum error.
+A nil string in either part is considered as a wildcard,
+thus "\fB:\fR" would match
+any function in any file that performs checksum checking.
+.SH AUTHOR
+Hiro Sugawara
+
+.SH SEE ALSO
+.BR raid6check (8),

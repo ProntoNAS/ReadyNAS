@@ -1,0 +1,58 @@
+From 3004baa48ca9ca237ea09fafccd085c3f39a78fa Mon Sep 17 00:00:00 2001
+From: Carolyn Wyborny <carolyn.wyborny@intel.com>
+Date: Mon, 26 Oct 2015 19:44:35 -0400
+Subject: [PATCH 022/224] i40e: Update error messaging
+
+This patch fixes an issue where adminq init failures always provided
+a message that NVM was newer than expected.  This is not always the
+case for init_adminq failures. Without this patch, if adminq init
+fails for any reason, newer NVM message would be given.  This
+problem is fixed by adding  a check for that specific error
+condition and a different hopefully helpful message otherwise.
+
+Change-ID: Iaeaebee4e398989eae40bb70f943ab66a3a521a5
+Signed-off-by: Carolyn Wyborny <carolyn.wyborny@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_main.c | 16 ++++++++++------
+ 1 file changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_main.c b/drivers/net/ethernet/intel/i40e/i40e_main.c
+index 764c09e..30c6100 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_main.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_main.c
+@@ -10521,6 +10521,16 @@ static int i40e_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+ 	mutex_init(&hw->aq.arq_mutex);
+ 
+ 	err = i40e_init_adminq(hw);
++	if (err) {
++		if (err == I40E_ERR_FIRMWARE_API_VERSION)
++			dev_info(&pdev->dev,
++				 "The driver for the device stopped because the NVM image is newer than expected. You must install the most recent version of the network driver.\n");
++		else
++			dev_info(&pdev->dev,
++				 "The driver for the device stopped because the device firmware failed to init. Try updating your NVM image.\n");
++
++		goto err_pf_reset;
++	}
+ 
+ 	/* provide nvm, fw, api versions */
+ 	dev_info(&pdev->dev, "fw %d.%d.%05d api %d.%d nvm %s\n",
+@@ -10528,12 +10538,6 @@ static int i40e_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+ 		 hw->aq.api_maj_ver, hw->aq.api_min_ver,
+ 		 i40e_nvm_version_str(hw));
+ 
+-	if (err) {
+-		dev_info(&pdev->dev,
+-			 "The driver for the device stopped because the NVM image is newer than expected. You must install the most recent version of the network driver.\n");
+-		goto err_pf_reset;
+-	}
+-
+ 	if (hw->aq.api_maj_ver == I40E_FW_API_VERSION_MAJOR &&
+ 	    hw->aq.api_min_ver > I40E_FW_API_VERSION_MINOR)
+ 		dev_info(&pdev->dev,
+-- 
+1.9.1
+

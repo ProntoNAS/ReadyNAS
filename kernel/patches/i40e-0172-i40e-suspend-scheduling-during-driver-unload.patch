@@ -1,0 +1,33 @@
+From fc8de4e9691cb42621dc952549409248b76559b0 Mon Sep 17 00:00:00 2001
+From: Pandi Kumar Maharajan <pandi.maharajan@intel.com>
+Date: Thu, 18 Feb 2016 09:19:25 -0800
+Subject: [PATCH 172/224] i40e: suspend scheduling during driver unload
+
+We need to suspend scheduling or any pending service task during driver
+unload process, so that new task will not be scheduled. This patch sets
+the suspend flag bit during reload which avoids service task execution.
+
+Change-ID: I017c57b5d6656564556e3c5387da671369a572ac
+Signed-off-by: Pandi Kumar Maharajan <pandi.maharajan@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_main.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_main.c b/drivers/net/ethernet/intel/i40e/i40e_main.c
+index 6a50209..f39bb4a 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_main.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_main.c
+@@ -11215,6 +11215,7 @@ static void i40e_remove(struct pci_dev *pdev)
+ 	i40e_write_rx_ctl(hw, I40E_PFQF_HENA(1), 0);
+ 
+ 	/* no more scheduling of any task */
++	set_bit(__I40E_SUSPENDED, &pf->state);
+ 	set_bit(__I40E_DOWN, &pf->state);
+ 	del_timer_sync(&pf->service_timer);
+ 	cancel_work_sync(&pf->service_task);
+-- 
+1.9.1
+

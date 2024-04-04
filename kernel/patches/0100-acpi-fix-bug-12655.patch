@@ -1,0 +1,72 @@
+From f83fedc066f4e3218987f1b043b1394ec33d6392 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 7 Dec 2016 16:38:56 -0800
+Subject: [PATCH] acpi: fix bug 12655
+
+Bug 12655 - Gen2: 314 will reboot after press power button sometimes.
+
+SMI Signal abnormal during RN OS 6 boot
+
+Additional ODM comments:
+
+1. We used oscilloscope to measure the SMI# signal which is connected
+   from ICH10 to CPU and find out sometimes this signal will be pulled
+   low for 174us every 2ms(please refer to attached) after booting into
+   OS. If we press the power button in this condition, the reboot issue
+   will occur. Other times this signal will  keep high and the issue
+   won't occur no matter how many times the power button is pressed.
+2. According to the ICH10 spec and the measurement, SMI# signal behavior
+   is caused by SWSMI_TMR_EN register. We also tried to change the value
+   of the register under OS and SMI# will be changed accordingly.
+3. The SWSMI_TMR_EN is a timer used by software. We don't know what the
+   purpose of enable the software SMI timer by setting SWSMI_TMR_EN to
+   1. This lead system enter SMM mode to service SMM power button
+   shutdown function. So the system will shutdown when we press the
+   power button. Other event that occurred in OS de-assert SLP_S5_N
+   again after system power off, which lead system auto power.
+---
+ init/main.c | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/init/main.c b/init/main.c
+index 9e64d70..1af083b 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -81,6 +81,7 @@
+ #include <linux/integrity.h>
+ #include <linux/proc_ns.h>
+ #include <linux/io.h>
++#include <linux/dmi.h>
+ 
+ #include <asm/io.h>
+ #include <asm/bugs.h>
+@@ -641,6 +642,26 @@ asmlinkage __visible void __init start_kernel(void)
+ 	anon_vma_init();
+ 	acpi_early_init();
+ #ifdef CONFIG_X86
++	{
++		const char *product_name = dmi_get_system_info(DMI_PRODUCT_NAME);
++
++		if (!memcmp(product_name, "ReadyNAS 312", 12) ||
++		    !memcmp(product_name, "RN312", 5) ||
++		    !memcmp(product_name, "ReadyNAS 314", 12) ||
++		    !memcmp(product_name, "RN314", 5) ||
++		    !memcmp(product_name, "ReadyNAS 316", 12) ||
++		    !memcmp(product_name, "RN316", 5))
++		{
++			u32 v = inl(0x430);
++			printk(KERN_NOTICE "PMBASE+30h=%08x\n", v);
++			if (v & 0x40) {
++				outl((v & ~0x40) & 0xffffffff, 0x430);
++				printk(KERN_NOTICE "Fix bug#12655\n");
++			}
++		}
++	}
++#endif
++#ifdef CONFIG_X86
+ 	if (efi_enabled(EFI_RUNTIME_SERVICES))
+ 		efi_enter_virtual_mode();
+ #endif
+-- 
+1.9.1
+

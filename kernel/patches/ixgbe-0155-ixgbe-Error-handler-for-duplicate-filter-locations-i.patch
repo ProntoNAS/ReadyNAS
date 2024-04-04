@@ -1,0 +1,130 @@
+From 1466f9a2ebf94d6ad844994f4326252ec06a474b Mon Sep 17 00:00:00 2001
+From: Amritha Nambiar <amritha.nambiar@intel.com>
+Date: Mon, 16 May 2016 18:33:20 -0700
+Subject: [PATCH 155/191] ixgbe: Error handler for duplicate filter locations
+ in hardware for cls_u32 offloads
+
+For u32 classifier filters, avoid overwriting existing filter
+in a hardware location without removing it first, to clean up
+inconsistencies due to duplicate values for filter location.
+
+Verified with the following filters:
+
+Create child hash tables:
+	handle 1: u32 divisor 1
+	handle 2: u32 divisor 1
+
+Link to the child hash table from parent hash table:
+	handle 800:0:11 u32 ht 800: link 1: \
+	offset at 0 mask 0f00 shift 6 plus 0 eat \
+	match ip protocol 6 ff match ip dst 15.0.0.1/32
+
+	handle 800:0:12 u32 ht 800: link 2: \
+	offset at 0 mask 0f00 shift 6 plus 0 eat \
+	match ip protocol 17 ff match ip dst 16.0.0.1/32
+
+Add filter into child hash table:
+	handle 1:0:3 u32 ht 1: \
+	match tcp src 22 ffff action drop
+
+Add another filter to the same location:
+	handle 2:0:3 u32 ht 2: \
+	match tcp src 33 ffff action drop
+
+Signed-off-by: Amritha Nambiar <amritha.nambiar@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+---
+ drivers/net/ethernet/intel/ixgbe/ixgbe_main.c | 41 ++++++++++++++++-----------
+ 1 file changed, 25 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+index 8af9a4d..3a34959 100644
+--- a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
++++ b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+@@ -8308,8 +8308,11 @@ static int ixgbe_delete_clsu32(struct ixgbe_adapter *adapter,
+ 	/* Clear this filter in the link data it is associated with */
+ 	if (uhtid != 0x800) {
+ 		jump = adapter->jump_tables[uhtid];
+-		if (jump)
+-			clear_bit(loc - 1, jump->child_loc_map);
++		if (!jump)
++			return -EINVAL;
++		if (!test_bit(loc - 1, jump->child_loc_map))
++			return -EINVAL;
++		clear_bit(loc - 1, jump->child_loc_map);
+ 	}
+ 
+ 	/* Check if the filter being deleted is a link */
+@@ -8599,7 +8602,7 @@ static int ixgbe_configure_clsu32(struct ixgbe_adapter *adapter,
+ 			mask = kzalloc(sizeof(*mask), GFP_KERNEL);
+ 			if (!mask) {
+ 				err = -ENOMEM;
+-				goto err_out;
++				goto free_input;
+ 			}
+ 			jump->input = input;
+ 			jump->mask = mask;
+@@ -8622,7 +8625,7 @@ static int ixgbe_configure_clsu32(struct ixgbe_adapter *adapter,
+ 	mask = kzalloc(sizeof(*mask), GFP_KERNEL);
+ 	if (!mask) {
+ 		err = -ENOMEM;
+-		goto err_out;
++		goto free_input;
+ 	}
+ 
+ 	if ((uhtid != 0x800) && (adapter->jump_tables[uhtid])) {
+@@ -8632,6 +8635,20 @@ static int ixgbe_configure_clsu32(struct ixgbe_adapter *adapter,
+ 		if ((adapter->jump_tables[uhtid])->mask)
+ 			memcpy(mask, (adapter->jump_tables[uhtid])->mask,
+ 			       sizeof(*mask));
++
++		/* Lookup in all child hash tables if this location is already
++		 * filled with a filter
++		 */
++		for (i = 1; i < IXGBE_MAX_LINK_HANDLE; i++) {
++			struct ixgbe_jump_table *link = adapter->jump_tables[i];
++
++			if (link && (test_bit(loc - 1, link->child_loc_map))) {
++				e_err(drv, "Filter exists in location: %x\n",
++				      loc);
++				err = -EINVAL;
++				goto err_out;
++			}
++		}
+ 	}
+ 	err = ixgbe_clsu32_build_input(input, mask, cls, field_ptr, NULL);
+ 	if (err)
+@@ -8663,25 +8680,17 @@ static int ixgbe_configure_clsu32(struct ixgbe_adapter *adapter,
+ 		ixgbe_update_ethtool_fdir_entry(adapter, input, input->sw_idx);
+ 	spin_unlock(&adapter->fdir_perfect_lock);
+ 
+-	if ((uhtid != 0x800) && (adapter->jump_tables[uhtid])) {
+-		struct ixgbe_jump_table *link = adapter->jump_tables[uhtid];
++	if ((uhtid != 0x800) && (adapter->jump_tables[uhtid]))
++		set_bit(loc - 1, (adapter->jump_tables[uhtid])->child_loc_map);
+ 
+-		if (test_bit(loc - 1, link->child_loc_map)) {
+-			e_err(drv, "Filter: %x exists in hash table: %x\n",
+-			      loc, uhtid);
+-			err = -EINVAL;
+-			goto free_mask;
+-		}
+-		set_bit(loc - 1, link->child_loc_map);
+-	}
+ 	kfree(mask);
+ 	return err;
+ err_out_w_lock:
+ 	spin_unlock(&adapter->fdir_perfect_lock);
+ err_out:
+-	kfree(input);
+-free_mask:
+ 	kfree(mask);
++free_input:
++	kfree(input);
+ free_jump:
+ 	kfree(jump);
+ 	return err;
+-- 
+1.9.1
+

@@ -1,0 +1,648 @@
+From 8ccaa5698494fd611bb4e562fd420b3c706ee548 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 7 Dec 2016 16:50:06 -0800
+Subject: [PATCH 92/93] gpio: ichx: Add gpi irq for RN526
+
+---
+ drivers/gpio/gpio-ich.c     | 427 ++++++++++++++++++++++++++++++++++++++++++--
+ drivers/mfd/lpc_ich.c       |   5 +-
+ include/linux/mfd/lpc_ich.h |  50 ++++++
+ 3 files changed, 469 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/gpio/gpio-ich.c b/drivers/gpio/gpio-ich.c
+index e048124..ee616e2 100644
+--- a/drivers/gpio/gpio-ich.c
++++ b/drivers/gpio/gpio-ich.c
+@@ -41,21 +41,45 @@ enum GPIO_REG {
+ 	GPIO_USE_SEL = 0,
+ 	GPIO_IO_SEL,
+ 	GPIO_LVL,
+-	GPO_BLINK
++	GPO_BLINK,
++
++	GPI_INV,
++	GPI_IRQ_EN,
++	GPI_IRQ_STS,
++
++	GPIO_REGS
++};
++
++static const u8 ich9_regs[GPIO_REGS][3] = {
++	{0x00, 0x30, 0x40},
++	{0x04, 0x34, 0x44},
++	{0x0c, 0x38, 0x48},
++	{0x18, 0xff, 0xff},
++
++	{0x2c, 0xff, 0xff},
++	{0x28, 0x2c, 0x2c},
++	{0x20, 0x24, 0x24},
+ };
+ 
+-static const u8 ichx_regs[4][3] = {
+-	{0x00, 0x30, 0x40},	/* USE_SEL[1-3] offsets */
+-	{0x04, 0x34, 0x44},	/* IO_SEL[1-3] offsets */
+-	{0x0c, 0x38, 0x48},	/* LVL[1-3] offsets */
+-	{0x18, 0x18, 0x18},	/* BLINK offset */
++static const u8 ich9_reglen[3] = {
++	0x30, 0x10, 0x20,
++};
++static const u8 ichx_regs[GPIO_REGS][3] = {
++	{0x00, 0x30, 0xff},	/* USE_SEL[1-3] offsets */
++	{0x04, 0x34, 0xff},	/* IO_SEL[1-3] offsets */
++	{0x0c, 0x38, 0xff},	/* LVL[1-3] offsets */
++	{0x18, 0xff, 0xff},	/* BLINK offsets */
++
++	{0x2c, 0xff, 0xff},	/* INV offsets */
++	{0x28, 0xff, 0xff},	/* GPE0_EN offsets */
++	{0x20, 0xff, 0xff},	/* GPE0_STS offsets */
+ };
+ 
+ static const u8 ichx_reglen[3] = {
+ 	0x30, 0x10, 0x10,
+ };
+ 
+-static const u8 avoton_regs[4][3] = {
++static const u8 avoton_regs[GPIO_REGS][3] = {
+ 	{0x00, 0x80, 0x00},
+ 	{0x04, 0x84, 0x00},
+ 	{0x08, 0x88, 0x00},
+@@ -65,16 +89,23 @@ static const u8 avoton_reglen[3] = {
+ 	0x10, 0x10, 0x00,
+ };
+ 
+-static const u8 lpt_regs[4][3] = {
++static const u8 lpt_regs[GPIO_REGS][3] = {
+ 	{0x00, 0x30, 0x40},
+ 	{0x04, 0x34, 0x44},
+ 	{0x0c, 0x38, 0x48},
++	{0x18, 0xff, 0xff},
++
++	{0x2c, 0xff, 0xff},
++	{0x28, 0xff, 0x50},
++	{0x20, 0x3e, 0x54},
+ };
+ 
+ static const u8 lpt_reglen[3] = {
+-	0x10, 0x10, 0x10,
++	0x30, 0x10, 0x20,
+ };
+ 
++#define ICHX_PM1_CNT_REG	0x4
++#define ICHX_PM1_CNT_SCI_EN	0x1
+ 
+ #define ICHX_WRITE(val, reg, base_res)	outl(val, (reg) + (base_res)->start)
+ #define ICHX_READ(reg, base_res)	inl((reg) + (base_res)->start)
+@@ -105,9 +136,12 @@ struct ichx_desc {
+ 	 * this option allows driver caching written output values
+ 	 */
+ 	bool use_outlvl_cache;
++
++	/* Nmber of GPIOs (from 0) capable of IRQ generation. */
++	u8 gpi_irq;
+ };
+ 
+-static struct {
++static struct ichx_priv {
+ 	spinlock_t lock;
+ 	struct platform_device *dev;
+ 	struct gpio_chip chip;
+@@ -117,6 +151,7 @@ static struct {
+ 	u32 orig_gpio_ctrl;	/* Orig CTRL value, used to restore on exit */
+ 	u8 use_gpio;		/* Which GPIO groups are usable */
+ 	int outlvl_cache[3];	/* cached output values */
++	struct pci_dev *pci_dev;	/* PCI device holder from lpt_ich */
+ } ichx_priv;
+ 
+ static int modparam_gpiobase = -1;	/* dynamic */
+@@ -361,6 +396,7 @@ static struct ichx_desc ich9_desc = {
+ 	.have_blink = true,
+ 	.regs = ichx_regs,
+ 	.reglen = ichx_reglen,
++	.gpi_irq = 61,
+ };
+ 
+ /* ICH10-based - Consumer/corporate versions have different amount of GPIO */
+@@ -369,6 +405,7 @@ static struct ichx_desc ich10_cons_desc = {
+ 	.have_blink = true,
+ 	.regs = ichx_regs,
+ 	.reglen = ichx_reglen,
++	.gpi_irq = 16,
+ };
+ static struct ichx_desc ich10_corp_desc = {
+ 	.ngpio = 72,
+@@ -382,6 +419,7 @@ static struct ichx_desc intel5_desc = {
+ 	.ngpio = 76,
+ 	.regs = ichx_regs,
+ 	.reglen = ichx_reglen,
++	.gpi_irq = 16,
+ };
+ 
+ /* Avoton */
+@@ -401,8 +439,340 @@ static struct ichx_desc lpt_desc = {
+ 	.regs = lpt_regs,
+ 	.reglen = lpt_reglen,
+ 	.use_outlvl_cache = true,
++	.gpi_irq = 61,
+ };
+ 
++static struct gpi_irq {
++	u8	gpi_num;
++	u8	_gpi_bank;
++	u8	_rout_reg;
++	u8	_rout_shift;
++	u32	_gpi_bit;
++	u8	_gpe0_shift;
++	char *name;
++} ichx_lpt_gpi_irq[64];
++
++static struct resource *ichx_lpt_pm_base;
++
++#define gpi_valid(i)	((i) < ARRAY_SIZE(ichx_lpt_gpi_irq) &&	\
++				ichx_lpt_gpi_irq[(i)].gpi_num == (i))
++#define rout_reg(i)	ichx_lpt_gpi_irq[(i)]._rout_reg
++#define rout_shift(i)	ichx_lpt_gpi_irq[(i)]._rout_shift
++#define rout_bit(i)	(0x3 << rout_shift(i))
++#define gpi_bank(i)	ichx_lpt_gpi_irq[(i)]._gpi_bank
++#define gpi_bit(i)	ichx_lpt_gpi_irq[(i)]._gpi_bit
++#define gpe0_shift(i)	ichx_lpt_gpi_irq[(i)]._gpe0_shift
++#define gpe0_modbit(i)	(0x1UL << (gpe0_shift(i) % 32))
++#define gpe0_reg_offset(i)	((gpe0_shift(i) >= 32) ? 0x4 : 0)
++
++static int lpt_control(struct gpio_chip *gc, unsigned int cmd, void *arg)
++{
++	struct ichx_priv *priv = container_of(gc, struct ichx_priv, chip);
++	unsigned long flags;
++	int err = 0;
++
++	if (IS_ICH_CMD_GPIO_IRQ_ACK(cmd) || IS_ICH_CMD_GPIO_IRQ_CHK(cmd)) {
++		int gpi = GPI_ICH_CMD_GPIO_IRQ(cmd);
++		u32 gpe0_sts;
++		int gpe0_sts_reg =
++			ichx_priv.desc->regs[GPI_IRQ_STS][gpi_bank(gpi)];
++
++		if (gpe0_sts_reg == 0xff)
++			return -ENODEV;
++
++		gpe0_sts = ICHX_READ(gpe0_sts_reg, ichx_lpt_pm_base);
++
++		if (!(gpe0_sts & gpe0_modbit(gpi)))
++			err = -ENODEV;
++		if (IS_ICH_CMD_GPIO_IRQ_ACK(cmd))
++			ICHX_WRITE(gpe0_modbit(gpi),
++					gpe0_sts_reg, ichx_lpt_pm_base);
++	} else if (IS_ICH_CMD_GPIO_IRQ_SETUP(cmd)) {
++		/* cmd == IRQ_SETUP | typ | gpi
++		   Locking and superio_enter/exit is performed
++		   out side of handler.
++		   Do not call this in IRQ.
++		 */
++		int gpe0_en_reg;
++		u32 rout, gpe0_en;
++		int typ = TYP_ICH_CMD_GPIO_IRQ(cmd);
++		int gpi = GPI_ICH_CMD_GPIO_IRQ(cmd);
++
++		spin_lock_irqsave(&priv->lock, flags);
++		gpe0_en_reg = priv->desc->regs[GPI_IRQ_EN][gpi_bank(gpi)];
++		if (gpe0_en_reg == 0xff)
++			return -EINVAL;
++		gpe0_en = ICHX_READ(gpe0_en_reg, ichx_lpt_pm_base);
++
++		pci_read_config_dword(priv->pci_dev, rout_reg(gpi), &rout);
++		rout &= ~rout_bit(gpi);
++
++		/* Set TYPE */
++		rout |= (typ << rout_shift(gpi));
++		pci_write_config_dword(priv->pci_dev, rout_reg(gpi), rout);
++
++		if (typ == ICH_TYP_GPIO_IRQ_NONE)
++			gpe0_en &= ~gpe0_modbit(gpi);
++		else
++			gpe0_en |= gpe0_modbit(gpi);
++
++		ICHX_WRITE(gpe0_en, gpe0_en_reg, ichx_lpt_pm_base);
++		spin_unlock_irqrestore(&priv->lock, flags);
++	} else if (IS_ICH_POL_GPIO_IRQ(cmd)) {
++		u32 inv;
++		int inv_reg;
++		int gpi	= GPI_ICH_POL_GPIO_IRQ(cmd);
++
++		if (!gpi_valid(gpi))
++			return -EINVAL;
++		if (ichx_gpio_get_direction(gc, gpi) != GPIOF_DIR_IN)
++			return -EPERM;
++
++		spin_lock_irqsave(&priv->lock, flags);
++
++		inv_reg	= priv->desc->regs[GPI_INV][gpi_bank(gpi)];
++		inv	= ICHX_READ(inv_reg, priv->gpio_base);
++
++		switch (ICH_POL_GPIO_IRQ(cmd)) {
++		case ICH_POL_GPIO_IRQ_POS:
++			inv &= ~gpi_bit(gpi);
++			break;
++		case ICH_POL_GPIO_IRQ_NEG:
++			inv |= gpi_bit(gpi);
++			break;
++		case ICH_POL_GPIO_IRQ_INV:
++			inv ^= gpi_bit(gpi);
++			break;
++		}
++		ICHX_WRITE(inv, inv_reg, priv->gpio_base);
++
++		spin_unlock_irqrestore(&priv->lock, flags);
++	} else
++		err = -EINVAL;
++
++	return err;
++}
++
++#if 0	/* TODO: Convert to IRQDESC */
++static inline struct ichx_priv *irq_data_to_ichx_priv(struct irq_data *d)
++{
++	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
++	return container_of (gc, struct ichx_priv, chip);
++}
++
++
++static irqreturn_t ichx_irq_handler(int hwirq, void *data)
++{
++	return IRQ_HANDLED;
++}
++
++static void ichx_irq_enable(struct irq_data *d){}
++static void ichx_irq_disable(struct irq_data *d){}
++
++static void ichx_irq_unmask(struct irq_data *d)
++{
++	unsigned int gpe0_en_reg;
++	u32 gpe0_en, rout;
++	struct ichx_priv *ip = irq_data_to_ichx_priv(d);
++	u32 gpi = irqd_to_hwirq(d);
++
++	if (gpi_valid(gpi))
++		return;
++
++	gpe0_en_reg = ip->desc->regs[GPI_IRQ_EN][gpi_bank(gpi)] +
++						gpe0_reg_offset(gpi);
++	gpe0_en = ICHX_READ(gpe0_en_reg, ichx_lpt_pm_base);
++
++	pci_read_config_dword(ichx_lpt_pci_dev, rout_reg(gpi), &rout);
++	rout &= ~rout_bit(gpi);
++
++	/* Set SCI */
++	rout |= (ICH_TYP_GPIO_IRQ_SCI << rout_shift(gpi));
++	pci_write_config_dword(ichx_lpt_pci_dev, rout_reg(gpi), rout);
++	ICHX_WRITE(gpe0_en | gpe0_modbit(gpi), gpe0_en_reg, ichx_lpt_pm_base);
++}
++
++static void ichx_irq_mask(struct irq_data *d)
++{
++	unsigned int gpe0_en_reg;
++	u32 gpe0_en, rout;
++	struct ichx_priv *ip = irq_data_to_ichx_priv(d);
++	u32 gpi = irqd_to_hwirq(d);
++
++	if (gpi_valid(gpi))
++		return;
++
++	gpe0_en_reg = ip->desc->regs[GPI_IRQ_EN][gpi_bank(gpi)] +
++						gpe0_reg_offset(gpi);
++	gpe0_en = ICHX_READ(gpe0_en_reg, ichx_lpt_pm_base);
++
++	pci_read_config_dword(ichx_lpt_pci_dev, rout_reg(gpi), &rout);
++	rout &= ~rout_bit(gpi);
++
++	/* Set SCI */
++	rout |= (ICH_TYP_GPIO_IRQ_SCI << rout_shift(gpi));
++	pci_write_config_dword(ichx_lpt_pci_dev, rout_reg(gpi), rout);
++	ICHX_WRITE(gpe0_en & ~gpe0_modbit(gpi), gpe0_en_reg, ichx_lpt_pm_base);
++}
++
++static int ichx_irq_set_type(struct irq_data *d, unsigned int type)
++{
++	struct ichx_priv *ip = irq_data_to_ichx_priv(d);
++	u32 gpi = irqd_to_hwirq(d);
++	unsigned long flags;
++	unsigned int reg;
++	u32 val;
++	int err = IRQ_SET_MASK_OK;
++
++	if (gpi_valid(gpi))
++		return -EINVAL;
++
++	reg = ip->desc->regs[GPI_INV][gpi_bank(gpi)];
++
++	spin_lock_irqsave(&ip->lock, flags);
++
++	val = ICHX_READ(reg, ip->gpio_base);
++
++	if (type & IRQ_TYPE_LEVEL_MASK)
++		err = -EINVAL;
++	else if (type & IRQ_TYPE_EDGE_RISING)
++		val &= ~gpi_bit(gpi);
++	else if (type & IRQ_TYPE_EDGE_FALLING)
++		val |= gpi_bit(gpi);
++	else if (type & IRQ_TYPE_EDGE_BOTH) {
++		if (val & gpi_bit(gpi))
++			val &= ~gpi_bit(gpi);
++		else
++			val |= gpi_bit(gpi);
++	}
++
++	if (!err)
++		ICHX_WRITE(val, reg, ip->gpio_base);
++
++	spin_unlock_irqrestore(&ip->lock, flags);
++ichx_irq_unmask(d);
++	return err;
++}
++
++
++static struct irq_chip ichx_irqchip = {
++	.name 	= "ich-gpio",
++	.irq_mask	= ichx_irq_mask,
++	.irq_unmask	= ichx_irq_unmask,
++	.irq_enable	= ichx_irq_enable,
++	.irq_disable	= ichx_irq_disable,
++	.irq_set_type	= ichx_irq_set_type,
++};
++#endif
++
++static void lpt_irq_exit(struct ichx_priv *priv)
++{
++	if (ichx_lpt_pm_base != priv->pm_base)
++		kfree(ichx_lpt_pm_base);
++	ichx_lpt_pm_base = NULL;
++}
++
++#define	PCI_ICH_PMBASE_OFFSET		0x40
++
++static int lpt_irq_init(struct ichx_priv *priv)
++{
++	int gpi;
++	u32 d;
++
++	if (!(ichx_lpt_pm_base = priv->pm_base)) {
++		u32 aba;
++		int err = pci_read_config_dword(priv->pci_dev,
++						0,
++						&aba);
++
++		err = pci_read_config_dword(priv->pci_dev,
++						PCI_ICH_PMBASE_OFFSET,
++						&aba);
++		if (err)
++			return err;
++		if (!(ichx_lpt_pm_base =
++				kzalloc(sizeof *ichx_lpt_pm_base, GFP_KERNEL)))
++			return -ENOMEM;
++
++		ichx_lpt_pm_base->start = aba & 0xff80;
++		ichx_lpt_pm_base->end = ichx_lpt_pm_base->start + 0x7f;
++		ichx_lpt_pm_base->name = "ich_pmbase";
++	}
++
++	for (gpi = 0; gpi < priv->desc->gpi_irq; gpi++) {
++		ichx_lpt_gpi_irq[gpi].gpi_num = gpi;
++		rout_reg(gpi) = 0xbc;	/* Assume GPI_ROUT2 */
++
++		switch (gpi) {
++		case 0 ... 15:
++			rout_reg(gpi)	= 0xb8;	/* GPI_ROUT */
++			gpi_bank(gpi)	= 0;
++			break;
++		case 17 ... 22:
++			gpi_bank(gpi)	= 1;
++			break;
++		case 43 ... 60:
++			gpi_bank(gpi)	= 2;
++			break;
++		default:
++			gpi_bank(gpi)	= 255;
++			break;
++		}
++		gpi_bit(gpi)	= 0x1 << (gpi - gpi_bank(gpi) * 16);
++
++		switch (gpi) {
++		case 0 ... 15:
++			gpe0_shift(gpi)	= gpi + 16;
++			rout_shift(gpi)	= gpi * 2;
++			break;
++		case 17:
++			gpe0_shift(gpi)	= 56;
++			rout_shift(gpi)	= 0;
++			break;
++		case 19:
++			gpe0_shift(gpi)	= 57;
++			rout_shift(gpi)	= 2;
++			break;
++		case 21:
++			gpe0_shift(gpi)	= 58;
++			rout_shift(gpi)	= 4;
++			break;
++		case 22:
++			gpe0_shift(gpi)	= 59;
++			rout_shift(gpi)	= 6;
++			break;
++		case 43:
++			gpe0_shift(gpi)	= 60;
++			rout_shift(gpi)	= 8;
++			break;
++		case 56:
++			gpe0_shift(gpi)	= 61;
++			rout_shift(gpi)	= 10;
++			break;
++		case 57:
++			gpe0_shift(gpi)	= 62;
++			rout_shift(gpi)	= 12;
++			break;
++		case 60:
++			gpe0_shift(gpi)	= 63;
++			rout_shift(gpi)	= 14;
++			break;
++		default:
++			ichx_lpt_gpi_irq[gpi].gpi_num = 0xff;
++			break;
++		}
++	}
++
++	while (gpi < ARRAY_SIZE(ichx_lpt_gpi_irq))
++		ichx_lpt_gpi_irq[gpi++].gpi_num = 0xff;
++
++	d = ICHX_READ(ICHX_PM1_CNT_REG, ichx_lpt_pm_base);
++
++	ICHX_WRITE(d | ICHX_PM1_CNT_SCI_EN, ICHX_PM1_CNT_REG, ichx_lpt_pm_base);
++	ichx_priv.chip.control = lpt_control;
++	return 0;
++}
++
+ static int ichx_gpio_request_regions(struct resource *res_base,
+ 						const char *name, u8 use_gpio)
+ {
+@@ -491,6 +861,7 @@ static int ichx_gpio_probe(struct platform_device *pdev)
+ 	spin_lock_init(&ichx_priv.lock);
+ 	res_base = platform_get_resource(pdev, IORESOURCE_IO, ICH_RES_GPIO);
+ 	ichx_priv.use_gpio = ich_info->use_gpio;
++	ichx_priv.pci_dev = ich_info->dev;
+ 	err = ichx_gpio_request_regions(res_base, pdev->name,
+ 					ichx_priv.use_gpio);
+ 	if (err)
+@@ -498,6 +869,11 @@ static int ichx_gpio_probe(struct platform_device *pdev)
+ 
+ 	ichx_priv.gpio_base = res_base;
+ 
++	if (ichx_priv.desc->gpi_irq && (err = lpt_irq_init(&ichx_priv))) {
++		pr_err("%s: failed to initialize IRQ for %s (%d).\n",
++			__func__, ich_info->name, err);
++		return err;
++	}
+ 	/*
+ 	 * If necessary, determine the I/O address of ACPI/power management
+ 	 * registers which are needed to read the the GPE0 register for GPI pins
+@@ -515,6 +891,7 @@ static int ichx_gpio_probe(struct platform_device *pdev)
+ 	if (!request_region(res_pm->start, resource_size(res_pm),
+ 			pdev->name)) {
+ 		pr_warn("ACPI BAR is busy, GPI 0 - 15 unavailable\n");
++
+ 		goto init;
+ 	}
+ 
+@@ -528,8 +905,31 @@ init:
+ 		goto add_err;
+ 	}
+ 
++#if 0	/* TODO: Convert to IRQDESC */
++	if (ichx_priv.desc->irq) {
++		if (!irq)
++			irq = acpi_irq();
++		if (irq < 0)
++			return irq;
++
++		if ((err = gpiochip_irqchip_add(&ichx_priv.chip,
++						&ichx_irqchip, 0,
++						handle_simple_irq,
++						IRQ_TYPE_NONE))) {
++			pr_err("%s: failed to add irqchip %s (%d)\n",
++					__func__, ichx_irqchip.name, err);
++			gpiochip_remove(&ichx_priv.chip);
++			goto add_err;
++		}
++		gpiochip_set_chained_irqchip(&ichx_priv.chip, &ichx_irqchip,
++						(unsigned int )irq,
++						NULL);
++						//ichx_irq_handler);
++	}
++#endif
+ 	pr_info("GPIO from %d to %d on %s\n", ichx_priv.chip.base,
+-	       ichx_priv.chip.base + ichx_priv.chip.ngpio - 1, DRV_NAME);
++	       ichx_priv.chip.base + ichx_priv.chip.ngpio - 1,
++	       ichx_priv.chip.label);
+ 
+ 	for (i = 0; i < ARRAY_SIZE(ichx_priv.desc->regs[0]); i++) {
+ 		ichx_priv.outlvl_cache[i] =
+@@ -549,6 +949,11 @@ add_err:
+ 
+ static int ichx_gpio_remove(struct platform_device *pdev)
+ {
++	struct lpc_ich_info *ich_info = dev_get_platdata(&pdev->dev);
++
++	if (ich_info->gpio_version == LPT_GPIO)
++		lpt_irq_exit(&ichx_priv);
++
+ 	gpiochip_remove(&ichx_priv.chip);
+ 
+ 	ichx_gpio_release_regions(ichx_priv.gpio_base, ichx_priv.use_gpio);
+diff --git a/drivers/mfd/lpc_ich.c b/drivers/mfd/lpc_ich.c
+index 29201a4..b033488 100644
+--- a/drivers/mfd/lpc_ich.c
++++ b/drivers/mfd/lpc_ich.c
+@@ -69,7 +69,7 @@
+ #include <linux/platform_data/itco_wdt.h>
+ 
+ #define ACPIBASE		0x40
+-#define ACPIBASE_GPE_OFF	0x28
++#define ACPIBASE_GPE_OFF	0x20
+ #define ACPIBASE_GPE_END	0x2f
+ #define ACPIBASE_SMI_OFF	0x30
+ #define ACPIBASE_SMI_END	0x33
+@@ -938,7 +938,7 @@ gpe0_done:
+ 		res->end = res->start + 128 - 1;
+ 		break;
+ 	case LPT_GPIO:
+-		res->end = res->start + 0x50 - 1;
++		res->end = res->start + 0x60 - 1;
+ 		break;
+ 	default:
+ 		res->end = res->start + 64 - 1;
+@@ -954,6 +954,7 @@ gpe0_done:
+ #endif
+ 	}
+ 	lpc_chipset_info[priv->chipset].use_gpio = ret;
++	lpc_chipset_info[priv->chipset].dev = dev;
+ 	lpc_ich_enable_gpio_space(dev);
+ 
+ 	lpc_ich_finalize_gpio_cell(dev);
+diff --git a/include/linux/mfd/lpc_ich.h b/include/linux/mfd/lpc_ich.h
+index 477f1e4..d231b03 100644
+--- a/include/linux/mfd/lpc_ich.h
++++ b/include/linux/mfd/lpc_ich.h
+@@ -42,6 +42,56 @@ struct lpc_ich_info {
+ 	unsigned int iTCO_version;
+ 	unsigned int gpio_version;
+ 	u8 use_gpio;
++	struct pci_dev *dev;
+ };
+ 
++/*
++ * ichx-lpt-gpio deivce-specific "control" command definitions.
++ *
++ * Author: <hiro.sugawara@netgear.com>
++ */
++
++#define	ICH_POL_GPIO_IRQ_POS	0x1000000
++#define	ICH_POL_GPIO_IRQ_NEG	0x2000000
++#define	ICH_POL_GPIO_IRQ_INV	0x3000000
++#define	IS_ICH_POL_GPIO_IRQ(cmd)	(	\
++		((cmd) >> 24) == 1	||	\
++		((cmd) >> 24) == 2	||	\
++		((cmd) >> 24) == 3)
++
++#define MK_ICH_POL_GPIO_IRQ(gpi, typ)	\
++		(ICH_POL_GPIO_IRQ_##typ | (gpi))
++#define	GPI_ICH_POL_GPIO_IRQ(cmd)	((cmd) & 0xff)
++#define	ICH_POL_GPIO_IRQ(cmd)	((cmd) & ~0xffffff)
++
++#define	ICH_CMD_GPIO_IRQ_SETUP		0x9000000
++#define	ICH_CMD_GPIO_IRQ_ACK		0xa000000
++#define	ICH_CMD_GPIO_IRQ_CHK		0xb000000
++
++#define	IS_ICH_CMD_GPIO_IRQ_SETUP(cmd)	\
++		(((cmd) & ~0xffffff) == ICH_CMD_GPIO_IRQ_SETUP)
++#define	IS_ICH_CMD_GPIO_IRQ_ACK(cmd)	\
++		(((cmd) & ~0xffffff) == ICH_CMD_GPIO_IRQ_ACK)
++#define	IS_ICH_CMD_GPIO_IRQ_CHK(cmd)	\
++		(((cmd) & ~0xffffff) == ICH_CMD_GPIO_IRQ_CHK)
++
++#define	GPI_ICH_CMD_GPIO_IRQ(cmd)	((cmd) & 0xff)
++#define	TYP_ICH_CMD_GPIO_IRQ(cmd)	(((cmd) >> 16) & 0xff)
++
++#define	MK_ICH_CMD_GPIO_IRQ_SETUP(gpi, typ)	\
++			(((gpi) & 0xff) |	\
++			((ICH_TYP_GPIO_IRQ_##typ & 0xff) << 16) |	\
++			ICH_CMD_GPIO_IRQ_SETUP)
++
++#define	ICH_TYP_GPIO_IRQ_NONE	0
++#define	ICH_TYP_GPIO_IRQ_SMI	1
++#define	ICH_TYP_GPIO_IRQ_SCI	2
++#define	ICH_TYP_GPIO_IRQ_NMI	3
++
++#define MK_ICH_CMD_GPIO_IRQ_ACK(gpi)	\
++			((gpi) | ICH_CMD_GPIO_IRQ_ACK)
++#define MK_ICH_CMD_GPIO_IRQ_CHK(gpi)	\
++			((gpi) | ICH_CMD_GPIO_IRQ_CHK)
++
++#define	ICH_TYP_GPIO_IRQ_GOOD(n)	(0 <= (n) && (n) <= 3)
+ #endif
+-- 
+1.9.1
+

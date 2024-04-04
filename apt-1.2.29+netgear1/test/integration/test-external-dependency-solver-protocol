@@ -1,0 +1,196 @@
+#!/bin/sh
+set -e
+
+TESTDIR="$(readlink -f "$(dirname "$0")")"
+. "$TESTDIR/framework"
+setupenvironment
+configarchitecture 'amd64' 'i386'
+
+insertinstalledpackage 'cool' 'all' '1'
+insertinstalledpackage 'stuff' 'all' '1'
+insertinstalledpackage 'somestuff' 'all' '1' 'Depends: cool, stuff'
+
+insertpackage 'unstable' 'cool' 'all' '2' 'Multi-Arch: foreign'
+insertpackage 'unstable' 'stuff' 'all' '2' 'Multi-Arch: foreign'
+insertpackage 'unstable' 'coolstuff' 'i386,amd64' '2' 'Depends: cool, stuff'
+insertpackage 'unstable' 'awesome' 'all' '2' 'Multi-Arch: foreign
+Conflicts: badstuff'
+insertpackage 'unstable' 'badstuff' 'all' '2' 'Multi-Arch: foreign
+Conflicts: awesome'
+insertpackage 'unstable' 'awesomecoolstuff' 'i386' '2' 'Depends: coolstuff, awesome'
+
+insertpackage 'experimental' 'cool' 'all' '3' 'Multi-Arch: foreign'
+insertpackage 'experimental' 'stuff' 'all' '3' 'Multi-Arch: foreign'
+insertpackage 'experimental' 'coolstuff' 'i386,amd64' '3' 'Depends: cool, stuff'
+
+setupaptarchive
+
+testfailure aptget install --solver dump coolstuff -s
+testsuccess grep ERR_NO_FILENAME rootdir/tmp/testfailure.output
+export APT_EDSP_DUMP_FILENAME="/nonexistent/apt/edsp.dump"
+testfailure aptget install --solver dump coolstuff -s
+testsuccess grep ERR_WRITE_ERROR rootdir/tmp/testfailure.output
+export APT_EDSP_DUMP_FILENAME="${TMPWORKINGDIRECTORY}/downloaded/dump.edsp"
+
+testfailureequal 'Reading package lists...
+Building dependency tree...
+Execute external solver...
+The solver encountered an error of type: ERR_JUST_DUMPING
+The following information might help you to understand what is wrong:
+I am too dumb, i can just dump!
+Please use one of my friends instead!
+
+E: External solver failed with: I am too dumb, i can just dump!' aptget install --solver dump coolstuff -s
+testsuccess test -s "$APT_EDSP_DUMP_FILENAME"
+rm -f "$APT_EDSP_DUMP_FILENAME"
+
+testsuccessequal 'Reading package lists...
+Building dependency tree...
+Execute external solver...
+The following NEW packages will be installed:
+  coolstuff
+0 upgraded, 1 newly installed, 0 to remove and 2 not upgraded.
+Inst coolstuff (2 unstable [amd64])
+Conf coolstuff (2 unstable [amd64])' aptget install --solver apt coolstuff -s
+
+testsuccessequal 'Reading package lists...
+Building dependency tree...
+Execute external solver...
+The following NEW packages will be installed:
+  coolstuff
+0 upgraded, 1 newly installed, 0 to remove and 2 not upgraded.
+Inst coolstuff (3 experimental [amd64])
+Conf coolstuff (3 experimental [amd64])' aptget install --solver apt coolstuff -s -t experimental
+
+testsuccessequal "Reading package lists...
+Building dependency tree...
+Selected version '3' (experimental [amd64]) for 'coolstuff'
+Execute external solver...
+The following NEW packages will be installed:
+  coolstuff
+0 upgraded, 1 newly installed, 0 to remove and 2 not upgraded.
+Inst coolstuff (3 experimental [amd64])
+Conf coolstuff (3 experimental [amd64])" aptget install --solver apt coolstuff/experimental -sq=0
+
+testsuccessequal 'Reading package lists...
+Building dependency tree...
+Execute external solver...
+The following NEW packages will be installed:
+  coolstuff
+0 upgraded, 1 newly installed, 0 to remove and 2 not upgraded.
+Inst coolstuff (3 experimental [amd64])
+Conf coolstuff (3 experimental [amd64])' aptget install --solver apt coolstuff=3 -sq=0
+
+testsuccessequal 'Reading package lists...
+Building dependency tree...
+Execute external solver...
+The following packages will be REMOVED:
+  somestuff
+0 upgraded, 0 newly installed, 1 to remove and 2 not upgraded.
+Remv somestuff [1]' aptget autoremove --solver apt somestuff -s
+testsuccess aptmark auto cool stuff
+testsuccessequal 'Reading package lists...
+Building dependency tree...
+Reading state information...
+Execute external solver...
+The following packages will be REMOVED:
+  cool somestuff stuff
+0 upgraded, 0 newly installed, 3 to remove and 0 not upgraded.
+Remv somestuff [1]
+Remv cool [1]
+Remv stuff [1]' aptget autoremove --solver apt somestuff -s
+
+AUTOREMOVE='apt autoremove'
+if [ -n "$SUDO_USER" ]; then
+	AUTOREMOVE="sudo $AUTOREMOVE"
+fi
+testsuccessequal "Reading package lists...
+Building dependency tree...
+Reading state information...
+Execute external solver...
+The following package was automatically installed and is no longer required:
+  stuff
+Use '$AUTOREMOVE' to remove it.
+The following packages will be REMOVED:
+  cool* somestuff*
+0 upgraded, 0 newly installed, 2 to remove and 0 not upgraded.
+Purg somestuff [1]
+Purg cool [1]" aptget purge --solver apt cool -s
+
+testsuccess aptget install awesomecoolstuff:i386 -s
+testsuccess aptget install --solver apt awesomecoolstuff:i386 -s
+
+rm -f "$APT_EDSP_DUMP_FILENAME"
+testfailure aptget install --solver dump awesomecoolstuff:i386 -s
+testsuccess test -s "$APT_EDSP_DUMP_FILENAME"
+testequal 'Install: awesomecoolstuff:i386' grep :i386 "$APT_EDSP_DUMP_FILENAME"
+testfailure grep -e ':amd64' -e 'Architecture: any' "$APT_EDSP_DUMP_FILENAME"
+
+testsuccess aptget dist-upgrade -s
+testsuccess aptget dist-upgrade -s --solver apt
+
+testsuccess aptget upgrade -s
+testsuccess aptget upgrade -s --solver apt
+
+testfailure aptget install awesome badstuff -s
+testfailure aptget install awesome badstuff -s --solver apt
+testsuccess grep 'ERR_UNSOLVABLE' rootdir/tmp/testfailure.output
+
+configarchitecture 'armel'
+testfailure aptget install --solver apt awesomecoolstuff:i386 -s
+msgtest 'An invalid EDSP file generates a' 'hard error'
+if echo "Request: This is a test\nFoo: bar\n\n" | aptinternalsolver > solver.result 2>&1; then
+	cat solver.result
+	msgfail
+else
+	msgpass
+fi
+msgtest 'Test direct calling is okay for' 'apt-internal-solver'
+cat "$APT_EDSP_DUMP_FILENAME" | aptinternalsolver > solver.result 2>&1 || true
+if [ "$(tail -n2 solver.result | head -n1 )" = "Message: Done" ]; then
+	msgpass
+else
+	cat solver.result
+	msgfail
+fi
+rm -f "$APT_EDSP_DUMP_FILENAME"
+
+testsuccess aptinternalsolver scenario
+testsuccessequal 'Package: stuff
+Source: stuff
+Architecture: all
+Version: 3
+Source-Version: 3
+APT-ID: 1
+Priority: optional
+Section: other
+Multi-Arch: foreign
+APT-Release:
+ a=experimental,n=experimental,c=main,b=all
+APT-Pin: 1
+
+Package: stuff
+Source: stuff
+Architecture: all
+Version: 2
+Source-Version: 2
+APT-ID: 3
+Priority: optional
+Section: other
+Multi-Arch: foreign
+APT-Release:
+ a=unstable,n=sid,c=main,b=all
+APT-Pin: 500
+APT-Candidate: yes
+
+Package: stuff
+Source: stuff
+Architecture: all
+Version: 1
+Source-Version: 1
+Installed: yes
+APT-ID: 8
+Priority: optional
+Section: other
+APT-Pin: 100
+' aptinternalsolver scenario stuff

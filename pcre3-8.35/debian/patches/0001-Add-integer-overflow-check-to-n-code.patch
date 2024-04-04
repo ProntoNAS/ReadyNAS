@@ -1,0 +1,52 @@
+Description: Add integer overflow check to (?n) code.
+ .
+ Addresses CVE-2015-8387.
+Origin: upstream, http://vcs.pcre.org/pcre?view=revision&revision=1563
+Forwarded: not-needed
+Author: Salvatore Bonaccorso <carnil@debian.org>
+Last-Update: 2015-12-29
+Applied-Upstream: 8.38
+
+---
+ pcre_compile.c       | 8 ++++++++
+ testdata/testinput2  | 2 ++
+ testdata/testoutput2 | 3 +++
+ 4 files changed, 15 insertions(+)
+
+--- a/pcre_compile.c
++++ b/pcre_compile.c
+@@ -7245,7 +7245,15 @@ for (;; ptr++)
+ 
+           recno = 0;
+           while(IS_DIGIT(*ptr))
++            {
++            if (recno > INT_MAX / 10 - 1) /* Integer overflow */            
++              {                                                             
++              while (IS_DIGIT(*ptr)) ptr++;                                 
++              *errorcodeptr = ERR61;                                        
++              goto FAILED;                                                  
++              }
+             recno = recno * 10 + *ptr++ - CHAR_0;
++            } 
+ 
+           if (*ptr != (pcre_uchar)terminator)
+             {
+--- a/testdata/testinput2
++++ b/testdata/testinput2
+@@ -4081,4 +4081,6 @@ backtracking verbs. --/
+ ".*?\h.+.\.+\R*?\xd(?i)(?=!(?=b`b`b`\`b\xa9b!)`\a`bbbbbbbbbbbbb`bbbbbbbbbbbb*R\x85bbbbbbb\C?{((?2)(?))((
+ \H){8(?<=(?1){29}\xa8bbbb\x16\xd\xc6^($(?<! )(\xa9H4){4}h}1)B))\x15')"
+ 
++/(?<=|(\,\$(?73591620449005828816)\xa8.{7}){6}\x09)/
++
+ /-- End of testinput2 --/
+--- a/testdata/testoutput2
++++ b/testdata/testoutput2
+@@ -14204,4 +14204,7 @@ Failed: unmatched parentheses at offset
+ ".*?\h.+.\.+\R*?\xd(?i)(?=!(?=b`b`b`\`b\xa9b!)`\a`bbbbbbbbbbbbb`bbbbbbbbbbbb*R\x85bbbbbbb\C?{((?2)(?))((
+ \H){8(?<=(?1){29}\xa8bbbb\x16\xd\xc6^($(?<! )(\xa9H4){4}h}1)B))\x15')"
+ 
++/(?<=|(\,\$(?73591620449005828816)\xa8.{7}){6}\x09)/
++Failed: number is too big at offset 32
++
+ /-- End of testinput2 --/

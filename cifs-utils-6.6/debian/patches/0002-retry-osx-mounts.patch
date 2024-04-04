@@ -1,0 +1,44 @@
+From 862ab82b352851be389c8256883d747b3dc50a0f Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 9 Nov 2016 14:52:13 -0800
+Subject: [PATCH 2/2] retry osx mounts
+
+Auto retry with special options after receiving known error codes from
+OSX.
+---
+ mount.cifs.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/mount.cifs.c b/mount.cifs.c
+index 0569911..6aa2801 100644
+--- a/mount.cifs.c
++++ b/mount.cifs.c
+@@ -2092,6 +2092,25 @@ mount_retry:
+ 				goto mount_retry;
+ 			}
+ 			break;
++		case EOPNOTSUPP:
++			if (!strstr(options, "noserverino")) {
++				strlcat(parsed_info->options, ",noserverino",
++					sizeof(parsed_info->options));
++				goto mount_retry;
++			}
++			if (!strstr(options, "nounix")) {
++				strlcat(parsed_info->options, ",nounix",
++					sizeof(parsed_info->options));
++				goto mount_retry;
++			}
++			break;
++		case EINVAL:
++			if (!strstr(options, "sec=")) {
++				strlcat(parsed_info->options, ",sec=ntlmssp",
++					sizeof(parsed_info->options));
++				goto mount_retry;
++			}
++			break;
+ 		case ECONNREFUSED:
+ 		case EHOSTUNREACH:
+ 			currentaddress = nextaddress;
+-- 
+2.10.2
+

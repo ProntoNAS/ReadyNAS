@@ -1,0 +1,47 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+DEB_BUILD_ARCH ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH)
+DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+# Skip MAXDESCLEN tests on these architectures:
+SKIPMAXDESCLEN = mip mipsel sparc
+
+%:
+	dh ${@}
+
+ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+override_dh_auto_build:
+	dh_auto_build -- CC=$(DEB_HOST_GNU_TYPE)-gcc AR=$(DEB_HOST_GNU_TYPE)-ar
+endif
+
+override_dh_auto_install:
+	dh_auto_install -- LIBDIR=/lib/$(DEB_HOST_MULTIARCH) USRLIBDIR=/usr/lib/$(DEB_HOST_MULTIARCH)
+
+override_dh_auto_test:
+	# Use  the library and executable we just built;
+	# skip tests requiring root;
+	# disable maxdesclen tests on mips, mipsel, and sparc
+ifeq (,$(findstring $(DEB_BUILD_ARCH),mips mipsel sparc arm64))
+	dh_auto_test -- \
+		PATH=$(CURDIR):$(PATH) \
+		LD_LIBRARY_PATH=$(CURDIR) \
+		SKIPROOT=yes \
+		SKIPINSTALLED=yes
+else
+	dh_auto_test -- \
+		PATH=$(CURDIR):$(PATH) \
+		LD_LIBRARY_PATH=$(CURDIR) \
+		SKIPROOT=yes \
+		SKIPINSTALLED=yes \
+		MAXDESCLEN_NOCHECK=yes
+endif
+
+override_dh_install:
+	dh_install --fail-missing
+
+override_dh_strip:
+	dh_strip --dbg-package=keyutils-dbg

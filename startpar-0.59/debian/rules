@@ -1,0 +1,35 @@
+#!/usr/bin/make -f
+# -*- mode: makefile; coding: utf-8 -*-
+
+CPPFLAGS:=$(shell dpkg-buildflags --get CPPFLAGS)
+CFLAGS:=$(shell dpkg-buildflags --get CFLAGS)
+CXXFLAGS:=$(shell dpkg-buildflags --get CXXFLAGS)
+LDFLAGS:=$(shell dpkg-buildflags --get LDFLAGS)
+
+DEB_HOST_ARCH_OS    ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) EXTRACPPFLAGS="$(CPPFLAGS)" EXTRACFLAGS="$(CFLAGS)" EXTRALDFLAGS="$(LDFLAGS)" $(CROSS) startpar check
+ifeq ($(DEB_HOST_ARCH_OS),linux)
+	$(MAKE) EXTRACPPFLAGS="$(CPPFLAGS)" EXTRACFLAGS="$(CFLAGS)" EXTRALDFLAGS="$(LDFLAGS)" $(CROSS) startpar-upstart-inject
+endif
+
+override_dh_auto_install-arch:
+	$(MAKE) DESTDIR=debian/startpar sbindir=/lib/startpar install
+ifeq ($(DEB_HOST_ARCH_OS),linux)
+	dh_install startpar-upstart-inject lib/startpar/
+	dh_installman startpar-upstart-inject.8
+endif
+
+override_dh_installinit-arch:
+	dh_installinit --name startpar-bridge -n
+
+override_dh_clean:
+	dh_clean
+	$(MAKE) clean
+ifeq ($(DEB_HOST_ARCH_OS),linux)
+	rm -f startpar-upstart-inject
+endif

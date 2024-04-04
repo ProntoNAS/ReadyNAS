@@ -1,0 +1,625 @@
+.\" dpkg manual page - dpkg-source(1)
+.\"
+.\" Copyright 息 1995-1996 Ian Jackson <ian@chiark.chu.cam.ac.uk>
+.\" Copyright 息 2000 Wichert Akkerman <wakkerma@debian.org>
+.\" Copyright 息 2006-2007 Frank Lichtenheld <djpig@debian.org>
+.\" Copyright 息 2006-2013 Guillem Jover <guillem@debian.org>
+.\" Copyright 息 2008-2011 Rapha谷l Hertzog <hertzog@debian.org>
+.\" Copyright 息 2010 Joey Hess <joeyh@debian.org>
+.\"
+.\" This is free software; you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License as published by
+.\" the Free Software Foundation; either version 2 of the License, or
+.\" (at your option) any later version.
+.\"
+.\" This is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public License
+.\" along with this program.  If not, see <https://www.gnu.org/licenses/>.
+.
+.\"*******************************************************************
+.\"
+.\" This file was generated with po4a. Translate the source file.
+.\"
+.\"*******************************************************************
+.TH dpkg\-source 1 2013\-12\-05 "Debian Project" "dpkg ユーティリティ"
+.SH 名前
+dpkg\-source \- Debian ソースパッケージ (.dsc) 操作ツール
+.
+.SH 書式
+\fBdpkg\-source\fP [\fIoption\fP...] \fIcommand\fP
+.
+.SH 説明
+\fBdpkg\-source\fP は、Debian ソースアーカイブの作成、展開を行う。
+
+これらの \fIcommand\fP では複数のオプションを 1
+つに結合することはできず、オプションの値をオプション名から分離した引数として指定することもできない。
+.
+.SH コマンド
+.TP 
+\fB\-x\fP, \fB\-\-extract\fP \fIfilename\fP.dsc [\fIoutput\-directory\fP]
+Extract a source package.  The \fB\-\-extract\fP alias was added in dpkg
+1.17.14.  One non\-option argument must be supplied, the name of the Debian
+source control file (\fB.dsc\fP).  An optional second non\-option argument may
+be supplied to specify the directory to extract the source package to, this
+must not exist. If no output directory is specified, the source package is
+extracted into a directory named \fIsource\fP\-\fIversion\fP under the current
+working directory.
+
+\fBdpkg\-source\fP は制御ファイルからソースパッケージの設定を行うためのファイル名を取得する。これらは \fB.dsc\fP
+ファイルと同じディレクトリに配置されているものとみなされる。
+
+展開されたパッケージのファイルには、ファイルやディレクトリを単に作成したときに設定されるであろうものと同様のパーミッションや所有者が設定される。ディレクトリ及び実行ファイルのパーミッションは
+0777 に、普通のファイルは 0666 に設定されるが、展開したユーザの umask の影響を受ける。親ディレクトリが setgid
+されていた場合、展開されたディレクトリもそれに従い、ファイルやディレクトリには、グループの所有者情報が引き継がれる。
+
+ソースパッケージが標準以外の形式 (現在のところ "1.0" 以外のすべての形式を意味する) を使用している場合、形式の名称は
+\fBdebian/source/format\fP に格納され、以降のソースパッケージのビルドでは、デフォルトで同じ形式が使用される。
+
+.TP 
+\fB\-b\fP, \fB\-\-build\fP \fIdirectory\fP [\fIformat\-specific\-parameters\fP]
+Build a source package.  The \fB\-\-build\fP alias was added in dpkg 1.17.14.
+The first non\-option argument is taken as the name of the directory
+containing the debianized source tree (i.e. with a debian sub\-directory and
+maybe changes to the original files).  Depending on the source package
+format used to build the package, additional parameters might be accepted.
+
+\fBdpkg\-source\fP は、コマンドライン引数の \fI\-\-format\fP で指定した形式、\fBdebian/source/format\fP
+で指定した形式、"1.0" の順で形式を確認し、最初に確認できた形式にに基づいてソースパッケージをビルドする。"1.0"
+は廃止予定であり、将来的には削除されるため、常に \fBdebian/source/format\fP
+でソースパッケージ形式を指定するようにすべきである。ソースパッケージ形式についての詳細な解説は、\fBソースパッケージ形式\fPセクションを参照のこと。
+
+.TP 
+\fB\-\-print\-format\fP \fIdirectory\fP
+Print the source format that would be used to build the source package if
+\fBdpkg\-source \-\-build \fP\fIdirectory\fP was called (in the same conditions and
+with the same parameters).
+
+.TP 
+\fB\-\-before\-build\fP \fIdirectory\fP
+ソースパッケージ形式に合致するフックを実行する。このフックはパッケージのビルド開始前に呼び出される (\fBdpkg\-buildpackage\fP
+は、\fBdebian/rules clean\fP
+実行前の非常に早い段階でこれを呼び出す)。このコマンドは冪等であり、複数回呼び出されてもよい。すべてのソース形式がこのフックを実装しているわけではない。実装される場合は、通常、Debian
+のパッチが適用されていることを確認するといったビルド前のソースツリーの準備に用いられる。
+
+.TP 
+\fB\-\-after\-build\fP \fIdirectory\fP
+ソースパッケージ形式に合致するフックを実行する。このフックはパッケージのビルド完了後に呼び出される (\fBdpkg\-buildpackage\fP
+は、これを最後に呼び出す)
+このコマンドは冪等であり、複数回呼び出されてもよい。すべてのソース形式がこのフックを実装しているわけではない。実装される場合は、通常、\fB\-\-before\-build\fP
+が行った変更を元に戻すために用いられる。
+
+.TP 
+\fB\-\-commit\fP [\fIdirectory\fP] ...
+\fIdirectory\fP
+に展開されたソースツリーの変更を記録する。このコマンドはソース形式に応じて追加の引数を取ることができる。この操作が意味を持たない形式については、エラーとなる。
+
+.TP 
+\fB\-?\fP, \fB\-\-help\fP
+利用方法を表示して終了する。
+.TP 
+\fB\-\-version\fP
+バージョン情報を表示して終了する。
+.
+.SH オプション
+.SS "Generic build options"
+.TP 
+\fB\-c\fP\fIcontrol\-file\fP
+情報の読み取り元となるメインのソース制御ファイルを指定する。デフォルトは \fBdebian/control\fP
+である。相対パス名で指定された場合は、ソースツリーのトップのディレクトリを起点として解釈される。
+.TP 
+\fB\-l\fP\fIchangelog\-file\fP
+情報の読み取り元となる changelog ファイルを指定する。デフォルトは \fBdebian/changelog\fP
+である。相対パス名で指定された場合は、ソースツリーのトップのディレクトリを起点として解釈される。
+.TP 
+\fB\-F\fP\fIchangelog\-format\fP
+changelog ファイルのフォーマットを指定する。指定可能なフォーマットについての情報は、\fBdpkg\-parsechangelog\fP(1)
+を参照のこと。
+.TP 
+\fB\-\-format=\fP\fIvalue\fP
+ソースパッケージのビルドに指定した形式を使用する。これは \fBdebian/source/format\fP で指定された形式に優先する。
+.TP 
+\fB\-V\fP\fIname\fP\fB=\fP\fIvalue\fP
+変数を設定する。出力時の置換に関する詳細は、\fBdeb\-substvars\fP(5) を参照のこと。
+.TP 
+\fB\-T\fP\fIsubstvars\-file\fP
+\fIsubstvars\-file\fP
+にある変数を読み込む。デフォルトではいかなるファイルも読み込まれない。このオプションは複数のファイルから変数を読み取るために複数回指定することができる。
+.TP 
+\fB\-D\fP\fIfield\fP\fB=\fP\fIvalue\fP
+出力制御ファイルのフィールドを上書きもしくは追加する。
+.TP 
+\fB\-U\fP\fIfield\fP
+出力制御ファイルのフィールドを削除する。
+.TP 
+\fB\-Z\fP\fIcompression\fP, \fB\-\-compression\fP=\fIcompression\fP
+Specify the compression to use for created files (tarballs and diffs).  Note
+that this option will not cause existing tarballs to be recompressed, it
+only affects new files. Supported values are: \fIgzip\fP, \fIbzip2\fP, \fIlzma\fP and
+\fIxz\fP.  The default is \fIxz\fP for formats 2.0 and newer, and \fIgzip\fP for
+format 1.0. \fIxz\fP is only supported since dpkg 1.15.5.
+.TP 
+\fB\-z\fP\fIlevel\fP, \fB\-\-compression\-level\fP=\fIlevel\fP
+使用する圧縮レベル。\fB\-Z\fP と併せて指定する。これは新規の圧縮時にのみ適用される。指定可能な値は次のとおり: \fI1\fP から \fI9\fP,
+\fIbest\fP, \fIfast\fP。デフォルトは gzip および bzip2 の場合 \fI9\fP、xz および lzma の場合 \fI6\fP である。
+.TP 
+\fB\-i\fP[\fIregex\fP], \fB\-\-diff\-ignore\fP[=\fIregex\fP]
+You may specify a perl regular expression to match files you want filtered
+out of the list of files for the diff. (This list is generated by a find
+command.) (If the source package is being built as a version 3 source
+package using a VCS, this can be used to ignore uncommited changes on
+specific files. Using \-i.* will ignore all of them.)
+
+The \fB\-i\fP option by itself enables this setting with a default regex
+(preserving any modification to the default regex done by a previous use of
+\fB\-\-extend\-diff\-ignore\fP) that will filter out control files and directories
+of the most common revision control systems, backup and swap files and
+Libtool build output directories. There can only be one active regex, of
+multiple \fB\-i\fP options only the last one will take effect.
+
+This is very helpful in cutting out extraneous files that get included in
+the diff, e.g. if you maintain your source in a revision control system and
+want to use a checkout to build a source package without including the
+additional files and directories that it will usually contain (e.g. CVS/,
+\&.cvsignore, .svn/). The default regex is already very exhaustive, but if you
+need to replace it, please note that by default it can match any part of a
+path, so if you want to match the begin of a filename or only full
+filenames, you will need to provide the necessary anchors (e.g. '(^|/)',
+\&'($|/)') yourself.
+.TP 
+\fB\-\-extend\-diff\-ignore\fP=\fIregex\fP
+The perl regular expression specified will extend the default value used by
+\fB\-\-diff\-ignore\fP and its current value (if set). It does this by
+concatenating "\fB|\fP\fIregex\fP" to the existing value.  This option is
+convenient to use in \fBdebian/source/options\fP to exclude some auto\-generated
+files from the automatic patch generation.
+.TP 
+\fB\-I\fP[\fIfile\-pattern\fP], \fB\-\-tar\-ignore\fP[=\fIfile\-pattern\fP]
+If this option is specified, the pattern will be passed to \fBtar\fP(1)'s
+\fB\-\-exclude\fP option when it is called to generate a .orig.tar or .tar
+file. For example, \fB\-I\fPCVS will make tar skip over CVS directories when
+generating a .tar.gz file. The option may be repeated multiple times to list
+multiple patterns to exclude.
+
+\fB\-I\fP by itself adds default \fB\-\-exclude\fP options that will filter out
+control files and directories of the most common revision control systems,
+backup and swap files and Libtool build output directories.
+.PP
+\fBNote:\fP While they have similar purposes, \fB\-i\fP and \fB\-I\fP have very
+different syntax and semantics. \fB\-i\fP can only be specified once and takes a
+perl compatible regular expression which is matched against the full
+relative path of each file. \fB\-I\fP can specified multiple times and takes a
+filename pattern with shell wildcards.  The pattern is applied to the full
+relative path but also to each part of the path individually. The exact
+semantic of tar's \fB\-\-exclude\fP option is somewhat complicated, see
+https://www.gnu.org/software/tar/manual/tar.html#wildcards for a full
+documentation.
+
+The default regex and patterns for both options can be seen in the output of
+the \fB\-\-help\fP command.
+.SS "Generic extract options"
+.TP 
+\fB\-\-no\-copy\fP
+展開されたソースパッケージ以外に、オリジナルの tar アーカイブをコピーしない。
+.TP 
+\fB\-\-no\-check\fP
+展開前に、署名やチェックサムの検証を行わない。
+.TP 
+\fB\-\-require\-valid\-signature\fP
+展開するユーザの \fItrustedkeys.gpg\fP keyring、ベンダ固有の keyring のいずれか、official Debian
+keyring (\fI/usr/share/keyrings/debian\-keyring.gpg\fP
+もしくは\fI/usr/share/keyrings/debian\-maintainers.gpg\fP) のいずれかによって検証可能な OpenPGP
+の署名が含まれない場合に、ソースパッケージの展開を拒否する。
+.TP 
+\fB\-\-ignore\-bad\-version\fP
+Turns the bad source package version check into a non\-fatal warning.  This
+option should only be necessary when extracting ancient source packages with
+broken versions, just for backwards compatibility.
+
+.SH ソースパッケージ形式
+使用しているソース形式が分からない場合は、"3.0 (quilt)" もしくは "3.0 (native)" のいずれかであろう。Debian
+においてこれらの形式を使用するための情報については、https://wiki.debian.org/Projects/DebSrc3.0 を参照のこと。
+
+.SS "1.0 形式"
+この形式のソースパッケージには、\fB.diff.gz\fP と対応する \fB.orig.tar.gz\fP、もしくは\fB.tar.gz\fP のみ (この形態を
+\fIネイティブ\fP と称する) が含まれる。
+
+\fB展開\fP
+
+ネイティブパッケージの展開は、単一の tar アーカイブをターゲットディレクトリに単に展開するだけである。非ネイティブなパッケージの展開は、先に
+\&\fB.orig.tar.gz\fP を展開した上で、\fB.diff.gz\fP
+ファイルに含まれるパッチを適用する。パッチされたファイルのタイムスタンプは、ソースパッケージを展開した時刻に再設定される
+(これにより、自動生成されたファイルにパッチする際に、タイムスタンプが逆転してしまうことによる問題の発生を回避する)。diff
+により新しいファイルを作成することもできる (debian ディレクトリ自体も、これにより作成される) が、ファイルを削除することはできない
+(空ファイルはそのまま残される)。
+
+\fBビルド\fP
+
+ネイティブパッケージのビルドは、ソースディレクトリに単一の tar アーカイブを作成するだけである。非ネイティブパッケージのビルドは、オリジナルの
+tar アーカイブを ".orig" ディレクトリに展開し、 \fIdirectory\fP にあるソースパッケージと .orig ディレクトリを比較して
+\&\fB.diff.gz\fP ファイルを再生成することにより行われる。
+
+\fBBuild options (with \-\-build):\fP
+
+2 番目のオプションでない引数が存在する場合は、オリジナルのソースディレクトリか tar ファイル名を意味する。ただし、パッケージが Debian
+固有のものであり、Debian 化するための diff が存在しない場合は空文字列となる。2 番目の引数が存在する場合、\fBdpkg\-source\fP は
+\fB\-sX\fP 引数に応じて、オリジナルのソース tar ファイル
+\fIpackage\fP\fB_\fP\fIupstream\-version\fP\fB.orig.tar.gz\fP もしくはオリジナルのソースディレクトリ
+\fIdirectory\fP\fB.orig\fP を検索する。
+
+\fB\-sa\fP, \fB\-sp\fP, \fB\-sk\fP, \fB\-su\fP, \fB\-sr\fP は、既存の tar
+ファイルやディレクトリを上書きしない。上書きさせたい場合は、代わりに \fB\-sA\fP, \fB\-sP\fP, \fB\-sK\fP, \fB\-sU\fP, \fB\-sR\fP
+を使用すること。
+.PP
+.TP 
+\fB\-sk\fP
+オリジナルのソースが、デフォルトでは
+\fIpackage\fP\fB_\fP\fIupstream\-version\fP\fB.orig.tar.\fP\fIextension\fP という名前の tar
+ファイルであることを指示する。このオリジナルのソースは適切な場所にtar
+ファイルのまま残され、カレントディレクトリに存在していない場合はそこにコピーされる。tar ファイルは diff
+を生成するために、\fIdirectory\fP\fB.orig\fP に展開される。
+.TP 
+\fB\-sp\fP
+\fB\-sk\fP と同様だが、最後にディレクトリを削除する。
+.TP 
+\fB\-su\fP
+オリジナルのソースが、デフォルトでは \fIpackage\fP\fB\-\fP\fIupstream\-version\fP\fB.orig\fP
+という名前のディレクトリにあることを指示する。\fBdpkg\-source\fP は、ここから新しいソースアーカイブを作成する。
+.TP 
+\fB\-sr\fP
+\fB\-su\fP と同様だが、使用後にディレクトリを削除する。
+.TP 
+\fB\-ss\fP
+Specifies that the original source is available both as a directory and as a
+tarfile. \fBdpkg\-source\fP will use the directory to create the diff, but the
+tarfile to create the \fB.dsc\fP.  This option must be used with care \- if the
+directory and tarfile do not match a bad source archive will be generated.
+.TP 
+\fB\-sn\fP
+オリジナルのソースを参照せず、diff も生成しないことを指示する。2
+番目の引数が存在する場合、それは空文字列である必要がある。これは、アップストリームのソースが存在せず、Debian 化するための差分が存在しない
+Debian 固有のパッケージに用いられる。
+.TP 
+\fB\-sa\fP もしくは \fB\-sA\fP
+オリジナルのソースアーカイブが tar ファイルもしくはディレクトリであることを指示する。2
+番目の引数が指定されている場合、それは上記のいずれであってもよいし、空文字列でもよい (その場合は、\fB\-sn\fP (訳注: \fB\-sp\fP
+の誤りと思われる) と同等である)。tar ファイルが存在した場合は、diff 生成のために展開され、最後に削除される (これは \fB\-sp\fP
+と同等である)。ディレクトリが存在した場合は、オリジナルのソースを作成するためにアーカイブ化され最後に削除される (これは、\fB\-sr\fP
+と同等である)。いずれも存在しなかった場合、パッケージは Debian 化の diff を持たず、ソースアーカイブのみが存在すると見なされる (これは、
+\fB\-sn\fP と同等である)。いずれも存在した場合、\fBdpkg\-source\fP はディレクトリの存在を無視して、\fB\-sA\fP
+が指定されていた場合はこれを上書きし (これは \fB\-sP\fP と同等である)、\fB\-sa\fP が指定されていた場合はエラーを発生させる。デフォルトは
+\fB\-sA\fP である。
+.TP 
+\fB\-\-abort\-on\-upstream\-changes\fP
+生成された diff に Debian サブディレクトリ外にあるファイルへの変更が含まれていた場合、処理を失敗させる。このオプションは
+\fBdebian/source/options\fP で指定できない。\fBdebian/source/local\-options\fP
+で指定することは可能である。
+.PP
+
+\fBExtract options (with \-\-extract):\fP
+
+いずれの場合も、既存のオリジナルのソースツリーはすべて削除される。
+.TP 
+\fB\-sp\fP
+オリジナルのソースを tar ファイルとして残す
+(存在する場合)。カレントディレクトリに配置されていない場合や、存在しているが異なるファイルである場合は、オリジナルのソースがコピーされる
+(\fBこれはデフォルトの挙動である\fP)。
+.TP 
+\fB\-su\fP
+オリジナルのソースツリーを展開する。
+.TP 
+\fB\-sn\fP
+オリジナルのソースをカレントディレクトリにコピーさせず、展開もさせない。カレントディレクトリに存在するオリジナルのソースツリーは削除される。
+.PP
+\fB\-s\fP\fIX\fP オプションは相互排他である。複数回指定された場合、最後に指定されたものが使用される。
+.TP 
+\fB\-\-skip\-debianization\fP
+アップストリームのソースのトップに存在する Debian 化の diff を適用しない。
+.
+.SS "2.0 形式"
+wig&pen という名称でも知られている。この形式は広範な使用を推奨されておらず、"3.0 (quilt)" が代替している。wig&pen
+は新世代のソースパッケージ形式の最初の仕様である。
+
+この形式の挙動は、明示的なパッチ一覧を使用しない点を除き、"3.0 (quilt)" 形式と同等である。perl 形式の正規表現 \fB[\ew\-]+\fP
+にマッチする \fBdebian/patches/\fP に存在するすべてのファイルは、適切なパッチである必要がある。これらは展開時に適用される。
+
+新しいソースパッケージをビルドする際にアップストリームのソースに対する変更が発生した場合、\fBzz_debian\-diff\-auto\fP
+という名前のパッチとして保存する。
+.
+.SS "3.0 (native) 形式"
+この形式は 1.0 形式で定義されたネイティブパッケージ形式の拡張版である。これはすべての圧縮方式をサポートし、デフォルトでは、多くの一時ファイル
+(デフォルト値は \fB\-\-help\fP 出力の \fB\-I\fP オプションを参照のこと) やバージョン管理システム固有のファイルやディレクトリを無視する。
+.
+.SS "3.0 (quilt) 形式"
+A source package in this format contains at least an original tarball
+(\fB.orig.tar.\fP\fIext\fP where \fIext\fP can be \fBgz\fP, \fBbz2\fP, \fBlzma\fP and \fBxz\fP)
+and a debian tarball (\fB.debian.tar.\fP\fIext\fP). It can also contain additional
+original tarballs (\fB.orig\-\fP\fIcomponent\fP\fB.tar.\fP\fIext\fP).  \fIcomponent\fP can
+only contain alphanumeric characters and hyphens ("\-").
+.PP
+\fB展開\fP
+.PP
+主たるオリジナルの tar アーカイブが最初に展開され、ついで追加のオリジナル tar アーカイブが、ファイル名の \fIcomponent\fP
+からとった名前のサブディレクトリに展開される (既存のディレクトリがあった場合、上書きされる)。debian tar アーカイブは、既存の
+\fBdebian\fP ディレクトリの削除後、ソースディレクトリのトップに展開される。debian tar アーカイブには、\fBdebian\fP
+サブディレクトリが必要だが、ディレクトリ外にバイナリファイルを含めることもできる (\fB\-\-include\-binaries)\fP
+オプションを参照のこと)。
+.PP
+All patches listed in \fBdebian/patches/debian.series\fP or
+\fBdebian/patches/series\fP are then applied.  If the former file is used and
+the latter one doesn't exist (or is a symlink), then the latter is replaced
+with a symlink to the former. This is meant to simplify usage of \fBquilt\fP to
+manage the set of patches. Note however that while \fBdpkg\-source\fP parses
+correctly series files with explicit options used for patch application
+(stored on each line after the patch filename and one or more spaces), it
+does ignore those options and always expect patches that can be applied with
+the \fB\-p1\fP option of \fBpatch\fP. It will thus emit a warning when it
+encounters such options, and the build is likely to fail.
+.PP
+Contrary to \fBquilt\fP's default behaviour, patches are expected to apply
+without any fuzz. When that is not the case, you should refresh such patches
+with \fBquilt\fP, or \fBdpkg\-source\fP will error out while trying to apply them.
+.PP
+Similarly to \fBquilt\fP's default behaviour, the patches can remove files too.
+.PP
+展開の際にパッチが適用された場合、\fB.pc/applied\-patches\fP ファイルが作成される。
+.PP
+\fBビルド\fP
+.PP
+All original tarballs found in the current directory are extracted in a
+temporary directory by following the same logic as for the unpack, the
+debian directory is copied over in the temporary directory, and all patches
+except the automatic patch (\fBdebian\-changes\-\fP\fIversion\fP or
+\fBdebian\-changes\fP, depending on \fB\-\-single\-debian\-patch\fP) are applied. The
+temporary directory is compared to the source package directory. When the
+diff is non\-empty, the build fails unless \fB\-\-single\-debian\-patch\fP or
+\fB\-\-auto\-commit\fP has been used, in which case the diff is stored in the
+automatic patch.  If the automatic patch is created/deleted, it's
+added/removed from the series file and from the \fBquilt\fP metadata.
+
+バイナリファイルに対する変更は diff では表現できないため、メンテナが修正されたバイナリファイルを debian tar アーカイブに
+(\fBdebian/source/include\-binaries\fP に格納することで)
+含めておくことを熟考の上決定しない限り、処理の失敗を引き起こす。debian
+サブディレクトリ内にバイナリファイルがあった場合も、\fBdebian/source/include\-binaries\fP
+によりホワイトリスト設定されていない限り、ビルドの失敗を引き起こす。
+
+設定を行うことで、debian tar アーカイブを生成する際に、更新された debian ディレクトリと修正されたバイナリのリストが使用される。
+
+The automatically generated diff doesn't include changes on VCS specific
+files as well as many temporary files (see default value associated to \fB\-i\fP
+option in the \fB\-\-help\fP output). In particular, the \fB.pc\fP directory used by
+\fBquilt\fP is ignored during generation of the automatic patch.
+
+Note: \fBdpkg\-source\fP \fB\-\-before\-build\fP (and \fB\-\-build\fP) will ensure that all
+patches listed in the series file are applied so that a package build always
+has all patches applied. It does this by finding unapplied patches (they are
+listed in the \fBseries\fP file but not in \fB.pc/applied\-patches\fP), and if the
+first patch in that set can be applied without errors, it will apply them
+all. The option \fB\-\-no\-preparation\fP can be used to disable this behavior.
+
+.PP
+\fB変更の記録\fP
+.TP 
+\fB\-\-commit\fP [\fIdirectory\fP] [\fIpatch\-name\fP] [\fIpatch\-file\fP]
+Generates a patch corresponding to the local changes that are not managed by
+the \fBquilt\fP patch system and integrates it in the patch system under the
+name \fIpatch\-name\fP. If the name is missing, it will be asked
+interactively. If \fIpatch\-file\fP is given, it is used as the patch
+corresponding to the local changes to integrate. Once integrated, an editor
+is launched so that you can edit the meta\-information in the patch header.
+
+\fIpatch\-file\fP
+の指定は、予め生成されたパッチファイルを用いたビルドに失敗した際に有用であり、そのため、指定されたファイルは統合後に削除される。パッチファイルに含まれている変更点は、ツリーに予め適用されている必要があり、パッチによって修正されるファイルは、その他の記録されていない変更が行われていてはならない点にも留意すること。
+
+If the patch generation detects modified binary files, they will be
+automatically added to \fBdebian/source/include\-binaries\fP so that they end up
+in the debian tarball (exactly like \fBdpkg\-source \-\-include\-binaries
+\-\-build\fP would do).
+.PP
+\fBビルドオプション\fP
+.TP 
+\fB\-\-allow\-version\-of\-quilt\-db=\fP\fIversion\fP
+Allow \fBdpkg\-source\fP to build the source package if the version of the
+\fBquilt\fP metadata is the one specified, even if \fBdpkg\-source\fP doesn't know
+about it. Effectively this says that the given version of the \fBquilt\fP
+metadata is compatible with the version 2 that \fBdpkg\-source\fP currently
+supports. The version of the \fBquilt\fP metadata is stored in \fB.pc/.version\fP.
+.TP 
+\fB\-\-include\-removal\fP
+削除されたファイルを無視せず、それらを自動生成されたパッチに含める。
+.TP 
+\fB\-\-include\-timestamp\fP
+タイムスタンプを自動生成されたパッチに含める。
+.TP 
+\fB\-\-include\-binaries\fP
+debian tar アーカイブに修正されたバイナリをすべて追加し、併せて \fBdebian/source/include\-binaries\fP
+にも追加する。これらはその後のビルドの際にデフォルトで追加されるため、このオプションは不要である。
+.TP 
+\fB\-\-no\-preparation\fP
+明らかに適用されていないパッチを適用することによるビルドツリーの準備を行わない。
+.TP 
+\fB\-\-single\-debian\-patch\fP
+ビルドの際に生成される自動パッチの名前として、\fBdebian/patches/debian\-changes\-\fP\fIversion\fP の代わりに
+\fBdebian/patches/debian\-changes\fP
+を使用する。このオプションは、パッケージがバージョン管理システムで維持されているために、パッチセットが安定して生成できない場合特に有用であり、アップストリームと現状との差分を単一のパッチに格納する。このオプションを\fBdebian/source/local\-options\fP
+に設定した上で、例えば使用しているバージョン管理システムなどで Debian における変更点を確認するのに最適な方法を説明する
+\fBdebian/source/local\-patch\-header\fP ファイルを添付しておく。
+.TP 
+\fB\-\-create\-empty\-orig\fP
+主たるオリジナルの tar
+アーカイブについて、作成できない場合や補助のものが存在する場合であっても、空のファイルを自動的に生成する。このオプションは、ソースパッケージに複数のアップストリームのソフトウェアを単に集めたものであり、"主たる"
+ソフトウェアが存在しない場合に用いられることを想定している。
+.TP 
+\fB\-\-no\-unapply\-patches, \-\-unapply\-patches\fP
+By default, \fBdpkg\-source\fP will automatically unapply the patches in the
+\fB\-\-after\-build\fP hook if it did apply them during \fB\-\-before\-build\fP. Those
+options allow you to forcefully disable or enable the patch unapplication
+process. Those options are only allowed in \fBdebian/source/local\-options\fP so
+that all generated source packages have the same behavior by default.
+.TP 
+\fB\-\-abort\-on\-upstream\-changes\fP
+The process fails if an automatic patch has been generated. This option can
+be used to ensure that all changes were properly recorded in separate
+\fBquilt\fP patches prior to the source package build. This option is not
+allowed in \fBdebian/source/options\fP but can be used in
+\fBdebian/source/local\-options\fP.
+.TP 
+\fB\-\-auto\-commit\fP
+The process doesn't fail if an automatic patch has been generated, instead
+it's immediately recorded in the \fBquilt\fP series.
+
+.PP
+\fB展開オプション\fP
+.TP 
+\fB\-\-skip\-debianization\fP
+アップストリームのソース上に、debian tar アーカイブの上書き展開を行わない。
+.TP 
+\fB\-\-skip\-patches\fP
+展開の最後に、パッチの適用を行わない。
+.
+.SS "3.0 (custom) 形式"
+これは特別な形式である。特定のソースパッケージ形式を示すものではなく、任意のファイルを用いてソースパッケージを作成する際に使用する形式である。
+.PP
+\fBビルドオプション\fP
+.PP
+すべてのオプション形式ではない引数は、生成されたソースパッケージに統合するファイルとみなされる。ファイルはあらかじめ存在している必要があり、カレントディレクトリに存在していることが望ましい。最低
+1 つのファイルを指定すること。
+.TP 
+\fB\-\-target\-format=\fP\fIvalue\fP
+\fBRequired\fP. Defines the real format of the generated source package.  The
+generated .dsc file will contain this value in its \fBFormat\fP field and not
+"3.0 (custom)".
+.
+.SS "3.0 (git) 形式"
+この形式は実験段階のものである。
+.PP
+この形式のソースパッケージは、パッケージのソースを保持する単一の git bundle である、git リポジトリ \fB.git\fP
+から構成される。shallow git clone がリビジョン保持に使用する \fB.gitshallow\fP ファイルも含まれる場合がある。
+.PP
+\fB展開\fP
+.PP
+この git bundle は git リポジトリとしてターゲットディレクトリに複製される。gitshallow ファイルがある場合は、複製された
+git リポジトリ内に `.git/shallow` としてインストールされる。
+.PP
+デフォルトで、新しいリポジトリはオリジナルのソースがチェックアウトされたものと同じブランチとなっている。(通常は "master"
+だが、それに限らない。) それ以外のブランチは `remotes/origin` から利用することができる。
+.PP
+\fBビルド\fP
+.PP
+先に進む前に、無視すべきもの以外でコミットされていない変更がないことを担保するためのチェックが行われる。
+.PP
+git リポジトリの bundle を生成する際には \fBgit\-bundle\fP(1)
+が使用される。デフォルトで、リポジトリ内のすべてのブランチとタグが bundle に含められる。
+.PP
+\fBビルドオプション\fP
+.TP 
+\fB\-\-git\-ref=\fP\fIref\fP
+Allows specifying a git ref to include in the git bundle. Use disables the
+default behavior of including all branches and tags. May be specified
+multiple times. The \fIref\fP can be the name of a branch or tag to include. It
+may also be any parameter that can be passed to \fBgit\-rev\-list\fP(1). For
+example, to include only the master branch, use \fB\-\-git\-ref=\fPmaster. To
+include all tags and branches, except for the private branch, use
+\fB\-\-git\-ref=\fP\-\-all \fB\-\-git\-ref=\fP^private
+.TP 
+\fB\-\-git\-depth=\fP\fInumber\fP
+shallow clone を作成する。作成の際、ヒストリを指定したリビジョン数に切り詰める。
+.SS "3.0 (bzr) 形式"
+この形式は実験段階である。これは bzr リポジトリを含む単一の tar アーカイブを生成する。
+.PP
+\fB展開\fP
+.PP
+tar アーカイブを展開した上で、現在のブランチをチェックアウトするために bzr が使用される。
+.PP
+\fBビルド\fP
+.PP
+先に進む前に、無視すべきもの以外でコミットされていない変更がないことを担保するためのチェックが行われる。
+.PP
+その後、ソースディレクトリ内のバージョン管理システム固有のファイルが一時ディレクトリにコピーされる。一時ディレクトリが tar
+アーカイブにされる前に、領域を節約するために、様々なクリーンアップ処理が行われる。
+.SH 診断メッセージ
+.SS "no source format specified in debian/source/format"
+The file \fBdebian/source/format\fP should always exist and indicate the
+desired source format. For backwards compatibility, format "1.0" is assumed
+when the file doesn't exist but you should not rely on this: at some point
+in the future \fBdpkg\-source\fP will be modified to fail when that file doesn't
+exist.
+
+"1.0" 形式は既に推奨される形式から外れており、新しい形式 ("3.0 (quilt)", "3.0 (native)")
+のいずれかを使用すべきであるが、\fBdpkg\-source\fP
+は、これを自動的には行わない。古い形式の使用を継続する場合、\fBdebian/source/format\fP 中で "1.0" を明示すべきである。
+.SS "the diff modifies the following upstream files"
+ソース形式として "1.0" を使用する場合、アップストリームのファイルを直接修正することは通常勧められない。これは変更点が隠蔽され、diff.gz
+ファイル内でドキュメント化されないままとなってしまうためである。変更点については、 debian
+ディレクトリ内にパッチとして保存し、ビルド時にこれを適用することが勧められる。複雑化を避ける意味では、この処理が組み込まれている "3.0
+(quilt)" 形式を使用してもよい。
+.SS "cannot represent change to \fIfile\fP"
+アップストリームのソースに対する変更は、通常パッチファイルに保存されるが、パッチでは、すべての変更を保持できるわけではない。パッチは平文テキストファイルの内容しか変更できない。これ以外の形式のファイルの内容を変更しようとすると
+(例えば普通のファイルをシンボリックリンクやディレクトリに変更するなど) 、このエラーメッセージが表示される。
+.SS "newly created empty file \fIfile\fP will not be represented in diff"
+パッチファイルでは空ファイルを作成することができないため、この変更はソースパッケージに保持されない。そのため警告が表示される。
+.SS "executable mode \fIperms\fP of \fIfile\fP will not be represented in diff"
+Patch files do not record permissions of files and thus executable
+permissions are not stored in the source package. This warning reminds you
+of that fact.
+.SS "special mode \fIperms\fP of \fIfile\fP will not be represented in diff"
+パッチファイルにファイルのパーミッション情報は保存されないため、パーミッションの変更はソースパッケージに保持されない。そのため警告が表示される。
+.SH ファイルフォーマット
+.SS debian/source/format
+このファイルはソースパッケージのビルドの際に使用される形式を記載した 1 行からなる (指定可能な形式は前述のとおり)。前後に空白を入れてはならない。
+.SS debian/source/include\-binaries
+このファイルには、debian tar アーカイブに含まれるバイナリファイルが (1 行に 1 ファイルずつ)
+リストされる。前後の空白は削除される。"#" で始まる行はコメント行と見なされスキップされる。空行も無視される。
+.SS debian/source/options
+This file contains a list of long options that should be automatically
+prepended to the set of command line options of a \fBdpkg\-source \-\-build\fP or
+\fBdpkg\-source \-\-print\-format\fP call. Options like \fB\-\-compression\fP and
+\fB\-\-compression\-level\fP are well suited for this file.
+.P
+各オプションは別々の行に記載する。空行や "#" から始まる行は無視される。記載の際に、先頭の "\-\-"
+は省略する必要がある。また短いオプションは指定できない。"="
+の前後に空白を入れることは可能である。また値を囲むためにクオートを行うこともできる。以下にファイルへの設定例を示す:
+.P
+  # let dpkg\-source create a debian.tar.bz2 with maximal compression
+  compression = "bzip2"
+  compression\-level = 9
+  # use debian/patches/debian\-changes as automatic patch
+  single\-debian\-patch
+  # ignore changes on config.{sub,guess}
+  extend\-diff\-ignore = "(^|/)(config.sub|config.guess)$"
+.P
+注記: \fBformat\fP オプションをこのファイルで設定することはできない。代わりに \fBdebian/source/format\fP を使用すること。
+.SS debian/source/local\-options
+ファイルが生成されたソースパッケージに含まれない点を除き、\fBdebian/source/options\fP
+とまったく同等である。これはメンテナ固有の設定や、ソースパッケージを管理しているバージョン管理システム固有の設定を保持する際に有用である。
+.SS "debian/source/local\-patch\-header \fRand\fP debian/source/patch\-header"
+"2.0" もしくは "3.0 (quilt)"
+形式で生成される自動パッチのトップに配置する、フリーフォーマットのテキスト。\fBlocal\-patch\-header\fP
+は生成されたソースパッケージに含まれないが、\fBpatch\-header\fP は含まれる。
+.SS debian/patches/series
+This file lists all patches that have to be applied (in the given order)  on
+top of the upstream source package. Leading and trailing spaces are
+stripped. Lines starting with "#" are comments and are skipped. Empty lines
+are ignored. Remaining lines start with a patch filename (relative to the
+\fBdebian/patches/\fP directory) up to the first space character or the end of
+line. Optional \fBquilt\fP options can follow up to the end of line or the
+first "#" preceded by one or more spaces (which marks the start of a comment
+up to the end of line).
+.SH バグ
+標準の出力フィールドの設定と比較すると、フィールドの上書きが発生する箇所は混乱を引き起こす。
+.SH 関連項目
+\fBdpkg\-deb\fP(1), \fBdpkg\fP(1), \fBdselect\fP(1).
+.SH 翻訳者
+高橋 基信 <monyo@monyo.com>.
+喜瀬 浩 <kise@fuyuneko.jp>.
+関戸 幸一 <sekido@mbox.kyoto-inet.or.jp>.
+鍋谷 栄展 <nabe@debian.or.jp>.
+倉澤 望 <nabetaro@debian.or.jp>.
+石川 睦 <ishikawa@linux.or.jp>.
+鵜飼 文敏 <ukai@debian.or.jp>.
+中野 武雄 <nakano@apm.seikei.ac.jp>.
+.SH 翻訳校正
+Debian JP Documentation ML <debian-doc@debian.or.jp>.

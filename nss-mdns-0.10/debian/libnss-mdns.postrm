@@ -3,7 +3,7 @@ set -e
 #DEBHELPER#
 
 log() {
-    echo "$*"
+    echo "libnss-mdns.postrm: $*"
 }
 
 remove_mdns() {
@@ -13,6 +13,7 @@ remove_mdns() {
         log "Could not find /etc/nsswitch.conf."
         return
     fi
+    log "Removing mdns from NSS setup"
     perl -i -pe '
         my @remove=(
             "mdns4_minimal [NOTFOUND=return]",
@@ -39,5 +40,12 @@ remove_mdns() {
 action="$1"
 
 if [ "$action" = remove ]; then
-    remove_mdns
+    # as recommended by
+    # <https://lists.debian.org/debian-devel/2013/04/msg00656.html>
+    instances="$(dpkg-query -f '${db:Status-Abbrev} ${binary:Package}\n' -W libnss-mdns | grep -v '^.n' | wc -l)"
+    if [ "$instances" = 1 ]; then
+      remove_mdns
+    else
+      log "Not removing mdns from nsswitch.conf, $(( $instances - 1 )) architecture(s) still installed"
+    fi
 fi

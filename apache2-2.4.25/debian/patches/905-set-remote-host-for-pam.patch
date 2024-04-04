@@ -1,0 +1,83 @@
+diff --git a/modules/privsep/mod_privsep.c b/modules/privsep/mod_privsep.c
+index 682d00b..2648ad1 100644
+--- a/modules/privsep/mod_privsep.c
++++ b/modules/privsep/mod_privsep.c
+@@ -167,7 +167,8 @@ static int auth_pam_talker(int num_msg,
+ 
+ static int privsep_authenticate(const char **errormsg,
+ 				const char *user, const char *pass,
+-				server_rec *server_conf)
++				server_rec *server_conf,
++				const char *rhost)
+ {
+     int rv;
+     auth_pam_userinfo userinfo = { user, pass };
+@@ -183,6 +184,16 @@ static int privsep_authenticate(const char **errormsg,
+ 	return PRIVSEP_AUTH_GENERAL_ERROR;
+     }
+ 
++    /* set remote hostname */
++    if (rhost && rhost[0] != '\0') {
++        rv = pam_set_item(pamh, PAM_RHOST, rhost);
++        if (rv != PAM_SUCCESS) {
++	    *errormsg = pam_strerror(pamh, rv);
++	    pam_end(pamh, rv);
++	    return PRIVSEP_AUTH_GENERAL_ERROR;
++        }
++    }
++
+ #ifdef HAVE_PAM_FAIL_DELAY
+     /* We need to delay in client so we don't block other requests.
+        You also need to set "nodelay" flag in the apache auth configuration
+@@ -347,7 +358,7 @@ static void privsep_service_request (unsigned char *auth_key,
+ 	const char *errormsg = "success";
+ 
+ 	msg->retval = privsep_authenticate(&errormsg, path1, path2,
+-					       server_conf);
++					       server_conf, msg->rhost);
+ 	if (msg->retval != PRIVSEP_AUTH_GRANTED) {
+ 
+ 	} else if ((pw = getpwnam (path1)) < 0) {
+diff --git a/modules/privsep/mod_privsep.h b/modules/privsep/mod_privsep.h
+index 8946039..e179c41 100644
+--- a/modules/privsep/mod_privsep.h
++++ b/modules/privsep/mod_privsep.h
+@@ -97,6 +97,7 @@ typedef struct {
+   apr_fileperms_t               perms;
+   apr_finfo_t                   finfo;
+   privsep_token_t               token;
++  char                          rhost[64];  /* remote hostname */
+   /*
+     TODO - add remote address into request so that we can make
+     token hash include address so it can not be used for a
+diff --git a/modules/privsep/util_privsep_client.c b/modules/privsep/util_privsep_client.c
+index 8a0dc4a..d74af4c 100644
+--- a/modules/privsep/util_privsep_client.c
++++ b/modules/privsep/util_privsep_client.c
+@@ -37,6 +37,7 @@
+ #include "httpd.h"
+ #include "http_request.h"
+ #include "http_log.h"
++#include "http_core.h"
+ 
+ #include "mod_privsep.h"
+ #include "privsep.h"
+@@ -199,12 +200,18 @@ AP_DECLARE(privsep_authn_status) ap_privsep_authenticate(const request_rec *r,
+ {
+     privsep_message_t msg;
+     int result;
++    const char *rhost = NULL;
+ 
+     if(!privsep_inited)
+ 	return PRIVSEP_AUTH_GENERAL_ERROR;
+ 
+     memset(&msg, 0, sizeof(msg));
+     msg.command = privsep_command_authenticate;
++
++    rhost = ap_get_remote_host(r->connection, NULL, REMOTE_NOLOOKUP, NULL);
++    if (rhost)
++	strncpy(msg.rhost, rhost, sizeof(msg.rhost) - 1);
++
+     result = privsep_send_request(&msg, privsep_root_token, user, pass);
+ 
+     if(result == PRIVSEP_AUTH_GRANTED) {

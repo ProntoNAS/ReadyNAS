@@ -1,0 +1,57 @@
+From 99a7b88ea65968f906fbe96583cc9fd3dbbfc22d Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Fri, 26 Feb 2016 10:20:24 -0800
+Subject: [PATCH 08/12] al_eth: fix up phy state during shutdown
+
+There are a couple issues with how the network interfaces interact with
+the shutdown process:
+
+1) With WoL enabled, proper shutdown may be prevented by a pending WoL
+interrupt if a magic packet was sent while system was running.
+2) With WoL disabled, the phy remains powered on after shutdown.
+
+Fix these by setting the appropriate phy state (isolate or powerdown)
+during shutdown.
+---
+ drivers/net/ethernet/al/al_eth.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/drivers/net/ethernet/al/al_eth.c b/drivers/net/ethernet/al/al_eth.c
+index 4691a64..4dfb2cb 100644
+--- a/drivers/net/ethernet/al/al_eth.c
++++ b/drivers/net/ethernet/al/al_eth.c
+@@ -4543,6 +4543,23 @@ static int al_eth_suspend(struct pci_dev *pdev, pm_message_t state)
+ }
+ #endif /* CONFIG_PM */
+ 
++static void al_eth_shutdown(struct pci_dev *pdev)
++{
++	struct al_eth_adapter *adapter = pci_get_drvdata(pdev);
++	uint16_t val;
++	int rc;
++
++	rc = al_eth_mdio_read(&adapter->hal_adapter, adapter->phy_addr,
++					MDIO_DEVAD_NONE, MII_BMCR, &val);
++	if (rc != 0)
++		return;
++	if (adapter->wol)
++		val |= BMCR_ISOLATE;
++	else
++		val |= BMCR_PDOWN;
++	al_eth_mdio_write(&adapter->hal_adapter, adapter->phy_addr,
++				MDIO_DEVAD_NONE, MII_BMCR, val);
++}
+ 
+ static struct pci_driver al_eth_pci_driver = {
+ 	.name	   = DRV_MODULE_NAME,
+@@ -4553,6 +4570,7 @@ static struct pci_driver al_eth_pci_driver = {
+ 	.suspend  = al_eth_suspend,
+ 	.resume   = al_eth_resume,
+ #endif
++	.shutdown = al_eth_shutdown,
+ };
+ 
+ static int __init al_eth_init(void)
+-- 
+1.9.1
+

@@ -1,0 +1,33 @@
+From fe77e43fe442aeca0fb454f90727ac176fd3e503 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 1 Nov 2016 22:24:16 +0000
+Subject: [PATCH 16/21] resolver: Remove dangling resolv.conf symlink
+
+---
+ src/resolver.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/src/resolver.c b/src/resolver.c
+index b637e87..7cec5e1 100644
+--- a/src/resolver.c
++++ b/src/resolver.c
+@@ -132,6 +132,16 @@ static int resolvfile_export(void)
+ 
+ 	fd = open("/etc/resolv.conf", O_RDWR | O_CREAT | O_CLOEXEC,
+ 					S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
++	if (fd < 0 && errno == ENOENT) {
++		struct stat st;
++		if (lstat("/etc/resolv.conf", &st) || !S_ISLNK(st.st_mode)) {
++			err = -ENOENT;
++			goto failed;
++		}
++		unlink("/etc/resolv.conf");
++		fd = open("/etc/resolv.conf", O_RDWR | O_CREAT | O_CLOEXEC,
++					S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
++	}
+ 	if (fd < 0) {
+ 		err = -errno;
+ 		goto done;
+-- 
+2.1.4
+

@@ -1,0 +1,43 @@
+From c31b325ac93b28fdce13fbdb823d7ff93919185e Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard10@gmail.com>
+Date: Fri, 30 Jan 2015 12:15:46 -0800
+Subject: [PATCH 10/16] nmbd: Move browse.dat to LOCKDIR.
+
+By default, browse.dat lives in CACHEDIR, which is generally on disk.
+However, nmbd calls fflush on browse.dat regularly, which will spin
+up any spun-down disks.  So we'll move browse.dat to LOCKDIR, which
+is generally tmpfs.
+---
+ source3/nmbd/nmbd_serverlistdb.c | 2 +-
+ source3/smbd/lanman.c            | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/source3/nmbd/nmbd_serverlistdb.c b/source3/nmbd/nmbd_serverlistdb.c
+index 05dcb6c7482..9fcddcb4aba 100644
+--- a/source3/nmbd/nmbd_serverlistdb.c
++++ b/source3/nmbd/nmbd_serverlistdb.c
+@@ -300,7 +300,7 @@ void write_browse_list(time_t t, bool force_write)
+ 
+ 	updatecount++;
+ 
+-	fname = cache_path(SERVER_LIST);
++	fname = lock_path(SERVER_LIST);
+ 	if (!fname) {
+ 		return;
+ 	}
+diff --git a/source3/smbd/lanman.c b/source3/smbd/lanman.c
+index 6854527500d..fadf07ed652 100644
+--- a/source3/smbd/lanman.c
++++ b/source3/smbd/lanman.c
+@@ -1228,7 +1228,7 @@ static int get_session_info(uint32_t servertype,
+ 	char **lines;
+ 	bool local_list_only;
+ 	int i;
+-	char *slist_cache_path = cache_path(SERVER_LIST);
++	char *slist_cache_path = lock_path(SERVER_LIST);
+ 	if (slist_cache_path == NULL) {
+ 		return 0;
+ 	}
+-- 
+2.15.1
+

@@ -1,0 +1,51 @@
+From 2480277b9fc97c446e665eb5a668ac818f024d21 Mon Sep 17 00:00:00 2001
+From: Mitch Williams <mitch.a.williams@intel.com>
+Date: Fri, 6 Nov 2015 15:25:59 -0800
+Subject: [PATCH 031/224] i40evf: increase max number of queues
+
+Future devices will allow for more queue pairs, so allocate a netdev
+that can handle them. While we're at it, get rid of the separate
+MAX_TX/MAX_RX defines. Since we always get matched queue pairs, having
+these makes no sense.
+
+Change-ID: I0e3556cd9a962506e509eb7c0afa36b329e8cb51
+Signed-off-by: Mitch Williams <mitch.a.williams@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40evf/i40evf.h      | 3 +--
+ drivers/net/ethernet/intel/i40evf/i40evf_main.c | 3 +--
+ 2 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/i40evf/i40evf.h b/drivers/net/ethernet/intel/i40evf/i40evf.h
+index a6318c4..be1b72b 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40evf.h
++++ b/drivers/net/ethernet/intel/i40evf/i40evf.h
+@@ -97,8 +97,7 @@ struct i40e_vsi {
+ #define I40E_TX_DESC(R, i) (&(((struct i40e_tx_desc *)((R)->desc))[i]))
+ #define I40E_TX_CTXTDESC(R, i) \
+ 	(&(((struct i40e_tx_context_desc *)((R)->desc))[i]))
+-#define MAX_RX_QUEUES 8
+-#define MAX_TX_QUEUES MAX_RX_QUEUES
++#define MAX_QUEUES 16
+ 
+ #define I40EVF_HKEY_ARRAY_SIZE ((I40E_VFQF_HKEY_MAX_INDEX + 1) * 4)
+ #define I40EVF_HLUT_ARRAY_SIZE ((I40E_VFQF_HLUT_MAX_INDEX + 1) * 4)
+diff --git a/drivers/net/ethernet/intel/i40evf/i40evf_main.c b/drivers/net/ethernet/intel/i40evf/i40evf_main.c
+index b56adde..c64f38c 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40evf_main.c
++++ b/drivers/net/ethernet/intel/i40evf/i40evf_main.c
+@@ -2621,8 +2621,7 @@ static int i40evf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+ 
+ 	pci_set_master(pdev);
+ 
+-	netdev = alloc_etherdev_mq(sizeof(struct i40evf_adapter),
+-				   MAX_TX_QUEUES);
++	netdev = alloc_etherdev_mq(sizeof(struct i40evf_adapter), MAX_QUEUES);
+ 	if (!netdev) {
+ 		err = -ENOMEM;
+ 		goto err_alloc_etherdev;
+-- 
+1.9.1
+

@@ -1,0 +1,1 @@
+obj-m := vpd.o

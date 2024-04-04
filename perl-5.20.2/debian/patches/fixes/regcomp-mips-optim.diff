@@ -1,0 +1,39 @@
+From 253cdef84d56961d386cee911a0d1b32fe8a7fc0 Mon Sep 17 00:00:00 2001
+From: Niko Tyni <ntyni@debian.org>
+Date: Tue, 8 Jul 2014 23:04:30 +0300
+Subject: Downgrade the optimization of regcomp.c on mips and mipsel due to a
+ gcc-4.9 bug
+
+  % cat ~/t.pl
+  print ( (q{foo'} =~ /[^']+'/) ?  "ok\n" : "not ok\n" );
+  % perl ~/t.pl
+  ok
+  % ./miniperl ~/t.pl
+  not ok
+
+This only happens with -fPIC -ftree-vrp builds.
+It is a regression from gcc-4.8.
+
+Bug-Debian: http://bugs.debian.org/754054
+Bug: https://rt.perl.org/Ticket/Display.html?id=122817
+Patch-Name: fixes/regcomp-mips-optim.diff
+---
+ cflags.SH | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/cflags.SH b/cflags.SH
+index 54ce74c99..0c39d18f1 100755
+--- a/cflags.SH
++++ b/cflags.SH
+@@ -292,6 +292,11 @@ for file do
+     # or customize here
+ 
+     case "$file" in
++    regcomp) : work around http://bugs.debian.org/754054
++        case $archname in
++        mips-*|mipsel-*)
++            optimize="$optimize -fno-tree-vrp";;
++        esac;;
+     *) ;;
+ 
+     # Customization examples follow:

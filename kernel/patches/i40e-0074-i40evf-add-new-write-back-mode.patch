@@ -1,0 +1,81 @@
+From 9fd5f74ac991293180ad998bf9c56b361a96980a Mon Sep 17 00:00:00 2001
+From: Anjali Singhai Jain <anjali.singhai@intel.com>
+Date: Tue, 22 Dec 2015 14:25:07 -0800
+Subject: [PATCH 074/224] i40evf: add new write-back mode
+
+Add write-back on interrupt throttle rate timer expiration support
+for the i40evf driver, when running on X722 devices.
+
+Signed-off-by: Anjali Singhai Jain <anjali.singhai@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Acked-by: David Chang <dchang@suse.com>
+---
+ drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c |  6 ++++++
+ drivers/net/ethernet/intel/i40evf/i40e_txrx.c      | 16 ++++++++++++++++
+ drivers/net/ethernet/intel/i40evf/i40evf_main.c    |  5 +++++
+ 3 files changed, 27 insertions(+)
+
+diff --git a/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c b/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
+index 86aacb9..659d782 100644
+--- a/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
++++ b/drivers/net/ethernet/intel/i40e/i40e_virtchnl_pf.c
+@@ -1222,6 +1222,12 @@ static int i40e_vc_get_vf_resources_msg(struct i40e_vf *vf, u8 *msg)
+ 	if (vf->driver_caps & I40E_VIRTCHNL_VF_OFFLOAD_RX_POLLING)
+ 		vfres->vf_offload_flags |= I40E_VIRTCHNL_VF_OFFLOAD_RX_POLLING;
+ 
++	if (pf->flags & I40E_FLAG_WB_ON_ITR_CAPABLE) {
++		if (vf->driver_caps & I40E_VIRTCHNL_VF_OFFLOAD_WB_ON_ITR)
++			vfres->vf_offload_flags |=
++					I40E_VIRTCHNL_VF_OFFLOAD_WB_ON_ITR;
++	}
++
+ 	vfres->num_vsis = num_vsis;
+ 	vfres->num_queue_pairs = vf->num_queue_pairs;
+ 	vfres->max_vectors = pf->hw.func_caps.num_msix_vectors_vf;
+diff --git a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+index b3b1d34..063f670 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
++++ b/drivers/net/ethernet/intel/i40evf/i40e_txrx.c
+@@ -252,6 +252,22 @@ static bool i40e_clean_tx_irq(struct i40e_ring *tx_ring, int budget)
+ 	tx_ring->q_vector->tx.total_bytes += total_bytes;
+ 	tx_ring->q_vector->tx.total_packets += total_packets;
+ 
++	if (tx_ring->flags & I40E_TXR_FLAGS_WB_ON_ITR) {
++		unsigned int j = 0;
++		/* check to see if there are < 4 descriptors
++		 * waiting to be written back, then kick the hardware to force
++		 * them to be written back in case we stay in NAPI.
++		 * In this mode on X722 we do not enable Interrupt.
++		 */
++		j = i40evf_get_tx_pending(tx_ring);
++
++		if (budget &&
++		    ((j / (WB_STRIDE + 1)) == 0) && (j > 0) &&
++		    !test_bit(__I40E_DOWN, &tx_ring->vsi->state) &&
++		    (I40E_DESC_UNUSED(tx_ring) != tx_ring->count))
++			tx_ring->arm_wb = true;
++	}
++
+ 	netdev_tx_completed_queue(netdev_get_tx_queue(tx_ring->netdev,
+ 						      tx_ring->queue_index),
+ 				  total_packets, total_bytes);
+diff --git a/drivers/net/ethernet/intel/i40evf/i40evf_main.c b/drivers/net/ethernet/intel/i40evf/i40evf_main.c
+index a15c9c6..2d9b915 100644
+--- a/drivers/net/ethernet/intel/i40evf/i40evf_main.c
++++ b/drivers/net/ethernet/intel/i40evf/i40evf_main.c
+@@ -2511,6 +2511,11 @@ static void i40evf_init_task(struct work_struct *work)
+ 	if (adapter->vf_res->vf_offload_flags &
+ 		    I40E_VIRTCHNL_VF_OFFLOAD_WB_ON_ITR)
+ 		adapter->flags |= I40EVF_FLAG_WB_ON_ITR_CAPABLE;
++
++	if (adapter->vf_res->vf_offload_flags &
++	    I40E_VIRTCHNL_VF_OFFLOAD_WB_ON_ITR)
++		adapter->flags |= I40EVF_FLAG_WB_ON_ITR_CAPABLE;
++
+ 	err = i40evf_request_misc_irq(adapter);
+ 	if (err)
+ 		goto err_sw_init;
+-- 
+1.9.1
+

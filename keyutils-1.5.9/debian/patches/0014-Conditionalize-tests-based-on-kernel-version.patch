@@ -1,0 +1,116 @@
+From: Christian Kastner <debian@kvr.at>
+Date: Thu, 29 May 2014 13:55:18 +0200
+Subject: Conditionalize tests based on kernel version
+
+Check the kernel version before running some tests to make sure that the
+currently running kernel supports the features they require.
+
+Forwarded: not-needed
+Last-Update: 2015-04-29
+
+---
+ tests/keyctl/invalidate/bad-args/runtest.sh |  9 +++++++++
+ tests/keyctl/invalidate/noargs/runtest.sh   |  9 +++++++++
+ tests/keyctl/invalidate/valid/runtest.sh    |  9 +++++++++
+ tests/keyctl/padd/useradd/runtest.sh        | 25 ++++++++++++++-----------
+ 4 files changed, 41 insertions(+), 11 deletions(-)
+
+diff --git a/tests/keyctl/invalidate/bad-args/runtest.sh b/tests/keyctl/invalidate/bad-args/runtest.sh
+index 72fc2c4..154c74c 100644
+--- a/tests/keyctl/invalidate/bad-args/runtest.sh
++++ b/tests/keyctl/invalidate/bad-args/runtest.sh
+@@ -7,6 +7,15 @@
+ # ---- do the actual testing ----
+ 
+ result=PASS
++
++if version_less_than `uname -r` 3.5
++then
++	echo "++++ SKIPPING TEST" >>$OUTPUTFILE
++	marker "SKIPPING DUE TO LACK OF KEY INVALIDATION"
++	toolbox_report_result $TEST PASS
++	exit 0
++fi
++
+ echo "++++ BEGINNING TEST" >$OUTPUTFILE
+ 
+ # check that a bad key ID fails correctly
+diff --git a/tests/keyctl/invalidate/noargs/runtest.sh b/tests/keyctl/invalidate/noargs/runtest.sh
+index 51cb045..d89795f 100644
+--- a/tests/keyctl/invalidate/noargs/runtest.sh
++++ b/tests/keyctl/invalidate/noargs/runtest.sh
+@@ -7,6 +7,15 @@
+ # ---- do the actual testing ----
+ 
+ result=PASS
++
++if version_less_than `uname -r` 3.5
++then
++	echo "++++ SKIPPING TEST" >>$OUTPUTFILE
++	marker "SKIPPING DUE TO LACK OF KEY INVALIDATION"
++	toolbox_report_result $TEST PASS
++	exit 0
++fi
++
+ echo "++++ BEGINNING TEST" >$OUTPUTFILE
+ 
+ # check that no arguments fails correctly
+diff --git a/tests/keyctl/invalidate/valid/runtest.sh b/tests/keyctl/invalidate/valid/runtest.sh
+index 6274164..58d79cd 100644
+--- a/tests/keyctl/invalidate/valid/runtest.sh
++++ b/tests/keyctl/invalidate/valid/runtest.sh
+@@ -7,6 +7,15 @@
+ # ---- do the actual testing ----
+ 
+ result=PASS
++
++if version_less_than `uname -r` 3.5
++then
++	echo "++++ SKIPPING TEST" >>$OUTPUTFILE
++	marker "SKIPPING DUE TO LACK OF KEY INVALIDATION"
++	toolbox_report_result $TEST PASS
++	exit 0
++fi
++
+ echo "++++ BEGINNING TEST" >$OUTPUTFILE
+ 
+ # create a keyring and attach it to the session keyring
+diff --git a/tests/keyctl/padd/useradd/runtest.sh b/tests/keyctl/padd/useradd/runtest.sh
+index 94c9609..4c675f5 100644
+--- a/tests/keyctl/padd/useradd/runtest.sh
++++ b/tests/keyctl/padd/useradd/runtest.sh
+@@ -57,17 +57,20 @@ then
+ 	md5sum_key $keyid
+ 	expect_payload payload "f128f774ede3fe931e7c6745c4292f40"
+ 
+-	marker "ADD SMALL BIG KEY"
+-	pcreate_key_by_size 128 big_key small @s
+-	expect_keyid keyid
+-	md5sum_key $keyid
+-	expect_payload payload "f09f35a5637839458e462e6350ecbce4"
+-
+-	marker "ADD HUGE BIG KEY"
+-	pcreate_key_by_size $((1024*1024-1)) big_key huge @s
+-	expect_keyid keyid
+-	md5sum_key $keyid
+-	expect_payload payload "e57598cd670284cf7d09e16ed9d4b2ac"
++	if ! version_less_than `uname -r` 3.13
++	then
++		marker "ADD SMALL BIG KEY"
++		pcreate_key_by_size 128 big_key small @s
++		expect_keyid keyid
++		md5sum_key $keyid
++		expect_payload payload "f09f35a5637839458e462e6350ecbce4"
++
++		marker "ADD HUGE BIG KEY"
++		pcreate_key_by_size $((1024*1024-1)) big_key huge @s
++		expect_keyid keyid
++		md5sum_key $keyid
++		expect_payload payload "e57598cd670284cf7d09e16ed9d4b2ac"
++	fi
+ fi
+ 
+ marker "CLEAR KEYRING"
+-- 
+2.0.0.rc4
+

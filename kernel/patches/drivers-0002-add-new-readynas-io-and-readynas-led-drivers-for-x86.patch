@@ -1,0 +1,4652 @@
+From 451cad4797e25d0e3fa09101add2820f90537e8e Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 8 Dec 2016 01:13:31 -0800
+Subject: [PATCH] add new readynas-io and readynas-led drivers for x86_64
+
+These drivers replace the old rn_gpio module.
+---
+ drivers/hwmon/pmbus/pmbus.c                |    7 +
+ drivers/hwmon/pmbus/pmbus_core.c           |   50 +-
+ drivers/platform/readynas/Kconfig          |   32 +-
+ drivers/platform/readynas/Makefile         |    5 +
+ drivers/platform/readynas/readynas-gpio.c  |  331 +++++
+ drivers/platform/readynas/readynas-io.c    | 2029 ++++++++++++++++++++++++++++
+ drivers/platform/readynas/readynas-io.h    |   46 +
+ drivers/platform/readynas/readynas-led.c   |  962 +++++++++++++
+ drivers/platform/readynas/readynas-oled.c  |  546 ++++++++
+ drivers/platform/readynas/readynas-pmbus.c |  550 ++++++++
+ include/linux/i2c.h                        |    2 +
+ 11 files changed, 4558 insertions(+), 2 deletions(-)
+ create mode 100644 drivers/platform/readynas/readynas-gpio.c
+ create mode 100644 drivers/platform/readynas/readynas-io.c
+ create mode 100644 drivers/platform/readynas/readynas-io.h
+ create mode 100644 drivers/platform/readynas/readynas-led.c
+ create mode 100644 drivers/platform/readynas/readynas-oled.c
+ create mode 100644 drivers/platform/readynas/readynas-pmbus.c
+
+diff --git a/drivers/hwmon/pmbus/pmbus.c b/drivers/hwmon/pmbus/pmbus.c
+index 0a74991..3ace654 100644
+--- a/drivers/hwmon/pmbus/pmbus.c
++++ b/drivers/hwmon/pmbus/pmbus.c
+@@ -216,6 +216,13 @@ static struct i2c_driver pmbus_driver = {
+ 
+ module_i2c_driver(pmbus_driver);
+ 
++/* Work-around for preventing PSUs not supporting PAGE command. */
++void __pmbus_set_id_table(const struct i2c_device_id *id_table)
++{
++	pmbus_driver.id_table = id_table;
++}
++EXPORT_SYMBOL_GPL(__pmbus_set_id_table);
++
+ MODULE_AUTHOR("Guenter Roeck");
+ MODULE_DESCRIPTION("Generic PMBus driver");
+ MODULE_LICENSE("GPL");
+diff --git a/drivers/hwmon/pmbus/pmbus_core.c b/drivers/hwmon/pmbus/pmbus_core.c
+index ba59eae..9e81a70 100644
+--- a/drivers/hwmon/pmbus/pmbus_core.c
++++ b/drivers/hwmon/pmbus/pmbus_core.c
+@@ -167,13 +167,20 @@ static int _pmbus_write_byte(struct i2c_client *client, int page, u8 value)
+ 	struct pmbus_data *data = i2c_get_clientdata(client);
+ 	const struct pmbus_driver_info *info = data->info;
+ 	int status;
++	unsigned short flags = client->flags;
++
++	if (flags & I2C_CLIENT_PEC_PMBUS_WRITE_ONLY)
++		client->flags |= I2C_CLIENT_PEC;
+ 
+ 	if (info->write_byte) {
+ 		status = info->write_byte(client, page, value);
++		client->flags = flags;
+ 		if (status != -ENODATA)
+ 			return status;
+ 	}
+-	return pmbus_write_byte(client, page, value);
++	status = pmbus_write_byte(client, page, value);
++	client->flags = flags;
++	return status;
+ }
+ 
+ int pmbus_write_word_data(struct i2c_client *client, u8 page, u8 reg, u16 word)
+@@ -304,9 +311,18 @@ static int _pmbus_read_byte_data(struct i2c_client *client, int page, int reg)
+ 	return pmbus_read_byte_data(client, page, reg);
+ }
+ 
++#include <linux/delay.h>
++static int pmbus_check_status_cml(struct i2c_client *client);
+ static void pmbus_clear_fault_page(struct i2c_client *client, int page)
+ {
+ 	_pmbus_write_byte(client, page, PMBUS_CLEAR_FAULTS);
++
++	/* Prevent receive-byte from immediately following.
++	 * CLEAR_FAULTS is write-only.
++	 * ACBEL PSU's bug fatally kills SMBus if i2cdetect follows this.
++	 */
++	msleep(10);
++	pmbus_check_status_cml(client);
+ }
+ 
+ void pmbus_clear_faults(struct i2c_client *client)
+@@ -333,6 +349,20 @@ static int pmbus_check_status_cml(struct i2c_client *client)
+ 	return 0;
+ }
+ 
++/* Work-around for PSUs that never clear unsupported command error.
++ * Filters checking of register support.
++ */
++static const u8 *supported_regs;
++
++const u8 *__pmbus_set_supported_regs(const u8 *regs)
++{
++	const u8 *p = supported_regs;
++
++	supported_regs = regs;
++	return p;
++}
++EXPORT_SYMBOL_GPL(__pmbus_set_supported_regs);
++
+ static bool pmbus_check_register(struct i2c_client *client,
+ 				 int (*func)(struct i2c_client *client,
+ 					     int page, int reg),
+@@ -341,6 +371,16 @@ static bool pmbus_check_register(struct i2c_client *client,
+ 	int rv;
+ 	struct pmbus_data *data = i2c_get_clientdata(client);
+ 
++	if (supported_regs) {
++		const u8 *p;
++
++		for (p = supported_regs; *p; p++)
++			if (reg == *p)
++				break;
++		if (!*p)
++			return false;
++	}
++
+ 	rv = func(client, page, reg);
+ 	if (rv >= 0 && !(data->flags & PMBUS_SKIP_STATUS_CHECK))
+ 		rv = pmbus_check_status_cml(client);
+@@ -1928,6 +1968,14 @@ out_kfree:
+ }
+ EXPORT_SYMBOL_GPL(pmbus_do_probe);
+ 
++int pmbus_num_attributes(struct i2c_client *client)
++{
++	struct pmbus_data *data = i2c_get_clientdata(client);
++
++	return data ? data->num_attributes : 0;
++}
++EXPORT_SYMBOL_GPL(pmbus_num_attributes);
++
+ int pmbus_do_remove(struct i2c_client *client)
+ {
+ 	struct pmbus_data *data = i2c_get_clientdata(client);
+diff --git a/drivers/platform/readynas/Kconfig b/drivers/platform/readynas/Kconfig
+index ff0f95f..5fc16f2 100644
+--- a/drivers/platform/readynas/Kconfig
++++ b/drivers/platform/readynas/Kconfig
+@@ -21,8 +21,38 @@ config HD44780_LCD
+ 
+ config READYNAS_LCD
+ 	tristate "NETGEAR ReadyNAS LCD driver"
+-	depends on HD44780_LCD
++	depends on HD44780_LCD || READYNAS_IO
+ 	---help---
+ 	  Alpha numeric LCD driver for NETGEAR ReadyNAS.
+ 
++config READYNAS_IO
++	tristate "NETGEAR ReadyNAS/X86_64 HW UI IO drivers"
++	depends on X86_64
++	select GPIO_IT87
++	select GPIO_NCT6775
++	---help---
++	  Pseudo GPIO and button handling drivers for NETGEAR ReadyNAS/X86_64.
++
++config READYNAS_LED
++	tristate "NETGEAR ReadyNAS LED drivers"
++	depends on READYNAS_IO
++	select NEW_LEDS
++	select LEDS_CLASS
++	---help---
++	  Disk and front panel LED drivers for NETGEAR ReadyNAS/X86_64.
++
++config READYNAS_OLED
++	tristate "NETGEAR ReadyNAS OLED driver"
++	depends on READYNAS_IO
++	select READYNAS_LCD
++	---help---
++	  OLED bitmap character display driver for NETGEAR ReadyNAS/X86_64.
++
++config READYNAS_PMBUS
++	tristate "NETGEAR ReadyNAS PMBus driver interface"
++	depends on READYNAS_IO
++	---help---
++	  lm-sensors compatible PMBus driver interface for NETGEAR
++	  ReadyNAS/X86_64.
++
+ endif # READYNAS_PLATFORMS
+diff --git a/drivers/platform/readynas/Makefile b/drivers/platform/readynas/Makefile
+index 5056b2c..eb8bd76 100644
+--- a/drivers/platform/readynas/Makefile
++++ b/drivers/platform/readynas/Makefile
+@@ -2,5 +2,10 @@
+ #
+ # Keep module loading order
+ #
++obj-$(CONFIG_READYNAS_IO)	+= readynas-io.o
++obj-$(CONFIG_READYNAS_IO)	+= readynas-gpio.o
+ obj-$(CONFIG_HD44780_LCD)	+= hd44780-lcd.o
++obj-$(CONFIG_READYNAS_OLED)	+= readynas-oled.o
+ obj-$(CONFIG_READYNAS_LCD)	+= readynas-lcd.o
++obj-$(CONFIG_READYNAS_LED)	+= readynas-led.o
++obj-$(CONFIG_READYNAS_PMBUS)	+= readynas-pmbus.o
+diff --git a/drivers/platform/readynas/readynas-gpio.c b/drivers/platform/readynas/readynas-gpio.c
+new file mode 100644
+index 0000000..f5a614c
+--- /dev/null
++++ b/drivers/platform/readynas/readynas-gpio.c
+@@ -0,0 +1,331 @@
++/*
++ * Platform-specific psuedo GPIO drivers for ReadyNAS x86_64 plarforms
++ *
++ * Copyright (c) 2016 Hiro Sugawara
++ */
++
++#include <linux/gpio.h>
++#include <linux/i2c.h>
++
++#include "readynas-io.h"
++
++/*
++ * PCA9505 I2C GPIO for RR[34]312
++ * GPIO functiolity is inplemented in drivers/gpio/gpio-pca953x.c
++ */
++#define	PCA9505_I2C_CHIPADDR	0x20
++static struct i2c_client *pca9505_i2c_client;
++
++static void pca9505_gpio_exit(void)
++{
++	if (!IS_ERR_OR_NULL(pca9505_i2c_client))
++		i2c_unregister_device(pca9505_i2c_client);
++	pca9505_i2c_client = NULL;
++}
++
++static int __init pca9505_gpio_init(void)
++{
++	static struct i2c_board_info pca9505_i2c_info = {
++		I2C_BOARD_INFO("pca9505", PCA9505_I2C_CHIPADDR),
++	};
++	int err;
++	struct i2c_adapter *i2c_adapter =
++				readynas_i2c_adapter_find(rn_i2c_adapters_ipch);
++
++	pr_info("%s: initializing PCA9505 GPIO.\n", __func__);
++
++	if (IS_ERR_OR_NULL(i2c_adapter)) {
++		pr_err("%s: failed to locate I2C adapter.\n", __func__);
++		return i2c_adapter ? PTR_ERR(i2c_adapter) : -ENODEV;
++	}
++
++	pca9505_i2c_client = i2c_new_device(i2c_adapter, &pca9505_i2c_info);
++	if (IS_ERR_OR_NULL(pca9505_i2c_client)) {
++		pr_err("%s: failed to allocate pca9505 I2C client.\n",
++			__func__);
++		return pca9505_i2c_client ?
++			PTR_ERR(pca9505_i2c_client) : -ENOMEM;
++	}
++
++	if ((err = device_attach(&pca9505_i2c_client->dev)) != 1) {
++		pr_err("%s: failed to attach pca9505 device.\n", __func__);
++		pca9505_gpio_exit();
++	} else if (!err)
++		err = -ENODEV;
++	else
++		err = 0;
++	return err;
++}
++
++/**
++ * RNS3220/42220 PIC-based GPIO for sataN LEDs
++ */
++static void rnx220pic_gpio_set(struct gpio_chip *gc,
++				unsigned int gpio_num, int val)
++{
++	int err;
++	u8 row = gpio_num / 4;
++	u8 mask = 1 << (gpio_num % 4);
++	union i2c_smbus_data i2c_data;
++	struct i2c_adapter *i2c_adapter =
++			readynas_i2c_adapter_find(rn_i2c_adapters_nct677x);
++
++	static u8 led_bitmap[3];
++	static const u8 led_reg[3] = {0x62, 0x60, 0x61};
++
++	if (IS_ERR_OR_NULL(i2c_adapter)) {
++		pr_err("%s: cannot find compatible I2C chip.\n", __func__);
++		return;
++	}
++
++	if (val)
++		led_bitmap[row] |= mask;
++	else
++		led_bitmap[row] &= ~mask;
++
++	i2c_data.byte = led_bitmap[row];
++	if ((err = i2c_smbus_xfer(i2c_adapter,
++			led_reg[row], 0,
++			I2C_SMBUS_WRITE, 0,
++			I2C_SMBUS_BYTE_DATA, &i2c_data)))
++		pr_err("%s: error in SMBus write (%d)\n", __func__, err);
++}
++
++static int gpio_direction_output_always(struct gpio_chip *gc,
++				unsigned int gpio_num, int val)
++{
++	return 0;
++}
++
++static struct gpio_chip rnx220pic_gpio_chip = {
++	.label		= "gpio_rnx220pic",
++	.owner		= THIS_MODULE,
++	.set		= rnx220pic_gpio_set,
++	.direction_output	= gpio_direction_output_always,
++	.base		= -1,
++	.ngpio		= 12,
++};
++
++static bool rnx220pic_gpio_inited;
++static int __init rnx220pic_gpio_init(void)
++{
++	int err = gpiochip_add(&rnx220pic_gpio_chip);
++
++	pr_info("%s: initializing RN3220/4220 PIC GPIO.\n", __func__);
++	if (err) {
++		pr_err("%s: failed to add RN3220/4220 PIC GPIO chip.\n",
++			__func__);
++		return err;
++	}
++	rnx220pic_gpio_inited = true;
++	return 0;
++}
++
++static void rnx220pic_gpio_exit(void)
++{
++	if (rnx220pic_gpio_inited)
++		gpiochip_remove(&rnx220pic_gpio_chip);
++}
++
++static struct marvell_data {
++	const int ndata;
++	const u8 reg0;
++	const u8 data[];
++}
++	marvell_preamble = { 4, 0xa8, {0x58, 0x02, 0x00, 0x00}},
++	marvell_init_1	=  { 4, 0xac, {0x10, 0x32, 0x54, 0x00}},
++	marvell_disk3_1	=  { 4, 0xac, {0x10, 0x37, 0x54, 0x00}},
++	marvell_disk3_2	=  { 4, 0xa8, {0x24, 0x02, 0x00, 0x00}},
++	marvell_disk3_3	=  { 1, 0xac, {0xfb}},
++	marvell_disk4_1	=  { 4, 0xac, {0x10, 0x32, 0x57, 0x00}},
++	marvell_disk4_2	=  { 4, 0xa8, {0x24, 0x02, 0x00, 0x00}},
++	marvell_disk4_3	=  { 1, 0xac, {0xef}, },
++	marvell_disk34_1 = { 4, 0xac, {0x10, 0x37, 0x57, 0x00}},
++	marvell_disk34_2 = { 4, 0xa8, {0x24, 0x02, 0x00, 0x00}},
++	marvell_disk34_3 = { 1, 0xac, {0xeb}},
++	marvell_disk_1	=  { 4, 0xac, {0x10, 0x37, 0x57, 0x00}},
++	marvell_disk_2	=  { 4, 0xa8, {0x24, 0x02, 0x00, 0x00}},
++	marvell_disk_3	=  { 1, 0xac, {0xff}};
++
++static struct marvell_data_seq {
++	int num;
++	struct marvell_data *md[];
++}
++	marvell_init = {
++	/* Set the GPIO to control the HDD LED. */
++	/* Set [AB:A8][def:0x00000008] memory to 0x00000258 */
++	/* Set GPIO_ACTIVITY_SELECT */
++		.num = 2,
++		.md = {&marvell_preamble, &marvell_init_1},
++	},
++	marvell_disk3 = {
++	/* Set [AB:A8] memory to 0x00000258,Set GPIO_ACTIVITY_SELECT */
++		.num = 4,
++		.md = {&marvell_preamble,
++			&marvell_disk3_1, &marvell_disk3_2, &marvell_disk3_3},
++	},
++	marvell_disk4 = {
++	/* Set [AF:AC] memory bit[19:16]/GPIO4/HDD2 to 7H. */
++	/* Set [AB:A8] memory to 0x00000258,Set GPIO_ACTIVITY_SELECT */
++	/* Set [AF:AC][def:0x00543210] memory bit[11:8]/GPIO2/HHD1 to 7h. */
++		.num = 4,
++		.md = {&marvell_preamble,
++			&marvell_disk4_1, &marvell_disk4_2, &marvell_disk4_3},
++		},
++	marvell_disk34 = {
++	/* Set [AB:A8] memory to 0x00000224,Set AC[bit2&4]/GPIO2&4 to 0 */
++		.num = 4,
++		.md = {&marvell_preamble,
++			&marvell_disk34_1, &marvell_disk34_2,&marvell_disk34_3},
++	},
++	marvell_disk = {
++	/* Set [AB:A8] memory to 0x00000224,Set AC[bit2&4]/GPIO2&4 to 1 */
++		.num = 4,
++		.md = {&marvell_preamble,
++		&marvell_disk_1, &marvell_disk_2, &marvell_disk_3},
++	};
++
++static void __iomem *marvell_mem;
++static void marvell_write(const struct marvell_data_seq *mds)
++{
++	/**************************************************
++	1. Enter the Marvell 9170 chip configure space
++	   through PCIE.  Bus 3,Device 0,Function 0.
++	2. Read the BAR Address (offset 0x24-0x27)
++	3. Enter the BAR memory space.
++	4. Write 0x258	to [AB:A8] ,Set  GPIO ACTIVITY_SELECT
++	5. HHD1 ,GPIO02 :	Set 0x00AC bit [11:8] to 7H
++	   HDD2, GPIO04 :	 Set 0x00AC bit [23:20] to 7H
++	6. Write 0x224	to [AB:A8] ,
++	7. HHD1 ,GPIO02 :	 Set bit 2 to on/off
++	   HHD2 ,GPIO04 :	Set Bit 4 to on/off
++	 ****************************************************/
++
++	int i;
++
++	for (i = 0; i < mds->num; i++) {
++		u8 reg = mds->md[i]->reg0;
++		int j, ndata = mds->md[i]->ndata;
++
++		for (j = 0; j < ndata; j++)
++			iowrite8(mds->md[i]->data[j], marvell_mem + reg++);
++	}
++}
++
++/* gpio_num: 0 => DISK3, 1 => DISK4 */
++static void rnx220marvell_gpio_set(struct gpio_chip *gc,
++				unsigned int gpio_num, int val)
++{
++	static const struct marvell_data_seq *mds[] = {
++		[0] = &marvell_disk,
++		[1] = &marvell_disk3,
++		[2] = &marvell_disk4,
++		[3] = &marvell_disk34
++	};
++	static u8 state;
++
++	u8 nstate = state;
++	u8 mask = 1 << gpio_num;
++
++	if (val)
++		nstate |= mask;
++	else
++		nstate &= ~mask;
++
++	if (nstate == state || nstate >= ARRAY_SIZE(mds))
++		return;
++	marvell_write(mds[nstate]);
++	state = nstate;
++}
++
++static struct gpio_chip rnx220marvell_gpio_chip = {
++	.label		= "gpio_rnx220marvell",
++	.owner		= THIS_MODULE,
++	.set		= rnx220marvell_gpio_set,
++	.direction_output	= gpio_direction_output_always,
++	.base		= -1,
++	.ngpio		= 2,
++};
++
++static unsigned int read_pci_config32(unsigned char bus,
++		unsigned char slot, unsigned char func, unsigned char offset)
++{
++	outl((1<<31) | (bus<<16) | (slot<<11) | (func<<8) | offset, 0xcf8);
++	return inl(0xcfc);
++}
++
++static int __init rnx220marvell_gpio_init(void)
++{
++#define MARVELL_BUS_ID   0x03
++#define MARVELL_DEV_ID   0x00
++#define MARVELL_FUNC   	 0x00
++#define MARVELL_BAR_ADDR 0x24
++
++	int err;
++	u32 marvell_reg;
++
++	pr_info("%s: initializing RNX220 Marvell GPIO.\n", __func__);
++	marvell_reg = read_pci_config32(MARVELL_BUS_ID, MARVELL_DEV_ID,
++					MARVELL_FUNC, MARVELL_BAR_ADDR);
++	if (!(marvell_mem = ioremap(marvell_reg, 1024))) {
++		pr_err("%s: failed to remap registers.\n", __func__);
++		return -EIO;
++	}
++
++	marvell_write(&marvell_init);
++	if ((err =  gpiochip_add(&rnx220marvell_gpio_chip))) {
++		pr_err("%s: failed to add GPIO chip.\n", __func__);
++		iounmap(marvell_mem);
++		marvell_mem = NULL;
++	}
++	return err;
++}
++
++static void rnx220marvell_gpio_exit(void)
++{
++	if (marvell_mem) {
++		gpiochip_remove(&rnx220marvell_gpio_chip);
++		iounmap(marvell_mem);
++		marvell_mem = NULL;
++	}
++}
++
++static const struct {
++	const char *compatible;
++	int (*init)(void);
++	void (*exit)(void);
++} rn_gpio_list[] = {
++	{ "rnx220",	rnx220pic_gpio_init,	rnx220pic_gpio_exit },
++	{ "rnx220",	rnx220marvell_gpio_init,rnx220marvell_gpio_exit },
++	{ "rrx312",	pca9505_gpio_init,	pca9505_gpio_exit },
++	{}
++};
++
++void __readynas_gpio_exit(int idx)
++{
++	while (--idx >= 0)
++		if (readynas_io_compatible(rn_gpio_list[idx].compatible) &&
++						rn_gpio_list[idx].exit)
++			rn_gpio_list[idx].exit();
++}
++
++void readynas_gpio_exit(void)
++{
++	__readynas_gpio_exit(ARRAY_SIZE(rn_gpio_list));
++}
++
++int __init readynas_gpio_init(void)
++{
++	int i;
++
++	for (i = 0; rn_gpio_list[i].compatible; i++) {
++		int err;
++
++		if (readynas_io_compatible(rn_gpio_list[i].compatible) &&
++			(err = rn_gpio_list[i].init())) {
++			__readynas_gpio_exit(i);
++			return err;
++		}
++	}
++	return 0;
++}
+diff --git a/drivers/platform/readynas/readynas-io.c b/drivers/platform/readynas/readynas-io.c
+new file mode 100644
+index 0000000..58747e8
+--- /dev/null
++++ b/drivers/platform/readynas/readynas-io.c	2017-01-05 11:48:17.563926263 -0800
+@@ -0,0 +1,1937 @@
++/*
++ * readynas-io.c - NETGEAR ReadyNAS Intel platform I/O assortment
++ *
++ * Copyright (c) 2015-2017 NETGEAR, Inc.
++ *
++ * Author: Hiro Sugawara <hiro.sugawara@netgear.com>
++ *
++ */
++#include <linux/module.h>
++#include <linux/pci.h>
++#include <linux/acpi.h>
++#include <linux/gpio.h>
++#include <linux/platform_device.h>
++#include <linux/device.h>
++#include <linux/interrupt.h>
++#include <linux/delay.h>
++#include <linux/dmi.h>
++#include <linux/timer.h>
++#include <linux/fs.h>
++#include <linux/proc_fs.h>
++#include <linux/input.h>
++#include <linux/kthread.h>
++#include <linux/i2c.h>
++
++#include "readynas-io.h"
++
++static struct proc_dir_entry *readynas_proc_root;
++
++struct proc_dir_entry *readynas_proc_create(const char *name,
++			umode_t mode,
++			const struct file_operations *fops,
++			void *data)
++{
++	return proc_create_data(name, mode, readynas_proc_root, fops, data);
++}
++
++/*
++ * Generic GPIO and model name search functions.
++ */
++static int gpio_match_labels(struct gpio_chip *gc, void *data)
++{
++	return !strcmp(gc->label, (const char *)data);
++}
++
++struct gpio_chip *rn_gpiochip_find_by_label(const char *label)
++{
++	return gpiochip_find((void *)label, gpio_match_labels);
++}
++
++/*
++ * List of supported NAS models.
++ * First element of each internal array is the nominal model name followed
++ * by up to 6 possible DMI name strings.
++ */
++static const struct compatible {
++	const char *nominal;
++	const char *models[7];
++} compatibles[] = {
++	{"ultra2", {"ReadyNAS-ProUltra2", NULL}},
++	{"ultra4", {"ReadyNAS-NVX-V2", "Ultra4", NULL}},
++	{"ultra6", {"FLAME6-2", "Ultra6", NULL}},
++	{"pro6",   {"FLAME6-MB", "Pro6", NULL}},
++	{"rn312",  {"ReadyNAS 312", "RN312", NULL}},
++	{"rn314",  {"ReadyNAS 314", "RN314", NULL}},
++	{"rn316",  {"ReadyNAS 316", "RN316", NULL}},
++	{"rn422",  {"ReadyNAS 422", "RN422", NULL}},
++	{"rn424",  {"ReadyNAS 424", "RN424", NULL}},
++	{"rn426",  {"ReadyNAS 426", "RN426", NULL}},
++	{"rn428",  {"ReadyNAS 428", "RN428", NULL}},
++	{"rnx16",  {"ReadyNAS 516", "RN516", "ReadyNAS 716", "RN716", "ReadyDATA 516", "RDD516", NULL}},
++	{"rnx24",  {"ReadyNAS 524", "RN524", "ReadyNAS 624", "RN624", NULL}},
++	{"rnx26",  {"ReadyNAS 526", "RN526", "ReadyNAS 626", "RN626", NULL}},
++	{"rnx28",  {"ReadyNAS 528", "RN528", "ReadyNAS 628", "RN628", NULL}},
++	{"rn2304", {"ReadyNAS 2304", "RN2304", NULL}},
++	{"rn2308", {"ReadyNAS 2308", "RN2308", NULL}},
++	{"rn2312", {"ReadyNAS 2312", "RN2312", NULL}},
++	{"rn3130", {"ReadyNAS 3130", "ReadyNAS3130", "RN3130", NULL}},
++	{"rn3138", {"ReadyNAS 3138", "ReadyNAS3138", "RN3138", NULL}},
++	{"rnx220", {"ReadyNAS 3220", "ReadyNAS3220", "RN3220",
++	            "ReadyNAS 4220", "ReadyNAS4220", "RN4220", NULL}},
++	{"rrx312", {"ReadyNAS 3312", "ReadyNAS3312", "RR3312",
++	            "ReadyNAS 4312", "ReadyNAS4312", "RR4312", NULL}},
++	{"rr4360", {"ReadyNAS 4360", "ReadyNAS4360", "RR4360", NULL}},
++	{}
++},
++gcompatibles[] = {
++	/* Group model names for submodel names. */
++	{"rn42x",  {"rn422", "rn424", "rn426", "rn428", NULL}},
++	{"rn422_4",  {"rn422", "rn424", NULL}},
++	{"rn426_8",  {"rn426", "rn428", NULL}},
++	{"rnx2x",  {"rnx24", "rnx26", "rnx28", NULL}},
++	{"rrx312_60",  {"rrx312", "rr4360", NULL}},
++	{"rn23xx",  {"rn2304", "rn2308", "rn2312", NULL}},
++	{"rn313x",  {"rn3130", "rn3138", NULL}},
++	{}
++};
++
++static bool model_compatible(char const *dmi, const struct compatible *model)
++{
++	const char * const *m = model->models;
++
++	while (*m) {
++		const char *p;
++
++		if (!strcmp(dmi, *m) || !*m)
++			return true;
++		/* Some model names may have an 'X' suffix. */
++		if ((p = strstr(dmi, *m))) {
++			p += strlen(*m);
++			if (!*p || isspace(*p) || *p == 'X' || *p == 'S')
++				return true;
++		}
++		m++;
++	}
++	return false;
++}
++
++bool readynas_io_compatible(char const *nominal)
++{
++	const char *dmi[2];
++	const struct compatible *model;
++	int i;
++	static bool inited;
++
++	dmi[0] = dmi_get_system_info(DMI_PRODUCT_NAME);
++	dmi[1] = dmi_get_system_info(DMI_PRODUCT_VERSION);
++
++	if (!inited) {
++		for (i = 0; i < ARRAY_SIZE(dmi); i++)
++			if (dmi[i] &&
++				strcmp(dmi[i], "ReadyNAS") &&
++				strcmp(dmi[i], "ReadyNAS  ")) {
++				pr_info("ReadyNAS model: %s\n", dmi[i]);
++				break;
++			}
++		inited = true;
++	}
++
++	for (model = &compatibles[0]; model->nominal; model++)
++		if (!strcmp(model->nominal, nominal))
++			break;
++
++	if (model->nominal) {
++		for (i = 0; i < ARRAY_SIZE(dmi); i++)
++			if (dmi[i] && model_compatible(dmi[i], model))
++				return true;
++		return false;
++	}
++
++	/* Submodel names? */
++	for (model = &gcompatibles[0]; model->nominal; model++)
++		if (!strcmp(model->nominal, nominal))
++			break;
++	if (!model->nominal) {
++		WARN(1, "%s: '%s' not found", __func__, nominal);
++		return false;
++	}
++
++	/* Recursive call for submodels. */
++	for (i = 0; model->models[i]; i++)
++		if (readynas_io_compatible(model->models[i]))
++			return true;
++
++	return false;
++}
++
++const char *rn_i2c_adapters_nct677x[] = { "NCT6775", "NCT6776", "NCT6779",
++					"nct6775", "nct6776", "nct6779", NULL };
++const char *rn_i2c_adapters_ipch[] = { "I801", "i801", NULL };
++
++static int i2c_name_match(struct device *dev, void *data)
++{
++	const char *devname = to_i2c_adapter(dev)->name;
++	const char **pp = data;
++
++	while (*pp)
++		if (strstr(devname, *pp++))
++			return 1;
++	return 0;
++}
++
++struct i2c_adapter *readynas_i2c_adapter_find(const char **i2c_names)
++{
++	struct device *i2c_dev = bus_find_device(&i2c_bus_type, NULL,
++						i2c_names, i2c_name_match);
++	return i2c_dev ? to_i2c_adapter(i2c_dev) : ERR_PTR(-ENODEV);
++}
++
++static int acpi_irq(void)
++{
++	int irq;
++	struct irq_desc *desc;
++
++	for (irq = 0; irq < nr_irqs; irq++) {
++		unsigned long flags;
++		struct irqaction *action;
++
++		if (!(desc = irq_to_desc(irq)))
++			continue;
++		raw_spin_lock_irqsave(&desc->lock, flags);
++		for (action = desc->action; action; action = action->next)
++			if (action->name && !strcmp(action->name, "acpi"))
++				break;
++		raw_spin_unlock_irqrestore(&desc->lock, flags);
++		if (action) {
++			pr_info("%s: acpi irq = %d\n", __func__, irq);
++			return irq;
++		}
++	}
++	pr_err("%s: acpi irq not found.\n", __func__);
++	return -ENODEV;
++}
++
++#define ACPI_IRQ(bw)	\
++	do {					\
++		if (!(bw)->irq) {		\
++			int __irq = acpi_irq();	\
++			if (__irq < 0)		\
++				return __irq;	\
++			(bw)->irq = __irq;	\
++		}				\
++	} while (0)
++
++/*
++ * Hitach HD44780 for RN314/Ultra4 LCD alphanumeric display
++ */
++static struct platform_device *rnx4_lcd_pdev;
++
++static int __init rnx4_lcd_init(void)
++{
++	static const struct gpio_lcd_map
++	rn314_lcd_map = {
++		.magic		= GPIO_LCD_MAGIC,
++		.gpio_label	= "gpio_ich",
++		.map = {
++			{"lcm-rs",	33},
++			{"lcm-rw",	19},
++			{"lcm-en",	32},
++			{"lcm-bl",	48, true},
++			{"lcm-bit4",	36},
++			{"lcm-bit5",	37},
++			{"lcm-bit6",	38},
++			{"lcm-bit7",	39},
++			{"lcm-lines",	2},
++			{"lcm-cols",	16},
++			{"lcm-data-4bit",1},
++			{}
++		}
++	},
++	ultra4_lcd_map = {
++		.magic		= GPIO_LCD_MAGIC,
++		.gpio_label	= "gpio_ich",
++		.map = {
++			{"lcm-rs",	33},
++			{"lcm-rw",	34},
++			{"lcm-en",	32},
++			{"lcm-bl",	48, true},
++			{"lcm-bit4",	36},
++			{"lcm-bit5",	37},
++			{"lcm-bit6",	38},
++			{"lcm-bit7",	39},
++			{"lcm-lines",	2},
++			{"lcm-cols",	16},
++			{"lcm-data-4bit",1},
++			{}
++		}
++	};
++
++	static struct rnx4_lcd_info {
++		const char *compatible;
++		struct platform_driver pdriver;
++		const struct gpio_lcd_map *map;
++	} rnx4_lcd_info[] = {
++		{
++			"rn314",
++			{ .driver = { .name	= "rn314-lcd", }, },
++			&rn314_lcd_map
++		}, {
++			"ultra4",
++			{ .driver = { .name	= "ultra4-lcd", }, },
++			&ultra4_lcd_map
++		},{}
++	};
++
++	int err;
++	struct rnx4_lcd_info *lcd =
++		__compatible_find(rnx4_lcd_info, compatible, 0, "");
++
++	pr_info("%s: initializing %s LCD front display.\n",
++		__func__, lcd->compatible);
++	if ((err = platform_driver_register(&lcd->pdriver))) {
++		pr_err("%s: failed to register %s LCD driver.\n", __func__,
++			lcd->compatible);
++		return err;
++	}
++
++	rnx4_lcd_pdev =
++		platform_device_register_simple(lcd->pdriver.driver.name,
++						-1, NULL, 0);
++	if (IS_ERR(rnx4_lcd_pdev))
++		err = PTR_ERR(rnx4_lcd_pdev);
++	else if (!rnx4_lcd_pdev)
++		err = -ENODEV;
++	else
++		platform_set_drvdata(rnx4_lcd_pdev, (void *)lcd->map);
++
++	if (err) {
++		pr_err("%s: failed to register %s LCD device.\n", __func__,
++			lcd->compatible);
++		platform_driver_unregister(&lcd->pdriver);
++		rnx4_lcd_pdev = NULL;
++	}
++
++	return err;
++}
++
++static void rnx4_lcd_exit(void)
++{
++	if (rnx4_lcd_pdev) {
++		struct device_driver *drv = rnx4_lcd_pdev->dev.driver;
++
++		platform_device_unregister(rnx4_lcd_pdev);
++		platform_driver_unregister(to_platform_driver(drv));
++		rnx4_lcd_pdev = NULL;
++	}
++}
++
++/*
++ * Common button event and state handling.
++ */
++#define	BUTTON_ATTR_IRQ		(0<<16)
++#define	BUTTON_ATTR_ACPI	(1<<16)
++#define MK_BUTTON(type, e)	(BUTTON_ATTR_##type | (e))
++#define IS_BUTTON(type, e)	((~0<<16)&(e) == BUTTON_ATTR_##type)
++
++/*
++ * struct button_work - front and rear panel button handling
++ *
++ * @name - button name appearing as name-button in procfs
++ * @gpio_label - handling GPIO's chip name
++ * @gpio_num - handling GPIO's pin number
++ * @gpio_active_low - GPIO pin's polatiry
++ * @gpio_desc - internally filled and used GPIO descriptor
++ * @key - input layer key code: KEY_*
++ * @input_dev - relevant input device struct pointer
++ * @input_dev_name - name string for input device (default: "rn_button")
++ * @worker_to_set - button handling work function (default: button_worker)
++ * @worker - button handling thread
++ * @prev_button_state - for polling
++ * @i2cfb_button_state - for FB button polling
++ * @button - internal button number: BUTTON_BACKUP, BUTTON_RESET, ...
++ * @type - event type: IRQ: spawns thread for each depress to poll for release,
++ *	  THREAD: continues to poll button for release,
++ *	  POLL: a common thread polls for press and release
++ *	  PRIVATE: device specific
++ * @init, @exit, @depressed - button-specific initializer, exiter,
++ *	  and depress sensor
++ * @irq: IRQ number for IRQ event button
++ * @init_inx -  it87-specific initialization index for shared button resource
++ * @notifier - internal optional notifier
++ * @private -  button-specific private item
++ * @private2 - button-specific private item
++ */
++enum button_num {
++	BUTTON_BACKUP	= 0,
++	BUTTON_RESET	= 1,
++	BUTTON_UID	= 2,
++
++	BUTTON_FB_BASE	= 8,
++	BUTTON_LEFT	= 8,
++	BUTTON_RIGHT,
++	BUTTON_UP,
++	BUTTON_DOWN,
++	BUTTON_OK,
++};
++
++enum button_event_type {
++	BUTTON_TYPE_NONE	= 0,
++	BUTTON_TYPE_PRIVATE,
++	BUTTON_TYPE_IRQ,
++	BUTTON_TYPE_THREAD,
++	BUTTON_TYPE_POLL,
++
++	BUTTON_TYPE_SUBWORK	= 0x10000,
++	BUTTON_TYPE_NOBOUNCE	= 0x20000,
++};
++#define BUTTON_TYPE(bw)	((bw)->type & 0xffff)
++
++static struct button_work {
++	const char *name;
++	const char *gpio_label;
++	char *irq_name;
++	unsigned int gpio_num;
++	bool	gpio_active_low;
++	struct	gpio_desc *gpio_desc;
++	unsigned int	key;
++	struct	input_dev *input_dev;
++	const char *input_dev_name;
++	work_func_t	worker_to_set;
++	struct	work_struct worker;
++	unsigned int button;
++	enum	button_event_type type;
++	bool	busy;
++	int  (*init)(struct button_work *);
++	void (*exit)(struct button_work *);
++	int  (*depressed)(struct button_work *);
++	int	prev_button_state;
++	u8	i2cfb_button_state;
++	struct proc_dir_entry *status_proc;
++	int  irq;
++	int  init_inx;
++	void (*reporter)(struct button_work *, unsigned int);
++	void (*notifier)(struct button_work *, bool);
++	void *private;
++	void *private2;
++} *button_work;	/* Point to platform-specific button array. */
++
++/* TODO: Not re-entrant */
++static const char *button_type_str(struct button_work *bw)
++{
++	static char buf[10];
++
++	const char *p = "UNKWON";
++
++	switch (BUTTON_TYPE(bw)) {
++	case BUTTON_TYPE_IRQ:
++		sprintf(buf, "IRQ#%d", bw->irq);
++		p = (const char *)buf; break;
++	case BUTTON_TYPE_POLL:
++		p = "POLL"; break;
++	case BUTTON_TYPE_THREAD:
++		p = "THREAD"; break;
++	case BUTTON_TYPE_PRIVATE:
++		p = "PRIVATE"; break;
++	default:
++		break;
++	}
++	return p;
++}
++
++static void button_reporter(struct button_work *bw, unsigned int state)
++{
++	if (bw->reporter)
++		bw->reporter(bw, state);
++	else {
++		if (bw->input_dev) {
++			input_event(bw->input_dev, EV_KEY, bw->key, !!state);
++			input_sync(bw->input_dev);
++		}
++		if (bw->notifier)
++		bw->notifier(bw, !!state);
++	}
++}
++
++static void button_worker(struct work_struct *work)
++{
++	struct button_work *bw = container_of(work, struct button_work, worker);
++
++	if (!(bw->type & BUTTON_TYPE_NOBOUNCE))
++		msleep_interruptible(10);
++
++	if (bw->depressed(bw) > 0) {
++		button_reporter(bw, 1);
++		while (bw->depressed(bw) > 0)
++			msleep_interruptible(10);
++		button_reporter(bw, 0);
++	}
++	bw->busy = false;
++}
++
++static void schedule_button_work(unsigned int button)
++{
++	struct button_work *bw;
++
++	for (bw = button_work; bw->name; bw++) {
++		if (bw->button != button || !bw->depressed)
++			continue;
++		else if (bw->busy || bw->depressed(bw) <= 0)
++			return;
++
++		bw->busy = true;
++		switch (BUTTON_TYPE(bw)) {
++		case BUTTON_TYPE_IRQ:
++			schedule_work(&bw->worker);
++			break;
++		case BUTTON_TYPE_THREAD:
++			button_worker(&bw->worker);
++			break;
++		default:
++			break;
++		}
++		return;
++	}
++}
++
++static int setup_gpio_input(struct button_work *bw)
++{
++	int err;
++	struct gpio_desc *gd;
++	struct gpio_chip *gc = rn_gpiochip_find_by_label(bw->gpio_label);
++
++	if (IS_ERR_OR_NULL(gc)) {
++		pr_err("%s: cannot find button GPIO %s.\n",
++					__func__, bw->gpio_label);
++		return gc ? PTR_ERR(gc) : -ENODEV;
++	}
++
++	gd = gpiochip_get_desc(gc, bw->gpio_num);
++	if (IS_ERR_OR_NULL(gd)) {
++		pr_err("%s: cannot find button GPIO %s:%d.\n",
++			 __func__, bw->gpio_label, bw->gpio_num);
++		return gd ? PTR_ERR(gd) : -ENODEV;
++	}
++
++	if (bw->gpio_active_low)
++		set_bit(FLAG_ACTIVE_LOW, &gd->flags);
++	err = gpiod_direction_input(gd);
++	if (err) {
++		pr_err("%s: failed to set GPIO %s:%d to input (%d).\n",
++			 __func__, bw->gpio_label, bw->gpio_num, err);
++		return err;
++	}
++	bw->gpio_desc = gd;
++	return 0;
++}
++
++/*
++ * ACPI event based button handling.
++ */
++static void acpi_notify(struct acpi_device *device, u32 button)
++{
++	schedule_button_work(MK_BUTTON(ACPI, button));
++}
++
++static inline int acpi_add(struct acpi_device *device) { return 0; }
++static inline int acpi_remove(struct acpi_device *device) { return 0; }
++static const struct acpi_device_id button_device_ids[] = {
++	{ "ACPI0006", 0 },
++	{},
++};
++
++static struct acpi_driver acpi_driver = {
++	.name = "ACPI Button",
++	.class = "Button",
++	.ids = button_device_ids,
++	.ops = {
++		.add = acpi_add,
++		.remove = acpi_remove,
++		.notify = acpi_notify,
++	},
++};
++
++static int button_gpio_depressed(struct button_work *bw)
++{
++	return gpiod_get_value(bw->gpio_desc);
++}
++
++static int acpi_driver_registgered;
++static int button_acpi_init(struct button_work *bw)
++{
++	int err = 0;
++
++	pr_info("%s: installing ACPI button notifier for '%s'\n",
++		__func__, bw->name);
++	if (!acpi_driver_registgered)
++		err = acpi_bus_register_driver(&acpi_driver);
++	if (!err)
++		acpi_driver_registgered++;
++	return 0;
++}
++
++static void button_acpi_exit(struct button_work *bw)
++{
++	if (!--acpi_driver_registgered)
++		acpi_bus_unregister_driver(&acpi_driver);
++}
++
++#include <linux/mfd/core.h>
++#include <linux/mfd/lpc_ich.h>
++
++static int locate_acpi_devs(struct button_work *bw,
++				struct platform_device **pdevp,
++				struct pci_dev **pci_devp)
++{
++	struct device *dev;
++	struct gpio_chip *gc = rn_gpiochip_find_by_label(bw->gpio_label);
++
++	if (!gc || !(dev = gc->dev)) {
++		pr_err("%s: failed to find GPIO %s.\n",
++			__func__, bw->gpio_label);
++		return -ENODEV;
++	}
++
++	if (pdevp)
++		*pdevp = container_of(dev, struct platform_device, dev);
++	if (pci_devp)
++		*pci_devp = container_of(dev->parent, struct pci_dev, dev);
++	return ((*pci_devp)->vendor && (*pci_devp)->device) ? 0 : -ENODEV;
++}
++
++#define CONFIG_RN314_BUTTON_ACPI 0
++/* We have not discovered how to enable ACPI event for reset on RN314/316. */
++#if CONFIG_RN314_BUTTON_ACPI
++/*
++ * GPE0_EN for the GPIO input pin must be enabled.
++ * lpc_ich driver has set mfd_cell to the platforma device under the gpio
++ * name.
++ */
++#define	PCI_ICH_GPIO_ROUT	0xb8
++static int button_acpi_lpc_ich_init(struct button_work *bw)
++{
++	u32 gpe0_en, gpio_rout = 0;
++	const struct mfd_cell *mc;
++	struct platform_device *pdev;
++	struct pci_dev *pci_dev;
++	int err = locate_acpi_devs(bw, &pdev, &pci_dev);
++
++	pr_info("%s: initializing ACPI/LPC/ICH button for '%s'\n",
++		__func__, bw->name);
++	if (err)
++		return err;
++
++	if (!(mc = mfd_get_cell(pdev)))
++		return -ENODEV;
++
++	while (mc->name) {
++		if (!strcmp(mc->name, bw->gpio_label))
++			break;
++		mc++;
++	}
++	if (!mc->name)
++		return -ENODEV;
++
++	bw->private = pci_dev;
++	if ((err = button_acpi_init(bw)))
++		return err;
++
++	/* 00:no effect  01:SMI#  10:SCI  11:reserved */
++	pci_read_config_dword(pci_dev, PCI_ICH_GPIO_ROUT, &gpio_rout);
++	gpio_rout &= ~(3 << (bw->gpio_num * 2));
++	gpio_rout |= (2 << (bw->gpio_num * 2));
++	pci_write_config_dword(pci_dev, PCI_ICH_GPIO_ROUT, gpio_rout);
++
++	/* ICH_RES_GPE0 is for the bottom of GPE0_BLK or GPE0_STS. */
++	gpe0_en = mc->resources[ICH_RES_GPE0].start + 8;
++	outl(inl(gpe0_en)|(1 << (bw->gpio_num + 16)), gpe0_en);
++	return 0;
++}
++
++static void button_acpi_lpc_ich_exit(struct button_work *bw)
++{
++	button_acpi_exit(bw);
++}
++#endif
++
++static struct button_work button_work_rnx220[] = {
++	{
++		.name		= "reset",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 1,
++		.gpio_active_low	= 1,
++		.key	= KEY_RESTART,
++		.button = MK_BUTTON(ACPI, 176),
++		.type	= BUTTON_TYPE_THREAD,
++		.init = button_acpi_init,
++		.exit = button_acpi_exit,
++		.depressed = button_gpio_depressed,
++	},
++#if 0	/* Not working */
++	{
++		.name = "uid",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 52,
++		.gpio_active_low	= false,
++		.type	= BUTTON_TYPE_POLL,
++		.button = MK_BUTTON(ACPI, 177),
++		.depressed = button_gpio_depressed,
++	},
++#endif
++	{}
++};
++
++static irqreturn_t button_ich_irq_handler(int irq, void *arg)
++{
++	struct button_work *bw = arg;
++	struct gpio_chip *gc = bw->gpio_desc->chip;
++
++	if (gc->control(gc, MK_ICH_CMD_GPIO_IRQ_CHK(bw->gpio_num), NULL))
++		return IRQ_NONE;
++	schedule_work(&bw->worker);
++
++	gc->control(gc, MK_ICH_POL_GPIO_IRQ(bw->gpio_num, INV), NULL);
++	gc->control(gc, MK_ICH_CMD_GPIO_IRQ_ACK(bw->gpio_num), NULL);
++	return IRQ_HANDLED;
++}
++
++static void button_ich_irq_exit(struct button_work *bw)
++{
++	if (!IS_ERR_OR_NULL(bw->gpio_desc) &&
++		BUTTON_TYPE(bw) == BUTTON_TYPE_IRQ &&
++		bw->gpio_desc->chip &&
++		bw->gpio_desc->chip->control)
++		bw->gpio_desc->chip->control(
++				bw->gpio_desc->chip,
++				MK_ICH_CMD_GPIO_IRQ_SETUP(bw->gpio_num, NONE),
++				NULL);
++	free_irq(bw->irq, bw);
++	bw->gpio_desc = NULL;
++}
++
++static int button_ich_irq_init(struct button_work *bw)
++{
++	struct gpio_chip *gc = bw->gpio_desc->chip;
++	int err = 0;
++
++	if (!gc->control)
++		err = -ENODEV;
++	err = request_irq(bw->irq, button_ich_irq_handler,
++				IRQF_SHARED, bw->irq_name, bw);
++
++	if (!err)
++		err = gc->control(gc, MK_ICH_POL_GPIO_IRQ(bw->gpio_num, INV),
++					NULL);
++	if (!err)
++		err = gc->control(gc, MK_ICH_CMD_GPIO_IRQ_SETUP(
++						bw->gpio_num, SCI),
++					NULL);
++	if (err) {
++		pr_err("%s: gpio->control failed to register IRQ "
++			"for '%s' (%d).\n", __func__, bw->name, err);
++		button_ich_irq_exit(bw);
++	}
++	return err;
++}
++
++static struct button_work button_work_rn314[] = {
++	{
++		.name		= "backup",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 4,
++		.gpio_active_low	= 1,
++		.key	= KEY_COPY,
++		.button	= MK_BUTTON(ACPI, 187),
++		.type	= BUTTON_TYPE_THREAD,
++		.init	= button_acpi_init,
++		.exit	= button_acpi_exit,
++		.depressed = button_gpio_depressed,
++	},
++	{
++		.name		= "reset",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 5,
++		.gpio_active_low	= 1,
++		.key	= KEY_RESTART,
++/* We have not discovered how to enable ACPI event for reset on RN314... */
++#if CONFIG_RN314_BUTTON_ACPI
++		.button	= MK_BUTTON(ACPI, 176),
++		.type	= BUTTON_TYPE_THREAD,
++		.init	= button_acpi_lpc_ich_init,
++		.exit	= button_acpi_lpc_ich_exit,
++#else
++		.button	= BUTTON_RESET,
++		.type	= BUTTON_TYPE_POLL,
++#endif
++		.depressed = button_gpio_depressed,
++	},
++	{}
++};
++
++static struct button_work button_work_rn316[] = {
++	{
++		.name		= "reset",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 5,
++		.gpio_active_low	= 1,
++		.key	= KEY_RESTART,
++		.button	= BUTTON_RESET,
++		.type	= BUTTON_TYPE_POLL,
++		.depressed = button_gpio_depressed,
++	},
++	{}
++};
++
++static struct button_work button_work_rn516[] = {
++	{
++		.name		= "reset",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 1,
++		.gpio_active_low	= 1,
++		.key	= KEY_RESTART,
++		.button	= BUTTON_RESET,
++		.type	= BUTTON_TYPE_IRQ,
++		.irq	= 0,	/* ACPI */
++		.init	= button_ich_irq_init,
++		.exit	= button_ich_irq_exit,
++		.depressed = button_gpio_depressed,
++	},
++	{}
++};
++
++/*
++ * Ultra2/4/6 GPIO poll-base button handler
++ */
++static struct button_work button_work_ultra2_4[] = {
++	{
++		.name		= "backup",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 4,
++		.gpio_active_low	= 1,
++		.key	= KEY_COPY,
++		.button	= BUTTON_BACKUP,
++		.type	= BUTTON_TYPE_IRQ,
++		.irq	= 0,	/* ACPI */
++		.init	= button_ich_irq_init,
++		.exit	= button_ich_irq_exit,
++		.depressed = button_gpio_depressed,
++	},
++	{
++		.name		= "reset",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 5,
++		.gpio_active_low	= 1,
++		.key	= KEY_RESTART,
++		.button	= BUTTON_RESET,
++		.type	= BUTTON_TYPE_IRQ,
++		.irq	= 0,	/* ACPI */
++		.init	= button_ich_irq_init,
++		.exit	= button_ich_irq_exit,
++		.depressed = button_gpio_depressed,
++	},
++	{}
++};
++
++static struct button_work button_work_ultra6[] = {
++	{
++		.name		= "backup",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 15,
++		.gpio_active_low	= 1,
++		.key	= KEY_COPY,
++		.button	= BUTTON_BACKUP,
++		.type	= BUTTON_TYPE_POLL,
++		.depressed = button_gpio_depressed,
++	},
++	{
++		.name		= "reset",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 8,
++		.gpio_active_low	= 1,
++		.key	= KEY_RESTART,
++		.button	= BUTTON_RESET,
++		.type	= BUTTON_TYPE_POLL,
++		.depressed = button_gpio_depressed,
++	},
++	{}
++};
++
++static struct button_work button_work_pro6[] = {
++	{
++		.name		= "backup",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 15,
++		.gpio_active_low	= 0,
++		.key	= KEY_COPY,
++		.button	= BUTTON_BACKUP,
++		.type	= BUTTON_TYPE_POLL,
++		.depressed = button_gpio_depressed,
++	},
++	{
++		.name		= "reset",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 8,
++		.gpio_active_low	= 0,
++		.key	= KEY_RESTART,
++		.button	= BUTTON_RESET,
++		.type	= BUTTON_TYPE_POLL,
++		.depressed = button_gpio_depressed,
++	},
++	{}
++};
++
++/*
++ * IT87 GPIO interrupt-driven button handler
++ */
++static void button_worker_it87_debounce(struct work_struct *work)
++{
++	struct button_work *bw = container_of(work, struct button_work, worker);
++	struct irq_data *d = irq_get_irq_data(bw->irq);
++
++	button_worker(work);
++
++	if (d && d->chip && d->chip->irq_ack)
++		d->chip->irq_ack(d);
++}
++
++static void button_exit_it87_debounce(struct button_work *bw)
++{
++	irq_set_irq_type(bw->irq, IRQ_TYPE_NONE);
++	irq_set_chained_handler_and_data(bw->irq, NULL, NULL);
++}
++
++static void button_irq_it87_handler(struct irq_desc *desc)
++{
++	struct irq_data *data	= irq_desc_get_irq_data(desc);
++	struct button_work *bw	= irq_data_get_irq_handler_data(data);
++
++	bw->busy = true;
++	schedule_work(&bw->worker);
++}
++
++static int button_init_it87_debounce(struct button_work *bw)
++{
++	struct gpio_chip *gc = bw->gpio_desc->chip;
++	int err = 0;
++	int virq = gpio_to_irq(gc->base + bw->gpio_num);
++
++	if (virq < 0)
++		return virq;
++	bw->irq = virq;
++	irq_set_chained_handler_and_data(virq, button_irq_it87_handler, bw);
++	err = irq_set_irq_type(virq, IRQ_TYPE_LEVEL_LOW);
++	return err;
++}
++
++static struct button_work button_work_rn313x[] = {
++	{/* GP77 cannot generate IRQ. */
++		.name 		= "uid",
++		.gpio_label	= "gpio_it87",
++		.gpio_num	= 55,	/* a.k.a. "GP77" */
++		.button	= BUTTON_UID,
++		.type	= BUTTON_TYPE_POLL,
++		.depressed = button_gpio_depressed,
++	},
++	{
++		.name		= "reset",
++		.gpio_label	= "gpio_it87",
++		.gpio_num	= 21,	/* a.k.a. "GP35" */
++		.gpio_active_low	= 1,
++		.key		= KEY_RESTART,
++		.type		= BUTTON_TYPE_IRQ | BUTTON_TYPE_NOBOUNCE,
++		.irq	= -1,
++		.init	= button_init_it87_debounce,
++		.exit	= button_exit_it87_debounce,
++		.depressed	= button_gpio_depressed,
++		.worker_to_set	= button_worker_it87_debounce,
++	}, {}
++};
++
++/*
++ * RN42[24]/[56]2[468] Front Board button handler.
++ */
++#define I2CFB_I2C_CHIPADDR	0x1c
++
++#define I2CFB_ID		0x0
++#define I2CFB_LED_STATE		0x1
++#define I2CFB_LED_BRIGHTNESS	0x2
++#define I2CFB_BUTTON_EVENT	0x3
++#define I2CFB_BUTTON_STATE	0x4
++#define I2CFB_BUTTON_EVENT_MASK	0x5
++
++/*
++ * Compare current I2c reading with previous one.
++ */
++static void i2cfb_reporter(struct button_work *bw, unsigned int state)
++{
++	u8 diff;
++	struct button_work *sw;
++	int i2cret = i2c_smbus_read_byte_data((struct i2c_client *)bw->private2,
++						I2CFB_BUTTON_STATE);
++	if (i2cret < 0)
++		return;
++
++	if (!(diff = bw->i2cfb_button_state ^ (i2cret & 0xff)))
++		return;
++
++	for (sw = bw->private; sw->name; sw++) {
++		u8 button_mask = (1 << sw->gpio_num);
++
++		if (diff & button_mask)
++			button_reporter(sw, !!(i2cret & button_mask));
++	}
++
++	bw->i2cfb_button_state = i2cret;
++}
++
++/*
++ * FB button processor scheduled by GPIO2 IRQ.
++ */
++static void i2cfb_button_worker(struct work_struct *work)
++{
++	button_reporter(container_of(work, struct button_work, worker), 1);
++}
++
++static int i2cfb_button_depressed(struct button_work *sw)
++{
++	struct button_work *bw = sw->private;
++	int i2cret = i2c_smbus_read_byte_data((struct i2c_client *)bw->private2,
++						I2CFB_BUTTON_STATE);
++	if (i2cret < 0)
++		return i2cret;
++	return !!(i2cret & (1 << sw->gpio_num));
++}
++
++/*
++ * GPIO IRQ handler FB button events.
++ * Accessing I2c may sleep. Schedule work for processing.
++ * FB button events flip GPIO2 signal. Prepare for next event by inverting
++ * GPIO IRQ polarity.
++ */
++static void i2cfb_exit(struct button_work *bw)
++{
++	button_ich_irq_exit(bw);
++
++	if (!IS_ERR_OR_NULL(bw->private2))
++		i2c_unregister_device((struct i2c_client *)bw->private2);
++	bw->private2 = NULL;
++}
++
++static int i2cfb_init(struct button_work *bw)
++{
++	int err;
++	struct i2c_adapter *adapter;
++	struct i2c_client *client;
++
++	static struct i2c_board_info i2cfb_i2c_info = {
++		I2C_BOARD_INFO("i2cfb", I2CFB_I2C_CHIPADDR),
++	};
++
++	pr_info("%s: initializing I2C FB buttons %s:%d (%s)\n",
++		__func__, bw->gpio_label, bw->gpio_num, button_type_str(bw));
++
++	err = setup_gpio_input(bw);
++	if (err) {
++		pr_err("%s: failed to set up GPIO input.\n", __func__);
++		return err;
++	}
++
++	pr_info("%s: I2C adapter/chip addr %s/0x%x\n",
++		__func__, rn_i2c_adapters_ipch[0], I2CFB_I2C_CHIPADDR);
++	adapter = readynas_i2c_adapter_find(rn_i2c_adapters_ipch);
++	if (IS_ERR_OR_NULL(adapter)) {
++		pr_err("%s: failed to find I2C adapter.\n", __func__);
++		return adapter ? PTR_ERR(adapter) : -ENODEV;
++	}
++
++	client = i2c_new_device(adapter, &i2cfb_i2c_info);
++	if (IS_ERR_OR_NULL(client)) {
++		pr_err("%s: failed to allocate I2CFB client.\n", __func__);
++		return client ? PTR_ERR(client) : -ENOMEM;
++	}
++
++	bw->private2 = client;
++	if ((err = i2c_smbus_read_byte_data(client, I2CFB_ID)) < 0) {
++		pr_err("%s: failed to read a byte from I2C.\n", __func__);
++		goto exit;
++	}
++	if (err != 'F') {
++		pr_err("%s: ID='%02x' mismatches Front Board.", __func__, err);
++		err = -ENODEV;
++		goto exit;
++	}
++
++	if ((err = i2c_smbus_write_byte_data(client,
++						I2CFB_LED_BRIGHTNESS, 15))) {
++		pr_err("%s: failed to write a byte to I2C.\n", __func__);
++		goto exit;
++	}
++
++	if ((err = i2c_smbus_read_byte_data(client, I2CFB_BUTTON_STATE)) < 0) {
++		pr_err("%s: failed to read a byte from I2C.\n", __func__);
++		goto exit;
++	}
++	bw->i2cfb_button_state = err & 0xff;
++	if ((err = i2c_smbus_write_byte_data(client,
++						I2CFB_BUTTON_EVENT_MASK, 0))) {
++		pr_err("%s: failed to write a byte to I2C.\n", __func__);
++		goto exit;
++	}
++
++	if (BUTTON_TYPE(bw) == BUTTON_TYPE_IRQ) {
++		if (!strcmp(bw->gpio_label, "gpio_ich"))
++			err = button_ich_irq_init(bw);
++		else
++			err = -ENODEV;
++	}
++exit:
++	if (err)
++		i2cfb_exit(bw);
++	return err;
++}
++
++static struct button_work button_work_i2cfb[] = {
++	{
++		.name		= "left",
++		.gpio_num	= 0,	/* BUTTON_STATE bit number */
++		.key		= KEY_LEFT,
++		.input_dev_name	= "fb_button",
++		.depressed	= i2cfb_button_depressed,
++	}, {
++		.name		= "right",
++		.gpio_num	= 1,	/* BUTTON_STATE bit number */
++		.key		= KEY_RIGHT,
++		.input_dev_name	= "fb_button",
++		.depressed	= i2cfb_button_depressed,
++	}, {
++		.name		= "up",
++		.gpio_num	= 2,	/* BUTTON_STATE bit number */
++		.key		= KEY_UP,
++		.input_dev_name	= "fb_button",
++		.depressed	= i2cfb_button_depressed,
++	}, {
++		.name		= "down",
++		.gpio_num	= 3,	/* BUTTON_STATE bit number */
++		.key		= KEY_DOWN,
++		.input_dev_name	= "fb_button",
++		.depressed	= i2cfb_button_depressed,
++	}, {
++		.name		= "ok",
++		.gpio_num	= 4,	/* BUTTON_STATE bit number */
++		.key		= KEY_OK,
++		.input_dev_name	= "fb_button",
++		.depressed	= i2cfb_button_depressed,
++	}, {}
++};
++
++static struct button_work button_work_rn42x[] = {
++	{
++		.name		= "reset",
++		.gpio_label	= "gpio_it87",
++		.gpio_num	= 9,	/* i.e. "GP21" */
++		.gpio_active_low	= 1,
++		.key		= KEY_RESTART,
++		.type		= BUTTON_TYPE_IRQ | BUTTON_TYPE_NOBOUNCE,
++		.irq	= -1,
++		.init	= button_init_it87_debounce,
++		.exit	= button_exit_it87_debounce,
++		.depressed	= button_gpio_depressed,
++		.worker_to_set	= button_worker_it87_debounce,
++	}, {
++		.name		= "front-board",
++		.gpio_label	= "gpio_dnv.0",
++		.gpio_num	= 5,
++		.irq		= 0,	/* Set same as ACPI IRQ (9). */
++		.type		= BUTTON_TYPE_POLL |
++					BUTTON_TYPE_SUBWORK |
++					BUTTON_TYPE_NOBOUNCE,
++		.init		= i2cfb_init,
++		.exit		= i2cfb_exit,
++		.depressed	= button_gpio_depressed,
++		.reporter	= i2cfb_reporter,
++		.private	= &button_work_i2cfb,
++		.worker_to_set	= i2cfb_button_worker,
++	}, {}
++};
++
++static struct button_work button_work_rn526[] = {
++	{
++		.name		= "reset",
++		.gpio_label	= "gpio_it87",
++		.gpio_num	= 23,	/* i.e. "GP37" */
++		.gpio_active_low	= 1,
++		.key		= KEY_RESTART,
++		.type		= BUTTON_TYPE_IRQ | BUTTON_TYPE_NOBOUNCE,
++		.irq	= -1,
++		.init	= button_init_it87_debounce,
++		.exit	= button_exit_it87_debounce,
++		.depressed	= button_gpio_depressed,
++		.worker_to_set	= button_worker_it87_debounce,
++	}, {
++		.name		= "front-board",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= 2,
++		.irq		= 0,	/* Set same as ACPI IRQ (9). */
++		.type		= BUTTON_TYPE_IRQ |
++					BUTTON_TYPE_SUBWORK |
++					BUTTON_TYPE_NOBOUNCE,
++		.init		= i2cfb_init,
++		.exit		= i2cfb_exit,
++		.depressed	= button_gpio_depressed,
++		.reporter	= i2cfb_reporter,
++		.private	= &button_work_i2cfb,
++		.worker_to_set	= i2cfb_button_worker,
++	}, {}
++};
++
++/*
++ * RR[34]312 buttons
++ */
++#ifdef CONFIG_RRx312_60_UID_BUTTON
++/* RRx312/4360 have no UID button installed, Not tested. */
++extern void *rnled_get_info(const char *);
++extern int rnled_toggle(void *);
++static void notifier_rnx312_uid_led_toggle(struct button_work *bw,
++						bool depressed)
++{
++	if (depressed) {
++		if (!bw->private)
++			bw->private = rnled_get_info("readynas:blue:uid");
++		if (bw->private)
++			rnled_toggle(bw->private);
++	}
++}
++#endif
++
++static struct button_work button_work_rrx312_60[] = {
++	{
++		.name		= "reset",
++		.gpio_label	= "gpio_it87",
++		.gpio_num	= 31,	/* i.e. "GP47" */
++		.gpio_active_low	= 1,
++		.key	= KEY_RESTART,
++		.type		= BUTTON_TYPE_IRQ | BUTTON_TYPE_NOBOUNCE,
++		.irq	= -1,
++		.init	= button_init_it87_debounce,
++		.exit	= button_exit_it87_debounce,
++		.depressed	= button_gpio_depressed,
++		.worker_to_set	= button_worker_it87_debounce,
++	},
++#ifdef	CONFIG_RRx312_60_UID_BUTTON
++	/* RRx312/4360 have no UID button installed, Not tested. */
++	{
++		.name		= "uid",
++		.gpio_label	= "gpio_it87",
++		.gpio_num	= 49,	/* i.e. "GP71" */
++		.gpio_active_low	= 0,
++		.key	= KEY_FIND,
++		.type		= BUTTON_TYPE_POLL,
++		.depressed	= button_gpio_depressed,
++		.notifier	= notifier_rnx312_uid_led_toggle,
++	},
++#endif
++	{}
++};
++
++/*
++ * Array of compatible button handlers.
++ * Generic button state API.
++ */
++static struct button_set {
++	const char *compatible;
++	struct button_work *button_work;
++} button_set[] = {
++	{ "ultra2",	button_work_ultra2_4 },
++	{ "ultra4",	button_work_ultra2_4 },
++	{ "ultra6",	button_work_ultra6 },
++	{ "pro6",	button_work_pro6 },
++	{ "rn312",	button_work_rn314 },
++	{ "rn314",	button_work_rn314 },
++	{ "rn316",	button_work_rn316 },
++	{ "rn42x",	button_work_rn42x },
++	{ "rnx16",	button_work_rn516 },
++	{ "rnx24",	button_work_rn526 },
++	{ "rnx26",	button_work_rn526 },
++	{ "rnx28",	button_work_rn526 },
++	{ "rn313x",	button_work_rn313x },
++	{ "rnx220",	button_work_rnx220 },
++	{ "rrx312_60",	button_work_rrx312_60 },
++	{}
++};
++
++static int button_state_show(struct seq_file *s, void *v)
++{
++	struct button_work *bw = s->private;
++
++	seq_printf(s, "%d\n", bw->depressed(bw));
++	return 0;
++}
++
++static int button_state_proc_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, button_state_show, PDE_DATA(inode));
++}
++
++static const struct file_operations button_state_proc_fop = {
++	.open		= button_state_proc_open,
++	.read		= seq_read,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++};
++
++static int create_button_state_proc(struct button_work *bw)
++{
++	int err;
++	char name[strlen(bw->name) + strlen("-button") + 2];
++
++	snprintf(name, sizeof name, "%s-button", bw->name);
++	bw->status_proc = readynas_proc_create(name, 0444,
++						&button_state_proc_fop, bw);
++	err = bw->status_proc ? 0 : -EIO;
++	if (err)
++		pr_err("%s: failed to create procfs %s\n", __func__, name);
++	return err;
++}
++
++/*
++ * Polling mode button handler kthread
++ */
++#define POLL_INTERVAL_MIN	50
++#define POLL_INTERVAL_MAX	200
++static unsigned int	poll_interval = POLL_INTERVAL_MIN;
++static struct mutex	poller_lock;
++struct task_struct	*poller_kthread;
++
++static int button_thread_show(struct seq_file *s, void *v)
++{
++	mutex_lock(&poller_lock);
++	seq_printf(s, "%u\n", poller_kthread ? poller_kthread->pid : 0);
++	mutex_unlock(&poller_lock);
++	return 0;
++}
++
++static int button_poller(void *data)
++{
++	while (!kthread_should_stop()) {
++		struct button_work *bw;
++
++		for (bw = data; bw->name; bw++) {
++			int state;
++
++			if (BUTTON_TYPE(bw) != BUTTON_TYPE_POLL ||
++				(state = bw->depressed(bw)) ==
++					bw->prev_button_state)
++				continue;
++			if (!(bw->type & BUTTON_TYPE_NOBOUNCE)) {
++				msleep_interruptible(10);
++				if ((state = bw->depressed(bw)) ==
++						bw->prev_button_state)
++					continue;
++			}
++			button_reporter(bw, state);
++			bw->prev_button_state = state;
++		}
++		msleep_interruptible(poll_interval);
++	}
++	return 0;
++}
++
++static int button_poller_start(void)
++{
++	int err = 0;
++
++	mutex_lock(&poller_lock);
++	if (!poller_kthread) {
++		poller_kthread = kthread_run(button_poller, button_work,
++						"readynas-button");
++		if (IS_ERR(poller_kthread)) {
++			err = -ENOMEM;
++			poller_kthread = NULL;
++		}
++	}
++	mutex_unlock(&poller_lock);
++	return err;
++}
++
++static void button_poller_stop(void)
++{
++	mutex_lock(&poller_lock);
++	if (poller_kthread) {
++		kthread_stop(poller_kthread);
++		poller_kthread = NULL;
++	}
++	mutex_unlock(&poller_lock);
++}
++
++static ssize_t button_thread_write(struct file *file, const char __user *buffer,
++					size_t count, loff_t *off)
++{
++	size_t size = min_t(size_t, count, 10);
++	char buf[size];
++	unsigned int val;
++
++	copy_from_user(buf, buffer, size - 1);
++	buf[size - 1] = '\0';
++	if (kstrtouint(buf, 0, &val) < 0)
++		return -EINVAL;
++
++	if (val) {
++		if (val < POLL_INTERVAL_MIN)
++			val = POLL_INTERVAL_MIN;
++		if (val > POLL_INTERVAL_MAX)
++			val = POLL_INTERVAL_MAX;
++		poll_interval = val;
++		button_poller_start();
++	} else
++		button_poller_stop();
++	return count;
++}
++
++static int button_thread_proc_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, button_thread_show, PDE_DATA(inode));
++}
++
++static const struct file_operations button_thread_proc_fop = {
++	.open		= button_thread_proc_open,
++	.read		= seq_read,
++	.write		= button_thread_write,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++};
++
++struct proc_dir_entry *poller_proc;
++static int create_button_thread_proc(void)
++{
++	int err;
++
++	if (poller_proc)
++		return 0;
++
++	poller_proc = readynas_proc_create("button-poll", 0666,
++						&button_thread_proc_fop, NULL);
++	err = poller_proc ? 0 : -EIO;
++	if (err)
++		pr_err("%s: failed to create procfs button-poll\n", __func__);
++	return err;
++}
++
++/*
++ * Common button handler initializer/exiter
++ */
++static struct rn_input_dev {
++	struct input_dev *dev;
++	const char *name;
++	const __u16 bustype;
++} rn_input_devs[] = {
++	{
++		.name		= "rn_button",
++		.bustype	= BUS_HOST,
++	}, {
++		.name		= "fb_button",
++		.bustype	= BUS_HOST,
++	}, {}
++};
++
++static const char *button_input_dev_name(struct button_work *bw)
++{
++	return (bw->input_dev && bw->input_dev->name) ?
++					bw->input_dev->name : "button";
++}
++
++static void __button_exit(struct button_work *bw);
++static void __button_exit_one(struct button_work *bw)
++{
++	if (bw->status_proc) {
++		proc_remove(bw->status_proc);
++		bw->status_proc = NULL;
++	}
++	if (BUTTON_TYPE(bw) == BUTTON_TYPE_IRQ)
++		cancel_work_sync(&bw->worker);
++	if (bw->type & BUTTON_TYPE_SUBWORK)
++		__button_exit((struct button_work *)bw->private);
++
++	kfree(bw->irq_name);
++	bw->irq_name = NULL;
++
++	if (bw->exit)
++		bw->exit(bw);
++}
++
++static void __button_exit(struct button_work *bw)
++{
++	while (bw->name)
++		__button_exit_one(bw++);
++}
++
++static void button_exit(void)
++{
++	int i;
++
++	if (!button_work)
++		return;
++
++	if (poller_proc)
++		proc_remove(poller_proc);
++
++	button_poller_stop();
++
++	__button_exit(button_work);
++
++	for (i = 0; rn_input_devs[i].name; i++) {
++		if (rn_input_devs[i].dev) {
++			input_unregister_device(rn_input_devs[i].dev);
++			input_free_device(rn_input_devs[i].dev);
++			rn_input_devs[i].dev = NULL;
++		}
++	}
++}
++
++static int rn_set_button(struct button_work *bw)
++{
++	const char *name = bw->input_dev_name ?
++				bw->input_dev_name : "rn_button";
++	struct rn_input_dev *idev;
++
++	for (idev = rn_input_devs;
++		idev->name && strcmp(idev->name, name); idev++)
++		;
++
++	if (!idev->name) {
++		pr_err("%s: Bad button input device name %s.\n", __func__,name);
++		WARN_ON(1);
++		return -ENODEV;
++	}
++
++	if (!idev->dev) {
++		idev->dev = input_allocate_device();
++		if (!idev->dev) {
++			pr_err("%s: failed to allocate an input device.\n",
++				__func__);
++			return -ENOMEM;
++		}
++		idev->dev->name = idev->name;
++		idev->dev->id.bustype = idev->bustype;
++	}
++
++	bw->input_dev = idev->dev;
++	input_set_capability(bw->input_dev, EV_KEY, bw->key);
++	return 0;
++}
++
++static int __button_init(struct button_work *base, struct button_work *parent)
++{
++	int err = 0;
++	struct button_work *bw;
++	bool start_poller = false;
++
++	for (bw = base; bw->name; bw++) {
++		if (parent)
++			bw->private = parent;
++
++		if (bw->gpio_label) {
++			pr_info("%s: %s '%s' %s:%d%s (%s)\n", __func__,
++				button_input_dev_name(bw),
++				bw->name,
++				bw->gpio_label, bw->gpio_num,
++				bw->gpio_active_low ? "n" : "",
++				button_type_str(bw));
++			err = setup_gpio_input(bw);
++			if (err) {
++				pr_err("%s: cannot find button GPIO %s:%d\n",
++					 __func__,
++					bw->gpio_label, bw->gpio_num);
++				break;
++			}
++		} else
++			pr_info("%s: %s '%s' (%s)\n", __func__,
++				button_input_dev_name(bw),
++				bw->name, button_type_str(bw));
++
++		switch (BUTTON_TYPE(bw)) {
++		case BUTTON_TYPE_IRQ:
++			if (!(bw->irq_name = kmalloc(
++				strlen(bw->gpio_label) + strlen(bw->name) + 8,
++						GFP_KERNEL))) {
++				err = -ENOMEM;
++				break;
++			}
++			sprintf(bw->irq_name, "%s:%d@%s",
++				bw->gpio_label, bw->gpio_num, bw->name);
++			INIT_WORK(&bw->worker,
++				bw->worker_to_set ?
++					bw->worker_to_set : button_worker);
++			ACPI_IRQ(bw);
++			break;
++		case BUTTON_TYPE_POLL:
++			/* Must be delayed until all buttons get ready. */
++			start_poller = true;
++			break;
++		case BUTTON_TYPE_THREAD:
++			/* No worker. */
++		default:
++			break;
++		}
++
++		/* This must come after GPIO attaching and worker init
++		 * to avoid race.
++		 */
++		if (bw->init && (err = bw->init(bw))) {
++			pr_err("%s: failed to initialize button '%s' (%d).\n",
++				__func__, bw->name, err);
++			goto exit;
++		}
++
++		if (bw->depressed)
++			bw->prev_button_state = bw->depressed(bw);
++
++		/* If button has subwork(s), call recursively. */
++		if (bw->type & BUTTON_TYPE_SUBWORK)
++			err = __button_init(
++				(struct button_work *)bw->private, bw);
++		else {
++			if ((err = create_button_state_proc(bw)))
++				goto exit;
++			if ((err = rn_set_button(bw)))
++				goto exit;
++		}
++exit:
++		if (err) {
++			pr_err("%s: failed to set up button worker %s (%d).\n",
++				__func__, bw->name, err);
++			break;
++		}
++	}
++
++	/* Delayed starting of button poller thread - avoid race. */
++	if (!err && start_poller && !(err = button_poller_start()))
++		err = create_button_thread_proc();
++
++	if (err) {
++		while (--bw >= base)
++			__button_exit_one(bw);
++
++		if (poller_proc) {
++			proc_remove(poller_proc);
++			poller_proc = NULL;
++		}
++
++		button_poller_stop();
++	}
++
++	return err;
++}
++
++static int button_init(void)
++{
++	int err, i;
++	struct button_set *bs =
++			__compatible_find(button_set, compatible, 0, "");
++
++	pr_info("%s: initializing RaedyNAS button set.\n", __func__);
++	button_work = &bs->button_work[0];
++
++	if ((err = __button_init(button_work, NULL)))
++		return err;
++
++	/* Delayed input_dev registration after all buttons added. */
++	for (i = 0; rn_input_devs[i].name; i++)
++		if (rn_input_devs[i].dev &&
++			(err = input_register_device(rn_input_devs[i].dev))) {
++			pr_err("%s: failed to install button input class device"
++				" %s.\n", __func__, rn_input_devs[i].name);
++			input_free_device(rn_input_devs[i].dev);
++			rn_input_devs[i].dev = NULL;
++			button_exit();
++			return err;
++		}
++
++	return 0;
++}
++
++/*
++ * PWR button status procfs handling
++ */
++#define	MK_ADDR_BIT_GPIO_NUM(a, b)	(((a)<<16)|(b))
++#define	BK_ADDR_GPIO_NUM(bw)		((bw)->gpio_num >>16)
++#define	BK_BIT_GPIO_NUM(bw)		BIT((bw)->gpio_num & 0xffff)
++
++static int c2388_pwr_button_depressed(struct button_work *bw)
++{
++	void __iomem *p = ioremap((unsigned long)bw->private, 1024);
++	u32 pmcon2 = *(u32 *)(p + BK_ADDR_GPIO_NUM(bw)) & BK_BIT_GPIO_NUM(bw);
++
++	iounmap(p);
++	return !!pmcon2;
++}
++
++static int __init c2388_pwr_button_init(struct button_work *bw)
++{
++	struct pci_dev *pci_dev;
++	u32 pm_base;
++	int err = locate_acpi_devs(bw, NULL, &pci_dev);
++
++	if (err)
++		return err;
++
++	/* Get PM base address */
++	pci_read_config_dword(pci_dev, (unsigned long)bw->private2, &pm_base);
++	pm_base &= PCI_BASE_ADDRESS_IO_MASK;
++	if (!pm_base) {
++		pr_err("%s: failed to get pm base.", __func__);
++		return -ENODEV;
++	}
++
++	bw->private = (void *)(unsigned long)pm_base;
++	return 0;
++}
++
++static int acpi_pwr_button_depressed(struct button_work *bw)
++{
++	struct pci_dev *pci_dev = bw->private;
++	u32 pmcon;
++
++	pci_read_config_dword(pci_dev, BK_ADDR_GPIO_NUM(bw), &pmcon);
++
++	return !(pmcon & BK_BIT_GPIO_NUM(bw));
++}
++
++static int __init acpi_pwr_button_init(struct button_work *bw)
++{
++	struct pci_dev *pci_dev = NULL;
++	int err = -ENODEV;
++
++	if (bw->gpio_label)
++		err = locate_acpi_devs(bw, NULL, &pci_dev);
++	else if (bw->private2) {
++		pci_dev = pci_get_device(PCI_VENDOR_ID_INTEL,
++					(unsigned long)bw->private2, NULL);
++		if (pci_dev)
++			err = 0;
++	}
++
++	if (err)
++		return err;
++
++	bw->private = pci_dev;
++	return 0;
++}
++
++static struct button_work button_work_pwr[] = {
++	{
++#define	C2388_GEN_PMCON2	0x24
++#define	C2388_PWRBUTTON_LVL_BIT	9
++#define	C2388_PBASE_ADDR	0x44
++		.name		= "pwr",
++		.input_dev_name	= "rn313x",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= MK_ADDR_BIT_GPIO_NUM(C2388_GEN_PMCON2,
++						C2388_PWRBUTTON_LVL_BIT),
++		.private2	= (void *)C2388_PBASE_ADDR,
++		.init		= c2388_pwr_button_init,
++		.depressed	= c2388_pwr_button_depressed,
++	}, {
++		.name		= "pwr",
++		.input_dev_name	= "rrx312_60",
++		.gpio_label	= "gpio_it87",
++		.gpio_num	= 27,	/* a.k.a. GP43 */
++		.gpio_active_low	= 1,
++		.init		= setup_gpio_input,
++		.depressed	= button_gpio_depressed,
++	}, {
++#define PCI_DEVICE_ID_DENVERTON	0x19de
++#define PCI_ICH_GEN_PMCON_1	0xa0
++#define ICH_PWRBTN_LVL_BIT	9
++		.name		= "pwr",
++		.input_dev_name	= "rn42x",
++		.gpio_num	= MK_ADDR_BIT_GPIO_NUM(PCI_ICH_GEN_PMCON_1,
++						ICH_PWRBTN_LVL_BIT),
++		.private2	= (void *)PCI_DEVICE_ID_DENVERTON,
++		.init		= acpi_pwr_button_init,
++		.depressed	= acpi_pwr_button_depressed,
++	}, {
++		.name		= "pwr",
++		.input_dev_name	= "",
++		.gpio_label	= "gpio_ich",
++		.gpio_num	= MK_ADDR_BIT_GPIO_NUM(PCI_ICH_GEN_PMCON_1,
++						ICH_PWRBTN_LVL_BIT),
++		.init		= acpi_pwr_button_init,
++		.depressed	= acpi_pwr_button_depressed,
++	}, {}
++}, *bw_pwr;
++
++static int __init pwr_button_state_init(void)
++{
++	int err = 0;
++	struct button_work *bw_pwr =
++		__compatible_find(button_work_pwr, input_dev_name, -ENODEV, "");
++
++	pr_info("%s: initializing ReadyNAS PWR button state handler%s%s.\n",
++		__func__, *bw_pwr->input_dev_name ? " for " : "",
++			bw_pwr->input_dev_name);
++
++	if (bw_pwr->init)
++		err = bw_pwr->init(bw_pwr);
++
++	if (err == -ENODEV) {
++		pr_info("%s: no PWR button found.\n", __func__);
++		return 0;
++	} else if (err) {
++		pr_err("%s: failed for GPIO %s\n", __func__,
++			bw_pwr->gpio_label ? bw_pwr->gpio_label
++					: bw_pwr->input_dev_name);
++		return err;
++	}
++	return create_button_state_proc(bw_pwr);
++}
++
++static void pwr_button_state_exit(void)
++{
++	__button_exit_one(bw_pwr);
++}
++
++/*
++ * Common /proc/readynas entries
++ */
++static int bootmenu_show(struct seq_file *s, void *p)
++{
++	const char *key = s->private;
++	const struct dmi_device *dmi =
++		dmi_find_device(DMI_DEV_TYPE_OEM_STRING, NULL, NULL);
++
++	if (!dmi) {
++		pr_err("%s: cannot find DM device\n", __func__);
++		return -EIO;
++	} else if (!strcmp(key, "enable"))
++		seq_printf(s, "%d\n", !memcmp(dmi->name, "Manual", 6));
++	else if (!strcmp(key, "option"))
++		seq_printf(s, "%s\n", dmi->name);
++	else {
++		pr_err("%s: invalid bootmenu key: %s", __func__, key);
++		return -EINVAL;
++	}
++	return 0;
++}
++
++static int bootmenu_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, bootmenu_show, PDE_DATA(inode));
++}
++
++static const struct file_operations bootmenu_fop = {
++	.open	= bootmenu_open,
++	.read	= seq_read,
++	.llseek	= seq_lseek,
++	.release= single_release,
++};
++
++static int model_show(struct seq_file *s, void *p)
++{
++	const char *dmi[2];
++	int i;
++	bool printed = false;
++
++	dmi[0] = dmi_get_system_info(DMI_PRODUCT_NAME);
++	dmi[1] = dmi_get_system_info(DMI_PRODUCT_VERSION);
++
++	for (i = 0; i < ARRAY_SIZE(dmi); i++)
++		if (dmi[i]) {
++			seq_printf(s, "%s\n", dmi[i]);
++			printed = true;
++		}
++	return printed ? 0 : -EIO;
++}
++
++static int model_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, model_show, NULL);
++}
++
++static const struct file_operations model_fop = {
++	.open	= model_open,
++	.read	= seq_read,
++	.llseek	= seq_lseek,
++	.release= single_release,
++};
++
++static struct proc_dir_entry
++	*proc_bootmenu_enable, *proc_bootmenu_option, *proc_model;
++
++static void procfs_exit(void)
++{
++	if (proc_model);
++		proc_remove(proc_model);
++	if (proc_bootmenu_option);
++		proc_remove(proc_bootmenu_option);
++	if (proc_bootmenu_enable);
++		proc_remove(proc_bootmenu_enable);
++	if (readynas_proc_root);
++		proc_remove(readynas_proc_root);
++	proc_model		= NULL;
++	proc_bootmenu_option	= NULL;
++	proc_bootmenu_enable	= NULL;
++	readynas_proc_root	= NULL;
++}
++
++static int __init procfs_init(void)
++{
++	pr_info("%s: initializing ReadyNAS procfs.\n", __func__);
++
++	readynas_proc_root = proc_mkdir("readynas", NULL);
++	if (!readynas_proc_root) {
++		pr_err("%s: failed to create /proc/readynas\n", __func__);
++		return -EIO;
++	}
++	if (!(proc_bootmenu_enable =
++			readynas_proc_create("bootmenu-enable", 0444,
++				&bootmenu_fop, (void *)"enable")) ||
++		!(proc_bootmenu_option =
++			readynas_proc_create("bootmenu-option", 0444,
++				&bootmenu_fop, (void *)"option")) ||
++		!(proc_model = readynas_proc_create("model", 0444,
++				&model_fop, NULL))) {
++		pr_err("%s: failed to install procfs.\n", __func__);
++		procfs_exit();
++		return -EIO;
++	}
++	return 0;
++}
++
++static void readynas_io_exit(void)
++{
++	button_exit();
++	pwr_button_state_exit();
++	rnx4_lcd_exit();
++	readynas_gpio_exit();
++	procfs_exit();
++}
++
++static int __init readynas_io_init(void)
++{
++	int ret;
++
++	pr_info("%s: initializing ReadyNAS I/O.\n", __func__);
++	mutex_init(&poller_lock);
++	if ((ret = procfs_init()))
++		return ret;
++	if ((ret = readynas_gpio_init()))
++		goto fail;
++	ret |= rnx4_lcd_init();
++	ret |= pwr_button_state_init();
++	ret |= button_init();
++	pr_info("%s: initialization %s completed.\n", __func__,
++		ret ? "partially" : "successfully");
++	return 0;
++
++fail:
++	readynas_io_exit();
++	pr_err("%s: initialization failed (%d).\n", __func__, ret);
++	return ret;
++}
++
++/* This module must be loaded after GPIO and I2C. */
++device_initcall_sync(readynas_io_init);
++module_exit(readynas_io_exit);
++
++MODULE_LICENSE("GPL");
++MODULE_DESCRIPTION("NETGEAR Intel I/O driver v3");
++MODULE_AUTHOR("hiro.sugawara@netgear.com");
+diff --git a/drivers/platform/readynas/readynas-io.h b/drivers/platform/readynas/readynas-io.h
+new file mode 100644
+index 0000000..4db1bec
+--- /dev/null
++++ b/drivers/platform/readynas/readynas-io.h
+@@ -0,0 +1,46 @@
++/*
++ * Common ReadyNAS IO driver definitions.
++ */
++#ifndef __READYNAS_IO_H__
++#define __READYNAS_IO_H__
++#include "../../gpio/gpiolib.h"
++#include "hd44780-lcd.h"
++
++extern struct gpio_chip *rn_gpiochip_find_by_label(const char *label);
++extern struct proc_dir_entry *readynas_proc_create(const char *name,
++				umode_t mode,
++				const struct file_operations *fops,
++				void *data);
++
++extern int readynas_gpio_init(void);
++extern void readynas_gpio_exit(void);
++
++extern struct i2c_adapter *readynas_i2c_adapter_find(const char **name);
++
++extern const char *rn_i2c_adapters_nct677x[];
++extern const char *rn_i2c_adapters_ipch[];
++
++extern bool readynas_io_compatible(char const *nominal);
++/*
++ * Easy compatibility checking macro.
++ * @array - Array of compatible properties
++ * @member - Struct member of compatible name string
++ * @ptr - Comptible property element
++ * @rv - Return value if no compatible property element found
++ * @fmt - Error message fmt if no compatible found. Must be "" for null.
++ */
++#define	__compatible_find(array, member, rv, fmt, ...)	\
++	({	\
++		int __i;	\
++		for (__i = 0; (array)[__i].member; __i++)	\
++			if (!(array)[__i].member[0] ||		\
++				readynas_io_compatible((array)[__i].member)) \
++				break;		\
++		if (!(array)[__i].member) {	\
++			if ((rv) && *(fmt))	\
++				pr_err("%s: " fmt, __func__, ##__VA_ARGS__); \
++			return (rv);		\
++		}				\
++		&(array)[__i];			\
++	})
++#endif
+diff --git a/drivers/platform/readynas/readynas-led.c b/drivers/platform/readynas/readynas-led.c
+new file mode 100644
+index 0000000..12ac587
+--- /dev/null
++++ b/drivers/platform/readynas/readynas-led.c
+@@ -0,0 +1,962 @@
++/*
++ * LEDs driver for NETGEAR ReadyNAS x86_64 platforms
++ *
++ * Copyright (C) 2015 Justin Maggard <justin.maggard@netgear.com>
++ * Copyright (C) 2015-2016 Hiro.Sugawara <hiro.sugawara@netgear.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ * This driver provides all x86 platforms with a unified API using
++ * /sys/class/leds/readynas:color:led/func.
++ */
++
++#include <linux/err.h>
++#include <linux/gpio.h>
++#include <linux/gpio/consumer.h>
++#include <linux/kernel.h>
++#include <linux/dmi.h>
++#include <linux/leds.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/syscalls.h>
++#include <linux/spinlock.h>
++#include <linux/libata.h>
++#include <scsi/scsi_host.h>
++#include <linux/slab.h>
++#include <linux/delay.h>
++#include <linux/kthread.h>
++#include "readynas-io.h"
++
++struct rnled_proc;
++static struct rnled_info {
++	const	char *name;
++	const	int  num;		/* GPIO port number */
++	const	struct rnled_proc *proc;
++	const	unsigned int active_low; /* Bit#0: primary, Bit#1: secondary */
++	const	int  init_state;	/* -1 for off, 1 for on, 0 for as-is. */
++	const	char *trigger;
++	void	*desc;
++	void	*desc2;			/* Secondary GPIO for reading */
++	struct	led_classdev cdev;
++	bool	registered;
++	int	uid_busy;	/* Wait time in ms. */
++	struct timer_list timer;
++} *rnleds;
++
++struct rnled_proc {
++	const	char *label;	/* GPIO label */
++	void (*init)(struct rnled_info *, const char *);
++	void (*exit)(struct rnled_info *);
++	enum led_brightness (*get)(struct led_classdev *);
++	/* setter returns 0 for success, 1 for busy, -1 for error. */
++	int (*set)(struct rnled_info *, int);
++};
++
++static enum led_brightness led_get_gpio(struct led_classdev *led_cdev)
++{
++	struct rnled_info *led =
++		container_of(led_cdev, struct rnled_info, cdev);
++	return gpiod_get_value_cansleep(led->desc);
++}
++
++/*
++ * Under led_servicer, all LED accesses (except UID) are serialized
++ * and no need for locking.
++ */
++static int led_set_gpio(struct rnled_info *led, int val)
++{
++	gpiod_set_value_cansleep(led->desc, val);
++	return 0;
++}
++
++static int gpio_match(struct gpio_chip *chip, void *data)
++{
++	return !strcmp(chip->label, (const char *)data);
++}
++
++static void led_init_gpio(struct rnled_info *led, const char *label)
++{
++	int state, err;
++	struct gpio_chip *chip = gpiochip_find((void *)label, gpio_match);
++
++	if (!chip) {
++		pr_err("%s GPIO chip %s not found\n", __func__, label);
++		led->desc = ERR_PTR(-ENODEV);
++		return;
++	}
++
++	led->desc = gpio_to_desc(led->num + chip->base);
++	if (IS_ERR_OR_NULL(led->desc))
++		return;
++
++	if (led->active_low & 0x1)
++		set_bit(FLAG_ACTIVE_LOW,
++			&((struct gpio_desc *)led->desc)->flags);
++
++	if (led->init_state < 0)
++		state = 0;
++	else if (led->init_state > 0)
++		state = 1;
++	else if (led->proc->get)
++		state = led->proc->get(&led->cdev);
++	else
++		state = 0;
++
++	if ((err = gpiod_direction_output(led->desc, state)) && err != -EIO) {
++		/* EIO is returned if no direction_output. */
++		led->desc = ERR_PTR(err);
++		return;
++	}
++
++	led->cdev.brightness = state;
++}
++
++static const struct rnled_proc led_gpio_ich = {
++	.label	= "gpio_ich",
++	.init	= led_init_gpio,
++	.set	= led_set_gpio,
++};
++
++static const struct rnled_proc led_gpio_dnv = {
++	.label	= "gpio_dnv.0",
++	.init	= led_init_gpio,
++	.set	= led_set_gpio,
++};
++
++#define IBPI_PATTERN_NORMAL		0x00000000
++#define IBPI_PATTERN_DEGRADED		0x00200000
++#define IBPI_PATTERN_REBUILD		0x00480000
++#define IBPI_PATTERN_FAILED_DRIVE	0x00400000
++#define IBPI_PATTERN_LOCATE		0x00080000
++static int led_set_scsi(struct rnled_info *led, int val)
++{
++	struct Scsi_Host *shost;
++	struct ata_port *ap;
++	u32 message;
++
++	/* get disk index */
++	if (led->num < 0)
++		return -1;
++
++	shost = scsi_host_lookup(led->num);
++	if (!shost)
++		return -1;
++	ap = ata_shost_to_port(shost);
++	if (!ap || !ap->ops->transmit_led_message)
++		return -1;
++	message = val ? IBPI_PATTERN_FAILED_DRIVE : IBPI_PATTERN_NORMAL;
++	return ap->ops->transmit_led_message(ap, message, 4) > 0 ? 0 : -1;
++}
++
++static const struct rnled_proc led_scsi = {
++	.set	= led_set_scsi,
++};
++
++/* IT8732 SuperIO GPIO */
++
++static const struct rnled_proc led_gpio_it87 = {
++	.label	= "gpio_it87",
++	.init	= led_init_gpio,
++	.get	= led_get_gpio,
++	.set	= led_set_gpio,
++};
++
++static enum led_brightness led_get_gpio2(struct led_classdev *led_cdev)
++{
++	struct rnled_info *led =
++		container_of(led_cdev, struct rnled_info, cdev);
++	return gpiod_get_value_cansleep(led->desc2);
++}
++
++/*
++ * The LED class driver implements blinking and one-shot LED control
++ * using kernel timers. This causes a problem if the underlying LED
++ * driver (GPIO) could sleep in msleep or mutex_lock because a timer callback
++ * runs in a softirq context. A dedicated kernel thread isolates the
++ * sleeping LED driver from LED class driver's preference.
++ *
++ * UID LED is turned on and off with a long (200ms) pulse in a flip-flop
++ * manner. A timer delay release the pulse after the delay, then another
++ * timer delay disables subsequent LED operation requests until a recovery
++ * period (another 200ms) gets elapsed.
++ */
++static struct led_service {
++	const char *name;
++	struct task_struct *kthread;
++	wait_queue_head_t wq;
++	spinlock_t lock;
++	int count;
++	struct led_set_request {
++		struct list_head list;
++		struct rnled_info *led;
++		int val;
++	} req;
++} led_service = {.name = "readynas-led", };
++
++/* UID LED is set with a flip-flop */
++/* This is a timer callback (a.k.a. softirq). */
++static void uid_delay(unsigned long d)
++{
++	struct rnled_info *led = (struct rnled_info *)d;
++
++	if (gpiod_get_value_cansleep(led->desc)) {
++		/* Flip-flop pulse is active. Request servicer to deactivate
++		   it and wait for recovery time.
++		 */
++		struct led_service *service = &led_service;
++		struct led_set_request *req = kmalloc(sizeof *req, GFP_ATOMIC);
++
++		if (!req) {
++			pr_err("%s: kmalloc failed.\n", __func__);
++			return;
++		}
++
++		req->led = led;
++		req->val = -1;	/* UID pulse release */
++		spin_lock(&service->lock);
++		list_add_tail(&req->list, &service->req.list);
++		service->count++;
++		spin_unlock(&service->lock);
++		wake_up(&service->wq);
++	} else
++		led->uid_busy = 0;
++}
++
++#define UID_PULSE_MS		200
++#define UID_PULSE_WAIT_TICK	20
++static int led_set_gpio_uid(struct rnled_info *led, int val)
++{
++	if (val >= 0) {
++		/* No change. */
++		if (val == gpiod_get_value_cansleep(led->desc2))
++			return 0;
++		if (led->uid_busy) {
++			/* Previous operation is pending - retry. */
++			msleep(UID_PULSE_WAIT_TICK);
++			/* Overkilling caution for timeout. */
++			led->uid_busy -= UID_PULSE_WAIT_TICK;
++			if (led->uid_busy < 0)
++				led->uid_busy = 0;
++			return 1;
++		}
++
++		/* Flip it -- initiate a pulse. */
++		gpiod_set_value_cansleep(led->desc, 1);
++		/* Prepare for timeout. */
++		led->uid_busy = UID_PULSE_MS * 10;
++	} else {
++		/* Release the pulse */
++		gpiod_set_value_cansleep(led->desc, 0);
++	}
++
++	/* Wait so long as HW debouncer requires. */
++	mod_timer(&led->timer, jiffies + msecs_to_jiffies(UID_PULSE_MS));
++	return 0;
++}
++
++static void led_init_gpio_uid(struct rnled_info *led, const char *label)
++{
++	int state, err;
++
++	led_init_gpio(led, label);
++	if (IS_ERR_OR_NULL(led->desc))
++		return;
++
++	if (!led->desc2)
++		return;
++
++	led->desc2 = gpio_to_desc((unsigned long)led->desc2 +
++				((struct gpio_desc *)led->desc)->chip->base);
++	if (IS_ERR_OR_NULL(led->desc2)) {
++		led->desc = ERR_PTR(-ENODEV);
++		return;
++	}
++
++	if (led->active_low & 0x2)
++		set_bit(FLAG_ACTIVE_LOW,
++			&((struct gpio_desc *)led->desc2)->flags);
++
++	if ((err = gpiod_direction_input(led->desc2)) && err != -EIO) {
++		led->desc = ERR_PTR(err);
++		return;
++	}
++	state = gpiod_get_value_cansleep(led->desc2);
++	led->cdev.brightness = state;
++	led->cdev.brightness_get = led_get_gpio2;
++	init_timer(&led->timer);
++	setup_timer(&led->timer, uid_delay, (unsigned long)led);
++}
++
++static void led_exit_gpio_uid(struct rnled_info *led)
++{
++	del_timer(&led->timer);
++	led->uid_busy = 0;
++}
++
++static const struct rnled_proc led_gpio_it87_rn313x_uid = {
++	.label	= "gpio_it87",
++	.init	= led_init_gpio_uid,
++	.exit	= led_exit_gpio_uid,
++	.set	= led_set_gpio_uid,
++};
++
++static struct rnled_info leds_ultra2[] = {
++	{ "readynas:blue:pwr",     28, &led_gpio_ich, 1, 0, "timer" },
++	{ "readynas:green:backup", 22, &led_gpio_ich, 1, },
++	{ "readynas:green:sata1",  6,  &led_gpio_ich, 1, },
++	{ "readynas:green:sata2",  7,  &led_gpio_ich, 1, },
++	{}
++};
++
++static struct rnled_info leds_pro6_ultra6[] = {
++	{ "readynas:green:backup", 20, &led_gpio_ich, 0, },
++	{},
++};
++
++static struct rnled_info leds_ultra4_rn312_rn314[] = {
++	{ "readynas:blue:pwr",     28, &led_gpio_ich, 1, 0, "timer" },
++	{ "readynas:green:backup", 22, &led_gpio_ich, 1, },
++	{ "readynas:green:sata1",  16, &led_gpio_ich, 1, },
++	{ "readynas:green:sata2",  20, &led_gpio_ich, 1, },
++	{ "readynas:green:sata3",  6,  &led_gpio_ich, 1, },
++	{ "readynas:green:sata4",  7,  &led_gpio_ich, 1, },
++	{}
++};
++
++static struct rnled_info leds_rn424[] = {
++	{ "readynas:red:sata1",  90, &led_gpio_dnv, },
++	{ "readynas:red:sata2",  91, &led_gpio_dnv, },
++	{ "readynas:red:sata3",  92, &led_gpio_dnv, },
++	{ "readynas:red:sata4",  93, &led_gpio_dnv, },
++	{}
++};
++
++static struct rnled_info leds_rn428[] = {
++	{ "readynas:red:sata1",  91, &led_gpio_dnv, },
++	{ "readynas:red:sata2",  90, &led_gpio_dnv, },
++	{ "readynas:red:sata3",  93, &led_gpio_dnv, },
++	{ "readynas:red:sata4",  92, &led_gpio_dnv, },
++	{ "readynas:red:sata5",  23, &led_gpio_dnv, },
++	{ "readynas:red:sata6",  22, &led_gpio_dnv, },
++	{ "readynas:red:sata7",  40, &led_gpio_dnv, },
++	{ "readynas:red:sata8",  39, &led_gpio_dnv, },
++	{}
++};
++
++static struct rnled_info leds_rnx16[] = {
++	{ "readynas:red:sata1",	 0, &led_scsi, },
++	{ "readynas:red:sata2",	 1, &led_scsi, },
++	{ "readynas:red:sata3",	 2, &led_scsi, },
++	{ "readynas:red:sata4",	 3, &led_scsi, },
++	{ "readynas:red:sata5",	 4, &led_scsi, },
++	{ "readynas:red:sata6",	 5, &led_scsi, },
++	{}
++};
++
++static struct rnled_info leds_rnx28[] = {
++	{ "readynas:red:sata1",	48, &led_gpio_ich, },
++	{ "readynas:red:sata2",	39, &led_gpio_ich, },
++	{ "readynas:red:sata3",	38, &led_gpio_ich, },
++	{ "readynas:red:sata4",	22, &led_gpio_ich, },
++	{ "readynas:red:sata5",	67, &led_gpio_ich, },
++	{ "readynas:red:sata6",	37, &led_gpio_ich, },
++	{ "readynas:red:sata7",	36, &led_gpio_ich, },
++	{ "readynas:red:sata8",	21, &led_gpio_ich, },
++	{}
++};
++
++#define	SUS(n)	((n)+32)
++static struct rnled_info leds_rn313x[] = {
++	{ "readynas:green:pwr",	 39,	&led_gpio_it87, 1, 0, "timer" },
++	{ "readynas:red:err",	 24,	&led_gpio_it87, 1, },
++	{ "readynas:blue:uid",	 53,	&led_gpio_it87_rn313x_uid, 1, 0,
++					NULL, NULL, (void*)55},
++	/* HDD power control (prototype HW only) */
++	{ ".readynas::sata1_pwr", 11,	&led_gpio_ich, 0, 1, },
++	{ ".readynas::sata2_pwr", 15,	&led_gpio_ich, 0, 1, },
++	{ ".readynas::sata3_pwr", SUS(17),	&led_gpio_ich, 0, 1, },
++	{ ".readynas::sata4_pwr", 18,	&led_gpio_ich, 0, 1, },
++
++	{ "readynas:green:sata1", 12,	&led_gpio_ich, },
++	{ "readynas:green:sata2", 20,	&led_gpio_ich, },
++	{ "readynas:green:sata3", 19,	&led_gpio_ich, },
++	{ "readynas:green:sata4", 17,	&led_gpio_ich, },
++	{ "readynas:red:sata1", SUS(21),	&led_gpio_ich, },
++	{ "readynas:red:sata2", SUS(19),	&led_gpio_ich, },
++	{ "readynas:red:sata3", SUS(22),	&led_gpio_ich, },
++	{ "readynas:red:sata4",   27,	&led_gpio_ich, },
++	{}
++};
++
++static const struct rnled_proc led_gpio_nct6775 = {
++	.label	= "gpio_nct6775",
++	.init	= led_init_gpio,
++	.get	= led_get_gpio,
++	.set	= led_set_gpio,
++};
++
++static const struct rnled_proc led_gpio_rnx220pic = {
++	.label	= "gpio_rnx220pic",
++	.init	= led_init_gpio,
++	.set	= led_set_gpio,
++};
++
++static const struct rnled_proc led_gpio_nct6775_rnx220_uid = {
++	.label	= "gpio_nct6775",
++	.init	= led_init_gpio_uid,
++	.set	= led_set_gpio_uid,
++};
++
++static const struct rnled_proc led_gpio_rnx220marvell = {
++	.label	= "gpio_rnx220marvell",
++	.init	= led_init_gpio,
++	.set	= led_set_gpio,
++};
++
++static struct rnled_info leds_rnx220[] = {
++	{ "readynas:green:pwr",	  72,	&led_gpio_nct6775, 0, 0, "timer" },
++	{ "readynas:red:err",	   5,	&led_gpio_ich, 1},
++	{ "readynas:blue:uid",	   8,	&led_gpio_nct6775_rnx220_uid, 3, 0,
++					NULL, NULL, (void*)9},
++	{ "readynas:green:sata1",  0,	&led_gpio_rnx220pic, },
++	{ "readynas:green:sata2",  1,	&led_gpio_rnx220pic, },
++	{ "readynas:green:sata3",  0,	&led_gpio_rnx220marvell, },
++	{ "readynas:green:sata4",  1,	&led_gpio_rnx220marvell, },
++	{ "readynas:green:sata5",  4,	&led_gpio_rnx220pic, },
++	{ "readynas:green:sata6",  5,	&led_gpio_rnx220pic, },
++	{ "readynas:green:sata7",  6,	&led_gpio_rnx220pic, },
++	{ "readynas:green:sata8",  7,	&led_gpio_rnx220pic, },
++	{ "readynas:green:sata9",  8,	&led_gpio_rnx220pic, },
++	{ "readynas:green:sata10", 9,	&led_gpio_rnx220pic, },
++	{ "readynas:green:sata11",10,	&led_gpio_rnx220pic, },
++	{ "readynas:green:sata12",11,	&led_gpio_rnx220pic, },
++	{}
++};
++
++/* PCA9505 I2C GPIO */
++static const struct rnled_proc led_gpio_pca9505 = {
++	.label	= "pca9505",
++	.init	= led_init_gpio,
++	.set	= led_set_gpio,
++};
++
++/* Intel surisepoint PCH-H GPIO */
++static const struct rnled_proc led_gpio_spth = {
++	.label	= "INT345D:00",
++	.init	= led_init_gpio,
++	.set	= led_set_gpio,
++};
++
++static struct rnled_info leds_rrx312[] = {
++	{ "readynas:green:pwr",	 14,	&led_gpio_it87, 0, 1, "timer" },
++	{ "readynas:red:err",	 82,	&led_gpio_spth, 1, },
++	{ "readynas:blue:uid",	 24,	&led_gpio_it87, 0, },
++
++	{ ".readynas::sata1_pwr", 12,	&led_gpio_pca9505, 0, 1 },
++	{ ".readynas::sata2_pwr", 13,	&led_gpio_pca9505, 0, 1 },
++	{ ".readynas::sata3_pwr", 14,	&led_gpio_pca9505, 0, 1 },
++	{ ".readynas::sata4_pwr", 15,	&led_gpio_pca9505, 0, 1 },
++	{ ".readynas::sata5_pwr", 16,	&led_gpio_pca9505, 0, 1 },
++	{ ".readynas::sata6_pwr", 17,	&led_gpio_pca9505, 0, 1 },
++	{ ".readynas::sata7_pwr", 18,	&led_gpio_pca9505, 0, 1 },
++	{ ".readynas::sata8_pwr", 19,	&led_gpio_pca9505, 0, 1 },
++	{ ".readynas::sata9_pwr", 20,	&led_gpio_pca9505, 0, 1 },
++	{ ".readynas::sata10_pwr",21,	&led_gpio_pca9505, 0, 1 },
++	{ ".readynas::sata11_pwr",22,	&led_gpio_pca9505, 0, 1 },
++	{ ".readynas::sata12_pwr",23,	&led_gpio_pca9505, 0, 1 },
++
++	{ "readynas:red:sata1",   24,	&led_gpio_pca9505, 1 },
++	{ "readynas:red:sata2",   25,	&led_gpio_pca9505, 1 },
++	{ "readynas:red:sata3",   26,	&led_gpio_pca9505, 1 },
++	{ "readynas:red:sata4",   27,	&led_gpio_pca9505, 1 },
++	{ "readynas:red:sata5",   28,	&led_gpio_pca9505, 1 },
++	{ "readynas:red:sata6",   29,	&led_gpio_pca9505, 1 },
++	{ "readynas:red:sata7",   30,	&led_gpio_pca9505, 1 },
++	{ "readynas:red:sata8",   31,	&led_gpio_pca9505, 1 },
++	{ "readynas:red:sata9",   32,	&led_gpio_pca9505, 1 },
++	{ "readynas:red:sata10",  33,	&led_gpio_pca9505, 1 },
++	{ "readynas:red:sata11",  34,	&led_gpio_pca9505, 1 },
++	{ "readynas:red:sata12",  35,	&led_gpio_pca9505, 1 },
++	{}
++};
++
++/*
++ * RR4360 uses SAS SES to control disk LEDs.
++ *
++ * leds_rr4360[] is a template for front panel LEDs.
++ */
++static struct rnled_info leds_rr4360[] = {
++	{ "readynas:blue:pwr",	 14,	&led_gpio_it87, 0, 1, "timer" },
++	{ "readynas:red:err",	 82,	&led_gpio_spth, 1, },
++	{ "readynas:blue:uid",	 24,	&led_gpio_it87, 0, },
++	{}
++};
++
++#include <linux/enclosure.h>
++
++static enum led_brightness led_get_ses(struct led_classdev *lc)
++{
++	struct rnled_info *led = container_of(lc, struct rnled_info, cdev);
++	struct enclosure_component *ec = led->desc;
++	struct enclosure_device *edev;
++
++	if (!ec)
++		return 0;
++
++	edev = to_enclosure_device(ec->cdev.parent);
++	if (edev->cb && edev->cb->get_locate)
++		edev->cb->get_locate(edev, ec);
++	return ec->locate;
++}
++
++static int led_set_ses(struct rnled_info *led, int val)
++{
++	struct enclosure_component *ec = led->desc;
++	struct enclosure_device *edev;
++
++	if (!ec)
++		return -1;
++
++	edev = to_enclosure_device(ec->cdev.parent);
++	if (edev->cb && edev->cb->set_locate)
++		edev->cb->set_locate(edev, ec, val);
++	return 0;
++}
++
++struct rnled_proc led_ses = {
++	.get	= led_get_ses,
++	.set	= led_set_ses,
++};
++
++static const char *ses_led_name_temp = "readynas:red:sas%u";
++#define SES_LED_NAME_LEN	(strlen(ses_led_name_temp) + 4)
++static int num_ses_leds;
++static int ses_enclosure(struct enclosure_device *edev, void *p)
++{
++	num_ses_leds += edev->components;
++	return 0;
++}
++
++/* RR4360 houses 60 SAS HDDs. There 3 SAS motherboards each of which accepts
++ * 20 HDDs. 20 SAS ports are divided into 4 5-port bunks in a staggaring
++ * layout. "Slot numbers" should be uniquely assigned and corresponding to
++ * the physical slots, but the 20-port motherboards may not be unique or
++ * appropriately installed.
++ * First, try using the slot numbers, and, if it results bad, use
++ * hardcoded slot mapping.
++ */
++static int ses_enclosure2(struct enclosure_device *edev, void *p)
++{
++	struct rnled_info *sesleds = p;
++	int i;
++
++	for (i = 0; i < edev->components; i++) {
++		struct enclosure_component *ec = &edev->component[i];
++		/* Slot number is 1-based. */
++		struct rnled_info *led = &sesleds[ec->slot - 1];
++
++		if (ec->slot <= num_ses_leds &&
++			!memcmp(dev_name(&ec->cdev), "Disk", 4)) {
++			if (led->name[0])
++				return -EIO;
++			sprintf((char *)led->name, ses_led_name_temp, ec->slot);
++			led->desc = ec;
++		}
++	}
++	return 0;
++}
++
++static int ses_enclosure3(struct enclosure_device *edev, void *p)
++{
++	struct rnled_info *sesleds = p;
++	int i;
++	static const struct slots {
++		char *pname;
++		u8 slot[20];
++	} *slots,
++	rr4360slots[] = {{ "0:0:1:0",
++		{11,12,13,14,15, 26,27,28,29,30, 41,42,43,44,45, 56,57,58,59,60}
++	}, { "0:0:3:0",
++		{ 6, 7, 8, 9,10, 21,22,23,24,25, 36,37,38,39,40, 51,52,53,54,55}
++	}, { "0:0:5:0",
++		{ 1, 2, 3, 4, 5, 16,17,18,19,20, 31,32,33,34,35, 46,47,48,49,50}
++	}, {}};
++	static const struct {
++		const char *compatible;
++		const struct slots *slots;
++	} sas_slots[] = {{
++		"rr4360", rr4360slots
++	}, {}};
++
++	slots = __compatible_find(sas_slots, compatible, -ENODEV,
++					"no compatible platform\n")->slots;
++	if (edev->components != ARRAY_SIZE(slots->slot))
++		return -EINVAL;
++	for (i = 0; slots[i].pname; i++) {
++		int j;
++
++		if (strcmp(slots[i].pname, dev_name(&edev->edev)))
++			continue;
++		for (j = 0; j < edev->components; j++) {
++			int n = edev->components * i + j;
++			struct rnled_info *led = &sesleds[n];
++
++			sprintf((char *)sesleds[n].name,
++					ses_led_name_temp, slots[i].slot[j]);
++			led->desc = &edev->component[j];
++		}
++		return 0;
++	}
++
++	return -ENODEV;
++}
++
++/* Returns newly allocated rnled_info array with dynamically filled LEDs. */
++static struct rnled_info *leds_ses_init(struct rnled_info *temp)
++{
++	char *led_names;
++	struct rnled_info *leds;
++	int i, fixed;
++
++	num_ses_leds = 0;
++	enclosure_for_each_device(ses_enclosure, NULL);
++	if (!num_ses_leds) {
++		pr_err("%s: NO SES LEDs found.\n", __func__);
++		return ERR_PTR(-ENODEV);
++	}
++
++	/* Count fixed portion size. */
++	for (fixed = 0; temp[fixed].name; fixed++)
++		;
++
++	if (!(leds = kzalloc(sizeof(*temp) * (fixed + num_ses_leds + 1),
++					GFP_ATOMIC)))
++		return ERR_PTR(-ENOMEM);
++	if (!(led_names = kzalloc(SES_LED_NAME_LEN * num_ses_leds,
++					GFP_ATOMIC))) {
++		kfree(leds);
++		return ERR_PTR(-ENOMEM);
++	}
++
++	memcpy(leds, temp, sizeof(*temp) * fixed);
++	for (i = 0; i < num_ses_leds; i++) {
++		struct rnled_info *led = &leds[fixed + i];
++
++		led->name = led_names + i * SES_LED_NAME_LEN;
++		led->proc = &led_ses;
++	}
++	if (enclosure_for_each_device(ses_enclosure2, &leds[fixed])) {
++		int err;
++
++		pr_info("%s: Unordered SAS slot numbers."
++			" Using hardcoded mapping.", __func__);
++		memset(led_names, '\0', SES_LED_NAME_LEN * num_ses_leds);
++		err = enclosure_for_each_device(ses_enclosure3, &leds[fixed]);
++		if (err) {
++			kfree(leds);
++			kfree(led_names);
++			pr_err("%s: failed to set up SES LEDs (%d).\n",
++				__func__, err);
++			return ERR_PTR(err);
++		}
++	}
++	return leds;
++}
++
++static void leds_ses_exit(struct rnled_info *leds)
++{
++	kfree(leds[0].name);
++	kfree(leds);
++}
++
++/*
++ * Compatibility table for all models
++ */
++static const struct model_info {
++	const char *compatible;
++	struct rnled_info *leds;
++	int	num_leds;
++	struct rnled_info *(*init)(struct rnled_info *);
++	void (*exit)(struct rnled_info *);
++} rnmodels[] = {
++	{ "pro6",	leds_pro6_ultra6},
++	{ "ultra2",	leds_ultra2},
++	{ "ultra4",	leds_ultra4_rn312_rn314},
++	{ "ultra6",	leds_pro6_ultra6},
++	{ "rn312",	leds_ultra4_rn312_rn314, 4},
++	{ "rn314",	leds_ultra4_rn312_rn314},
++	{ "rn422",	leds_rn424, 2},
++	{ "rn424",	leds_rn424},
++	{ "rn426",	leds_rn428, 6},
++	{ "rn428",	leds_rn428},
++	{ "rnx16",	leds_rnx16},
++	{ "rnx24",	leds_rnx28, 4},
++	{ "rnx26",	leds_rnx16},
++	{ "rnx28",	leds_rnx28},
++	{ "rn313x",	leds_rn313x},
++	{ "rnx220",	leds_rnx220},
++	{ "rrx312",	leds_rrx312},
++	{ "rr4360",	leds_rr4360, 0, leds_ses_init, leds_ses_exit},
++	{}
++},
++*rnmodel;
++
++/* Kernel thread to serialize LED accesses in process context. */
++static void __led_servicer(struct led_service *service)
++{
++	struct led_set_request *req = NULL;
++
++	do {
++		struct led_set_request *q;
++		unsigned long flags;
++
++		spin_lock_irqsave(&service->lock, flags);
++		/* Release UID pulse ASAP to avoid busy waiters. */
++		list_for_each_entry_safe(req, q, &service->req.list, list) {
++			if (req->val < 0 ||
++				req->led->proc->set != led_set_gpio_uid)
++				break;
++		}
++		if (!req || req->val >= 0)
++			req = list_first_entry_or_null(&service->req.list,
++						struct led_set_request, list);
++		if (req) {
++			list_del(&req->list);
++			service->count--;
++		}
++		spin_unlock_irqrestore(&service->lock, flags);
++
++		if (req) {
++			/* If UID LED is busy. Retry after a short sleep. */
++			if (req->led->proc->set(req->led, req->val) > 0) {
++				spin_lock_irqsave(&service->lock, flags);
++				list_add(&req->list, &service->req.list);
++				service->count++;
++				spin_unlock_irqrestore(&service->lock, flags);
++				continue;
++			}
++
++			kfree(req);
++		}
++	} while (req);
++}
++
++static int led_servicer(void *data)
++{
++	struct led_service *service = data;
++
++	while (!kthread_should_stop()) {
++		wait_event_interruptible_timeout(service->wq,
++				!list_empty(&service->req.list), 2 * HZ);
++		__led_servicer(service);
++	}
++	return 0;
++}
++
++/* This common LED setter may be called in softirq (a.k.a. timer callback). */
++static void led_set(struct led_classdev *led_cdev, enum led_brightness val)
++{
++	unsigned long flags;
++	struct rnled_info *led = container_of(led_cdev, struct rnled_info,cdev);
++	struct led_service *service = &led_service;
++	struct led_set_request *req = kmalloc(sizeof *req, GFP_ATOMIC);
++
++	if (!req) {
++		pr_err("%s: kmalloc failed (%lu bytes)\n",
++			__func__, sizeof *req);
++		return;
++	}
++	req->led = led;
++	req->val = !!val;
++
++	spin_lock_irqsave(&service->lock, flags);
++	if (service->count < 500) {
++		list_add_tail(&req->list, &service->req.list);
++		service->count++;
++	} else
++		pr_warn("%s: LED request queue full.\n", __func__);
++	spin_unlock_irqrestore(&service->lock, flags);
++	wake_up(&service->wq);
++}
++
++static int register_led(struct device *parent, struct rnled_info *led)
++{
++	pr_info("%s: registering LED \"%s\"\n", __func__, led->name);
++
++	led->cdev.name = led->name;
++	led->cdev.brightness_get = led->proc->get;
++	led->cdev.brightness_set = led_set;
++
++	if (led->proc->init) {
++		led->proc->init(led, led->proc->label);
++		/* Errors happen only after an explicit init. */
++		if (IS_ERR_OR_NULL(led->desc))
++			return led->desc ? PTR_ERR(led->desc) : -ENODEV;
++	}
++
++	led->cdev.flags |= LED_CORE_SUSPENDRESUME;
++	led->cdev.default_trigger = led->trigger;
++
++	return led_classdev_register(parent, &led->cdev);
++}
++
++static int readynas_led_probe(struct platform_device *pdev)
++{
++	struct model_info const *mp;
++	int i = 0, err = 0;
++
++	mp  = __compatible_find(rnmodels, compatible, -ENODEV,
++				"no compatible platform\n");
++	rnleds = mp->leds;
++
++	if (mp->init) {
++		rnleds = mp->init(mp->leds);
++		if (IS_ERR(rnleds))
++			return PTR_ERR(rnleds);
++		if (!rnleds)
++			return -ENODEV;
++	}
++
++	init_waitqueue_head(&led_service.wq);
++	spin_lock_init(&led_service.lock);
++	INIT_LIST_HEAD(&led_service.req.list);
++	led_service.kthread = kthread_run(led_servicer, &led_service,
++						led_service.name);
++
++	if (IS_ERR(led_service.kthread)) {
++		led_service.kthread = NULL;
++		rnleds = NULL;
++		pr_err("%s: failed to start %s service kthread.\n",
++			__func__, led_service.name);
++		err = -ENOMEM;
++		goto fail;
++	}
++
++	for (i = 0; (!mp->num_leds || i < mp->num_leds) && rnleds[i].name; i++)
++		if (rnleds[i].name[0]) {/* Or skip unavailable drive. */
++			if ((err = register_led(&pdev->dev, &rnleds[i]))) {
++				pr_err("%s: %s registration failed.\n",
++					__func__, rnleds[i].name);
++				goto fail;
++			}
++			rnleds[i].registered = true;
++		}
++
++	rnmodel = mp;
++	return 0;
++
++fail:
++	while (--i >= 0) {
++		led_classdev_unregister(&rnleds[i].cdev);
++		rnleds[i].registered = false;
++	}
++	if (mp->exit)
++		mp->exit(rnleds);
++	rnleds = NULL;
++	return err;
++}
++
++static int readynas_led_remove(struct platform_device *pdev)
++{
++	int i;
++	struct model_info const *mp = rnmodel;
++
++	if (led_service.kthread) {
++		kthread_stop(led_service.kthread);
++		led_service.kthread = NULL;
++	}
++
++	for (i = 0; (!mp->num_leds || i < mp->num_leds) && rnleds[i].name; i++)
++		if (rnleds[i].registered) {
++			if (rnleds[i].proc->exit)
++				rnleds[i].proc->exit(&rnleds[i]);
++			led_classdev_unregister(&rnleds[i].cdev);
++			rnleds[i].registered = false;
++		}
++
++	if (mp->exit)
++		mp->exit(rnleds);
++	rnleds = NULL;
++	return 0;
++}
++
++static struct platform_driver readynas_led_driver = {
++	.probe		= readynas_led_probe,
++	.remove		= readynas_led_remove,
++	.driver		= {
++		.name	= "readynas-led",
++	},
++};
++
++static struct platform_device *readynas_led_pdev;
++
++static int __init readynas_led_init(void)
++{
++	int err = platform_driver_register(&readynas_led_driver);
++
++	pr_info("%s: installing ReadyNAS LED driver.\n", __func__);
++	if (err)
++		return err;
++
++	readynas_led_pdev =
++		platform_device_register_simple(readynas_led_driver.driver.name,
++						 -1, NULL, 0);
++	if (IS_ERR(readynas_led_pdev))
++		err = PTR_ERR(readynas_led_pdev);
++	else if (!readynas_led_pdev)
++		err = -ENODEV;
++	else if (!rnleds) {
++		platform_device_unregister(readynas_led_pdev);
++		err = -ENODEV;
++	}
++	if (err)
++		platform_driver_unregister(&readynas_led_driver);
++	return err;
++}
++
++static void __exit readynas_led_exit(void)
++{
++	platform_device_unregister(readynas_led_pdev);
++	platform_driver_unregister(&readynas_led_driver);
++}
++
++/* This module must be loaded after readynas-io. */
++device_initcall_sync(readynas_led_init);
++module_exit(readynas_led_exit);
++
++/*
++ * For software UID button/switch toggling simulation
++ */
++struct rnled_info *rnled_get_info(const char *name)
++{
++	int i;
++
++	if (!rnmodel)
++		return NULL;
++	for (i = 0; (!rnmodel->num_leds || i < rnmodel->num_leds) &&
++			rnleds[i].name; i++) {
++		if (!strcmp(rnleds[i].name, name))
++			return &rnleds[i];
++	}
++	return NULL;
++}
++EXPORT_SYMBOL_GPL(rnled_get_info);
++
++int rnled_toggle(struct rnled_info *led)
++{
++	int state;
++
++	if (!led->proc->get)
++		return -1;
++	state = led->proc->get(&led->cdev);
++	state = !state;
++	led->proc->set(led, state);
++	return state;
++}
++EXPORT_SYMBOL_GPL(rnled_toggle);
++
++MODULE_AUTHOR("Justin Maggard <justin.maggard@netgear.com>");
++MODULE_DESCRIPTION("NETGEAR ReadyNAS LED driver");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/platform/readynas/readynas-oled.c b/drivers/platform/readynas/readynas-oled.c
+new file mode 100644
+index 0000000..4d0deec
+--- /dev/null
++++ b/drivers/platform/readynas/readynas-oled.c
+@@ -0,0 +1,573 @@
++/*
++ * readynas-oled.c - NETGEAR ReadyNAS OLED bitmap display driver
++ *
++ * Copyright (c) 2015,2016 NETGEAR, Inc.
++ *
++ * Author: Hiro Sugawara <hiro.sugawara@netgear.com>
++ *
++ */
++#include <linux/module.h>
++#include <linux/gpio.h>
++#include <linux/file.h>
++#include "readynas-io.h"
++
++#define FONT_OVERRIDE 0
++
++/*
++ * Hitach HD44780 similation for OLED bitmap display
++ */
++static struct oled_gpio {
++	const char *compatible;
++	const char *gpio_label;
++	unsigned int oled_sdin, oled_sclk, oled_dc,
++			oled_cs, oled_ctrl, oled_reset;
++	struct gpio_desc *oled_sdind, *oled_sclkd, *oled_dcd,
++			*oled_csd, *oled_ctrld, *oled_resetd;
++	struct hd44780_lcd lcd;
++} oled_gpios[] = {{
++	.compatible	= "rn316",
++	.gpio_label	= "gpio_ich",
++	.oled_sdin	= 21,
++	.oled_sclk	= 19,
++	.oled_dc	= 16,
++	.oled_cs	= 7,
++	.oled_ctrl	= 32,
++	.oled_reset	= 24,
++	.lcd = {
++		.magic	= LCD_PLATFORM_MAGIC,
++	},
++},{
++	.compatible	= "rn422_4",
++	.gpio_label	= "gpio_dnv.0",
++	.oled_sdin	= 34,
++	.oled_sclk	= 35,
++	.oled_dc	= 0,
++	.oled_cs	= 122,
++	.oled_ctrl	= 17,
++	.oled_reset	= 31,
++	.lcd = {
++		.magic	= LCD_PLATFORM_MAGIC,
++	},
++},{
++	.compatible	= "rn426_8",
++	.gpio_label	= "gpio_dnv.0",
++	.oled_sdin	= 30,
++	.oled_sclk	= 28,
++	.oled_dc	= 7,
++	.oled_cs	= 8,
++	.oled_ctrl	= 17,
++	.oled_reset	= 31,
++	.lcd = {
++		.magic	= LCD_PLATFORM_MAGIC,
++	},
++},{
++	.compatible	= "rnx16",
++	.gpio_label	= "gpio_ich",
++	.oled_sdin	= 54,
++	.oled_sclk	= 52,
++	.oled_dc	= 32,
++	.oled_cs	= 50,
++	.oled_ctrl	= 6,
++	.oled_reset	= 7,
++	.lcd = {
++		.magic	= LCD_PLATFORM_MAGIC,
++	},
++},{
++	.compatible	= "rnx24",
++	.gpio_label	= "gpio_ich",
++	.oled_sdin	= 54,
++	.oled_sclk	= 1,
++	.oled_dc	= 32,
++	.oled_cs	= 50,
++	.oled_ctrl	= 6,
++	.oled_reset	= 7,
++	.lcd = {
++		.magic	= LCD_PLATFORM_MAGIC,
++	},
++},{
++	.compatible	= "rnx26",
++	.gpio_label	= "gpio_ich",
++	.oled_sdin	= 54,
++	.oled_sclk	= 1,
++	.oled_dc	= 32,
++	.oled_cs	= 50,
++	.oled_ctrl	= 6,
++	.oled_reset	= 7,
++	.lcd = {
++		.magic	= LCD_PLATFORM_MAGIC,
++	},
++},{
++	.compatible	= "rnx28",
++	.gpio_label	= "gpio_ich",
++	.oled_sdin	= 54,
++	.oled_sclk	= 1,
++	.oled_dc	= 32,
++	.oled_cs	= 50,
++	.oled_ctrl	= 6,
++	.oled_reset	= 7,
++	.lcd = {
++		.magic	= LCD_PLATFORM_MAGIC,
++	},
++}, {}}, *oled_gpio;
++
++#define OLED_COLS	16
++#define OLED_ROWS	2
++#define OLED_GPIOD_SET(name, val)	\
++	gpiod_set_value(gp->oled_##name##d, (val))
++
++static void spi_send(struct oled_gpio *gp, unsigned char c, bool cmd)
++{
++	unsigned char mask = 0x80;
++
++	OLED_GPIOD_SET(cs, 0);
++	OLED_GPIOD_SET(dc, !cmd);
++
++	/* transfer data */
++	while (mask) {
++		OLED_GPIOD_SET(sclk, 0);
++		OLED_GPIOD_SET(sdin, !!(mask & c));
++		OLED_GPIOD_SET(sclk, 1);
++		mask >>= 1;
++	}
++	OLED_GPIOD_SET(dc, 1);
++	OLED_GPIOD_SET(cs, 1);
++}
++
++static void inline spi_send_data(struct oled_gpio *gp, unsigned char d)
++{
++	spi_send(gp, d, false);
++}
++
++static void inline spi_send_cmd(struct oled_gpio *gp, unsigned char c)
++{
++	spi_send(gp, c, true);
++}
++
++static unsigned char oled_row, oled_col;
++static void oled_set_cursor_pos(struct hd44780_lcd *gl,
++				unsigned char row, unsigned char col)
++{
++	oled_row = min(row, (unsigned char)1);
++	oled_col = min(col, (unsigned char)(OLED_COLS - 1));
++}
++
++static void oled_return_home(struct hd44780_lcd *gl)
++{
++	oled_set_cursor_pos(gl, 0, 0);
++}
++
++static void oled_shift_cursor(struct hd44780_lcd *gl, bool right)
++{
++	if (right) {
++		if (oled_col < OLED_COLS && oled_row < OLED_ROWS) {
++			oled_col++;
++			oled_row += oled_col / OLED_COLS;
++			oled_col %= OLED_COLS;
++		}
++	} else {
++		if (oled_col > 0)
++			oled_col--;
++		else if (oled_row > 0) {
++			oled_col = OLED_COLS - 1;
++			oled_row = 0;
++		}
++	}
++}
++
++static void oled_backlight_on(struct hd44780_lcd *gl, bool on)
++{
++	struct oled_gpio *gp = container_of(gl, struct oled_gpio, lcd);
++
++	spi_send_cmd(gp, on ? 0xaf : 0xae);
++	gl->backlight_status = on;
++}
++
++#define	OLED_X_OFFSET	4
++
++static void clear_oled(struct hd44780_lcd *gl)
++{
++	struct oled_gpio *gp = container_of(gl, struct oled_gpio, lcd);
++	int page, col;
++
++	spi_send_cmd(gp, 0x40);	/* Start position */
++
++	for (page = 0; page < 4; page++) {
++		OLED_GPIOD_SET(cs, 0);
++		OLED_GPIOD_SET(dc, 0);
++		spi_send_cmd(gp, 0xb0 + page);
++		spi_send_cmd(gp, 0x10);
++		spi_send_cmd(gp, OLED_X_OFFSET);
++		OLED_GPIOD_SET(dc, 1);
++
++		for(col = 0; col < 128; col++)
++			spi_send_data(gp, 0x0);
++	}
++	oled_return_home(gl);
++}
++
++static int init_oled(struct hd44780_lcd *gl)
++{
++	int i;
++	struct oled_gpio *gp =
++		container_of(gl, struct oled_gpio, lcd);
++	static const unsigned char oled_init_cmd[] = {
++		0xae,	/* Turn off display. */
++
++		0xd5,	/* Display ClocDivide Ratio/Oscillator Frequency */
++		0x71,	/* to 105Hz. */
++
++		0xa8,	/* Multiplex Ratio */
++		0x1f,	/* to 32mux. */
++
++		0xd9,	/* Precharge period. */
++		0x22,
++
++		0x20,	/* Memory addressing mode. */
++		0x02,
++
++		0xa1,	/* Seg re-map 127->0. */
++		0xc8,	/* COM scan direction COM(N-1)-->COM0. */
++
++		0xda,	/* COM pins hardware configuration. */
++		0x12,
++
++		0xd8,	/* Color_mode_set */
++		0x00,	/* to monochrome mode & normal power mode. */
++
++		0x81,	/* Contrast control. */
++		0xcf,
++
++		0xb0,	/* Page start address for page Addressing mode. */
++
++		0xd3,	/* Display offset. */
++		0x00,
++
++		0x21,	/* Column address. */
++		OLED_X_OFFSET,		/* Colum address start. */
++		0x7f+OLED_X_OFFSET,	/* Colum address end. */
++
++		0x22,	/* Page address. */
++		0x00,	/* Page address start. */
++		0x03,	/* Page address end. */
++
++		0x10,	/* Higher column start addr for page addressing mode. */
++		0x00,	/* Lower column start addr for page addressing mode. */
++		0x40,	/* Display start line */
++		0xa6,	/* Normal (non-inverted). */
++
++		0xa4,	/* Entire display Off. */
++
++		0xdb,	/* VCOMH Level */
++		0x18,	/* to 0.83*VCC 0x3c, change from 0x20 to 0x18 avoid power peek issue. */
++	};
++
++	OLED_GPIOD_SET(reset, 0);
++	udelay(5);	/* L pulse > 3us */
++	OLED_GPIOD_SET(reset, 1);
++	udelay(5);
++
++	for (i = 0; i < ARRAY_SIZE(oled_init_cmd); i++)
++		spi_send_cmd(gp, oled_init_cmd[i]);
++
++	clear_oled(gl);
++
++	OLED_GPIOD_SET(ctrl, 1);
++
++	oled_backlight_on(gl, true);
++	return 0;
++}
++
++/* RNx16 128x32 OLED display 8x16 font */
++#define _FONT(c,_0,_1,_2,_3,_4,_5,_6,_7,_8,_9,_a,_b,_c,_d,_e,_f)	\
++	[(c)] = { 0x##_0, 0x##_1,0x##_2, 0x##_3,0x##_4, 0x##_5,0x##_6, 0x##_7, \
++		  0x##_8, 0x##_9,0x##_a, 0x##_b,0x##_c, 0x##_d,0x##_e, 0x##_f }
++static const unsigned char ascii[128][16] = {
++	_FONT(' ', 00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00),
++	_FONT('!', 00,00,00,f8,00,00,00,00,00,00,00,33,30,00,00,00),
++	_FONT('"', 00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00),
++	_FONT('#', 40,c0,78,40,c0,78,40,00,04,3f,04,04,3f,04,04,00),
++	_FONT('$', 00,70,88,fc,08,30,00,00,00,18,20,ff,21,1e,00,00),
++	_FONT('%', f0,08,f0,00,e0,18,00,00,00,21,1c,03,1e,21,1e,00),
++	_FONT('&', 00,f0,08,88,70,00,00,00,1e,21,23,24,19,27,21,10),
++	_FONT('\'',10,16,0e,00,00,00,00,00,00,00,00,00,00,00,00,00),
++	_FONT('(', 00,00,00,e0,18,04,02,00,00,00,00,07,18,20,40,00),
++	_FONT(')', 00,02,04,18,e0,00,00,00,00,40,20,18,07,00,00,00),
++	_FONT('*', 40,40,80,f0,80,40,40,00,02,02,01,0f,01,02,02,00),
++	_FONT('+', 00,00,00,f0,00,00,00,00,01,01,01,1f,01,01,01,00),
++	_FONT(',', 00,00,00,00,00,00,00,00,00,00,00,00,00,10,16,0e),
++	_FONT('-', 00,00,00,00,00,00,00,00,00,01,01,01,01,01,01,01),
++	_FONT('.', 00,00,00,00,00,00,00,00,00,30,30,00,00,00,00,00),
++	_FONT('/', 00,00,00,00,80,60,18,04,00,60,18,06,01,00,00,00),
++
++	_FONT('0', 00,e0,10,08,08,10,e0,00,00,0f,10,20,20,10,0f,00),
++	_FONT('1', 00,10,10,f8,00,00,00,00,00,20,20,3f,20,20,00,00),
++	_FONT('2', 00,70,08,08,08,88,70,00,00,30,28,24,22,21,30,00),
++	_FONT('3', 00,30,08,88,88,48,30,00,00,18,20,20,20,11,0e,00),
++	_FONT('4', 00,00,c0,20,10,f8,00,00,00,07,04,24,24,3f,24,00),
++	_FONT('5', 00,f8,08,88,88,08,08,00,00,19,21,20,20,11,0e,00),
++	_FONT('6', 00,e0,10,88,88,18,00,00,00,0f,11,20,20,11,0e,00),
++	_FONT('7', 00,38,08,08,c8,38,08,00,00,00,00,3f,00,00,00,00),
++	_FONT('8', 00,70,88,08,08,88,70,00,00,1c,22,21,21,22,1c,00),
++	_FONT('9', 00,e0,10,08,08,10,e0,00,00,00,31,22,22,11,0f,00),
++	_FONT(':', 00,00,00,c0,c0,00,00,00,00,00,00,30,30,00,00,00),
++	_FONT(';', 00,00,00,80,00,00,00,00,00,00,80,60,00,00,00,00),
++	_FONT('<', 00,00,80,40,20,10,08,00,00,01,02,04,08,10,20,00),
++	_FONT('=', 40,40,40,40,40,40,40,00,04,04,04,04,04,04,04,00),
++	_FONT('>', 00,08,10,20,40,80,00,00,00,20,10,08,04,02,01,00),
++	_FONT('?', 00,70,48,08,08,08,f0,00,00,00,00,30,36,01,00,00),
++
++	_FONT('@', c0,30,c8,28,e8,10,e0,00,07,18,27,24,23,14,0b,00),
++	_FONT('A', 00,00,c0,38,e0,00,00,00,20,3c,23,02,02,27,38,20),
++	_FONT('B', 08,f8,88,88,88,70,00,00,20,3f,20,20,20,11,0e,00),
++	_FONT('C', c0,30,08,08,08,08,38,00,07,18,20,20,20,10,08,00),
++	_FONT('D', 08,f8,08,08,08,10,e0,00,20,3f,20,20,20,10,0f,00),
++	_FONT('E', 08,f8,88,88,e8,08,10,00,20,3f,20,20,23,20,18,00),
++	_FONT('F', 08,f8,88,88,e8,08,10,00,20,3f,20,00,03,00,00,00),
++	_FONT('G', c0,30,08,08,08,38,00,00,07,18,20,20,22,1e,02,00),
++	_FONT('H', 08,f8,08,00,00,08,f8,08,20,3f,21,01,01,21,3f,20),
++	_FONT('I', 00,08,08,f8,08,08,00,00,00,20,20,3f,20,20,00,00),
++	_FONT('J', 00,00,08,08,f8,08,08,00,c0,80,80,80,7f,00,00,00),
++	_FONT('K', 08,f8,88,c0,28,18,08,00,20,3f,20,01,26,38,20,00),
++	_FONT('L', 08,f8,08,00,00,00,00,00,20,3f,20,20,20,20,30,00),
++	_FONT('M', 08,f8,f8,00,f8,f8,08,00,20,3f,00,3f,00,3f,20,00),
++	_FONT('N', 08,f8,30,c0,00,08,f8,08,20,3f,20,00,07,18,3f,00),
++	_FONT('O', e0,10,08,08,08,10,e0,00,0f,10,20,20,20,10,0f,00),
++
++	_FONT('P', 08,f8,08,08,08,08,f0,00,20,3f,21,01,01,01,00,00),
++	_FONT('Q', e0,10,08,08,08,10,e0,00,0f,18,24,24,38,50,4f,00),
++	_FONT('R', 08,f8,88,88,88,88,70,00,20,3f,20,00,03,0c,30,20),
++	_FONT('S', 00,70,88,08,08,08,38,00,00,38,20,21,21,22,1c,00),
++	_FONT('T', 18,08,08,f8,08,08,18,00,00,00,20,3f,20,00,00,00),
++	_FONT('U', 08,f8,08,00,00,08,f8,08,00,1f,20,20,20,20,1f,00),
++	_FONT('V', 08,78,88,00,00,c8,38,08,00,00,07,38,0e,01,00,00),
++	_FONT('W', f8,08,00,f8,00,08,f8,00,03,3c,07,00,07,3c,03,00),
++	_FONT('X', 08,18,68,80,80,68,18,08,20,30,2c,03,03,2c,30,20),
++	_FONT('Y', 08,38,c8,00,c8,38,08,00,00,00,20,3f,20,00,00,00),
++	_FONT('Z', 10,08,08,08,c8,38,08,00,20,38,26,21,20,20,18,00),
++	_FONT('[', 00,00,00,fe,02,02,02,00,00,00,00,7f,40,40,40,00),
++	_FONT('\\',00,0c,30,c0,00,00,00,00,00,00,00,01,06,38,c0,00),
++	_FONT(']', 00,02,02,02,fe,00,00,00,00,40,40,40,7f,00,00,00),
++	_FONT('^', 00,00,04,02,02,02,04,00,00,00,00,00,00,00,00,00),
++	_FONT('_', 00,00,00,00,00,00,00,00,80,80,80,80,80,80,80,80),
++
++	_FONT('`', 00,02,02,04,00,00,00,00,00,00,00,00,00,00,00,00),
++	_FONT('a', 00,00,80,80,80,80,00,00,00,19,24,22,22,22,3f,20),
++	_FONT('b', 08,f8,00,80,80,00,00,00,00,3f,11,20,20,11,0e,00),
++	_FONT('c', 00,00,00,80,80,80,00,00,00,0e,11,20,20,20,11,00),
++	_FONT('d', 00,00,00,80,80,88,f8,00,00,0e,11,20,20,10,3f,20),
++	_FONT('e', 00,00,80,80,80,80,00,00,00,1f,22,22,22,22,13,00),
++	_FONT('f', 00,80,80,f0,88,88,88,18,00,20,20,3f,20,20,00,00),
++	_FONT('g', 00,00,80,80,80,80,80,00,00,6b,94,94,94,93,60,00),
++	_FONT('h', 08,f8,00,80,80,80,00,00,20,3f,21,00,00,20,3f,20),
++	_FONT('i', 00,80,98,98,00,00,00,00,00,20,20,3f,20,20,00,00),
++	_FONT('j', 00,00,00,80,98,98,00,00,00,c0,80,80,80,7f,00,00),
++	_FONT('k', 08,f8,00,00,80,80,80,00,20,3f,24,02,2d,30,20,00),
++	_FONT('l', 00,08,08,f8,00,00,00,00,00,20,20,3f,20,20,00,00),
++	_FONT('m', 80,80,80,80,80,80,80,00,20,3f,20,00,3f,20,00,3f),
++	_FONT('n', 80,80,00,80,80,80,00,00,20,3f,21,00,00,20,3f,20),
++	_FONT('o', 00,00,80,80,80,80,00,00,00,1f,20,20,20,20,1f,00),
++
++	_FONT('p', 80,80,00,80,80,00,00,00,80,ff,a1,20,20,11,0e,00),
++	_FONT('q', 00,00,00,80,80,80,80,00,00,0e,11,20,20,a0,ff,80),
++	_FONT('r', 80,80,80,00,80,80,80,00,20,20,3f,21,20,00,01,00),
++	_FONT('s', 00,00,80,80,80,80,80,00,00,33,24,24,24,24,19,00),
++	_FONT('t', 00,80,80,e0,80,80,00,00,00,00,00,1f,20,20,00,00),
++	_FONT('u', 80,80,00,00,00,80,80,00,00,1f,20,20,20,10,3f,20),
++	_FONT('v', 80,80,80,00,00,80,80,80,00,01,0e,30,08,06,01,00),
++	_FONT('w', 80,80,00,80,00,80,80,80,0f,30,0c,03,0c,30,0f,00),
++	_FONT('x', 00,80,80,00,80,80,80,00,00,20,31,2e,0e,31,20,00),
++	_FONT('y', 80,80,80,00,00,80,80,80,80,81,8e,70,18,06,01,00),
++	_FONT('z', 00,80,80,80,80,80,80,00,00,21,30,2c,22,21,30,00),
++	_FONT('{', 00,00,00,00,80,7c,02,02,00,00,00,00,00,3f,40,40),
++	_FONT('|', 00,00,00,00,ff,00,00,00,00,00,00,00,ff,00,00,00),
++	_FONT('}', 00,02,02,7c,80,00,00,00,00,40,40,3f,00,00,00,00),
++	_FONT('~', 00,06,01,01,02,02,04,04,00,00,00,00,00,00,00,00),
++
++	_FONT(1, 00,00,00,00,00,00,00,00,00,ff,ff,ff,ff,ff,ff,ff),
++	_FONT(127, 00,ff,ff,ff,ff,ff,ff,ff,00,ff,ff,ff,ff,ff,ff,ff),
++};
++
++static void oled_data_write(struct hd44780_lcd *gl, unsigned char c)
++{
++	struct oled_gpio *gp = container_of(gl, struct oled_gpio, lcd);
++	const unsigned char *cg = ascii[c & 0x7f];
++	unsigned int xpix = oled_col * 8 + OLED_X_OFFSET;
++	int page;
++#if FONT_OVERRIDE
++	struct file *f;
++	mm_segment_t fs;
++	char buf[18];
++
++	fs = get_fs();
++	set_fs(get_ds());
++	sprintf(buf, "/root/font/%c", c);
++	f = filp_open(buf, O_RDONLY, 0);
++	if (!IS_ERR(f)) {
++		loff_t off = 0;
++		ssize_t ret;
++		memset(&buf, '\0', sizeof(buf));
++		ret = vfs_read(f, buf, 16, &off);
++		if (ret > 0) {
++			pr_info("Loaded font %c (%s)\n", c, buf);
++			cg = buf;
++		}
++		else
++			pr_info("Failed to load font %c: %ld\n", c, ret);
++		filp_close(f, NULL);
++	}
++	set_fs(fs);
++#endif
++
++	if (oled_row >= OLED_ROWS || oled_col >= OLED_COLS)
++		return;
++
++	spi_send_cmd(gp, 0xa6);
++	spi_send_cmd(gp, 0x40);	/* Start line. */
++
++	/* line1: page 0,1  line2: page 2,3  */
++	/* one char takes 2 page 16 pbits height; */
++	for (page = 0; page < 2; page++) {
++		int i;
++
++		OLED_GPIOD_SET(cs, 0);
++		OLED_GPIOD_SET(dc, 0);
++
++		spi_send_cmd(gp, 0xb0 + oled_row * 2 + page);
++		spi_send_cmd(gp, (xpix >> 4) | 0x10);
++		spi_send_cmd(gp, xpix & 0xf);
++
++		OLED_GPIOD_SET(dc, 1);
++
++		for (i = 0; i < 8; i++) {
++			unsigned int raster = cg[page * 8 + i];
++			if (c != 0xff && (c & 0x80))
++				raster ^= ~0;
++			spi_send_data(gp, raster);
++		}
++	}
++
++	oled_shift_cursor(gl, true);
++}
++
++static int oled_probe(struct platform_device *pdev)
++{
++	int err = 0;
++	struct gpio_chip *gc = rn_gpiochip_find_by_label(oled_gpio->gpio_label);
++
++	if (IS_ERR(gc))
++		err = PTR_ERR(gc);
++	else if (!gc)
++		err = -ENODEV;
++	if (err) {
++		pr_err("%s: cannot find OLED GPIO %s.\n", __func__,
++			oled_gpio->gpio_label);
++		return err;
++	}
++
++#define	GET_GPIOD(name)	\
++	do {	\
++		struct gpio_desc *_gd = 	\
++			gpiochip_get_desc(gc, oled_gpio->oled_##name); \
++		if (IS_ERR(_gd)) {	\
++			err = PTR_ERR(_gd);	\
++			goto out;	\
++		} else if (!_gd) {	\
++			err = -ENODEV;	\
++			goto out;	\
++		} else if ((err = gpiod_direction_output(_gd, 0)))	\
++			goto out;	\
++		oled_gpio->oled_##name##d = _gd;	\
++	} while (0)
++
++	GET_GPIOD(sdin);
++	GET_GPIOD(sclk);
++	GET_GPIOD(dc);
++	GET_GPIOD(cs);
++	GET_GPIOD(ctrl);
++	GET_GPIOD(reset);
++
++	oled_gpio->lcd.init	= init_oled;
++	oled_gpio->lcd.clear_lcd		= clear_oled;
++	oled_gpio->lcd.return_home	= oled_return_home;
++	oled_gpio->lcd.shift_cursor	= oled_shift_cursor;
++	oled_gpio->lcd.set_cursor_pos	= oled_set_cursor_pos;
++	oled_gpio->lcd.backlight_on	= oled_backlight_on;
++	oled_gpio->lcd.entry_display_on	= oled_backlight_on;
++	oled_gpio->lcd.data_write		= oled_data_write;
++
++	oled_gpio->lcd.lcm_num_cols	= OLED_COLS;
++	oled_gpio->lcd.lcm_num_rows	= OLED_ROWS;
++
++	mutex_init(&oled_gpio->lcd.lcm_lock);
++
++	err = init_oled(&oled_gpio->lcd);
++out:
++	if (err)
++		pr_err("%s: failed to install OLED driver.\n", __func__);
++	else
++		platform_set_drvdata(pdev, &oled_gpio->lcd);
++	return err;
++}
++
++static int oled_remove(struct platform_device *pdev)
++{
++	return 0;
++}
++
++static struct platform_driver oled_driver = {
++	.probe	= oled_probe,
++	.remove	= oled_remove,
++	.driver = { .name	= "rnx16-oled", },
++};
++
++static struct platform_device *oled_pdev;
++static int __init rn_oled_init(void)
++{
++	int err;
++
++	for (oled_gpio = &oled_gpios[0];
++		oled_gpio->compatible; oled_gpio++)
++		if (readynas_io_compatible(oled_gpio->compatible))
++			break;
++	if (!oled_gpio->compatible)
++		return 0;
++
++	pr_info("%s: initializing %s OLED front display.\n", __func__,
++			oled_gpio->compatible);
++	if ((err = platform_driver_register(&oled_driver))) {
++		pr_err("%s: failed to install OELD driver.\n",
++			__func__);
++		return err;
++	}
++
++	oled_pdev = platform_device_register_simple(oled_driver.driver.name,
++							-1, NULL, 0);
++	if (IS_ERR(oled_pdev))
++		err = PTR_ERR(oled_pdev);
++	else if (!oled_pdev)
++		err = -ENODEV;
++
++	if (err) {
++		pr_err("%s: failed to install OELD device.\n", __func__);
++		platform_driver_unregister(&oled_driver);
++		oled_pdev = NULL;
++	}
++	return err;
++}
++
++static void rn_oled_exit(void)
++{
++	if (oled_pdev) {
++		platform_device_unregister(oled_pdev);
++		platform_driver_unregister(&oled_driver);
++		oled_pdev = NULL;
++	}
++}
++
++/* This module must be loaded after readynas-io. */
++device_initcall_sync(rn_oled_init);
++module_exit(rn_oled_exit);
++
++MODULE_LICENSE("GPL");
++MODULE_DESCRIPTION("NETGEAR OLED bitmapped character display driver");
++MODULE_AUTHOR("hiro.sugawara@netgear.com");
+diff --git a/drivers/platform/readynas/readynas-pmbus.c b/drivers/platform/readynas/readynas-pmbus.c
+new file mode 100644
+index 0000000..d084b35
+--- /dev/null
++++ b/drivers/platform/readynas/readynas-pmbus.c
+@@ -0,0 +1,550 @@
++/**
++ * Redundant PSU - lm_sensors compatible PMBus support for ReadyNAS X86
++ *
++ * Copyright 2016 Hiro Sugawara <hiro.sugawara@netgear.com>
++ */
++
++#include <linux/module.h>
++#include <linux/acpi.h>
++#include <linux/gpio.h>
++#include <linux/platform_device.h>
++#include <linux/proc_fs.h>
++#include <linux/i2c.h>
++
++#include "../../hwmon/pmbus/pmbus.h"
++#include "readynas-io.h"
++
++int num_pmbus_clients = 2;
++
++extern void __i2c_nct6775_reset(struct i2c_adapter *);
++extern void __pmbus_set_id_table(const struct i2c_device_id *id_table);
++extern const u8 *__pmbus_set_supported_regs(const u8 *regs);
++
++/* DELTA PSU supports only one page. Trying to set to page other than #0,
++ * like other invalid parameter values, results in Unsupported Value and
++ * PEC (incorrect) errors in STATUS_CML, which cannot be cleared by
++ * CLEAR_FAULTS until the system is restarted from poweroff.
++ * Letting PMBus driver know there's only one page works around this.
++ */
++static const struct i2c_device_id pmbus_delt_id_table[] = {
++	{"pmbus", 1},
++	{}
++};
++
++/* DELTA PSU sets Unsupported Command error in STATUS_CML, which cannot be
++ * cleared by CLEAR_FAULTS until the system is restarted from poweroff.
++ * Filtering commands with a known good command list works around this.
++ */
++static const u8 pmbus_delt_supported_regs[] = {
++	PMBUS_VOUT_MODE,
++	PMBUS_FAN_CONFIG_12,
++
++	PMBUS_IOUT_OC_FAULT_LIMIT,
++	PMBUS_IOUT_OC_WARN_LIMIT,
++	PMBUS_OT_WARN_LIMIT,
++
++	PMBUS_IIN_OC_FAULT_LIMIT,
++	PMBUS_IIN_OC_WARN_LIMIT,
++	PMBUS_POUT_OP_WARN_LIMIT,
++
++	PMBUS_READ_VIN,
++	PMBUS_READ_IIN,
++	PMBUS_READ_VOUT,
++	PMBUS_READ_IOUT,
++	PMBUS_READ_TEMPERATURE_1,
++	PMBUS_READ_TEMPERATURE_2,
++	PMBUS_READ_FAN_SPEED_1,
++	PMBUS_READ_POUT,
++	PMBUS_READ_PIN,
++	0
++};
++
++static void pmbus_delt_init(void)
++{
++	__pmbus_set_id_table(pmbus_delt_id_table);
++}
++
++/* ZIPPY PSU for RR4360 replies bogus values for unsupported registers.
++ */
++static const u8 pmbus_zippy_supported_regs[] = {
++	PMBUS_VOUT_MODE,
++	PMBUS_FAN_CONFIG_12,
++
++	PMBUS_READ_VIN,
++	PMBUS_READ_VOUT,
++	PMBUS_READ_IOUT,
++	PMBUS_READ_TEMPERATURE_1,
++	PMBUS_READ_POUT,
++	PMBUS_READ_PIN,
++	0
++};
++
++static u8 pmbus_min_supported_regs[] = {
++	PMBUS_VOUT_MODE,
++	PMBUS_FAN_CONFIG_12,
++
++	PMBUS_READ_VIN,
++	PMBUS_READ_VOUT,
++	PMBUS_READ_IOUT,
++	PMBUS_READ_TEMPERATURE_1,
++	PMBUS_READ_POUT,
++	PMBUS_READ_PIN,
++	0
++};
++
++/* Supported PSU type search list.
++ * More specific (i.e. w/ mfr_model, mfr_revision) entries must be listed
++ * earlier.
++ */
++static struct pmbus_psu {
++	const char *mfr_id, *mfr_model, *mfr_revision;
++	unsigned short flags;	/* To be copied to client and adapter. */
++	void (*init)(void);
++	const u8 *supported_regs;
++} pmbus_psu[] = {
++	{
++		.mfr_id	= "ZIPPY",
++		.supported_regs	= pmbus_zippy_supported_regs,
++	}, {
++		.mfr_id	= "DELT",
++		.init	= pmbus_delt_init,
++		.flags	= I2C_CLIENT_PEC_PMBUS_WRITE_ONLY,
++		.supported_regs	= pmbus_delt_supported_regs,
++	}, {
++		.mfr_id	= "ACBE",
++		.flags	= I2C_CLIENT_PEC_PMBUS_WRITE_ONLY,
++	}, {	.mfr_id = "",
++		.supported_regs	= pmbus_min_supported_regs,
++	}, {}
++};
++
++static struct pmbus_adapter_priv {
++	const char *compatible;
++	const char **adapter_names;
++	struct i2c_adapter *adapter;
++	void (*adapter_reset)(struct i2c_adapter *);
++	int num_psus;	/* Default: 2 */
++	struct pmbus_psu *psu;
++} pmbus_adapter_priv[] = {
++	{
++		.compatible	= "rnx220",
++		.adapter_names	= rn_i2c_adapters_nct677x,
++		.adapter_reset	= __i2c_nct6775_reset,
++	}, {
++		.compatible	= "rrx312",
++		.adapter_names	= rn_i2c_adapters_ipch,
++	}, {
++		.compatible	= "rr4360",
++		.adapter_names	= rn_i2c_adapters_ipch,
++		.num_psus	= 4,
++	}, {}
++};
++
++/* NCT SMBus is multiplexed with GPIO. Determine if we want to use SMBus. */
++int rn_use_i2c_nct6775(void)
++{
++	return readynas_io_compatible("rnx220");
++}
++
++static char pmbus_mfr_id[32], pmbus_mfr_model[32], pmbus_mfr_revision[32];
++
++static struct pmbus_client_priv {
++	int index;
++	u16 addr;
++	struct i2c_adapter *adapter;
++	struct i2c_client *client;
++	struct proc_dir_entry	*clear_proc,
++				*voltage_proc;
++} *pmbus_client_priv;
++
++static int pmbus_adapter_reset_show(struct seq_file *s, void *v)
++{
++        seq_printf(s, "write any to reset PMBus adapter\n");
++        return 0;
++}
++
++static ssize_t pmbus_adapter_reset_write(struct file *file,
++					const char __user *buffer,
++					size_t count, loff_t *off)
++{
++	struct pmbus_adapter_priv *apriv = PDE_DATA(file_inode(file));
++
++	apriv->adapter_reset(apriv->adapter);
++        return count;
++}
++
++static int pmbus_adapter_reset_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, pmbus_adapter_reset_show, PDE_DATA(inode));
++}
++
++static const struct file_operations pmbus_adapter_reset_fop = {
++	.open		= pmbus_adapter_reset_open,
++	.read		= seq_read,
++	.write		= pmbus_adapter_reset_write,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++};
++
++static int pmbus_clear_show(struct seq_file *s, void *v)
++{
++        seq_printf(s, "write any to clear PMBus faults\n");
++        return 0;
++}
++
++static ssize_t pmbus_clear_write(struct file *file,
++					const char __user *buffer,
++					size_t count, loff_t *off)
++{
++	struct pmbus_client_priv *cpriv = PDE_DATA(file_inode(file));
++
++	i2c_smbus_xfer(cpriv->adapter, cpriv->addr, 0,
++			I2C_SMBUS_WRITE, PMBUS_CLEAR_FAULTS,
++			I2C_SMBUS_BYTE, NULL);
++        return count;
++}
++
++static int pmbus_clear_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, pmbus_clear_show, PDE_DATA(inode));
++}
++
++static const struct file_operations pmbus_clear_fop = {
++	.open		= pmbus_clear_open,
++	.read		= seq_read,
++	.write		= pmbus_clear_write,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++};
++
++static int pmbus_voltage_show(struct seq_file *s, void *v)
++{
++	struct pmbus_client_priv *cpriv = s->private;
++	union i2c_smbus_data i2c_data;
++	int err = i2c_smbus_xfer(cpriv->adapter,
++				cpriv->addr, 0,
++				I2C_SMBUS_READ, 0x88,
++				I2C_SMBUS_WORD_DATA, &i2c_data);
++	if (err)
++		return err;
++	seq_printf(s, "%u\n", i2c_data.word);
++        return 0;
++}
++
++static int pmbus_voltage_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, pmbus_voltage_show, PDE_DATA(inode));
++}
++
++static const struct file_operations pmbus_voltage_fop = {
++	.open		= pmbus_voltage_open,
++	.read		= seq_read,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++};
++
++static int pmbus_mfr_show(struct seq_file *s, void *v)
++{
++	seq_printf(s, "%s\n%s\n%s\n", pmbus_mfr_id,
++				pmbus_mfr_model,
++				pmbus_mfr_revision);
++        return 0;
++}
++
++static int pmbus_mfr_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, pmbus_mfr_show, PDE_DATA(inode));
++}
++
++static const struct file_operations pmbus_mfr_fop = {
++	.open		= pmbus_mfr_open,
++	.read		= seq_read,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++};
++
++static struct proc_dir_entry
++	*pmbus_adapter_reset_proc,
++	*pmbus_mfr_proc;
++
++static void pmbus_adapter_reset_procfs_init(struct pmbus_adapter_priv *apriv)
++{
++	pmbus_adapter_reset_proc =
++			readynas_proc_create("pmbus_reset", 0644,
++					&pmbus_adapter_reset_fop, apriv);
++}
++
++static void pmbus_client_procfs_init(struct pmbus_client_priv *cpriv)
++{
++	char name[20];
++
++	sprintf(name, "psu%d_clear", cpriv->index + 1);
++	cpriv->clear_proc = readynas_proc_create(name, 0644,
++					&pmbus_clear_fop, cpriv);
++
++	sprintf(name, "psu%d_vin", cpriv->index + 1);
++	cpriv->voltage_proc = readynas_proc_create(name, 0644,
++					&pmbus_voltage_fop, cpriv);
++}
++
++static void __pmbus_mfr(struct pmbus_adapter_priv *apriv, u8 idx,
++			struct i2c_board_info *info, char *buf)
++{
++	union i2c_smbus_data i2c_data;
++	int i, err = -ENODEV;
++
++	for (i = 0; i < num_pmbus_clients; i++)
++		if (!(err = i2c_smbus_xfer(apriv->adapter, info->addr, 0,
++			I2C_SMBUS_READ, idx,
++			I2C_SMBUS_BLOCK_DATA, &i2c_data))) {
++			unsigned int len = i2c_data.block[0];
++
++			if (0 < len && len < I2C_SMBUS_BLOCK_MAX) {
++				memcpy(buf, &i2c_data.block[1], len - 1);
++				buf[len - 1] = '\0';
++				break;
++			}
++		}
++}
++
++static void pmbus_mfr_procfs_init(struct pmbus_adapter_priv *apriv,
++					struct i2c_board_info *info)
++{
++	__pmbus_mfr(apriv, PMBUS_MFR_ID, info, pmbus_mfr_id);
++	__pmbus_mfr(apriv, PMBUS_MFR_MODEL, info, pmbus_mfr_model);
++	__pmbus_mfr(apriv, PMBUS_MFR_REVISION, info, pmbus_mfr_revision);
++
++	pmbus_mfr_proc = readynas_proc_create("pmbus_mfr", 0644,
++						&pmbus_mfr_fop, apriv);
++}
++
++static void pmbus_procfs_exit(void)
++{
++	int i;
++
++	for (i = 0; i < num_pmbus_clients; i++) {
++		if (pmbus_client_priv[i].voltage_proc) {
++			proc_remove(pmbus_client_priv[i].voltage_proc);
++			pmbus_client_priv[i].voltage_proc = NULL;
++		}
++		if (pmbus_client_priv[i].clear_proc) {
++			proc_remove(pmbus_client_priv[i].clear_proc);
++			pmbus_client_priv[i].clear_proc = NULL;
++		}
++	}
++
++	if (pmbus_mfr_proc) {
++		proc_remove(pmbus_mfr_proc);
++		pmbus_mfr_proc = NULL;
++	}
++	if (pmbus_adapter_reset_proc) {
++		proc_remove(pmbus_adapter_reset_proc);
++		pmbus_adapter_reset_proc = NULL;
++	}
++}
++
++extern int pmbus_num_attributes(struct i2c_client *);
++static int rn_pmbus_probe(struct platform_device *pdev)
++{
++	struct pmbus_adapter_priv *apriv = dev_get_platdata(&pdev->dev);
++	struct i2c_adapter *adapter = apriv->adapter;
++	int i;
++	static struct i2c_board_info psu_i2c_info[] = {
++		{ I2C_BOARD_INFO("pmbus", 0x58), },
++		{ I2C_BOARD_INFO("pmbus", 0x59), },
++		{ I2C_BOARD_INFO("pmbus", 0x5a), },
++		{ I2C_BOARD_INFO("pmbus", 0x5b), },
++		{}
++	};
++
++	pr_info("%s: probing PMBus devices on %s.\n",
++		__func__, adapter->name);
++
++	apriv->psu = NULL;
++	if (apriv->adapter_reset) {
++		pmbus_adapter_reset_procfs_init(apriv);
++		apriv->adapter_reset(adapter);
++	}
++	pmbus_mfr_procfs_init(apriv, psu_i2c_info);
++	pr_info("%s: PSU model: %s %s %s\n", __func__,
++			pmbus_mfr_id, pmbus_mfr_model, pmbus_mfr_revision);
++
++	/* Look for best-match PSU profile */
++	for (i = 0; pmbus_psu[i].mfr_id; i++) {
++		if (strcasecmp(pmbus_psu[i].mfr_id, pmbus_mfr_id))
++			continue;
++		if (!pmbus_psu[i].mfr_model) {
++			apriv->psu = &pmbus_psu[i];
++			break;
++		} else if (strcasecmp(pmbus_psu[i].mfr_model, pmbus_mfr_model))
++			continue;
++		else if (!pmbus_psu[i].mfr_revision) {
++			apriv->psu = &pmbus_psu[i];
++			break;
++		} else if (!strcasecmp(pmbus_psu[i].mfr_revision,
++						pmbus_mfr_revision)) {
++			apriv->psu = &pmbus_psu[i];
++			break;
++		}
++	}
++
++	if (!apriv->psu) {
++		pr_warn("%s: PSU not found in support list"
++			" - using minimal config\n", __func__);
++		apriv->psu = &pmbus_psu[i - 1];
++	}
++	if (apriv->psu->init)
++		apriv->psu->init();
++	if (apriv->psu->supported_regs)
++		__pmbus_set_supported_regs(apriv->psu->supported_regs);
++
++	for (i = 0; i < num_pmbus_clients; i++) {
++		union i2c_smbus_data i2c_data;
++		struct pmbus_client_priv *cpriv = &pmbus_client_priv[i];
++
++		cpriv->index = i;
++		cpriv->adapter = adapter;
++		cpriv->addr = psu_i2c_info[i].addr;
++
++		pmbus_client_procfs_init(cpriv);
++
++		/* Send CLEAR_FAULTS command. */
++		i2c_smbus_xfer(adapter,
++				cpriv->addr,
++				(psu_i2c_info[i].flags &
++					I2C_CLIENT_PEC_PMBUS_WRITE_ONLY) ?
++						I2C_CLIENT_PEC : 0,
++				I2C_SMBUS_WRITE, PMBUS_CLEAR_FAULTS,
++				I2C_SMBUS_BYTE, NULL);
++		msleep(10);
++		/* Dummy read-data for preventing receive-byte. */
++		i2c_smbus_xfer(adapter,
++				cpriv->addr, 0,
++				I2C_SMBUS_READ, PMBUS_STATUS_BYTE,
++				I2C_SMBUS_BYTE_DATA, &i2c_data);
++
++		if (apriv->psu)
++			psu_i2c_info[i].flags = apriv->psu->flags;
++		cpriv->client = i2c_new_device(adapter, &psu_i2c_info[i]);
++
++		/**
++		 * i2c_new_device() eventually calls bus_probe_device(),
++		 * which does not return status.
++		 * Check the  etected number of PMBus attributes for
++		 * determining the PMBus device registration failure.
++		 */
++		if (!cpriv->client || !pmbus_num_attributes(cpriv->client)) {
++			if (cpriv->client) {
++				i2c_unregister_device(cpriv->client);
++				cpriv->client = NULL;
++			}
++			pr_err("%s: PMBus failed to detect PSU at 0x%x.\n",
++				__func__, psu_i2c_info[i].addr);
++		}
++	}
++
++	/* Successful if any address is responsive. */
++	for (i = 0; i < num_pmbus_clients; i++)
++		if (pmbus_client_priv[i].client)
++			return 0;
++	pr_err("%s: no PMBus devices found.\n", __func__);
++	return -EIO;
++}
++
++static int rn_pmbus_remove(struct platform_device *pdev)
++{
++	int i;
++
++	for (i = 0; i < num_pmbus_clients; i++) {
++		if (pmbus_client_priv[i].client)
++			i2c_unregister_device(pmbus_client_priv[i].client);
++		pmbus_client_priv[i].client = NULL;
++	}
++	return 0;
++}
++
++
++struct platform_driver rn_pmbus_driver = {
++	.probe	= rn_pmbus_probe,
++	.remove	= rn_pmbus_remove,
++	.driver = { .name	= "rn-pmbus", },
++};
++
++static struct platform_device *pmbus_pdev;
++
++static int rn_pmbus_init(void)
++{
++	struct i2c_adapter *adapter;
++	int err, i;
++	struct pmbus_adapter_priv *apriv =
++		__compatible_find(pmbus_adapter_priv, compatible, 0, "");
++
++	if (!apriv->adapter_names || !*apriv->adapter_names)
++		return 0;
++
++	pr_info("%s: initializing PMBus for %s...\n",
++			__func__, *apriv->adapter_names);
++
++	adapter = readynas_i2c_adapter_find(apriv->adapter_names);
++	if (IS_ERR_OR_NULL(adapter)) {
++		pr_err("%s: failed to find PMBus adapter %s\n",
++			__func__, *apriv->adapter_names);
++		return adapter ? PTR_ERR(adapter) : -ENODEV;
++	}
++
++	apriv->adapter = adapter;
++	if (apriv->num_psus)
++		num_pmbus_clients = apriv->num_psus;
++
++	if (!(pmbus_client_priv =
++		kzalloc(sizeof(*pmbus_client_priv) * num_pmbus_clients,
++			GFP_KERNEL))) {
++		pr_err( "%s: failed to allocate cpriv memory.\n", __func__);
++		return -ENOMEM;
++	}
++
++	if ((err = platform_driver_register(&rn_pmbus_driver))) {
++		pr_err( "%s: failed to register ReadyNAS PMBus driver.\n",
++			__func__);
++		return err;
++	}
++
++	pmbus_pdev = platform_device_register_data(NULL,
++					rn_pmbus_driver.driver.name, -1,
++					apriv, sizeof *apriv);
++	if (IS_ERR_OR_NULL(pmbus_pdev)) {
++		err = pmbus_pdev ? PTR_ERR(pmbus_pdev) : -EIO;
++
++		platform_driver_unregister(&rn_pmbus_driver);
++		pmbus_pdev = NULL;
++		return err;
++	}
++
++	for (i = 0; i < num_pmbus_clients; i++)
++		if (pmbus_client_priv[i].client)
++			return 0;
++	platform_driver_unregister(&rn_pmbus_driver);
++	pmbus_pdev = NULL;
++	return -ENODEV;
++}
++
++static void rn_pmbus_exit(void)
++{
++	if (pmbus_pdev) {
++		platform_device_unregister(pmbus_pdev);
++		platform_driver_unregister(&rn_pmbus_driver);
++		pmbus_pdev = NULL;
++	}
++	if (pmbus_client_priv)
++		pmbus_procfs_exit();
++	kfree(pmbus_client_priv);
++	pmbus_client_priv = NULL;
++}
++
++/* This module must be loaded after GPIO and I2C. */
++device_initcall_sync(rn_pmbus_init);
++module_exit(rn_pmbus_exit);
++
++MODULE_LICENSE("GPL");
++MODULE_DESCRIPTION("NETGEAR PMBus driver");
++MODULE_AUTHOR("hiro.sugawara@netgear.com");
+diff --git a/include/linux/i2c.h b/include/linux/i2c.h
+index 768063b..11fe83b 100644
+--- a/include/linux/i2c.h
++++ b/include/linux/i2c.h
+@@ -560,6 +560,8 @@ void i2c_unlock_adapter(struct i2c_adapter *);
+ #define I2C_CLIENT_WAKE		0x80	/* for board_info; true iff can wake */
+ #define I2C_CLIENT_SCCB		0x9000	/* Use Omnivision SCCB protocol */
+ 					/* Must match I2C_M_STOP|IGNORE_NAK */
++/* Packet Error Checking only for PMBUS's write_operations */
++#define I2C_CLIENT_PEC_PMBUS_WRITE_ONLY	0x02
+ 
+ /* i2c adapter classes (bitmask) */
+ #define I2C_CLASS_HWMON		(1<<0)	/* lm_sensors, ... */
+-- 
+1.9.1
+

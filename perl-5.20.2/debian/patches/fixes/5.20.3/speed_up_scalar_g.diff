@@ -1,0 +1,169 @@
+From f78a6ae449af688171fdce8e7490000d4d53f470 Mon Sep 17 00:00:00 2001
+From: Tony Cook <tony@develop-help.com>
+Date: Mon, 10 Aug 2015 09:00:40 +0100
+Subject: speed up scalar //g against tainted strings
+
+(cherry picked from commit ed38223246c041b4e9ce5687cadf6f6b903050ca)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=123202
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/speed_up_scalar_g.diff
+---
+ MANIFEST       |  1 +
+ embed.fnc      |  1 +
+ embed.h        |  1 +
+ inline.h       | 24 ++++++++++++++++++++++++
+ mg.h           |  2 +-
+ proto.h        |  5 +++++
+ t/perf/taint.t | 42 ++++++++++++++++++++++++++++++++++++++++++
+ 7 files changed, 75 insertions(+), 1 deletion(-)
+ create mode 100644 t/perf/taint.t
+
+diff --git a/MANIFEST b/MANIFEST
+index 09fbabde4..3032f8d85 100644
+--- a/MANIFEST
++++ b/MANIFEST
+@@ -5360,6 +5360,7 @@ t/op/warn.t			See if warn works
+ t/op/while.t			See if while loops work
+ t/op/write.t			See if write works (formats work)
+ t/op/yadayada.t			See if ... works
++t/perf/taint.t			See if optimisations are keeping things fast (taint issues)
+ t/perl.supp			Perl valgrind suppressions
+ t/porting/args_assert.t		Check that all PERL_ARGS_ASSERT* macros are used
+ t/porting/authors.t		Check that all authors have been acknowledged
+diff --git a/embed.fnc b/embed.fnc
+index 88f03c212..1eec6b111 100644
+--- a/embed.fnc
++++ b/embed.fnc
+@@ -1407,6 +1407,7 @@ Apd	|void	|sv_magic	|NN SV *const sv|NULLOK SV *const obj|const int how \
+ Apd	|MAGIC *|sv_magicext	|NN SV *const sv|NULLOK SV *const obj|const int how \
+ 				|NULLOK const MGVTBL *const vtbl|NULLOK const char *const name \
+ 				|const I32 namlen
++Ein	|bool	|sv_only_taint_gmagic|NN SV *sv
+ : exported for re.pm
+ EXp	|MAGIC *|sv_magicext_mglob|NN SV *sv
+ ApdbamR	|SV*	|sv_mortalcopy	|NULLOK SV *const oldsv
+diff --git a/embed.h b/embed.h
+index a6e3b9d18..6f773f626 100644
+--- a/embed.h
++++ b/embed.h
+@@ -877,6 +877,7 @@
+ #define regprop(a,b,c,d)	Perl_regprop(aTHX_ a,b,c,d)
+ #define report_uninit(a)	Perl_report_uninit(aTHX_ a)
+ #define sv_magicext_mglob(a)	Perl_sv_magicext_mglob(aTHX_ a)
++#define sv_only_taint_gmagic	S_sv_only_taint_gmagic
+ #define validate_proto(a,b,c)	Perl_validate_proto(aTHX_ a,b,c)
+ #define vivify_defelem(a)	Perl_vivify_defelem(aTHX_ a)
+ #define yylex()			Perl_yylex(aTHX)
+diff --git a/inline.h b/inline.h
+index 0fe8a0eee..916f5571c 100644
+--- a/inline.h
++++ b/inline.h
+@@ -323,6 +323,30 @@ S_is_safe_syscall(pTHX_ const char *pv, STRLEN len, const char *what, const char
+ }
+ 
+ /*
++
++Return false if any get magic is on the SV other than taint magic.
++
++*/
++
++PERL_STATIC_INLINE bool
++S_sv_only_taint_gmagic(SV *sv) {
++    MAGIC *mg = SvMAGIC(sv);
++
++    PERL_ARGS_ASSERT_SV_ONLY_TAINT_GMAGIC;
++
++    while (mg) {
++        if (mg->mg_type != PERL_MAGIC_taint
++            && !(mg->mg_flags & MGf_GSKIP)
++            && mg->mg_virtual->svt_get) {
++            return FALSE;
++        }
++        mg = mg->mg_moremagic;
++    }
++
++    return TRUE;
++}
++
++/*
+  * Local variables:
+  * c-indentation-style: bsd
+  * c-basic-offset: 4
+diff --git a/mg.h b/mg.h
+index 81ed296f8..cd5c647bb 100644
+--- a/mg.h
++++ b/mg.h
+@@ -63,7 +63,7 @@ struct magic {
+ /* assumes get-magic and stringification have already occurred */
+ # define MgBYTEPOS_set(mg,sv,pv,off) (			 \
+     assert_((mg)->mg_type == PERL_MAGIC_regex_global)	  \
+-    SvPOK(sv) && !SvGMAGICAL(sv)			   \
++    SvPOK(sv) && (!SvGMAGICAL(sv) || sv_only_taint_gmagic(sv))  \
+ 	? (mg)->mg_len = (off), (mg)->mg_flags |= MGf_BYTES \
+ 	: ((mg)->mg_len = DO_UTF8(sv)			     \
+ 	    ? (SSize_t)utf8_length((U8 *)(pv), (U8 *)(pv)+(off)) \
+diff --git a/proto.h b/proto.h
+index 6532ba8af..96003a8b0 100644
+--- a/proto.h
++++ b/proto.h
+@@ -4252,6 +4252,11 @@ PERL_CALLCONV NV	Perl_sv_nv(pTHX_ SV* sv)
+ #define PERL_ARGS_ASSERT_SV_NV	\
+ 	assert(sv)
+ 
++PERL_STATIC_INLINE bool	S_sv_only_taint_gmagic(SV *sv)
++			__attribute__nonnull__(1);
++#define PERL_ARGS_ASSERT_SV_ONLY_TAINT_GMAGIC	\
++	assert(sv)
++
+ PERL_CALLCONV char*	Perl_sv_peek(pTHX_ SV* sv);
+ PERL_CALLCONV void	Perl_sv_pos_b2u(pTHX_ SV *const sv, I32 *const offsetp)
+ 			__attribute__nonnull__(pTHX_2);
+diff --git a/t/perf/taint.t b/t/perf/taint.t
+new file mode 100644
+index 000000000..386d97e58
+--- /dev/null
++++ b/t/perf/taint.t
+@@ -0,0 +1,42 @@
++#!./perl -T
++#
++# All the tests in this file are ones that run exceptionally slowly
++# (each test taking seconds or even minutes) in the absence of particular
++# optimisations. Thus it is a sort of canary for optimisations being
++# broken.
++#
++# Although it includes a watchdog timeout, this is set to a generous limit
++# to allow for running on slow systems; therefore a broken optimisation
++# might be indicated merely by this test file taking unusually long to
++# run, rather than actually timing out.
++#
++# This is similar to t/perf/speed.t but tests performance regressions specific
++# to taint.
++#
++
++BEGIN {
++    chdir 't' if -d 't';
++    @INC = ('../lib');
++    require Config; import Config;
++    require './test.pl';
++}
++
++use strict;
++use warnings;
++use Scalar::Util qw(tainted);
++
++$| = 1;
++
++plan tests => 2;
++
++watchdog(60);
++
++{
++    my $in = substr($ENV{PATH}, 0, 0) . ( "ab" x 200_000 );
++    utf8::upgrade($in);
++    ok(tainted($in), "performance issue only when tainted");
++    while ($in =~ /\Ga+b/g) { }
++    pass("\\G on tainted string");
++}
++
++1;

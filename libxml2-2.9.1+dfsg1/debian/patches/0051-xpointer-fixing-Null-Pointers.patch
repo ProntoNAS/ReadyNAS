@@ -1,0 +1,110 @@
+From: Gaurav Gupta <g.gupta@samsung.com>
+Date: Tue, 7 Oct 2014 17:09:35 +0800
+Subject: xpointer : fixing Null Pointers
+
+For https://bugzilla.gnome.org/show_bug.cgi?id=738053
+At many places in xpointer.c
+Null check is missing which is dereferenced at later places.
+---
+ xpointer.c | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/xpointer.c b/xpointer.c
+index 46f11e8..1ae2e53 100644
+--- a/xpointer.c
++++ b/xpointer.c
+@@ -1375,6 +1375,8 @@ xmlXPtrEval(const xmlChar *str, xmlXPathContextPtr ctx) {
+ 	return(NULL);
+ 
+     ctxt = xmlXPathNewParserContext(str, ctx);
++    if (ctxt == NULL)
++	return(NULL);
+     ctxt->xptr = 1;
+     xmlXPtrEvalXPointer(ctxt);
+ 
+@@ -1807,6 +1809,8 @@ xmlXPtrStartPointFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+ 	 */
+ 	tmp = xmlXPtrNewLocationSetNodeSet(obj->nodesetval);
+ 	xmlXPathFreeObject(obj);
++	if (tmp == NULL)
++            XP_ERROR(XPATH_MEMORY_ERROR)
+ 	obj = tmp;
+     }
+ 
+@@ -1901,10 +1905,16 @@ xmlXPtrEndPointFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+ 	 */
+ 	tmp = xmlXPtrNewLocationSetNodeSet(obj->nodesetval);
+ 	xmlXPathFreeObject(obj);
++	if (tmp == NULL)
++            XP_ERROR(XPATH_MEMORY_ERROR)
+ 	obj = tmp;
+     }
+ 
+     newset = xmlXPtrLocationSetCreate(NULL);
++    if (newset == NULL) {
++	xmlXPathFreeObject(obj);
++        XP_ERROR(XPATH_MEMORY_ERROR);
++    }
+     oldset = (xmlLocationSetPtr) obj->user;
+     if (oldset != NULL) {
+ 	int i;
+@@ -2049,6 +2059,8 @@ xmlXPtrRangeFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+ 	 */
+ 	tmp = xmlXPtrNewLocationSetNodeSet(set->nodesetval);
+ 	xmlXPathFreeObject(set);
++	if (tmp == NULL)
++            XP_ERROR(XPATH_MEMORY_ERROR)
+ 	set = tmp;
+     }
+     oldset = (xmlLocationSetPtr) set->user;
+@@ -2057,6 +2069,10 @@ xmlXPtrRangeFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+      * The loop is to compute the covering range for each item and add it
+      */
+     newset = xmlXPtrLocationSetCreate(NULL);
++    if (newset == NULL) {
++	xmlXPathFreeObject(set);
++        XP_ERROR(XPATH_MEMORY_ERROR);
++    }
+     for (i = 0;i < oldset->locNr;i++) {
+ 	xmlXPtrLocationSetAdd(newset,
+ 		xmlXPtrCoveringRange(ctxt, oldset->locTab[i]));
+@@ -2195,6 +2211,8 @@ xmlXPtrRangeInsideFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+ 	 */
+ 	tmp = xmlXPtrNewLocationSetNodeSet(set->nodesetval);
+ 	xmlXPathFreeObject(set);
++	if (tmp == NULL)
++	     XP_ERROR(XPATH_MEMORY_ERROR)
+ 	set = tmp;
+     }
+     oldset = (xmlLocationSetPtr) set->user;
+@@ -2203,6 +2221,10 @@ xmlXPtrRangeInsideFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+      * The loop is to compute the covering range for each item and add it
+      */
+     newset = xmlXPtrLocationSetCreate(NULL);
++    if (newset == NULL) {
++	xmlXPathFreeObject(set);
++        XP_ERROR(XPATH_MEMORY_ERROR);
++    }
+     for (i = 0;i < oldset->locNr;i++) {
+ 	xmlXPtrLocationSetAdd(newset,
+ 		xmlXPtrInsideRange(ctxt, oldset->locTab[i]));
+@@ -2798,6 +2820,10 @@ xmlXPtrStringRangeFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+ 
+     set = valuePop(ctxt);
+     newset = xmlXPtrLocationSetCreate(NULL);
++    if (newset == NULL) {
++	xmlXPathFreeObject(set);
++        XP_ERROR(XPATH_MEMORY_ERROR);
++    }
+     if (set->nodesetval == NULL) {
+         goto error;
+     }
+@@ -2809,6 +2835,8 @@ xmlXPtrStringRangeFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+ 	 */
+ 	tmp = xmlXPtrNewLocationSetNodeSet(set->nodesetval);
+ 	xmlXPathFreeObject(set);
++	if (tmp == NULL)
++	     XP_ERROR(XPATH_MEMORY_ERROR)
+ 	set = tmp;
+     }
+     oldset = (xmlLocationSetPtr) set->user;

@@ -1,0 +1,123 @@
+From 307809514b8dda1d76f8c95c7fe31196d81c9a1d Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 14 Dec 2016 11:34:25 -0800
+Subject: [PATCH 83/85] hwmon: (it87) Add power restore setting support
+
+Add a power_restore sysfs entry that allows userland to configure an
+IT87xx SuperIO chip to choose what happens when power is restored to
+the machine.
+
+Valid options are "always_on", "last_state", or "always_off".
+---
+ drivers/hwmon/it87.c | 74 ++++++++++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 72 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/hwmon/it87.c b/drivers/hwmon/it87.c
+index 61987ad..ec2283b 100644
+--- a/drivers/hwmon/it87.c
++++ b/drivers/hwmon/it87.c
+@@ -166,6 +166,8 @@ static inline void superio_exit(int ioreg)
+ #define IT8628E_DEVID 0x8628
+ #define IT87_ACT_REG  0x30
+ #define IT87_BASE_REG 0x60
++#define IT87_PCR1_REG 0xf2	/* APC/PME Control Register 1 */
++#define IT87_PCR2_REG 0xf4	/* APC/PME Control Register 2 */
+ #define IT87_EUP_REG  0xfa	/* Special PME EUP configure register */
+ 
+ /* Logical device 7 registers (IT8712F and later) */
+@@ -2000,6 +2002,73 @@ static ssize_t set_eup(struct device *dev, struct device_attribute *attr,
+ 
+ static DEVICE_ATTR(eup, S_IRUGO | S_IWUSR, show_eup, set_eup);
+ 
++#define POWER_LAST_STATE 2
++#define POWER_ALWAYS_ON  1
++#define POWER_ALWAYS_OFF 0
++static ssize_t show_poweron(struct device *dev, struct device_attribute *attr,
++		char *buf)
++{
++	struct it87_data *data = dev_get_drvdata(dev);
++	const char *desc;
++	u8 reg;
++	u8 pcr1, pcr2;
++
++	mutex_lock(&data->update_lock);
++
++	superio_enter(REG_2E);
++	superio_select(REG_2E, PME);
++	pcr1 = superio_inb(REG_2E, IT87_PCR1_REG);
++	pcr2 = superio_inb(REG_2E, IT87_PCR2_REG);
++	reg = ((pcr1 & 0x20) >> 4) | ((pcr2 & 0x20) >> 5);
++	superio_exit(REG_2E);
++
++	mutex_unlock(&data->update_lock);
++
++	if (reg & POWER_ALWAYS_ON)
++		desc = "always_on";
++	else if (reg == POWER_LAST_STATE)
++		desc = "last_state";
++	else if (reg == POWER_ALWAYS_OFF)
++		desc = "always_off";
++	else
++		desc = "unknown";
++
++	return sprintf(buf, "%s\n", desc);
++}
++
++static ssize_t set_poweron(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct it87_data *data = dev_get_drvdata(dev);
++	int val;
++	u8 reg;
++
++	if (strncasecmp(buf, "always_on", 9) == 0)
++		reg = POWER_ALWAYS_ON;
++	else if (strncasecmp(buf, "last_state", 10) == 0)
++		reg = POWER_LAST_STATE;
++	else if (strncasecmp(buf, "always_off", 10) == 0)
++		reg = POWER_ALWAYS_OFF;
++	else
++		return -EINVAL;
++
++	mutex_lock(&data->update_lock);
++
++	superio_enter(REG_2E);
++	superio_select(REG_2E, PME);
++	val = (superio_inb(REG_2E, IT87_PCR1_REG) & ~0x20) | ((reg & 2) << 4);
++	superio_outb(REG_2E, IT87_PCR1_REG, val);
++	val = (superio_inb(REG_2E, IT87_PCR2_REG) & ~0x60) | ((reg & 1) << 5);
++	superio_outb(REG_2E, IT87_PCR2_REG, val);
++	superio_exit(REG_2E);
++
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++static DEVICE_ATTR(power_restore, S_IRUGO | S_IWUSR, show_poweron, set_poweron);
++
+ static ssize_t show_label(struct device *dev, struct device_attribute *attr,
+ 			  char *buf)
+ {
+@@ -2184,7 +2253,7 @@ static umode_t it87_is_visible(struct kobject *kobj,
+ 	if ((index == 2 || index == 3) && !data->has_vid)
+ 		return 0;
+ 
+-	if (index > 4 && !(data->in_internal & BIT(index - 5)))
++	if (index > 5 && !(data->in_internal & BIT(index - 6)))
+ 		return 0;
+ 
+ 	return attr->mode;
+@@ -2196,7 +2265,8 @@ static struct attribute *it87_attributes[] = {
+ 	&dev_attr_vrm.attr,				/* 2 */
+ 	&dev_attr_cpu0_vid.attr,			/* 3 */
+ 	&dev_attr_eup.attr,				/* 4 */
+-	&sensor_dev_attr_in3_label.dev_attr.attr,	/* 5 .. 8 */
++	&dev_attr_power_restore.attr,			/* 5 */
++	&sensor_dev_attr_in3_label.dev_attr.attr,	/* 6 .. 9 */
+ 	&sensor_dev_attr_in7_label.dev_attr.attr,
+ 	&sensor_dev_attr_in8_label.dev_attr.attr,
+ 	&sensor_dev_attr_in9_label.dev_attr.attr,
+-- 
+1.9.1
+

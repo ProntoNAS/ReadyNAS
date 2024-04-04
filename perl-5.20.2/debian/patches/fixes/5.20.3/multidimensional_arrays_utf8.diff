@@ -1,0 +1,63 @@
+From d211f49249fd9a52ccdd305313d28aa9194dbcd0 Mon Sep 17 00:00:00 2001
+From: Alex Vandiver <alex@chmrr.net>
+Date: Sun, 22 Mar 2015 22:39:23 -0400
+Subject: Make check for multi-dimensional arrays be UTF8-aware
+
+During parsing, toke.c checks if the user is attempting provide multiple
+indexes to an array index:
+
+    $a[ $foo, $bar ];
+
+However, while checking for word characters in variable names is aware
+of multi-byte characters if "use utf8" is enabled, the loop is only
+advanced one byte at a time, not one character at a time.  As such,
+multibyte variables in array indexes incorrectly yield warnings:
+
+    Passing malformed UTF-8 to "XPosixWord" is deprecated
+    Malformed UTF-8 character (unexpected continuation byte 0x9d, with
+      no preceding start byte)
+
+Switch the loop to advance character-by-character if UTF-8 semantics are
+in use.
+
+(cherry picked from commit b3089e964c0afaf7eb8d54aa5a912e4eb2e6c176)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=124113
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/multidimensional_arrays_utf8.diff
+---
+ t/lib/warnings/toke | 10 ++++++++++
+ toke.c              |  2 +-
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/t/lib/warnings/toke b/t/lib/warnings/toke
+index 92e94adf8..6764ae619 100644
+--- a/t/lib/warnings/toke
++++ b/t/lib/warnings/toke
+@@ -1510,3 +1510,13 @@ Use of literal control characters in variable names is deprecated at (eval 2) li
+ -a;
+ ;-a;
+ EXPECT
++########
++# toke.c
++# [perl #124113] Compile-time warning with UTF8 variable in array index
++use warnings;
++use utf8;
++my $𝛃 = 0;
++my @array = (0);
++my $v = $array[ 0 + $𝛃 ];
++   $v = $array[ $𝛃 + 0 ];
++EXPECT
+diff --git a/toke.c b/toke.c
+index 906d56c10..b112cde5b 100644
+--- a/toke.c
++++ b/toke.c
+@@ -6621,7 +6621,7 @@ Perl_yylex(pTHX)
+ 			char *t = s+1;
+ 
+ 			while (isSPACE(*t) || isWORDCHAR_lazy_if(t,UTF) || *t == '$')
+-			    t++;
++			    t += UTF ? UTF8SKIP(t) : 1;
+ 			if (*t++ == ',') {
+ 			    PL_bufptr = PEEKSPACE(PL_bufptr); /* XXX can realloc */
+ 			    while (t < PL_bufend && *t != ']')

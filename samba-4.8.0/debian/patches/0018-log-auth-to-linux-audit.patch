@@ -1,0 +1,185 @@
+diff --git a/auth/auth_log.c b/auth/auth_log.c
+index 72d8f81..d50a17d 100644
+--- a/auth/auth_log.c
++++ b/auth/auth_log.c
+@@ -45,6 +45,9 @@
+ #define AUTHZ_MAJOR 1
+ #define AUTHZ_MINOR 0
+ 
++/* linux audit system */
++#include <libaudit.h>
++
+ #include "includes.h"
+ #include "../lib/tsocket/tsocket.h"
+ #include "common_auth.h"
+@@ -678,6 +681,100 @@ static const char* get_password_type(const struct auth_usersupplied_info *ui)
+ }
+ 
+ /*
++ * raddr should be freed by caller
++ */
++static char* get_remote_addr(const char *remote)
++{
++	char *remote_addr = NULL;
++	char *raddr = NULL;
++	char *prefix = NULL;
++	unsigned int port;
++
++	if (!remote)
++		return raddr;
++
++	if (sscanf(remote, "%m[^:]:%m[^:]:%u", &prefix, &remote_addr, &port) == 3)
++		raddr = strdup(remote_addr);
++
++	free(remote_addr);
++	free(prefix);
++
++	return raddr;
++}
++
++/*
++ * log to linux audit system
++ */
++static int write_audit_log(const char *remote_ip,
++				char *remote_host,
++				int audit_type,
++				const char *account_name,
++				int result)
++{
++	int audit_fd;
++	int rc = 0;
++	const char *op;
++	char *remote_addr = NULL;
++
++	audit_fd = audit_open();
++	if (audit_fd < 0) {
++		if (errno == EINVAL || errno == EPROTONOSUPPORT ||
++			errno == EAFNOSUPPORT)
++			DBG_NOTICE("Audit not enabled[%m]?\n");
++		else
++			DBG_ERR("audit_open error: %m.\n");
++		return -1;
++	}
++
++	if (audit_type == AUDIT_USER_ACCT)
++		op = "SAMBA:accounting";
++	else if (audit_type == AUDIT_USER_AUTH)
++		op = "SAMBA:authentication";
++	else {
++		DBG_ERR("Invalid audit type: %d\n", audit_type);
++		audit_close(audit_fd);
++		return -2;
++	}
++
++	remote_addr = get_remote_addr(remote_ip);
++	if (!remote_host)
++		remote_host = remote_addr;
++
++	rc = audit_log_acct_message(audit_fd, audit_type, NULL, op,
++					account_name, -1, remote_host, remote_addr, "samba", result);
++	if (rc <= 0)
++		DBG_ERR("audit_log_acct_message error[%d]\n", rc);
++
++	free(remote_addr);
++	audit_close(audit_fd);
++}
++
++/*
++ * Log failed authentication
++ * PAM can catch success authorization by USER_ACCT
++ */
++static void log_authentication_to_audit(
++			const struct auth_usersupplied_info *ui,
++			NTSTATUS status)
++{
++	TALLOC_CTX *frame = NULL;
++	char *remote = NULL;
++
++	// only log failed authentication
++	if (NT_STATUS_IS_OK(status))
++		return;
++
++	frame = talloc_stackframe();
++
++	remote = tsocket_address_string(ui->remote_host, frame);
++
++	write_audit_log(remote, log_escape(frame, ui->workstation_name),
++			AUDIT_USER_AUTH,
++			log_escape(frame, ui->client.account_name), 0);
++
++	talloc_free(frame);
++}
++/*
+  * Write a human readable authentication log entry.
+  *
+  */
+@@ -808,9 +905,36 @@ void log_authentication_event(struct imessaging_context *msg_ctx,
+ 					      sid,
+ 					      debug_level);
+ 	}
++
++	log_authentication_to_audit(ui, status);
+ }
+ 
++/* Fix our issue RNAS-8227, linux audit doesn't catch
++ * anoymous access host/ip, send to audit here
++ */
++static void log_authz_to_audit(
++				const struct tsocket_address *remote,
++				const char *service_description,
++				struct auth_session_info *session_info)
++{
++	TALLOC_CTX *frame = NULL;
++	char *remote_str = NULL;
++	char *user = NULL;
++
++	frame = talloc_stackframe();
++
++	remote_str = tsocket_address_string(remote, frame);
+ 
++	user = log_escape(frame, session_info->info->account_name);
++
++	if (user && (strcmp(user, "guest") == 0) &&
++		service_description &&
++		(strncmp(service_description, "SMB", 3) == 0)) {
++		write_audit_log(remote_str, NULL, AUDIT_USER_ACCT, user, 1);
++	}
++
++	talloc_free(frame);
++}
+ 
+ /*
+  * Log details of a successful authorization to a service,
+@@ -910,4 +1034,6 @@ void log_successful_authz_event(struct imessaging_context *msg_ctx,
+ 						session_info,
+ 						debug_level);
+ 	}
++
++	log_authz_to_audit(remote, service_description, session_info);
+ }
+diff --git a/auth/wscript_build b/auth/wscript_build
+index 88e9a03..e93430d 100644
+--- a/auth/wscript_build
++++ b/auth/wscript_build
+@@ -3,6 +3,7 @@
+ bld.SAMBA_LIBRARY('common_auth',
+                   source='auth_sam_reply.c wbc_auth_util.c auth_log.c',
+                   deps='talloc samba-security samba-util util_str_escape LIBTSOCKET jansson MESSAGING_SEND server_id_db ',
++                  public_deps='audit',
+                   private_library=True)
+ 
+ bld.RECURSE('gensec')
+diff --git a/auth/wscript_configure b/auth/wscript_configure
+index 47943fa..2cb1bc8 100644
+--- a/auth/wscript_configure
++++ b/auth/wscript_configure
+@@ -5,3 +5,9 @@ conf.SET_TARGET_TYPE('jansson', 'EMPTY')
+ if conf.CHECK_CFG(package='jansson', args='--cflags --libs',
+ 		  msg='Checking for jansson'):
+     conf.CHECK_FUNCS_IN('json_object', 'jansson')
++
++
++conf.SET_TARGET_TYPE('audit', 'EMPTY')
++if conf.CHECK_CFG(package='audit', args='--cflags --libs',
++		  msg='Checking for audit'):
++    conf.CHECK_LIB('audit', shlib=True)

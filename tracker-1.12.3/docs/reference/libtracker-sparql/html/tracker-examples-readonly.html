@@ -1,0 +1,128 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Querying the Store: Tracker SPARQL Library Reference Manual</title>
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Tracker SPARQL Library Reference Manual">
+<link rel="up" href="tracker-examples.html" title="Part III. Examples">
+<link rel="prev" href="tracker-examples-builder.html" title="SPARQL query builder">
+<link rel="next" href="tracker-examples-writeonly.html" title="Updating the Store">
+<meta name="generator" content="GTK-Doc V1.25 (XML mode)">
+<link rel="stylesheet" href="style.css" type="text/css">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<table class="navigation" id="top" width="100%" summary="Navigation header" cellpadding="2" cellspacing="5"><tr valign="middle">
+<td width="100%" align="left" class="shortcuts"></td>
+<td><a accesskey="h" href="index.html"><img src="home.png" width="16" height="16" border="0" alt="Home"></a></td>
+<td><a accesskey="u" href="tracker-examples.html"><img src="up.png" width="16" height="16" border="0" alt="Up"></a></td>
+<td><a accesskey="p" href="tracker-examples-builder.html"><img src="left.png" width="16" height="16" border="0" alt="Prev"></a></td>
+<td><a accesskey="n" href="tracker-examples-writeonly.html"><img src="right.png" width="16" height="16" border="0" alt="Next"></a></td>
+</tr></table>
+<div class="chapter">
+<div class="titlepage"><div><div><h2 class="title">
+<a name="tracker-examples-readonly"></a>Querying the Store</h2></div></div></div>
+<p>
+      In order to perform read-only queries to the store, a new
+      <span class="type"><a class="link" href="TrackerSparqlConnection.html#TrackerSparqlConnection-struct" title="struct TrackerSparqlConnection">TrackerSparqlConnection</a></span>
+      object must be acquired. In this case, as there is no intention of updating any
+      value in the store, both the general connection (with
+      <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-get" title="tracker_sparql_connection_get ()">tracker_sparql_connection_get</a></code>)
+      or a specific direct-access connection (with
+      <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-get-direct" title="tracker_sparql_connection_get_direct ()">tracker_sparql_connection_get_direct</a></code>)
+      may be acquired. Note that in the latter case, every non read-only operation will result
+      in an error being thrown by the TrackerSparqlConnection.
+    </p>
+<p>
+      Once a proper connection object has been acquired, the read-only query can be launched either
+      synchronously (<code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-query" title="tracker_sparql_connection_query ()">tracker_sparql_connection_query</a></code>)
+      or asynchronously (<code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-query-async" title="tracker_sparql_connection_query_async ()">tracker_sparql_connection_query_async</a></code>).
+      If launched asynchronously, the results of the query can be obtained with
+      <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-query-finish" title="tracker_sparql_connection_query_finish ()">tracker_sparql_connection_query_finish</a></code>.
+    </p>
+<p>
+      If the query was successful, a <span class="type"><a class="link" href="TrackerSparqlCursor.html#TrackerSparqlCursor-struct" title="struct TrackerSparqlCursor">TrackerSparqlCursor</a></span>
+      will be available. You can now iterate the results of the query both synchronously (with
+      <code class="function"><a class="link" href="TrackerSparqlCursor.html#tracker-sparql-cursor-next" title="tracker_sparql_cursor_next ()">tracker_sparql_cursor_next</a></code>) or
+      asynchronously (with
+      <code class="function"><a class="link" href="TrackerSparqlCursor.html#tracker-sparql-cursor-next-async" title="tracker_sparql_cursor_next_async ()">tracker_sparql_cursor_next_async</a></code> and
+      <code class="function"><a class="link" href="TrackerSparqlCursor.html#tracker-sparql-cursor-next-finish" title="tracker_sparql_cursor_next_finish ()">tracker_sparql_cursor_next_finish</a></code>)
+    </p>
+<p>
+      Once you end up with the query, remember to call <code class="function"><a href="/usr/share/gtk-doc/html/gobjectgobject-The-Base-Object-Type.html#g-object-unref">g_object_unref</a></code>
+      for the <span class="type"><a class="link" href="TrackerSparqlCursor.html#TrackerSparqlCursor-struct" title="struct TrackerSparqlCursor">TrackerSparqlCursor</a></span>. And the same applies to the
+      <span class="type"><a class="link" href="TrackerSparqlConnection.html#TrackerSparqlConnection-struct" title="struct TrackerSparqlConnection">TrackerSparqlConnection</a></span> when no longer needed.
+    </p>
+<p>
+      The following program shows how Read-Only queries can be done to the store in a
+      synchronous way:
+
+</p>
+<pre class="programlisting">
+#include &lt;tracker-sparql.h&gt;
+
+int main (int argc, const char **argv)
+{
+  GError *error = NULL;
+  <span class="type"><a class="link" href="TrackerSparqlConnection.html#TrackerSparqlConnection-struct" title="struct TrackerSparqlConnection">TrackerSparqlConnection</a></span> *connection;
+  <span class="type"><a class="link" href="TrackerSparqlCursor.html#TrackerSparqlCursor-struct" title="struct TrackerSparqlCursor">TrackerSparqlCursor</a></span> *cursor;
+  const gchar *query = "SELECT nie:url(?u) WHERE { ?u a nfo:FileDataObject }";
+
+  /* As we know only read-only queries will be done, it's enough
+   * to use a connection with only direct-access setup. The NULL
+   * represents a possible GCancellable.
+   */
+  connection = <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-get-direct" title="tracker_sparql_connection_get_direct ()">tracker_sparql_connection_get_direct</a></code> (NULL, &amp;error);
+  if (!connection) {
+    g_printerr ("Couldn't obtain a direct connection to the Tracker store: %s",
+                error ? error-&gt;message : "unknown error");
+    g_clear_error (&amp;error);
+
+    return 1;
+  }
+
+  /* Make a synchronous query to the store */
+  cursor = <code class="function"><a class="link" href="TrackerSparqlConnection.html#tracker-sparql-connection-query" title="tracker_sparql_connection_query ()">tracker_sparql_connection_query</a></code> (connection,
+                                            query,
+                                            NULL,
+                                            &amp;error);
+
+  if (error) {
+    /* Some error happened performing the query, not good */
+    g_printerr ("Couldn't query the Tracker Store: '%s'",
+                error ? error-&gt;message : "unknown error");
+    g_clear_error (&amp;error);
+
+    return 1;
+  }
+
+  /* Check results... */
+  if (!cursor) {
+    g_print ("No results found :-/\n");
+  } else {
+    gint i = 0;
+
+    /* Iterate, synchronously, the results... */
+    while (<code class="function"><a class="link" href="TrackerSparqlCursor.html#tracker-sparql-cursor-next" title="tracker_sparql_cursor_next ()">tracker_sparql_cursor_next</a></code> (cursor, NULL, &amp;error)) {
+      g_print ("Result [%d]: %s\n",
+	       i++,
+	       <code class="function"><a class="link" href="TrackerSparqlCursor.html#tracker-sparql-cursor-get-string" title="tracker_sparql_cursor_get_string ()">tracker_sparql_cursor_get_string</a></code> (cursor, 0, NULL));
+    }
+
+    g_print ("A total of '%d' results were found\n", i);
+
+    g_object_unref (cursor);
+  }
+
+  g_object_unref (connection);
+
+  return 0;
+}
+</pre>
+<p>
+    </p>
+</div>
+<div class="footer">
+<hr>Generated by GTK-Doc V1.25</div>
+</body>
+</html>

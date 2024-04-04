@@ -1,0 +1,77 @@
+From 2e9e8ad67a6eb44516fd0fee8d912932c91b3d56 Mon Sep 17 00:00:00 2001
+From: Father Chrysostomos <sprout@cpan.org>
+Date: Fri, 27 Mar 2015 09:23:41 -0700
+Subject: Stop $^H |= 0x1c020000 from enabling all features
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+That set of bits sets the feature bundle to ‘custom’, which means that
+the features are set by %^H, and also indicates that %^H has been did-
+dled with, so it’s worth looking at.
+
+In the specific case where %^H is untouched and there is no corres-
+ponding cop hint hash behind the scenes, Perl_feature_is_enabled (in
+toke.c) ends up returning TRUE.
+
+Commit v5.15.6-55-g94250ae sped up feature checking by allowing
+refcounted_he_fetch to return a boolean when checking for existence,
+instead of converting the value to a scalar, whose contents we are not
+even going to use.
+
+This was when the bug started happening.  I did not update the code
+path in refcounted_he_fetch that handles the absence of a hint hash.
+So it was returning &PL_sv_placeholder instead of NULL; TRUE instead
+of FALSE.
+
+This did not cause problems for most code, but with the introduction
+of the new bitwise ops in v5.21.8-150-g8823cb8, it started causing
+uni::perl to fail, because they were implicitly enabled, making ^ a
+numeric op, when it was being used as a string op.
+
+(cherry picked from commit 71622e40793536aa4f2ace7ffc704cc78151fd26)
+
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/accidental_all_features.diff
+---
+ hv.c                 | 3 ++-
+ t/lib/feature/bundle | 8 ++++++++
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/hv.c b/hv.c
+index ef686ab70..fe4947b8c 100644
+--- a/hv.c
++++ b/hv.c
+@@ -3154,7 +3154,7 @@ Perl_refcounted_he_fetch_pvn(pTHX_ const struct refcounted_he *chain,
+ 	Perl_croak(aTHX_ "panic: refcounted_he_fetch_pvn bad flags %"UVxf,
+ 	    (UV)flags);
+     if (!chain)
+-	return &PL_sv_placeholder;
++	goto ret;
+     if (flags & REFCOUNTED_HE_KEY_UTF8) {
+ 	/* For searching purposes, canonicalise to Latin-1 where possible. */
+ 	const char *keyend = keypv + keylen, *p;
+@@ -3214,6 +3214,7 @@ Perl_refcounted_he_fetch_pvn(pTHX_ const struct refcounted_he *chain,
+ 	    return sv_2mortal(refcounted_he_value(chain));
+ 	}
+     }
++  ret:
+     return flags & REFCOUNTED_HE_EXISTS ? NULL : &PL_sv_placeholder;
+ }
+ 
+diff --git a/t/lib/feature/bundle b/t/lib/feature/bundle
+index 429e68ebd..a40aba4a1 100644
+--- a/t/lib/feature/bundle
++++ b/t/lib/feature/bundle
+@@ -117,3 +117,11 @@ EXPECT
+ Use of assignment to $[ is deprecated at - line 2.
+ Assigning non-zero to $[ is no longer possible at - line 5.
+ b
++########
++# NAME $^H accidentally enabling all features
++eval 'BEGIN { $^H |= 0x1c020000 } $_ = evalbytes 12345';
++print $_||$@;
++EXPECT
++Number found where operator expected at (eval 1) line 1, near "evalbytes 12345"
++	(Do you need to predeclare evalbytes?)
++syntax error at (eval 1) line 1, near "evalbytes 12345"

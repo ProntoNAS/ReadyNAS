@@ -79,6 +79,7 @@ IF(ENABLE_TEST)
     test_read_disk_entry_from_file.c
     test_read_extract.c
     test_read_file_nonexistent.c
+    test_read_filter_compress.c
     test_read_filter_grzip.c
     test_read_filter_lrzip.c
     test_read_filter_lzop.c
@@ -87,6 +88,7 @@ IF(ENABLE_TEST)
     test_read_filter_program_signature.c
     test_read_filter_uudecode.c
     test_read_format_7zip.c
+    test_read_format_7zip_malformed.c
     test_read_format_ar.c
     test_read_format_cab.c
     test_read_format_cab_filename.c
@@ -125,8 +127,10 @@ IF(ENABLE_TEST)
     test_read_format_lha.c
     test_read_format_lha_filename.c
     test_read_format_mtree.c
+    test_read_format_mtree_crash747.c
     test_read_format_pax_bz2.c
     test_read_format_rar.c
+    test_read_format_rar_invalid1.c
     test_read_format_raw.c
     test_read_format_tar.c
     test_read_format_tar_empty_filename.c
@@ -142,11 +146,13 @@ IF(ENABLE_TEST)
     test_read_format_zip_comment_stored.c
     test_read_format_zip_filename.c
     test_read_format_zip_mac_metadata.c
+    test_read_format_zip_malformed.c
     test_read_format_zip_sfx.c
     test_read_large.c
     test_read_pax_truncated.c
     test_read_position.c
     test_read_set_format.c
+    test_read_too_many_filters.c
     test_read_truncated.c
     test_read_truncated_filter.c
     test_sparse_basic.c
@@ -164,6 +170,9 @@ IF(ENABLE_TEST)
     test_write_disk_no_hfs_compression.c
     test_write_disk_perms.c
     test_write_disk_secure.c
+    test_write_disk_secure744.c
+    test_write_disk_secure745.c
+    test_write_disk_secure746.c
     test_write_disk_sparse.c
     test_write_disk_symlink.c
     test_write_disk_times.c

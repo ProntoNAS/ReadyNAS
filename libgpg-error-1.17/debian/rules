@@ -1,0 +1,50 @@
+#!/usr/bin/make -f
+
+#export DH_VERBOSE=1
+
+export CPPFLAGS := $(shell dpkg-buildflags --get CPPFLAGS)
+export CFLAGS   := $(shell dpkg-buildflags --get CFLAGS)
+export CXXFLAGS := $(shell dpkg-buildflags --get CXXFLAGS)
+export LDFLAGS  := $(shell dpkg-buildflags --get LDFLAGS)
+
+export DEB_BUILD_MULTIARCH ?= $(shell dpkg-architecture -qDEB_BUILD_MULTIARCH)
+export DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+DEB_DATE = $(shell dpkg-parsechangelog -SDate)
+
+%:
+	dh $@ --with autoreconf --parallel
+
+override_dh_auto_configure:
+	touch po/libgpg-error.pot
+	dh_auto_configure -- \
+	    --enable-static \
+	    --disable-rpath \
+	    --infodir=\$${prefix}/share/info \
+	    --libdir=\$${prefix}/lib/$(DEB_HOST_MULTIARCH) \
+	    --enable-build-timestamp=$(shell date --date="$(DEB_DATE)" -u +%Y-%m-%dT%H:%M+0000)
+
+override_dh_auto_build:
+	dh_auto_build --parallel
+ifeq ($(DEB_HOST_MULTIARCH),$(DEB_BUILD_MULTIARCH))
+	tail -vn+0 src/lock-obj-pub.native.h
+endif
+
+override_dh_install:
+	sed -e"s,@DEB_HOST_MULTIARCH@,${DEB_HOST_MULTIARCH},g" \
+	    debian/libgpg-error0.install.in > debian/libgpg-error0.install
+	sed -e"s,@DEB_HOST_MULTIARCH@,${DEB_HOST_MULTIARCH},g" \
+	    debian/libgpg-error-dev.install.in > debian/libgpg-error-dev.install
+	dh_install --list-missing
+
+override_dh_installchangelogs:
+	dh_installchangelogs -A NEWS
+
+override_dh_installdocs:
+	dh_installdocs -A README
+
+override_dh_makeshlibs:
+	dh_makeshlibs -V --add-udeb=libgpg-error0-udeb
+
+override_dh_link:
+	dh_link -plibgpg-error-dev lib/$(DEB_HOST_MULTIARCH)/libgpg-error.so.0 usr/lib/$(DEB_HOST_MULTIARCH)/libgpg-error.so

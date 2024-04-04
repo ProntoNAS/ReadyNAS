@@ -1,0 +1,22 @@
+Author: Michael Stone <mstone@debian.org>
+Description: No description.
+Index: coreutils-8.24/lib/fstatat.c
+===================================================================
+--- coreutils-8.24.orig/lib/fstatat.c
++++ coreutils-8.24/lib/fstatat.c
+@@ -132,4 +132,15 @@ stat_func (char const *name, struct stat
+ # undef AT_FUNC_POST_FILE_PARAM_DECLS
+ # undef AT_FUNC_POST_FILE_ARGS
+ 
++#ifdef __FreeBSD_kernel__
++
++int __fxstatat(int version, int fd, const char *file, struct stat *st, int flag)
++{
++  typedef int (*tp)(int, const char *, struct stat *, int);
++  volatile tp f = fstatat;
++  return f(fd, file, st, flag);
++}
++
++#endif
++
+ #endif /* !HAVE_FSTATAT */

@@ -1,0 +1,43 @@
+From: Gaurav Gupta <g.gupta@samsung.com>
+Date: Mon, 14 Jul 2014 16:14:44 +0800
+Subject: Add a couple of misisng check in xmlRelaxNGCleanupTree
+
+For https://bugzilla.gnome.org/show_bug.cgi?id=733041
+
+check cur->parent before dereferencing the pointer even if
+a null parent there should not happen
+Also fix a typo
+---
+ relaxng.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/relaxng.c b/relaxng.c
+index 89fcc4e..33fc71a 100644
+--- a/relaxng.c
++++ b/relaxng.c
+@@ -7346,13 +7346,13 @@ xmlRelaxNGCleanupTree(xmlRelaxNGParserCtxtPtr ctxt, xmlNodePtr root)
+                     if (ns != NULL)
+                         xmlFree(ns);
+ 		    /*
+-		     * Since we are about to delete cur, if it's nsDef is non-NULL we
++		     * Since we are about to delete cur, if its nsDef is non-NULL we
+ 		     * need to preserve it (it contains the ns definitions for the
+ 		     * children we just moved).  We'll just stick it on to the end
+ 		     * of cur->parent's list, since it's never going to be re-serialized
+ 		     * (bug 143738).
+ 		     */
+-		    if (cur->nsDef != NULL) {
++		    if ((cur->nsDef != NULL) && (cur->parent != NULL)) {
+ 			xmlNsPtr parDef = (xmlNsPtr)&cur->parent->nsDef;
+ 			while (parDef->next != NULL)
+ 			    parDef = parDef->next;
+@@ -7370,7 +7370,8 @@ xmlRelaxNGCleanupTree(xmlRelaxNGParserCtxtPtr ctxt, xmlNodePtr root)
+         else if ((cur->type == XML_TEXT_NODE) ||
+                  (cur->type == XML_CDATA_SECTION_NODE)) {
+             if (IS_BLANK_NODE(cur)) {
+-                if (cur->parent->type == XML_ELEMENT_NODE) {
++                if ((cur->parent != NULL) &&
++		    (cur->parent->type == XML_ELEMENT_NODE)) {
+                     if ((!xmlStrEqual(cur->parent->name, BAD_CAST "value"))
+                         &&
+                         (!xmlStrEqual

@@ -1,0 +1,113 @@
+#! /usr/bin/make -f
+# Build the gnutls package for Debian.
+
+export DEB_CFLAGS_MAINT_APPEND := -Wall
+export DEB_CXXFLAGS_MAINT_APPEND := -Wall
+
+AMCONFBUILDINDEP := $(shell if dh_listpackages | grep -q gnutls-doc ; \
+	then echo "--enable-gtk-doc" ; \
+	else echo "--disable-gtk-doc --disable-doc"; fi)
+AMCONFBUILDGUILE := $(shell if dh_listpackages | grep -q guile-gnutls ; \
+	then \
+	echo " --enable-guile --with-guile-site-dir=/usr/share/guile/site" ;\
+	else echo " --disable-guile" ; fi)
+
+override_dh_auto_configure:
+	dh_auto_configure --verbose -- \
+	--enable-ld-version-script --enable-cxx \
+	--enable-static \
+	--without-lzo \
+	--disable-libdane --without-tpm \
+	--disable-heartbeat-support \
+	-disable-silent-rules \
+	--with-default-trust-store-file=/etc/ssl/certs/ca-certificates.crt \
+	--with-packager=Debian \
+	--with-packager-bug-reports=http://bugs.debian.org/ \
+	--with-packager-version=$(shell dpkg-parsechangelog | sed -n '/^Version: /s/^Version: //p') \
+	$(AMCONFBUILDINDEP) \
+	$(AMCONFBUILDGUILE)
+
+
+override_dh_makeshlibs:
+	dh_makeshlibs -p libgnutlsxx28 -V 'libgnutlsxx28 (>= 3.3.8-0)'
+	dh_makeshlibs -p libgnutls-deb0-28  -V 'libgnutls-deb0-28 (>= 3.3.8-0)' -- -c4
+	dh_makeshlibs -p libgnutls-openssl27 -V 'libgnutls-openssl27 (>= 3.0-0)'
+	dh_makeshlibs --remaining-packages -Xguile/2.0/guile-gnutls-v-2.so
+
+
+# pre-clean rule: save gnutls.pdf since it is expensive to regenerate.
+# See README.source
+override_dh_auto_clean:
+	if [ -e doc/gnutls.pdf ] ; then \
+		mv -v doc/gnutls.pdf doc/gnutls.pdf.debbackup ; fi
+	if test -e Makefile ; then $(MAKE) distclean ; fi
+	#dh_auto_clean --verbose
+	# restore gnutls.pdf
+	if [ -e doc/gnutls.pdf.debbackup ] && [ ! -e doc/gnutls.pdf ] ; \
+		then mv -v doc/gnutls.pdf.debbackup doc/gnutls.pdf ; fi
+	rm -fv `grep -l 'has been AutoGen-ed ' doc/manpages/*.?`
+	rm -f tests/cert-tests/csr-invalid.der
+
+override_dh_auto_build:
+	dh_auto_build --verbose --parallel
+ifeq ($(filter --disable-doc,$(AMCONFBUILDINDEP)),)
+	$(MAKE) html
+else
+	$(MAKE) -C doc/manpages
+endif
+
+override_dh_auto_install:
+	dh_auto_install --verbose
+ifneq ($(filter --disable-doc,$(AMCONFBUILDINDEP)),)
+	$(MAKE) -C doc/manpages DESTDIR=`pwd`/debian/tmp install
+endif
+	find debian/*/usr/lib/* -name '*.so.*.*' -type f -exec \
+		chrpath -d {} +
+
+override_dh_installinfo:
+	dh_installinfo
+	if test -e debian/gnutls-doc ; then \
+		cd debian/gnutls-doc/usr/share/info && \
+		sed -i -e 's:image src="\([^"]*.png"\):image src="/usr/share/doc/gnutls-doc/html/\1:g' *.info* ; \
+	fi
+
+override_dh_install:
+	dh_install
+	# See #658110
+	if [ "" != `ls debian/guile-gnutls/usr/lib/*/guile` ] ; then \
+	mv -v debian/guile-gnutls/usr/lib/*/guile debian/guile-gnutls/usr/lib \
+		&&\
+		rmdir -v --ignore-fail-on-non-empty \
+			debian/guile-gnutls/usr/lib/*-* ; \
+	sed -i -e 's_usr/lib/[^/]*/guile/_usr/lib/guile/_' \
+		debian/guile-gnutls/usr/share/guile/site/gnutls.scm ;\
+	else echo "Debian build DEBUG: no guile files found" ;\
+	fi
+
+override_dh_installchangelogs:
+	dh_installchangelogs
+	rm -vrf debian/libgnutlsxx28/usr/share/doc/libgnutlsxx28
+	dh_link -plibgnutlsxx28 usr/share/doc/libgnutls-deb0-28 \
+		usr/share/doc/libgnutlsxx28
+
+override_dh_compress:
+	dh_compress -X.pdf
+
+override_dh_strip:
+	dh_strip --dbg-package=libgnutls28-dbg
+
+override_dh_auto_test:
+	cp -v debian/csr-invalid.der tests/cert-tests/
+	chmod +x tests/cert-tests/crq
+	dh_auto_test -O--parallel || touch dh_auto_test.fail
+	@if test -e dh_auto_test.fail ; then \
+		find -name test-suite.log | \
+		while read i ; do \
+		echo "----dh_auto_test.fail" ; echo $$i ; echo ---- ; \
+		cat $$i ; echo ; done ; rm -f dh_auto_test.fail; false; fi
+
+override_dh_clean:
+	dh_clean -X.bak
+
+%:
+	dh $@ --parallel --with autoreconf

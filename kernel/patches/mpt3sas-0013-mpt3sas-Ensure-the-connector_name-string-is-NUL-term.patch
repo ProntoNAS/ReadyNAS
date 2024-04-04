@@ -1,0 +1,67 @@
+From 6b0657b2245a70f8f7a1896af2f7e5344469c65b Mon Sep 17 00:00:00 2001
+From: Calvin Owens <calvinowens@fb.com>
+Date: Wed, 27 Jul 2016 21:45:51 -0700
+Subject: [PATCH 13/15] mpt3sas: Ensure the connector_name string is
+ NUL-terminated
+
+We blindly trust the hardware to give us NUL-terminated strings, which
+is a bad idea because it doesn't always do that. For example:
+
+  [  481.184784] mpt3sas_cm0: 	enclosure level(0x0000), connector name(     \x3)
+
+In this case, connector_name is four spaces. We got lucky here because
+the 2nd byte beyond our character array happens to be a NUL. Fix this
+by explicitly writing '\0' to the end of the string to ensure we don't
+run off the edge of the world in printk().
+
+Signed-off-by: Calvin Owens <calvinowens@fb.com>
+Acked-by: Hannes Reinecke <hare@suse.com>
+---
+ drivers/scsi/mpt3sas/mpt3sas_base.h  |  2 +-
+ drivers/scsi/mpt3sas/mpt3sas_scsih.c | 10 ++++++----
+ 2 files changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/scsi/mpt3sas/mpt3sas_base.h b/drivers/scsi/mpt3sas/mpt3sas_base.h
+index 32580b5..742cef1 100644
+--- a/drivers/scsi/mpt3sas/mpt3sas_base.h
++++ b/drivers/scsi/mpt3sas/mpt3sas_base.h
+@@ -476,7 +476,7 @@ struct _sas_device {
+ 	u8	pfa_led_on;
+ 	u8	pend_sas_rphy_add;
+ 	u8	enclosure_level;
+-	u8	connector_name[4];
++	u8	connector_name[5];
+ 	struct kref refcount;
+ };
+ 
+diff --git a/drivers/scsi/mpt3sas/mpt3sas_scsih.c b/drivers/scsi/mpt3sas/mpt3sas_scsih.c
+index b2c3b93..6212b90 100644
+--- a/drivers/scsi/mpt3sas/mpt3sas_scsih.c
++++ b/drivers/scsi/mpt3sas/mpt3sas_scsih.c
+@@ -5386,8 +5386,9 @@ _scsih_check_device(struct MPT3SAS_ADAPTER *ioc,
+ 		     MPI2_SAS_DEVICE0_FLAGS_ENCL_LEVEL_VALID) {
+ 			sas_device->enclosure_level =
+ 				le16_to_cpu(sas_device_pg0.EnclosureLevel);
+-			memcpy(&sas_device->connector_name[0],
+-				&sas_device_pg0.ConnectorName[0], 4);
++			memcpy(sas_device->connector_name,
++				sas_device_pg0.ConnectorName, 4);
++			sas_device->connector_name[4] = '\0';
+ 		} else {
+ 			sas_device->enclosure_level = 0;
+ 			sas_device->connector_name[0] = '\0';
+@@ -5514,8 +5515,9 @@ _scsih_add_device(struct MPT3SAS_ADAPTER *ioc, u16 handle, u8 phy_num,
+ 	if (sas_device_pg0.Flags & MPI2_SAS_DEVICE0_FLAGS_ENCL_LEVEL_VALID) {
+ 		sas_device->enclosure_level =
+ 			le16_to_cpu(sas_device_pg0.EnclosureLevel);
+-		memcpy(&sas_device->connector_name[0],
+-			&sas_device_pg0.ConnectorName[0], 4);
++		memcpy(sas_device->connector_name,
++			sas_device_pg0.ConnectorName, 4);
++		sas_device->connector_name[4] = '\0';
+ 	} else {
+ 		sas_device->enclosure_level = 0;
+ 		sas_device->connector_name[0] = '\0';
+-- 
+1.9.1
+

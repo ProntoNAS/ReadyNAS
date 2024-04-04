@@ -1,0 +1,38 @@
+From f435825c0f527a8e52e6ffbc3ad0bc60531d537e Mon Sep 17 00:00:00 2001
+From: Nikos Mavrogiannopoulos <nmav@redhat.com>
+Date: Mon, 4 Apr 2016 15:06:21 +0200
+Subject: [PATCH] _asn1_extract_der_octet: catch invalid input cases early
+
+That is, check the calculated lengths for validity prior
+to entering a loop. This avoids an infinite recursion.
+Reported by Pascal Cuoq.
+---
+ lib/decoding.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/lib/decoding.c b/lib/decoding.c
+index 4fa045c..6fd60d0 100644
+--- a/lib/decoding.c
++++ b/lib/decoding.c
+@@ -767,10 +767,17 @@ _asn1_extract_der_octet (asn1_node node, const unsigned char *der,
+   DECR_LEN(der_len, len3);
+ 
+   if (len2 == -1)
+-    counter_end = der_len - 2;
++    {
++      if (der_len < 2)
++        return ASN1_DER_ERROR;
++      counter_end = der_len - 2;
++    }
+   else
+     counter_end = der_len;
+ 
++  if (counter_end < counter)
++    return ASN1_DER_ERROR;
++
+   while (counter < counter_end)
+     {
+       DECR_LEN(der_len, 1);
+-- 
+2.8.1
+

@@ -1,0 +1,45 @@
+From 1cecc9b75845fdf55b3056fa18af654f36e62d8d Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 16:31:57 -0800
+Subject: [PATCH] sky2: phy power hack
+
+Change PHY power setting to make Ultra 4 alpha gigabit work
+---
+ drivers/net/ethernet/marvell/sky2.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/marvell/sky2.c b/drivers/net/ethernet/marvell/sky2.c
+index 5606a04..c37a297 100644
+--- a/drivers/net/ethernet/marvell/sky2.c
++++ b/drivers/net/ethernet/marvell/sky2.c
+@@ -2194,6 +2194,7 @@ static void sky2_link_up(struct sky2_port *sky2)
+ 		[FC_RX]		= "rx",
+ 		[FC_BOTH]	= "both",
+ 	};
++	char u4[16] = "";
+ 
+ 	sky2_set_ipg(sky2);
+ 
+@@ -2209,11 +2210,17 @@ static void sky2_link_up(struct sky2_port *sky2)
+ 	sky2_write8(hw, SK_REG(port, LNK_LED_REG),
+ 		    LINKLED_ON | LINKLED_BLINK_OFF | LINKLED_LINKSYNC_OFF);
+ 
++	/* NETGEAR: Change PHY power setting to make Ultra 4 alpha gigabit work */
++	if (strstr(saved_command_line, "u4_alpha")) {
++		gm_phy_write(hw, port, PHY_MARV_EXT_CTRL_2, 0x8040);
++		strcpy(u4, ", ultra4-alpha");
++	}
++
+ 	netif_info(sky2, link, sky2->netdev,
+-		   "Link is up at %d Mbps, %s duplex, flow control %s\n",
++		   "Link is up at %d Mbps, %s duplex, flow control %s%s\n",
+ 		   sky2->speed,
+ 		   sky2->duplex == DUPLEX_FULL ? "full" : "half",
+-		   fc_name[sky2->flow_status]);
++		   fc_name[sky2->flow_status], u4);
+ }
+ 
+ static void sky2_link_down(struct sky2_port *sky2)
+-- 
+1.9.1
+

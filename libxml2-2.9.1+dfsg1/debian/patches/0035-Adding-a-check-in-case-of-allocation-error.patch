@@ -1,0 +1,28 @@
+From: Gaurav Gupta <g.gupta@samsung.com>
+Date: Mon, 14 Jul 2014 16:01:10 +0800
+Subject: Adding a check in case of allocation error
+
+For https://bugzilla.gnome.org/show_bug.cgi?id=733043
+
+There is missing Null condition in xmlRelaxNGValidateInterleave of
+relaxng.c
+Dereferencing it may cause a crash.
+---
+ relaxng.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/relaxng.c b/relaxng.c
+index 370e314..3d8524d 100644
+--- a/relaxng.c
++++ b/relaxng.c
+@@ -9409,6 +9409,10 @@ xmlRelaxNGValidateInterleave(xmlRelaxNGValidCtxtPtr ctxt,
+     oldstate = ctxt->state;
+     for (i = 0; i < nbgroups; i++) {
+         ctxt->state = xmlRelaxNGCopyValidState(ctxt, oldstate);
++	if (ctxt->state == NULL) {
++	    ret = -1;
++	    break;
++	}
+         group = partitions->groups[i];
+         if (lasts[i] != NULL) {
+             last = lasts[i]->next;

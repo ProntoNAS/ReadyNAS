@@ -4620,7 +4620,7 @@ OPENSSL_1.0.1d {
 
 OPENSSL_1.0.1s {
 	global:
-		SRP_user_pwd_free;
 		SRP_VBASE_get1_by_user;
+		SRP_user_pwd_free;
 } OPENSSL_1.0.1d;
 

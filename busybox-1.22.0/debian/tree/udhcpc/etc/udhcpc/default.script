@@ -1,65 +1,72 @@
 #!/bin/sh
-# Busybox udhcpc dispatcher script. Copyright (C) 2009 by Axel Beckert.
+# Busybox udhcpc dispatcher script.
+# Copyright (C) 2009 by Axel Beckert.
+# Copyright (C) 2014 by Michael Tokarev.
 #
 # Based on the busybox example scripts and the old udhcp source
 # package default.* scripts.
 
 RESOLV_CONF="/etc/resolv.conf"
 
+log() {
+    logger -t "uchcpc[$PPID]" -p daemon.$1 "$interface: $2"
+}
+
 case $1 in
     bound|renew)
-	[ -n "$broadcast" ] && BROADCAST="broadcast $broadcast"
-	[ -n "$subnet" ] && NETMASK="netmask $subnet"
 
-	busybox ifconfig $interface $ip $BROADCAST $NETMASK
+	# Configure new IP address.
+	# Do it unconditionally even if the address hasn't changed,
+	# to also set subnet, broadcast, mtu, ...
+	busybox ifconfig $interface ${mtu:+mtu $mtu} \
+	    $ip netmask $subnet ${broadcast:+broadcast $broadcast}
 
+	# get current ("old") routes (after setting new IP)
+	crouter=$(busybox ip -4 route show dev $interface |
+	          busybox awk '$1 == "default" { print $3; }')
+	router="${router%% *}" # linux kernel supports only one (default) route
+	if [ ".$router" != ".$crouter" ]; then
+	    # reset just default routes
+	    busybox ip -4 route flush exact 0.0.0.0/0 dev $interface
+	fi
 	if [ -n "$router" ]; then
-	    echo "$0: Resetting default routes"
-	    while busybox route del default gw 0.0.0.0 dev $interface; do
-	       :
-	    done
-
-	    metric=0
-	    for i in $router; do
-		busybox route add default gw $i dev $interface metric $metric
-		metric=$(($metric + 1))
-	    done
+	    # special case for /32 subnets: use onlink keyword
+	    [ ".$subnet" = .255.255.255.255 ] \
+		    && onlink=onlink || onlink=
+	    busybox ip -4 route add default via $router dev $interface $onlink
 	fi
 
 	# Update resolver configuration file
-	R=""
-	[ -n "$domain" ] && R="domain $domain
-"
+	[ -n "$domain" ] && R="domain $domain" || R=""
 	for i in $dns; do
-	    echo "$0: Adding DNS $i"
-	    R="${R}nameserver $i
-"
+	    R="$R
+nameserver $i"
 	done
 
 	if [ -x /sbin/resolvconf ]; then
-	    echo -n "$R" | resolvconf -a "${interface}.udhcpc"
+	    echo "$R" | resolvconf -a "$interface.udhcpc"
 	else
-	    echo -n "$R" > "$RESOLV_CONF"
+	    echo "$R" > "$RESOLV_CONF"
 	fi
+
+	log info "$1: IP=$ip/$subnet router=$router domain=\"$domain\" dns=\"$dns\" lease=$lease"
 	;;
 
     deconfig)
-	if [ -x /sbin/resolvconf ]; then
-	    resolvconf -d "${interface}.udhcpc"
-	fi
-	busybox ifconfig $interface 0.0.0.0
+	busybox ip link set $interface up
+	busybox ip -4 addr flush dev $interface
+	busybox ip -4 route flush dev $interface
+	[ -x /sbin/resolvconf ] &&
+	    resolvconf -d "$interface.udhcpc"
+	log notice "deconfigured"
 	;;
 
-    leasefail)
-	echo "$0: Lease failed: $message"
-	;;
-
-    nak)
-	echo "$0: Received a NAK: $message"
+    leasefail | nak)
+	log err "configuration failed: $1: $message"
 	;;
 
     *)
-	echo "$0: Unknown udhcpc command: $1";
-	exit 1;
+	echo "$0: Unknown udhcpc command: $1" >&2
+	exit 1
 	;;
 esac

@@ -1,0 +1,47 @@
+From: Wenbo <Wenbo.Guo@netgear.com>
+Date: Tue, 22 Jan 2019 17:57:02 +0800
+Subject: RNAS-8621: Add global variables to control whether fts-match is
+ ignored
+
+Add the global variable spotlight:fts = yes|no (default no) to control
+whether fts-match is ignored.
+
+Signed-off-by: Wenbo <Wenbo.Guo@netgear.com>
+---
+ source3/rpc_server/mdssvc/sparql_mapping.c | 9 +++++++++
+ source3/wscript_build                      | 2 +-
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/source3/rpc_server/mdssvc/sparql_mapping.c b/source3/rpc_server/mdssvc/sparql_mapping.c
+index c71c7a5..5873357 100644
+--- a/source3/rpc_server/mdssvc/sparql_mapping.c
++++ b/source3/rpc_server/mdssvc/sparql_mapping.c
+@@ -23,6 +23,15 @@
+ 
+ const struct sl_attr_map *sl_attr_map_by_spotlight(const char *sl_attr)
+ {
++	bool fts_enabled = lp_parm_bool(-1, "spotlight", "fts", false);
++	if (!fts_enabled)
++	{
++		if (0 == strcmp("*", sl_attr) || 0 == strcmp("kMDItemTextContent", sl_attr))
++		{
++			return NULL;
++		}
++	}
++
+ 	static const struct sl_attr_map spotlight_sparql_attr_map[] = {
+ 		{
+ 			.spotlight_attr = "*",
+diff --git a/source3/wscript_build b/source3/wscript_build
+index 61838e3..7fa3124 100644
+--- a/source3/wscript_build
++++ b/source3/wscript_build
+@@ -1305,7 +1305,7 @@ bld.SAMBA3_BINARY('spotlight2sparql',
+                  rpc_server/mdssvc/sparql_parser.y
+                  rpc_server/mdssvc/sparql_lexer.l
+                  rpc_server/mdssvc/sparql_mapping.c''',
+-                 deps='samba3-util talloc ' + bld.env['libtracker'],
++                 deps='samba3-util talloc SMBCONF_PARAM ' + bld.env['libtracker'],
+                  enabled=bld.env.with_spotlight,
+                  install=False)
+ 

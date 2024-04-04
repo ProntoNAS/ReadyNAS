@@ -1,0 +1,61 @@
+From 4cf8a91cd5d1b0f0c55f771d1ee07c8a56a080af Mon Sep 17 00:00:00 2001
+From: Karl Williamson <khw@cpan.org>
+Date: Thu, 27 Aug 2015 21:07:43 +0100
+Subject: PATCH: [perl 125825] {n}+ possessive quantifier broken
+
+I was unaware of this construct when I wrote the commit that broke it,
+and there were no tests for it.  Now there are.
+
+(cherry picked from commit 9a7bb2f73a8a1b561890191974201d576371e7f9)
+
+[The perldelta update has been removed from this commit for the purposes
+of the Debian patch import]
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=125825
+Bug-Debian: https://bugs.debian.org/822336
+Patch-Name: fixes/5.20.3/possessive_quantifier.diff
+---
+ regcomp.c       | 4 +---
+ t/re/re_tests   | 2 ++
+ t/re/reg_mesg.t | 1 -
+ 3 files changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/regcomp.c b/regcomp.c
+index 84af01134..606b3373b 100644
+--- a/regcomp.c
++++ b/regcomp.c
+@@ -10455,9 +10455,7 @@ S_regpiece(pTHX_ RExC_state_t *pRExC_state, I32 *flagp, U32 depth)
+                 ret = reg_node(pRExC_state, OPFAIL);
+                 return ret;
+             }
+-            else if (min == max
+-                     && RExC_parse < RExC_end
+-                     && (*RExC_parse == '?' || *RExC_parse == '+'))
++            else if (min == max && RExC_parse < RExC_end && *RExC_parse == '?')
+             {
+                 if (SIZE_ONLY) {
+                     ckWARN2reg(RExC_parse + 1,
+diff --git a/t/re/re_tests b/t/re/re_tests
+index d883add8f..11c412507 100644
+--- a/t/re/re_tests
++++ b/t/re/re_tests
+@@ -1887,5 +1887,7 @@ A+(*PRUNE)BC(?{})	AAABC	y	$&	AAABC
+ /(alias|status)es$/i	Statuses	y	$1	Status	# [perl #121778]
+ (.)(?{$~=$^N})	\x{100}	y	$~	\x{100}		# [perl #123135]
+ 
++/(a+){1}+a/	aaa	n	-	-		# [perl #125825]
++
+ # Keep these lines at the end of the file
+ # vim: softtabstop=0 noexpandtab
+diff --git a/t/re/reg_mesg.t b/t/re/reg_mesg.t
+index 55eda189d..77f7aa10d 100644
+--- a/t/re/reg_mesg.t
++++ b/t/re/reg_mesg.t
+@@ -382,7 +382,6 @@ my @warning = (
+                     'Useless (?c) - use /gc modifier {#} m/(?ogc{#})/',
+                   ],
+     '/a{1,1}?/' => 'Useless use of greediness modifier \'?\' {#} m/a{1,1}?{#}/',
+-    '/b{3}  +/x' => 'Useless use of greediness modifier \'+\' {#} m/b{3}  +{#}/',
+ );
+ 
+ my @warnings_utf8 = mark_as_utf8(

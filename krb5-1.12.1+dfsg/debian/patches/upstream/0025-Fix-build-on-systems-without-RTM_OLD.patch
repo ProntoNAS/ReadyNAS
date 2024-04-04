@@ -1,0 +1,40 @@
+From d7fed85eab3ce61671a257c4f620e6d494206fb9 Mon Sep 17 00:00:00 2001
+From: Ben Kaduk <kaduk@mit.edu>
+Date: Thu, 3 Jul 2014 10:42:21 -0400
+Subject: Fix build on systems without RTM_OLD*
+
+For example, FreeBSD has removed RTM_OLDADD and RTM_OLDDEL from its API
+in March 2014, with the message:
+Garbage collect long time obsoleted (or never used) stuff from routing API
+
+Only attempt to define behavior for these cases if they are defined.
+
+(cherry picked from commit fd352d41a79013114708e99510b6be3836200237)
+
+ticket: 7955
+version_fixed: 1.12.2
+status: resolved
+
+(cherry picked from commit 37f87c189ff050c01282f3d8da7bc97fe8a9ea92)
+Patch-Category: upstream
+---
+ src/lib/apputils/net-server.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/lib/apputils/net-server.c b/src/lib/apputils/net-server.c
+index 7780b8a..331b857 100644
+--- a/src/lib/apputils/net-server.c
++++ b/src/lib/apputils/net-server.c
+@@ -1026,8 +1026,12 @@ routing_update_needed(struct rt_msghdr *rtm)
+     case RTM_NEWADDR:
+     case RTM_DELADDR:
+     case RTM_IFINFO:
++#ifdef RTM_OLDADD
+     case RTM_OLDADD:
++#endif
++#ifdef RTM_OLDDEL
+     case RTM_OLDDEL:
++#endif
+         /*
+          * Some flags indicate routing table updates that don't
+          * indicate local address changes.  They may come from

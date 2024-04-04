@@ -1,0 +1,31 @@
+Description: Update the apparmor-profile
+  - move Ux to Cx -> third_party and provide a third_party child profile. In
+    this manner, we can add some modest confinement (can't change MAC
+    policy, change_profile or mount) but more importantly it allows us to
+    specify peer=third_party to restrict where the strictly confined cups
+    process can send signals
+  - allow r of /var/cache/samba/*.tdb
+  - allow r of /var/{cache,lib}/samba/printing/printers.tdb
+Author: Jamie Strandboge <jamie@ubuntu.com>
+Last-Update: 2014-10-01
+--- a/debian/local/apparmor-profile
++++ b/debian/local/apparmor-profile
+@@ -141,6 +141,7 @@
+   # silence noise
+   deny /etc/udev/udev.conf r,
+ 
++  signal (receive, send) peer=third_party,
+   profile third_party {
+     # third party backends, filters, and drivers get relatively no restrictions
+     # as they often need high privileges, are unpredictable or otherwise beyond
+@@ -149,6 +150,10 @@
+     capability,
+     audit deny capability mac_admin,
+     network,
++    dbus,
++    signal,
++    ptrace,
++    unix,
+   }
+ 
+   # Site-specific additions and overrides. See local/README for details.

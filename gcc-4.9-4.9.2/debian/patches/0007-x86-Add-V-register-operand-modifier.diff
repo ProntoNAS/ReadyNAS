@@ -1,0 +1,118 @@
+From 5278e062ef292fd2fbf987d25389785f4c5c0f99 Mon Sep 17 00:00:00 2001
+From: "H.J. Lu" <hjl.tools@gmail.com>
+Date: Sat, 6 Jan 2018 22:29:56 -0800
+Subject: [PATCH] x86: Add 'V' register operand modifier
+
+Add 'V', a special modifier which prints the name of the full integer
+register without '%'.  For
+
+extern void (*func_p) (void);
+
+void
+foo (void)
+{
+  asm ("call __x86_indirect_thunk_%V0" : : "a" (func_p));
+}
+
+it generates:
+
+foo:
+	movq	func_p(%rip), %rax
+	call	__x86_indirect_thunk_rax
+	ret
+
+gcc/
+
+	Backport from mainline
+	2018-01-14  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* config/i386/i386.c (print_reg): Print the name of the full
+	integer register without '%'.
+	(ix86_print_operand): Handle 'V'.
+	 * doc/extend.texi: Document 'V' modifier.
+
+gcc/testsuite/
+
+	Backport from mainline
+	2018-01-14  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* gcc.target/i386/indirect-thunk-register-4.c: New test.
+---
+ gcc/config/i386/i386.c                                    | 12 +++++++++++-
+ gcc/testsuite/gcc.target/i386/indirect-thunk-register-4.c | 13 +++++++++++++
+ 2 files changed, 24 insertions(+), 1 deletion(-)
+ create mode 100644 gcc/testsuite/gcc.target/i386/indirect-thunk-register-4.c
+
+diff --git a/src/gcc/config/i386/i386.c b/src/gcc/config/i386/i386.c
+index e91e99ebfd6..27216def7c0 100644
+--- a/src/gcc/config/i386/i386.c
++++ b/src/gcc/config/i386/i386.c
+@@ -14895,6 +14895,7 @@ put_condition_code (enum rtx_code code, enum machine_mode mode, bool reverse,
+    If CODE is 'h', pretend the reg is the 'high' byte register.
+    If CODE is 'y', print "st(0)" instead of "st", if the reg is stack op.
+    If CODE is 'd', duplicate the operand for AVX instruction.
++   If CODE is 'V', print naked full integer register name without %.
+  */
+ 
+ void
+@@ -14904,7 +14905,7 @@ print_reg (rtx x, int code, FILE *file)
+   unsigned int regno;
+   bool duplicated = code == 'd' && TARGET_AVX;
+ 
+-  if (ASSEMBLER_DIALECT == ASM_ATT)
++  if (ASSEMBLER_DIALECT == ASM_ATT && code != 'V')
+     putc ('%', file);
+ 
+   if (x == pc_rtx)
+@@ -14939,6 +14940,13 @@ print_reg (rtx x, int code, FILE *file)
+     code = 32;
+   else if (code == 'g')
+     code = 64;
++  else if (code == 'V')
++    {
++      if (GENERAL_REGNO_P (regno))
++	code = GET_MODE_SIZE (word_mode);
++      else
++	error ("'V' modifier on non-integer register");
++    }
+   else
+     code = GET_MODE_SIZE (GET_MODE (x));
+ 
+@@ -15105,6 +15113,7 @@ get_some_local_dynamic_name (void)
+    & -- print some in-use local-dynamic symbol name.
+    H -- print a memory address offset by 8; used for sse high-parts
+    Y -- print condition for XOP pcom* instruction.
++   V -- print naked full integer register name without %.
+    + -- print a branch hint as 'cs' or 'ds' prefix
+    ; -- print a semicolon (after prefixes due to bug in older gas).
+    ~ -- print "i" if TARGET_AVX2, "f" otherwise.
+@@ -15330,6 +15339,7 @@ ix86_print_operand (FILE *file, rtx x, int code)
+ 	case 'X':
+ 	case 'P':
+ 	case 'p':
++	case 'V':
+ 	  break;
+ 
+ 	case 's':
+diff --git a/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-4.c b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-4.c
+new file mode 100644
+index 00000000000..f0cd9b75be8
+--- /dev/null
++++ b/src/gcc/testsuite/gcc.target/i386/indirect-thunk-register-4.c
+@@ -0,0 +1,13 @@
++/* { dg-do compile } */
++/* { dg-options "-O2 -mindirect-branch=keep -fno-pic" } */
++
++extern void (*func_p) (void);
++
++void
++foo (void)
++{
++  asm("call __x86_indirect_thunk_%V0" : : "a" (func_p));
++}
++
++/* { dg-final { scan-assembler "call\[ \t\]*__x86_indirect_thunk_eax" { target ia32 } } } */
++/* { dg-final { scan-assembler "call\[ \t\]*__x86_indirect_thunk_rax" { target { ! ia32 } } } } */
+-- 
+2.11.0
+

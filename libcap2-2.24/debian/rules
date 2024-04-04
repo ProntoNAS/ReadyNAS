@@ -1,0 +1,50 @@
+#!/usr/bin/make -f
+
+# Exports DEB_{BUILD,HOST}_* flags
+include /usr/share/dpkg/architecture.mk
+
+# Support cross-compiling
+ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+CC := $(DEB_HOST_GNU_TYPE)-gcc
+endif
+
+# One upstream target requires the BUILD compiler instead of HOST
+BUILD_CC ?= cc
+
+
+%:
+	dh ${@}
+
+
+override_dh_auto_build:
+	dh_auto_build -- CC=$(CC) BUILD_CC=$(BUILD_CC)
+
+
+override_dh_installdirs:
+	dh_installdirs
+
+	# While the PAM module and the library are in /lib, according to the
+	# FHS, development files must go into usr/lib/<triplet>.
+	mkdir -p debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)
+
+
+override_dh_auto_install:
+	dh_auto_install -- lib=lib/$(DEB_HOST_MULTIARCH) RAISE_SETFCAP=no
+
+	# libcap-dev:
+	#   Move the development files from lib/ to usr/lib. dh_link will
+	#   later correct the link for us (from relative to absolute).
+	cd debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH) && \
+		mv    ../../../lib/$(DEB_HOST_MULTIARCH)/*.a . && \
+		ln -s ../../../lib/$(DEB_HOST_MULTIARCH)/libcap.so.*.* libcap.so
+
+	# Remove unwanted/unused files (because of --fail-missing)
+	rm -f debian/tmp/lib/$(DEB_HOST_MULTIARCH)/*.so
+
+
+override_dh_install:
+	dh_install --fail-missing
+
+
+override_dh_strip:
+	dh_strip --dbg-package=libcap2-dbg

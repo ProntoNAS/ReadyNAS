@@ -598,9 +598,9 @@ struct response {
    resp_header_*.  */
 
 static struct response *
-resp_new (const char *head)
+resp_new (char *head)
 {
-  const char *hdr;
+  char *hdr;
   int count, size;
 
   struct response *resp = xnew0 (struct response);
@@ -629,15 +629,23 @@ resp_new (const char *head)
         break;
 
       /* Find the end of HDR, including continuations. */
-      do
+      for (;;)
         {
-          const char *end = strchr (hdr, '\n');
+          char *end = strchr (hdr, '\n');
+
           if (end)
             hdr = end + 1;
           else
             hdr += strlen (hdr);
+
+          if (*hdr != ' ' && *hdr != '\t')
+            break;
+
+          // continuation, transform \r and \n into spaces
+          *end = ' ';
+          if (end > head && end[-1] == '\r')
+            end[-1] = ' ';
         }
-      while (*hdr == ' ' || *hdr == '\t');
     }
   DO_REALLOC (resp->headers, size, count + 1, const char *);
   resp->headers[count] = NULL;
@@ -943,6 +951,9 @@ skip_short_body (int fd, wgint contlen, bool chunked)
 
               remaining_chunk_size = strtol (line, &endl, 16);
               xfree (line);
+
+              if (remaining_chunk_size < 0)
+                return false;
 
               if (remaining_chunk_size == 0)
                 {

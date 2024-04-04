@@ -1,0 +1,500 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
+<refentry id="vfs_gpfs.8">
+
+<refmeta>
+	<refentrytitle>vfs_gpfs</refentrytitle>
+	<manvolnum>8</manvolnum>
+	<refmiscinfo class="source">Samba</refmiscinfo>
+	<refmiscinfo class="manual">System Administration tools</refmiscinfo>
+	<refmiscinfo class="version">4.8.0</refmiscinfo>
+</refmeta>
+
+
+<refnamediv>
+	<refname>vfs_gpfs</refname>
+	<refpurpose>gpfs specific samba extensions like acls and prealloc</refpurpose>
+</refnamediv>
+
+<refsynopsisdiv>
+	<cmdsynopsis sepchar=" ">
+		<literal>vfs objects = gpfs</literal>
+	</cmdsynopsis>
+</refsynopsisdiv>
+
+<refsect1>
+	<title>DESCRIPTION</title>
+
+	<para>This VFS module is part of the
+	<citerefentry><refentrytitle>samba</refentrytitle>
+	<manvolnum>7</manvolnum></citerefentry> suite.</para>
+
+	<para>The <literal>gpfs</literal> VFS module is the home
+	for all gpfs extensions that Samba requires for proper integration
+	with GPFS. It uses the GPL library interfaces provided by GPFS.
+	</para>
+
+	<para>Currently the gpfs vfs module provides extensions in following areas :
+	<itemizedlist>
+	<listitem><para>NFSv4 ACL Interfaces with configurable options for GPFS</para></listitem>
+	<listitem><para>Kernel oplock support on GPFS</para></listitem>
+	<listitem><para>Lease support on GPFS</para></listitem>
+	</itemizedlist>
+	</para>
+
+	<para><literal>NOTE:</literal> This module follows the posix-acl behaviour
+	and hence allows permission stealing via chown. Samba might allow at a later
+	point in time, to restrict the chown via this module as such restrictions
+	are the responsibility of the underlying filesystem than of Samba.
+	</para>
+
+	<para>This module makes use of the smb.conf parameter
+	<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="ACLMAPFULLCONTROL" xlink:href="smb.conf.5.html#ACLMAPFULLCONTROL">acl map full control</link>.
+	When set to yes (the default), this parameter will add in the FILE_DELETE_CHILD
+	bit on a returned ACE entry for a file (not a directory) that already
+	contains all file permissions except for FILE_DELETE and FILE_DELETE_CHILD.
+	This can prevent Windows applications that request GENERIC_ALL access
+	from getting ACCESS_DENIED errors when running against a filesystem
+	with NFSv4 compatible ACLs.
+	</para>
+
+	<para>This module is stackable.</para>
+
+	<para>Since Samba 4.0 all options are per share options.</para>
+
+</refsect1>
+
+
+<refsect1>
+	<title>OPTIONS</title>
+
+	<variablelist>
+
+		<varlistentry>
+
+		<term>gpfs:sharemodes = [ yes | no ]</term>
+		<listitem>
+		<para>
+		Enable/Disable cross node sharemode handling for GPFS.
+		</para>
+
+		<itemizedlist>
+		<listitem><para>
+		<literal>yes(default)</literal> - propagate sharemodes across all GPFS nodes.
+		</para></listitem>
+		<listitem><para>
+		<literal>no</literal> - do not propagate sharemodes across all GPFS nodes.
+		This should only be used if the GPFS file system is
+		exclusively exported by Samba. Access by local unix application or
+		NFS exports could lead to corrupted files.
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+		<varlistentry>
+
+		<term>gpfs:leases = [ yes | no ]</term>
+		<listitem>
+		<para>
+		Enable/Disable cross node leases (oplocks) for GPFS.
+		You should also set the <literal>oplocks</literal> and <literal>kernel oplocks</literal>
+		options to the same value.
+		</para>
+
+		<itemizedlist>
+		<listitem><para>
+		<literal>yes(default)</literal> - propagate leases across all GPFS nodes.
+		</para></listitem>
+		<listitem><para>
+		<literal>no</literal> - do not propagate leases across all GPFS nodes.
+		This should only be used if the GPFS file system is
+		exclusively exported by Samba. Access by local unix application or
+		NFS exports could lead to corrupted files.
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+
+		<varlistentry>
+
+		<term>gpfs:hsm = [ yes | no ]</term>
+		<listitem>
+		<para>
+		Enable/Disable announcing if this FS has HSM enabled.
+		</para>
+
+		<itemizedlist>
+		<listitem><para>
+		<literal>no(default)</literal> - Do not announce HSM.
+		</para></listitem>
+		<listitem><para>
+		<literal>yes</literal> - Announce HSM.
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+
+		<varlistentry>
+		<term>gpfs:recalls = [ yes | no ]</term>
+		<listitem>
+		<para> When this option is set to no, an attempt to
+		open an offline file will be rejected with access
+		denied.  This helps preventing recall storms triggered
+		by careless applications like Finder and
+		Explorer.</para>
+
+		<itemizedlist>
+		<listitem><para><literal>yes(default)</literal> - Open
+		files that are offline. This will recall the files
+		from HSM.</para></listitem>
+		<listitem><para><literal>no</literal> - Reject access
+		to offline files with access denied. This will prevent
+		recalls of files from HSM. Using this setting also
+		requires gpfs:hsm to be set to yes.</para></listitem>
+		</itemizedlist>
+
+		</listitem>
+		</varlistentry>
+
+		<varlistentry>
+
+		<term>gpfs:getrealfilename = [ yes | no ]</term>
+		<listitem>
+		<para>
+		Enable/Disable usage of the <literal>gpfs_get_realfilename_path()</literal> function.
+		This improves the casesensitive wildcard file name access.
+		</para>
+
+		<itemizedlist>
+		<listitem><para>
+		<literal>yes(default)</literal> - use <literal>gpfs_get_realfilename_path()</literal>.
+		</para></listitem>
+		<listitem><para>
+		<literal>no</literal> - do not use <literal>gpfs_get_realfilename_path()</literal>.
+		It seems that <literal>gpfs_get_realfilename_path()</literal> doesn't work on AIX.
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+		<varlistentry>
+
+		<term>gpfs:winattr = [ yes | no ]</term>
+		<listitem>
+		<para>
+		Enable/Disable usage of the windows attributes in GPFS.
+		GPFS is able to store windows file attributes e.g. HIDDEN,
+		READONLY, SYSTEM and others natively. That means Samba doesn't
+		need to map them to permission bits or extended attributes.
+		</para>
+
+		<itemizedlist>
+		<listitem><para>
+		<literal>no(default)</literal> - do not use GPFS windows attributes.
+		</para></listitem>
+		<listitem><para>
+		<literal>yes</literal> - use GPFS windows attributes.
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+		<varlistentry>
+
+		<term>gpfs:merge_writeappend = [ yes | no ]</term>
+		<listitem>
+		<para>
+		GPFS ACLs doesn't know about the 'APPEND' right.
+		This option lets Samba map the 'APPEND' right to 'WRITE'.
+		</para>
+
+		<itemizedlist>
+		<listitem><para>
+		<literal>yes(default)</literal> - map 'APPEND' to 'WRITE'.
+		</para></listitem>
+		<listitem><para>
+		<literal>no</literal> - do not map 'APPEND' to 'WRITE'.
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+		<varlistentry>
+
+		<term>gpfs:acl = [ yes | no ]</term>
+		<listitem>
+		<para>
+		This option lets Samba use or ignore GPFS ACLs.
+		</para>
+
+		<itemizedlist>
+		<listitem><para>
+		<literal>yes(default)</literal> - use GPFS ACLs.
+		</para></listitem>
+		<listitem><para>
+		<literal>no</literal> - do not use GPFS ACLs and pass everything
+		to the next SMB_VFS module.
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+		<varlistentry>
+
+		<term>gpfs:refuse_dacl_protected = [ yes | no ]</term>
+		<listitem>
+		<para>
+		As GPFS does not support the ACE4_FLAG_NO_PROPAGATE NFSv4 flag (which would be
+		the mapping for the DESC_DACL_PROTECTED flag), the status of this flag is
+		currently silently ignored by Samba. That means that if you deselect the "Allow
+		inheritable permissions..." checkbox in Windows' ACL dialog and then apply the
+		ACL, the flag will be back immediately.
+		</para>
+		<para>
+		To make sure that automatic migration with e.g. robocopy does not lead to
+		ACLs silently (and unintentionally) changed, you can set
+		<literal>gpfs:refuse_dacl_protected = yes</literal> to enable an explicit
+		check for this flag and if set, it will return NT_STATUS_NOT_SUPPORTED so
+		errors are shown up on the Windows side and the Administrator is aware of
+		the ACLs not being settable like intended
+		</para>
+
+		<itemizedlist>
+		<listitem><para>
+		<literal>no(default)</literal> - ignore the DESC_DACL_PROTECTED flags.
+		</para></listitem>
+		<listitem><para>
+		<literal>yes</literal> - reject ACLs with DESC_DACL_PROTECTED.
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+		<varlistentry>
+
+		<term>gpfs:dfreequota = [ yes | no ]</term>
+		<listitem>
+		<para>
+		Adjust reporting of the size and free space of a share
+		according to quotas. If this setting is "yes", a
+		request for size and free space will also evaluate the
+		user quota of the user requesting the data and the
+		group quota of the primary group of the user. Fileset
+		quotas are not queried, since GPFS already provides
+		the option --dfreequota to reflect the fileset quota
+		in the free space query. Please use that option to
+		include fileset quotas in the reported disk space.
+		</para>
+
+		<para>
+		If any of the soft or hard quota limits has been
+		reached, the free space will be reported as 0. If a
+		quota is in place, but the limits have not been
+		reached, the free space will be reported according to
+		the space left in the quota. If more than one quota
+		applies the free space will be reported as the smallest
+		space left in those quotas. The size of the share
+		will be reported according to the quota usage. If more
+		than one quota applies, the smallest size will be
+		reported for the share size according to these quotas.
+		</para>
+
+		<itemizedlist>
+		<listitem><para>
+		<literal>yes</literal> - include the quotas
+		when reporting the share size and free space
+		</para></listitem>
+		<listitem><para>
+		<literal>no(default)</literal> - do not include quotas,
+		simply report the size and free space of the file system
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+		<varlistentry>
+
+		<term>gpfs:prealloc = [ yes | no ]</term>
+		<listitem>
+		<para>
+		If set to yes the gpfs_prealloc function will be used in the
+		fallocate callback when appropriate. If set to no gpfs_prealloc
+		will not be used. In both cases the system and libc calls are
+		avoided.
+		</para>
+
+		<itemizedlist>
+		<listitem><para>
+		<literal>yes (default)</literal> - Use gpfs_prealloc for the
+		fallocate callback.
+		</para></listitem>
+		<listitem><para>
+		<literal>no</literal> - Do not use gpfs_prealloc for the
+		fallocate callback.
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+
+		<varlistentry>
+
+		<term>gpfs:settimes = [ yes | no ]</term>
+		<listitem>
+		<para>
+		Use the gpfs_set_times API when changing the
+		timestamps of a file or directory. If the GPFS API is
+		not available the old method of using utime and the
+		GPFS winattr call will be used instead.
+		</para>
+
+		<itemizedlist>
+		<listitem><para>
+		<literal>yes(default)</literal> - Use gpfs_set_times.
+		Fall back to utime and winattr when it is not available.
+		</para></listitem>
+		<listitem><para>
+		<literal>no</literal> - Do not use gpfs_set_times.
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+		<varlistentry>
+
+		<term>nfs4:mode = [ simple | special ]</term>
+		<listitem>
+		<para>
+		Controls substitution of special IDs (OWNER@ and GROUP@) on GPFS.
+                The use of mode simple is recommended.
+                In this mode only non inheriting ACL entries for the file owner
+                and group are mapped to special IDs.
+		</para>
+
+		<para>The following MODEs are understood by the module:</para>
+		<itemizedlist>
+		<listitem><para><literal>simple(default)</literal> - use OWNER@ and GROUP@ special IDs for non inheriting ACEs only.</para></listitem>
+		<listitem><para><literal>special(deprecated)</literal> - use OWNER@ and GROUP@ special IDs in ACEs for all file owner and group ACEs.</para></listitem>
+		</itemizedlist>
+		</listitem>
+
+		</varlistentry>
+
+
+		<varlistentry>
+		<term>nfs4:acedup = [dontcare|reject|ignore|merge]</term>
+		<listitem>
+		<para>
+		This parameter configures how Samba handles duplicate ACEs encountered in GPFS ACLs.
+		GPFS allows/creates duplicate ACE for different bits for same ID.
+		</para>
+
+		<para>Following is the behaviour of Samba for different values :</para>
+		<itemizedlist>
+		<listitem><para><literal>dontcare (default)</literal> - copy the ACEs as they come</para></listitem>
+		<listitem><para><literal>reject</literal> - stop operation and exit with error on ACL set op</para></listitem>
+		<listitem><para><literal>ignore</literal> - don't include the second matching ACE</para></listitem>
+		<listitem><para><literal>merge</literal> - bitwise OR the 2 ace.flag fields and 2 ace.mask fields of the 2 duplicate ACEs into 1 ACE</para></listitem>
+		</itemizedlist>
+		</listitem>
+		</varlistentry>
+
+
+		<varlistentry>
+		<term>nfs4:chown = [yes|no]</term>
+		<listitem>
+		<para>This parameter allows enabling or disabling the chown supported
+		by the underlying filesystem. This parameter should be enabled with
+		care as it might leave your system insecure.</para>
+		<para>Some filesystems allow chown as a) giving b) stealing. It is the latter
+		that is considered a risk.</para>
+
+		<para>Following is the behaviour of Samba for different values : </para>
+		<itemizedlist>
+		<listitem><para><literal>yes</literal> - Enable chown if as supported by the under filesystem</para></listitem>
+		<listitem><para><literal>no (default)</literal> - Disable chown</para></listitem>
+		</itemizedlist>
+		</listitem>
+		</varlistentry>
+
+		<varlistentry>
+		<term>gpfs:syncio = [yes|no]</term>
+		<listitem>
+		<para>This parameter makes Samba open all files with O_SYNC.
+		  This triggers optimizations in GPFS for workloads that
+		  heavily share files.</para>
+
+		<para>Following is the behaviour of Samba for different
+		  values:
+		</para>
+		<itemizedlist>
+		<listitem><para><literal>yes</literal> - Open files with O_SYNC
+		</para></listitem>
+		<listitem><para><literal>no (default)</literal> - Open files as
+		    normal Samba would do
+		</para></listitem>
+		</itemizedlist>
+		</listitem>
+		</varlistentry>
+
+	</variablelist>
+</refsect1>
+
+<refsect1>
+	<title>EXAMPLES</title>
+
+	<para>A GPFS mount can be exported via Samba as follows :</para>
+
+<programlisting format="linespecific">
+        <parameter>[samba_gpfs_share]</parameter>
+	<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="VFSOBJECTS" xlink:href="smb.conf.5.html#VFSOBJECTS">vfs objects = gpfs</link>
+	<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="PATH" xlink:href="smb.conf.5.html#PATH">path = /test/gpfs_mount</link>
+	<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="NFS4:MODE" xlink:href="smb.conf.5.html#NFS4:MODE">nfs4: mode = special</link>
+	<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="NFS4:ACEDUP" xlink:href="smb.conf.5.html#NFS4:ACEDUP">nfs4: acedup = merge</link>
+</programlisting>
+</refsect1>
+
+<refsect1>
+	<title>CAVEATS</title>
+	<para>
+	Depending on the version of gpfs, the <literal>libgpfs_gpl</literal>
+	library or the <literal>libgpfs</literal> library is needed at
+	runtime by the <literal>gpfs</literal> VFS module:
+	Starting with gpfs 3.2.1 PTF8, the complete <literal>libgpfs</literal>
+	is available as open source and <literal>libgpfs_gpl</literal> does no
+	longer exist. With earlier versions of gpfs, only the
+	<literal>libgpfs_gpl</literal> library was open source and could be
+	used at run time.
+	</para>
+	<para>
+	At build time, only the header file <literal>gpfs_gpl.h</literal>
+	is required, which is a symlink to <literal>gpfs.h</literal> in
+	gpfs versions newer than 3.2.1 PTF8.
+	</para>
+</refsect1>
+
+<refsect1>
+	<title>VERSION</title>
+	<para>This man page is part of version 4.8.0 of the Samba suite.
+	</para>
+</refsect1>
+
+<refsect1>
+	<title>AUTHOR</title>
+
+	<para>The original Samba software and related utilities
+	were created by Andrew Tridgell. Samba is now developed
+	by the Samba Team as an Open Source project similar
+	to the way the Linux kernel is developed.</para>
+
+	<para>The GPFS VFS module was created with contributions from
+	Volker Lendecke and the developers at IBM.
+	</para>
+
+	<para> This manpage was created by the IBM FSCC team </para>
+</refsect1>
+
+</refentry>

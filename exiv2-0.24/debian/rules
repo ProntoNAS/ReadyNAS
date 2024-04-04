@@ -1,0 +1,37 @@
+#!/usr/bin/make -f
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+%:
+	dh $@ --parallel --with autotools_dev
+
+override_dh_auto_configure:
+	dh_auto_configure -- --disable-rpath
+
+override_dh_clean:
+	dh_clean
+	rm -rf doc/html
+	-rm Makefile xmpsdk/src/.libs/libxmpsdk.la  # why? debuild complains of diff.
+
+override_dh_strip:
+	dh_strip -a --dbg-package=libexiv2-dbg
+
+override_dh_install:
+	# no need for libtool .la files
+	rm -f $(CURDIR)/debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/*.la
+	dh_install --list-missing
+	find $(CURDIR)/debian -type f -name exiv2 | xargs /usr/bin/chrpath -d
+
+override_dh_auto_build-indep:
+	$(MAKE) -C doc doxygen
+
+override_dh_installdocs:
+	dh_installdocs -A -Xcmd.txt -XMakefile -Xtemplates -XChangeLog
+	find $(CURDIR)/debian -name jquery.js -exec ln -sfv /usr/share/javascript/jquery/jquery.js {} \;
+	find $(CURDIR)/debian \( -name '*.map' -o -name '*.md5' \) -delete
+
+override_dh_installchangelogs:
+	dh_installchangelogs -A doc/ChangeLog
+
+override_dh_compress:
+	dh_compress -X.xls -X.js -X.idx -X.xml -X.php -X.cpp

@@ -479,6 +479,9 @@ SendSSDPNotify(int s, struct service *serv, const char *nts)
         char bufr[512];
 	int l, n;
 
+	if (s < 0)
+		return;
+
 	memset(&sockname, 0, sizeof(struct sockaddr_in));
 	sockname.sin_family = AF_INET;
 	sockname.sin_port = htons(PORT);

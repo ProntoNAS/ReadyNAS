@@ -1,0 +1,213 @@
+#!/bin/sh
+set -e
+
+cd "$(readlink -f $(dirname $0))"
+
+if [ -n "${GBP_BUILD_DIR}" ]; then
+   cd "$GBP_BUILD_DIR"
+fi
+
+VERSION=$(dpkg-parsechangelog | sed -n -e '/^Version:/s/^Version: //p')
+DISTRIBUTION=$(dpkg-parsechangelog | sed -n -e '/^Distribution:/s/^Distribution: //p')
+
+LIBAPTPKGVERSION="$(awk -v ORS='.' '/^\#define APT_PKG_M/ {print $3}' apt-pkg/contrib/macros.h | sed 's/\.$//')"
+LIBAPTINSTVERSION="$(grep '^MAJOR=' apt-inst/makefile |cut -d '=' -f 2)"
+
+librarysymbolsfromfile() {
+	local MISSING="$(grep '^+#MISSING' "$1")"
+	local SYMVER="$2"
+	echo '=== Missing optional symbols:'
+	echo -n "$MISSING" | grep '|optional=' || true
+	echo '=== Missing required symbols:'
+	echo -n "$MISSING" | grep -v '|optional=' || true
+	echo '=== New symbols:'
+	grep '^+ ' "$1" | cut -d' ' -f 2 | cut -d'@' -f 1 | c++filt | while read line; do
+		echo " (c++)\"${line}@${SYMVER}\" $VERSION"
+	done | sort -u
+}
+
+if [ "$1" = 'pre-export' ]; then
+	libraryversioncheck() {
+		local LIBRARY="$1"
+		local VERSION="$2"
+		if [ ! -e "debian/${LIBRARY}${VERSION}.symbols" ]; then
+		   echo >&2 "Library ${LIBRARY} in version ${VERSION} has no symbols file! (maybe forgot to rename?)"
+		   exit 1
+		fi
+		if [ "$(head -n1 "debian/${LIBRARY}${VERSION}.symbols")" != "${LIBRARY}.so.${VERSION} ${LIBRARY}${VERSION} #MINVER#" ]; then
+		   echo >&2 "Library ${LIBRARY}${VERSION} has incorrect version in symbol header! (»$(head -n1 "debian/${LIBRARY}${VERSION}.symbols")«)"
+		   exit 2
+		fi
+	}
+
+	libraryversioncheck 'libapt-pkg' "$LIBAPTPKGVERSION"
+	libraryversioncheck 'libapt-inst' "$LIBAPTINSTVERSION"
+
+
+	if [ "$DISTRIBUTION" = 'sid' ]; then
+		echo >&2 '»sid« is not a valid distribution. Replace it with »unstable« for you'
+		sed -i -e 's/) sid; urgency=/) unstable; urgency=/' debian/changelog
+		DISTRIBUTION='unstable'
+	elif [ "$DISTRIBUTION" = 'UNRELEASED' ]; then
+		echo >&2 'WARNING: Remember to change to a valid distribution for release'
+		VERSION="$VERSION~$(date +%Y%m%d)"
+	fi
+
+	sed -i -e "s/^PACKAGE_VERSION=\".*\"$/PACKAGE_VERSION=\"${VERSION}\"/" configure.ac
+	sed -i -e "s/^<!ENTITY apt-product-version \".*\">$/<!ENTITY apt-product-version \"${VERSION}\">/" doc/apt-verbatim.ent
+
+	# update the last-modification field of manpages based on git changes
+	grep --files-with-matches '<date>' doc/*.xml | while read file; do \
+		LASTMOD="$(date -d "@$(git log --format='%at' --max-count=1 --invert-grep --fixed-strings --grep 'review
+typo
+release
+Git-Dch: Ignore' "$file")" '+%Y-%m-%dT00:00:00Z')"
+		sed -i -e "s#^\([ ]\+\)<date>.*</date>\$#\1<date>$LASTMOD</date>#" "$file"
+	done
+
+	if [ "$(date +%Y-%m-%d)" != "$(grep --max-count=1 '^"POT-Creation-Date: .*\n"$' po/apt-all.pot | cut -d' ' -f 2)" -o \
+	     "$(date +%Y-%m-%d)" != "$(grep --max-count=1 '^"POT-Creation-Date: .*\n"$' doc/po/apt-doc.pot | cut -d' ' -f 2)" ]; then
+		echo >&2 'POT files are not up-to-date. Execute »make update-po« for you…'
+		make update-po
+	fi
+elif [ "$1" = 'pre-build' ]; then
+	if [ "$DISTRIBUTION" = "UNRELEASED" ]; then
+		echo 'BUILDING AN UNRELEASED VERSION'
+	else
+		CONFVERSION="$(sed -ne "s/^PACKAGE_VERSION=\"\(.*\)\"$/\1/p" configure.ac)"
+		if [ "$VERSION" != "$CONFVERSION" ]; then
+			echo "changelog (${VERSION}) and configure (${CONFVERSION}) talk about different versions!"
+			echo "You probably want to run »./prepare-release pre-export« to fix this."
+			exit 1
+		fi
+	fi
+elif [ "$1" = 'post-build' ]; then
+	if [ "$DISTRIBUTION" != "UNRELEASED" ]; then
+		echo >&2 "REMEMBER: Tag this release with »git tag -s ${VERSION}« if you are satisfied"
+	else
+		echo >&2 'REMEMBER: Change to a valid distribution before release'
+	fi
+
+	dpkg-checkbuilddeps -d 'libxml2-utils'
+
+	HEADERBLUEPRINT="$(mktemp)"
+	sed -n '1,/^$/p' doc/apt.8.xml > "$HEADERBLUEPRINT"
+	find doc -mindepth 1 -maxdepth 1 -type f -name '*.xml' | while read FILE; do
+		if ! sed -n '1,/^$/p' "$FILE" | cmp "$HEADERBLUEPRINT" - >/dev/null 2>&1; then
+			echo >&2 "WARNING: Manpage $FILE has not the usual header! (see diff below)"
+			sed -n '1,/^$/p' "$FILE" | diff -u "$HEADERBLUEPRINT" - || true
+		fi
+	done
+	sed -n '1,/^$/p' doc/guide.dbk > "$HEADERBLUEPRINT"
+	find doc -mindepth 1 -maxdepth 1 -type f -name '*.dbk' | while read FILE; do
+		if ! sed -n '1,/^$/p' "$FILE" | cmp "$HEADERBLUEPRINT" - >/dev/null 2>&1; then
+			echo >&2 "WARNING: Documentation $FILE has not the usual header (see diff below)!"
+			sed -n '1,/^$/p' "$FILE" | diff -u "$HEADERBLUEPRINT" - || true
+		fi
+	done
+	rm "$HEADERBLUEPRINT"
+
+	# check the manpages with each vendor for vendor-specific errors…
+	find vendor -mindepth 1 -maxdepth 1 -type d | cut -d'/' -f 2 | while read DISTRO; do
+		ln -sf ../vendor/${DISTRO}/apt-vendor.ent doc
+		if ! xmllint --nonet --valid --noout $(find doc/ -maxdepth 1 -name '*.xml'); then
+			echo >&2 "WARNING: original docbook manpages have errors with vendor ${DISTRO}!"
+		fi
+	done
+	# lets assume we will always have a german manpage translation
+	if [ -e 'doc/de/' ]; then
+		# … but check the translations only with one vendor for translation-specific errors
+		if ! xmllint --nonet --valid --noout $(find doc/ -mindepth 2 -maxdepth 2 -name '*.xml'); then
+			echo >&2 "WARNING: translated docbook manpages have errors!"
+		fi
+	else
+		echo >&2 "ERROR: translated manpages need to be build before they can be checked!"
+	fi
+	rm -f doc/apt-vendor.ent
+
+elif [ "$1" = 'library' ]; then
+	librarysymbols() {
+		local buildlib="build/bin/${1}.so.${2}"
+		if [ ! -r "$buildlib" ]; then
+			echo "ERROR: The library ${1} has to be built before symbols can be checked!"
+			return
+		fi
+		echo "Checking $1 in version $2 build at $(stat -L -c '%y' "$buildlib")"
+		local tmpfile=$(mktemp)
+		dpkg-gensymbols -p${1}${2} -e${buildlib} -Idebian/${1}${2}.symbols -O/dev/null 2> /dev/null > $tmpfile || true
+		librarysymbolsfromfile "$tmpfile" "$(echo "${1}" | cut -c 4- | tr -d '-' | tr 'a-z' 'A-Z')_${2}"
+		rm -f $tmpfile
+	}
+	librarysymbols 'libapt-pkg' "${LIBAPTPKGVERSION}"
+	echo
+	librarysymbols 'libapt-inst' "${LIBAPTINSTVERSION}"
+elif [ "$1" = 'buildlog' ]; then
+	while [ -n "$2" ]; do
+		librarysymbolsfromfile "$2" 'UNKNOWN'
+		shift
+	done
+elif [ "$1" = 'travis-ci' ]; then
+	apt-get install -qy --no-install-recommends $(sed -n -e '/^Build-Depends: /,/^Build-Depends-Indep: / {p}' debian/control | sed -e 's#([^)]*)##g' -e 's#^Build-Depends\(-Indep\)\?: ##' -e 's#<.*>##g' | tr -d ',')
+	apt-get install -qy --no-install-recommends $(sed -n 's#^Depends: .*@, \(.*\)$#\1#p' debian/tests/control | tr -d ',')
+elif [ "$1" = 'coverage' ]; then
+	DIR="${2:-./coverage}"
+	git clean -dfX # remove ignored build artefacts for a clean start
+	make CFLAGS+='--coverage' CXXFLAGS+='--coverage'
+	LCOVRC='--rc geninfo_checksum=1 --rc lcov_branch_coverage=1'
+	mkdir "$DIR"
+	lcov --no-external --directory . --capture --initial --output-file "${DIR}/apt.coverage.init" ${LCOVRC}
+	make test || true
+	./test/integration/run-tests -q || true
+	lcov --no-external --directory . --capture --output-file "${DIR}/apt.coverage.run" ${LCOVRC}
+	lcov -a "${DIR}/apt.coverage.init" -a "${DIR}/apt.coverage.run"  -o "${DIR}/apt.coverage.total" ${LCOVRC}
+	cp "${DIR}/apt.coverage.total" "${DIR}/apt.coverage.fixed"
+	rewritefile() {
+		file="$1"
+		shift
+		name="$(basename "$file")"
+		while [ -n "$1" ]; do
+			if [ -r "$1/$name" ]; then
+				sed -i "s#$file#$1/$name#" "${DIR}/apt.coverage.fixed"
+				break
+			fi
+			shift
+		done
+		if [ -z "$1" ]; then
+			echo >&2 "Coverage data captured for unknown file $file"
+		fi
+	}
+	grep 'build/include/' "${DIR}/apt.coverage.fixed" | sed "s#^SF:$(pwd)/##" | while read file; do
+		rewritefile "$file" 'apt-pkg' 'apt-pkg/deb' 'apt-pkg/edsp' 'apt-pkg/contrib' \
+		   'apt-inst' 'apt-inst/deb' 'apt-inst/contrib' 'apt-private'
+	done
+	genhtml --output-directory "${DIR}" "${DIR}/apt.coverage.fixed" ${LCOVRC}
+else
+	echo >&1 "Usage:\t$0 pre-export
+\t$0 pre-build
+\t$0 post-build
+
+Updating po-files and versions as well as some basic checks are done
+by »pre-export« which needs to be run before package building.
+If you use »gbp buildpackage« you will be notified if you forget.
+»pre-build« and »post-build« can be used to run some more or less
+useful checks automatically run by »gbp« otherwise.
+
+\t$0 library
+\t$0 buildlog filename…
+
+»library« and »buildlog« aren't run automatically but can be useful for
+maintaining the (more or less experimental) symbols files we provide.
+»library« displays the diff between advertised symbols and the once provided
+by the libraries, while »buildlog« extracts this diff from the buildlogs.
+Both will format the diff properly.
+
+\t$0 travis-ci
+\t$0 coverage [output-dir]
+
+»travis-ci« is a shortcut to install all build- as well as test-dependencies
+used by .travis.yml.
+»coverage« does a clean build with the right flags for coverage reporting,
+runs all tests and generates a html report in the end.
+"
+
+fi

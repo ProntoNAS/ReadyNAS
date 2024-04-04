@@ -1,0 +1,41 @@
+#!/usr/bin/make -f
+
+# enable LTO
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- $(CONFFLAGS) \
+		--with-shadow 				\
+		--enable-overwrite			\
+		--with-pkgconfdir=/etc/netatalk		\
+		--enable-krb4-uam --enable-krbV-uam	\
+		--with-cnid-dbd-txn			\
+		--with-libgcrypt-dir			\
+		--disable-srvloc --enable-zeroconf	\
+		--disable-tcp-wrappers			\
+		--with-ssl-dir --enable-pgp-uam		\
+		--without-libevent --without-tdb	\
+		--with-mysql-config=/dev/null		\
+		--with-init-style=debian-systemd	\
+		--without-afpstats --without-dtrace	\
+		--with-tracker-pkgconfig-version=1.0
+	(cd libevent; ./configure)
+
+override_dh_install:
+	dh_install
+	# Remove unnecessary files
+	rm debian/netatalk/usr/bin/netatalk-config
+	rm debian/netatalk/usr/share/man/man1/afppasswd.1
+	rm -r debian/netatalk/usr/include
+	rm -r debian/netatalk/usr/share/aclocal
+	rm debian/netatalk/usr/lib/*/*.a
+	rm debian/netatalk/usr/lib/*/*.la
+	rm debian/netatalk/usr/lib/*/*.so
+	rm debian/netatalk/usr/lib/*/netatalk/*.a
+	rm debian/netatalk/usr/lib/*/netatalk/*.la
+
+override_dh_makeshlibs:
+	dh_makeshlibs -X/usr/lib/$(DEB_HOST_MULTIARCH)/netatalk

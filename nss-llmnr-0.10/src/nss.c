@@ -283,7 +283,7 @@ enum nss_status _nss_llmnr_gethostbyname2_r(
     ipv6_func = af == AF_INET6 ? ipv6_callback : NULL;
 #endif
 
-    name_allowed = 1;
+    name_allowed = !strchr(name, '.');
 
     {
         if ((fd = llmnr_open_socket()) < 0) {

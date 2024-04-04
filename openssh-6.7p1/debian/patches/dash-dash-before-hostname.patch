@@ -1,0 +1,63 @@
+From 1ec1d66c12c333a99a10d399b5f47e5636d2bcff Mon Sep 17 00:00:00 2001
+From: "djm@openbsd.org" <djm@openbsd.org>
+Date: Sat, 12 Aug 2017 06:46:01 +0000
+Subject: Make "--" before hostname end option processing
+
+make "--" before the hostname terminate command-line
+option processing completely; previous behaviour would not prevent further
+options appearing after the hostname (ssh has a supported options after the
+hostname for >20 years, so that's too late to change).
+
+ok deraadt@
+
+Upstream-ID: ef5ee50571b98ad94dcdf8282204e877ec88ad89
+
+Origin: backport, https://anongit.mindrot.org/openssh.git/commit/?id=643c2ad82910691b2240551ea8b14472f60b5078
+Bug: https://bugzilla.mindrot.org/show_bug.cgi?id=2766
+Bug-Debian: https://bugs.debian.org/873201
+Last-Update: 2017-11-18
+
+Patch-Name: dash-dash-before-hostname.patch
+---
+ ssh.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/ssh.c b/ssh.c
+index 5bce695..9d70230 100644
+--- a/ssh.c
++++ b/ssh.c
+@@ -414,13 +414,13 @@ process_config_files(struct passwd *pw)
+ int
+ main(int ac, char **av)
+ {
+-	int i, r, opt, exit_status, use_syslog;
++	int i, r, opt, exit_status, use_syslog, timeout_ms;
++	int opt_terminated = 0;
+ 	char *p, *cp, *line, *argv0, buf[MAXPATHLEN], *host_arg, *logfile;
+ 	char thishost[NI_MAXHOST], shorthost[NI_MAXHOST], portstr[NI_MAXSERV];
+ 	char cname[NI_MAXHOST];
+ 	struct stat st;
+ 	struct passwd *pw;
+-	int timeout_ms;
+ 	extern int optind, optreset;
+ 	extern char *optarg;
+ 	struct Forward fwd;
+@@ -813,6 +813,9 @@ main(int ac, char **av)
+ 		}
+ 	}
+ 
++	if (optind > 1 && strcmp(av[optind - 1], "--") == 0)
++		opt_terminated = 1;
++
+ 	ac -= optind;
+ 	av += optind;
+ 
+@@ -827,7 +830,7 @@ main(int ac, char **av)
+ 			host = xstrdup(++cp);
+ 		} else
+ 			host = xstrdup(*av);
+-		if (ac > 1) {
++		if (ac > 1 && !opt_terminated) {
+ 			optind = optreset = 1;
+ 			goto again;
+ 		}

@@ -1,0 +1,33 @@
+#!/bin/sh
+# installed-tests wrapper for dbus. Outputs TAP format because why not
+
+set -e
+
+timeout="timeout 300s"
+ret=0
+i=0
+
+for dir in /usr/lib/*/dbus-1.0/test /usr/lib/*/dbus-1.0/debug-build/lib/dbus-1.0/test; do
+    for t in "$dir"/test-*; do
+        i=$(( $i + 1 ))
+        echo "# $i - $t ..."
+        echo "x" > "$ADTTMP/result"
+        ( set +e; $timeout $t; echo "$?" > "$ADTTMP/result" ) 2>&1 | sed 's/^/# /'
+        e="$(cat "$ADTTMP/result")"
+        case "$e" in
+            (0)
+                echo "ok $i - $t"
+                ;;
+            (77)
+                echo "ok $i # SKIP $t"
+                ;;
+            (*)
+                echo "not ok $i - $t ($e)"
+                ret=1
+                ;;
+        esac
+    done
+done
+
+echo "1..$i"
+exit $ret

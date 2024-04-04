@@ -1,0 +1,45 @@
+From 996f93bb13d3c26bf89add17f7612d03b0457af5 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 14:48:38 -0800
+Subject: [PATCH 03/12] rtc: Make ds1337 wakealarm work on RN20x.
+
+RN20x RTC has no ds1307->client->irq, which makes the standard driver not
+enable wakealarm support.  This works around that issue.
+---
+ drivers/rtc/rtc-ds1307.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/rtc/rtc-ds1307.c b/drivers/rtc/rtc-ds1307.c
+index aa705bb..501af9c 100644
+--- a/drivers/rtc/rtc-ds1307.c
++++ b/drivers/rtc/rtc-ds1307.c
+@@ -929,12 +929,15 @@ static int ds1307_probe(struct i2c_client *client,
+ 		 * For some variants, be sure alarms can trigger when we're
+ 		 * running on Vbackup (BBSQI/BBSQW)
+ 		 */
+-		if (ds1307->client->irq > 0 && chip->alarm) {
++		if (chip->alarm) {
+ 			ds1307->regs[0] |= DS1337_BIT_INTCN
+ 					| bbsqi_bitpos[ds1307->type];
+ 			ds1307->regs[0] &= ~(DS1337_BIT_A2IE | DS1337_BIT_A1IE);
+ 
+-			want_irq = true;
++			set_bit(HAS_ALARM, &ds1307->flags);
++
++			if (ds1307->client->irq)
++				want_irq = true;
+ 		}
+ 
+ 		i2c_smbus_write_byte_data(client, DS1337_REG_CONTROL,
+@@ -1134,7 +1137,7 @@ read_rtc:
+ 				bin2bcd(tmp));
+ 	}
+ 
+-	if (want_irq) {
++	if (want_irq || test_bit(HAS_ALARM, &ds1307->flags)) {
+ 		device_set_wakeup_capable(&client->dev, true);
+ 		set_bit(HAS_ALARM, &ds1307->flags);
+ 	}
+-- 
+1.9.1
+

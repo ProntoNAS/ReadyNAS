@@ -1,0 +1,91 @@
+From 045a31f3ca73b509be15615a29a3a017d3c7a751 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 24 Feb 2016 11:41:15 -0800
+Subject: [PATCH] add orion_mdio_shutdown function for arm shutdown quirks
+
+This replaces /proc/power_off_mode2 for WoL control, and RN2120 reboot quirks.
+---
+ drivers/net/ethernet/marvell/mvmdio.c | 60 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 60 insertions(+)
+
+diff --git a/drivers/net/ethernet/marvell/mvmdio.c b/drivers/net/ethernet/marvell/mvmdio.c
+index fc2fb25..07a0118 100644
+--- a/drivers/net/ethernet/marvell/mvmdio.c
++++ b/drivers/net/ethernet/marvell/mvmdio.c
+@@ -278,6 +278,65 @@ static int orion_mdio_remove(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
++static void orion_mdio_shutdown(struct platform_device *pdev)
++{
++	struct mii_bus *bus = platform_get_drvdata(pdev);
++	u16 rega, regb;
++	int i;
++
++	/* replaces /proc/power_mode_2 */
++	/* Force 10Mbps half duplex, disable autoneg */
++	for (i = 0; i < 2; i++) {
++		orion_mdio_write(bus, i, 0x16, 0x0);
++		orion_mdio_write(bus, i, 0x0, 0x8000);
++	}
++	if (system_state == SYSTEM_RESTART) {
++		/* Clear MII_88E1318S_PHY_LED_TCR_INT_ACTIVE_LOW, or the system
++		** will not reboot.  RN2120 appears to rely on a PHY link change
++		** interrupt to "reboot", so make sure it's enabled. */
++		orion_mdio_write(bus, 0, 0x16, 0x3);
++		rega = orion_mdio_read(bus, 0, 0x12);
++		regb = (rega | BIT(7)) & ~(BIT(11));
++	} else {
++		/* WoL enabled? */
++		orion_mdio_write(bus, 0, 0x16, 0x11);
++		rega = orion_mdio_read(bus, 0, 0x10);
++		if (rega & BIT(14)) {
++			/* Enable interrupt only on WOL event.
++			** We get an immediate poweron with large MTU without this */
++			for (i = 0; i < 2; i++) {
++				orion_mdio_write(bus, i, 0x16, 0x0);
++				orion_mdio_write(bus, i, 0x12, 0x80);
++			}
++			/* Magic packet enable, Clear WOL status, ..., 10BT LPM */
++			regb = BIT(14) | BIT(12) | BIT(10) | BIT(8) | BIT(7);
++			pr_debug("MII_88E1318S_PHY_WOL_CTRL: 0x%x => 0x%x\n",
++				rega, regb);
++			for (i = 0; i < 2; i++) {
++				orion_mdio_write(bus, i, 0x16, 0x11);
++				orion_mdio_write(bus, i, 0x10, regb);
++				orion_mdio_write(bus, i, 0x16, 0x3);
++			}
++			rega = orion_mdio_read(bus, 0, 0x12);
++			regb = rega | BIT(11) | BIT(7);
++		} else {
++			for (i = 0; i < 2; i++) {
++				orion_mdio_write(bus, i, 0x16, 0x0);
++				orion_mdio_write(bus, i, 0x0, BMCR_PDOWN);
++				orion_mdio_write(bus, i, 0x12, 0x0);
++				orion_mdio_write(bus, i, 0x16, 0x3);
++			}
++			rega = orion_mdio_read(bus, 0, 0x12);
++			regb = rega & ~(BIT(11) | BIT(7));
++		}
++	}
++	pr_debug("MII_88E1318S_LED_TCR: 0x%x => 0x%x\n", rega, regb);
++	for (i = 0; i < 2; i++) {
++		orion_mdio_write(bus, 0, 0x12, regb);
++		orion_mdio_write(bus, 0, 0x16, 0x0);
++	}
++}
++
+ static const struct of_device_id orion_mdio_match[] = {
+ 	{ .compatible = "marvell,orion-mdio" },
+ 	{ }
+@@ -287,6 +346,7 @@ MODULE_DEVICE_TABLE(of, orion_mdio_match);
+ static struct platform_driver orion_mdio_driver = {
+ 	.probe = orion_mdio_probe,
+ 	.remove = orion_mdio_remove,
++	.shutdown = orion_mdio_shutdown,
+ 	.driver = {
+ 		.name = "orion-mdio",
+ 		.of_match_table = orion_mdio_match,
+-- 
+1.9.1
+

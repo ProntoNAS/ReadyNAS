@@ -1,0 +1,110 @@
+#!/usr/bin/env slsh
+
+try
+{
+   require ("cmdopt");
+   require ("fswalk");
+}
+catch AnyError:
+{
+   () = fprintf (stderr, "error while evaluating\n%s\n",  __get_exception_info.message);
+   exit (1);
+}
+
+private variable
+MAXDEPTH = NULL,
+  DIR_SEPARATOR = "/",
+  VERSION = "0.2",
+  LICENSE = "GNU GPL version 2 or later";
+
+#ifdef WIN32
+DIR_SEPARATOR = "\\";
+#endif
+
+private define print_version ()
+{
+   () = fprintf (stdout, "%s (version %s)\nLicense: %s\n", path_basename (__argv[0]),
+		 VERSION, LICENSE);
+   exit (0);
+}
+
+private define print_usage ()
+{
+   variable
+     if_opt_err = _NARGS ? () : "",
+     msg = [
+	    _NARGS ? sprintf ("   OPTION ERROR\n%s\n", if_opt_err) : "",
+	    "Description:",
+	    " Search for dangling symbolic links in the filesystem",
+	    "",
+	    sprintf ("Usage:\n %s [options] [dir] [dir...]\n", path_basename (__argv[0])),
+	    "Options:",
+	    "  --maxdepth=depth   descend to 'depth' level into the directory hierarchy",
+	    "  -h, --help         print this message",
+	    "  --version          print version and license",
+	    "",
+	    "If no `dir' is specified in the command line arguments `dir' defaults to the",
+	    "current directory.",
+	    "",
+	    "If no `--maxdepth' is specified then the script \"walks\" into the directory",
+	    "hierarchy, untill no other directories have to be proceed.",
+	    "",
+	    "If `--maxdepth=0' is specified then the search for dangling links is done",
+	    "only to the top level directory.",
+	   ];
+
+   () = array_map (Integer_Type, &fprintf, _NARGS ? stderr : stdout, "%s\n",
+		   _NARGS ? msg : msg[[1:]]);
+
+   exit (_NARGS);
+}
+
+private define file_callback (file, st)
+{
+   if (stat_is ("lnk", st.st_mode))
+     if ((NULL == stat_file (file)) && (errno == ENOENT))
+       {
+	  () = fprintf (stdout, "\e[31mBroken link found: %s  %s\e[m\n", file,
+			errno_string (errno));
+#ifexists readlink
+	  () = fprintf (stdout, "\e[33m%s: points to %s\e[m\n", file, readlink (file));
+#endif
+       }
+   return 1;
+}
+
+private define dir_callback (dir, st)
+{
+   if (length (strtok (dir, DIR_SEPARATOR)) > MAXDEPTH)
+     return 0;
+
+   return 1;
+}
+
+private define get_badlinks (dir, maxdepth)
+{
+   ifnot (NULL == maxdepth)
+     MAXDEPTH = length (strtok (dir, DIR_SEPARATOR)) + maxdepth;
+   variable w = fswalk_new (NULL == MAXDEPTH ? NULL : &dir_callback, &file_callback);
+   w.walk (dir);
+}
+
+define slsh_main ()
+{
+   variable
+     i,
+     dir,
+     maxdepth = NULL,
+     c = cmdopt_new (&print_usage);
+
+   c.add("maxdepth", &maxdepth;type = "int");
+   c.add("h|help", &print_usage);
+   c.add("version", &print_version);
+
+   i = c.process (__argv, 1);
+
+   dir = (i < __argc) ? __argv[[i:]] : ["."];
+   array_map (Void_Type, &get_badlinks, dir, maxdepth);
+
+   exit (0);
+}

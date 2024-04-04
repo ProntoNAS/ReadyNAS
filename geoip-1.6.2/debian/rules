@@ -1,0 +1,21 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_OPTIONS+=nocheck
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+DEB_UPSTREAM_VERSION := $(shell dpkg-parsechangelog|grep "^Version:"|cut -d" " -f2|rev|cut -d- -f2-|rev|cut -d':' -f2)
+
+%:
+	dh $@ --with autoreconf
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp
+	# Build the build script.
+	$(CXX) $(CPPFLAGS) $(LDFLAGS) -g debian/src/geoip-csv-to-dat.cpp -o debian/tmp/geoip-generator -lGeoIP \
+		-I $(CURDIR)/debian/tmp/usr/include/ -L $(CURDIR)/debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/
+	$(CXX) $(CPPFLAGS) $(LDFLAGS) -g debian/src/geoip-asn-csv-to-dat.cpp -o debian/tmp/geoip-generator-asn -lGeoIP \
+		-I $(CURDIR)/debian/tmp/usr/include/ -L $(CURDIR)/debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/
+	chrpath -d -k debian/tmp/usr/bin/geoip*
+
+override_dh_strip:
+	dh_strip --dbg-package=geoip-dbg

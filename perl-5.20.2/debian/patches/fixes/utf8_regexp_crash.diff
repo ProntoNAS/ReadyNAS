@@ -1,0 +1,182 @@
+From 649e7c104b691f56e642e5f8b172b95553cec98f Mon Sep 17 00:00:00 2001
+From: David Mitchell <davem@iabyn.com>
+Date: Wed, 12 Aug 2015 08:32:46 +0100
+Subject: save_re_context(): do "local $n" with no PL_curpm
+
+RT #124109.
+
+2c1f00b9036 localised PL_curpm to NULL when calling swash init code
+(i.e. perl-level code that is loaded and executed when something
+like "lc $large_codepoint" is executed).
+
+b4fa55d3f1 followed this up by gutting Perl_save_re_context(), since
+that function did, basically,
+
+    if (PL_curpm) {
+        for (i = 1; i <= RX_NPARENS(PM_GETRE(PL_curpm))) {
+            do the C equivalent of the perl code "local ${i}";
+        }
+    }
+
+and now that PL_curpm was null, the code wasn't called any more.  However,
+it turns out that the localisation *was* still needed, it's just that
+nothing in the test suite actually tested for it.
+
+In something like the following:
+
+    $x = "\x{41c}";
+    $x =~ /(.*)/;
+    $s = lc $1;
+
+pp_lc() calls get magic on $1, which sets $1's PV value to a copy of the
+substring captured by the current pattern match.
+Then pp_lc() calls a function to convert the string to upper case, which
+triggers a swash load, which calls perl code that does a pattern match
+and, most importantly, uses the value of $1. This triggers get magic on
+$1, which overwrites $1's PV value with a new value. When control returns
+to pp_lc(), $1 now holds the wrong string value.
+
+Hence $1, $2 etc need localising as well as PL_curpm.
+
+The old way that Perl_save_re_context() used to work (localising
+$1..${RX_NPARENS}) won't work directly when PL_curpm is NULL (as in the
+swash case), since we don't know how many vars to localise.
+
+In this case, hard-code it as localising $1,$2,$3 and add a porting
+test file that checks that the utf8.pm code and dependences don't
+use anything outside those 3 vars.
+
+(cherry picked from commit 3553f4fa11fd9e8bb0797ace43605cc33ebf32fa)
+
+Bug: https://rt.perl.org/Ticket/Display.html?id=124109
+Bug-Debian: https://bugs.debian.org/820328
+Patch-Name: fixes/utf8_regexp_crash.diff
+---
+ MANIFEST               |  1 +
+ regcomp.c              | 21 ++++++++++++++++++---
+ t/porting/re_context.t | 43 +++++++++++++++++++++++++++++++++++++++++++
+ t/re/pat_advanced.t    | 13 +++++++++++++
+ 4 files changed, 75 insertions(+), 3 deletions(-)
+ create mode 100644 t/porting/re_context.t
+
+diff --git a/MANIFEST b/MANIFEST
+index 689685447..09fbabde4 100644
+--- a/MANIFEST
++++ b/MANIFEST
+@@ -5386,6 +5386,7 @@ t/porting/perlfunc.t		Test that Functions_pm.PL can parse perlfunc.pod
+ t/porting/podcheck.t		Test the POD of shipped modules is well formed
+ t/porting/pod_rules.t		Check that various pod lists are consistent
+ t/porting/readme.t		Check that all files in Porting/ are mentioned in Porting/README.pod
++t/porting/re_context.t		Check assumptions made by save_re_context()
+ t/porting/regen.t		Check that regen.pl doesn't need running
+ t/porting/ss_dup.t		Check that sv.c:ss_dup handle everything
+ t/porting/test_bootstrap.t	Test that the instructions for test bootstrapping aren't accidentally overlooked.
+diff --git a/regcomp.c b/regcomp.c
+index 573072aa2..7d1aa28c9 100644
+--- a/regcomp.c
++++ b/regcomp.c
+@@ -16471,13 +16471,28 @@ void
+ Perl_save_re_context(pTHX)
+ {
+     dVAR;
++    I32 nparens = -1;
++    I32 i;
+ 
+     /* Save $1..$n (#18107: UTF-8 s/(\w+)/uc($1)/e); AMS 20021106. */
++
+     if (PL_curpm) {
+ 	const REGEXP * const rx = PM_GETRE(PL_curpm);
+-	if (rx) {
+-	    U32 i;
+-	    for (i = 1; i <= RX_NPARENS(rx); i++) {
++	if (rx)
++            nparens = RX_NPARENS(rx);
++    }
++
++    /* RT #124109. This is a complete hack; in the SWASHNEW case we know
++     * that PL_curpm will be null, but that utf8.pm and the modules it
++     * loads will only use $1..$3.
++     * The t/porting/re_context.t test file checks this assumption.
++     */
++    if (nparens == -1)
++        nparens = 3;
++
++    {
++        {
++	    for (i = 1; i <= nparens; i++) {
+ 		char digits[TYPE_CHARS(long)];
+ 		const STRLEN len = my_snprintf(digits, sizeof(digits),
+                                                "%lu", (long)i);
+diff --git a/t/porting/re_context.t b/t/porting/re_context.t
+new file mode 100644
+index 000000000..5467b93ba
+--- /dev/null
++++ b/t/porting/re_context.t
+@@ -0,0 +1,43 @@
++#!./perl -w
++#
++# Check that utf8.pm and its dependencies only use the subset of the
++# $1..$n capture vars that Perl_save_re_context() is hard-coded to
++# localise, because that function has no efficient way of determining at
++# runtime what vars to localise.
++#
++# Note that this script tests for the existence of symbol table entries in
++# %::, so @4 etc would trigger a failure as well as $4.
++#
++# If tests start to fail, either (in order of descending preference):
++#
++# * fix utf8.pm or its dependencies so that any recent change no longer
++#   uses more special vars (ideally it would use no vars);
++#
++# * fix Perl_save_re_context() so that it localises more vars, then
++#   update this test script with the new relaxed var list.
++
++
++use warnings;
++use strict;
++
++# trigger the dependency loading
++
++my $x = lc "\x{411}";
++
++# determine which relevant vars those dependencies accessed
++
++my @vars =
++        grep !/^[0123]$/, # $0, and $1, ..$3 allowed
++        grep /^(?:\d+|[`'&])$/,  # numeric and $`, $&, $' vars
++        sort keys %::;
++
++# load any other modules *after* calculating @vars
++
++require './test.pl';
++
++plan(1);
++
++is(scalar @vars, 0, "extraneous vars")
++    or diag("extra vars seen: " . join(", ", map "*$_", @vars));
++
++exit 0;
+diff --git a/t/re/pat_advanced.t b/t/re/pat_advanced.t
+index 4fd9f9113..77a0f0e6f 100644
+--- a/t/re/pat_advanced.t
++++ b/t/re/pat_advanced.t
+@@ -2255,6 +2255,19 @@ EOP
+     }
+ 
+     {
++        fresh_perl_is(<<'EOF',
++                my $s = "\x{41c}";
++                $s =~ /(.*)/ or die;
++                $ls = lc $1;
++                print $ls eq lc $s ? "good\n" : "bad: [$ls]\n";
++EOF
++            "good\n",
++            {},
++            "swash triggered by lc() doesn't corrupt \$1"
++        );
++    }
++
++    {
+         #' RT #119075
+         no warnings 'regexp';   # Silence "has useless greediness modifier"
+         local $@;

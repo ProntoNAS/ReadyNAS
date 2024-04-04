@@ -1,0 +1,38 @@
+From: NIIBE Yutaka <gniibe@fsij.org>
+Date: Fri, 2 Jun 2017 10:34:42 +0900
+Subject: secmem: Fix SEGV and stat calculation.
+Origin: https://git.gnupg.org/cgi-bin/gitweb.cgi?p=libgcrypt.git;a=commit;h=91456759b887e153c4d4ce19538d478df260cab2
+Bug: https://dev.gnupg.org/T3027
+
+* src/secmem (init_pool): Care about the header size.
+(_gcry_secmem_malloc_internal): Likewise.
+(_gcry_secmem_malloc_internal): Use mb->size for stats.
+
+--
+
+GnuPG-bug-id: 3027
+Signed-off-by: NIIBE Yutaka <gniibe@fsij.org>
+---
+ src/secmem.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+--- a/src/secmem.c
++++ b/src/secmem.c
+@@ -427,7 +427,7 @@ init_pool (size_t n)
+ 
+   /* Initialize first memory block.  */
+   mb = (memblock_t *) pool;
+-  mb->size = pool_size;
++  mb->size = pool_size - BLOCK_HEAD_SIZE;
+   mb->flags = 0;
+ }
+ 
+@@ -580,7 +580,7 @@ _gcry_secmem_malloc_internal (size_t siz
+ 
+   mb = mb_get_new ((memblock_t *) pool, size);
+   if (mb)
+-    stats_update (size, 0);
++    stats_update (mb->size, 0);
+ 
+   return mb ? &mb->aligned.c : NULL;
+ }

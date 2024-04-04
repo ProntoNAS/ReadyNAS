@@ -1,0 +1,104 @@
+From ef1189694a08eb6be5f7111ac48c8bdb573fc01c Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 15 Mar 2016 18:42:29 -0700
+Subject: [PATCH] ata: pmp: expose gscr manipulation capability
+
+Add a new sysfs entry to expose the capability to read or write SATA PMP
+GSCR 130, which represents GPIOs on the SiI3826 PMP used by EDA500.
+---
+ drivers/ata/libata-transport.c | 58 +++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 57 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/ata/libata-transport.c b/drivers/ata/libata-transport.c
+index e2d9497..7567baf 100644
+--- a/drivers/ata/libata-transport.c
++++ b/drivers/ata/libata-transport.c
+@@ -39,7 +39,7 @@
+ 
+ #define ATA_PORT_ATTRS		3
+ #define ATA_LINK_ATTRS		3
+-#define ATA_DEV_ATTRS		9
++#define ATA_DEV_ATTRS		10
+ 
+ struct scsi_transport_template;
+ struct scsi_transport_template *ata_scsi_transport_template;
+@@ -583,6 +583,58 @@ show_ata_dev_trim(struct device *dev,
+ 
+ static DEVICE_ATTR(trim, S_IRUGO, show_ata_dev_trim, NULL);
+ 
++static unsigned int
++sata_pmp_gscr_write(struct ata_link *link, int reg, u32 val)
++{
++	struct ata_port *ap = link->ap;
++	struct ata_device *pmp_dev = ap->link.device;
++	struct ata_taskfile tf;
++	unsigned int ret;
++
++	if (ap->nr_active_links)
++		return ATA_DEFER_PORT;
++
++	ata_tf_init(pmp_dev, &tf);
++	tf.command = ATA_CMD_PMP_WRITE;
++	tf.protocol = ATA_PROT_NODATA;
++	tf.flags |= ATA_TFLAG_ISADDR | ATA_TFLAG_DEVICE | ATA_TFLAG_LBA48;
++	tf.feature = reg;
++	tf.device = link->pmp;
++	tf.nsect = val & 0xff;
++	tf.lbal = (val >> 8) & 0xff;
++	tf.lbam = (val >> 16) & 0xff;
++	tf.lbah = (val >> 24) & 0xff;
++
++	ata_eh_acquire(ap);
++	ret = ata_exec_internal(pmp_dev, &tf, NULL, DMA_NONE, NULL, 0,
++				 SATA_PMP_RW_TIMEOUT);
++	ata_eh_release(ap);
++
++	return ret;
++}
++
++static ssize_t
++set_ata_dev_gpio(struct device *dev, struct device_attribute *attr,
++		 const char *buf, size_t count)
++{
++	struct ata_device *ata_dev = transport_class_to_dev(dev);
++	u32 val = simple_strtol(buf, NULL, 16);
++	unsigned int ret;
++
++	if (ata_dev->class != ATA_DEV_PMP)
++		return 0;
++	ret = sata_pmp_gscr_write(ata_dev->link, 130, val);
++	if (ret) {
++		if (ret == ATA_DEFER_PORT)
++			return -EBUSY;
++		else
++			return -EINVAL;
++	}
++	return count;
++}
++
++static DEVICE_ATTR(gpio, S_IWUSR, NULL, set_ata_dev_gpio);
++
+ static DECLARE_TRANSPORT_CLASS(ata_dev_class,
+ 			       "ata_device", NULL, NULL, NULL);
+ 
+@@ -702,6 +754,9 @@ static int ata_tdev_add(struct ata_device *ata_dev)
+ #define SETUP_DEV_ATTRIBUTE(field)					\
+ 	SETUP_TEMPLATE(dev_attrs, field, S_IRUGO, 1)
+ 
++#define SETUP_GPIO_ATTRIBUTE(field)					\
++	SETUP_TEMPLATE(dev_attrs, field, S_IWUSR, 1)
++
+ /**
+  * ata_attach_transport  --  instantiate ATA transport template
+  */
+@@ -757,6 +812,7 @@ struct scsi_transport_template *ata_attach_transport(void)
+ 	SETUP_DEV_ATTRIBUTE(id);
+ 	SETUP_DEV_ATTRIBUTE(gscr);
+ 	SETUP_DEV_ATTRIBUTE(trim);
++	SETUP_GPIO_ATTRIBUTE(gpio);
+ 	BUG_ON(count > ATA_DEV_ATTRS);
+ 	i->dev_attrs[count] = NULL;
+ 
+-- 
+1.9.1
+

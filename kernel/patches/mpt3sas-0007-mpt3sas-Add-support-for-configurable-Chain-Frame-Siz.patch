@@ -1,0 +1,132 @@
+From c63a2c650af60e986e496cdda23de0ff6cf8faf3 Mon Sep 17 00:00:00 2001
+From: Suganath prabu Subramani <suganath-prabu.subramani@avagotech.com>
+Date: Thu, 28 Jan 2016 12:07:04 +0530
+Subject: [PATCH 07/15] mpt3sas: Add support for configurable Chain Frame Size
+
+Added support for configurable Chain Frame Size. Calculate the
+Chain Message Frame size from the IOCMaxChainSegementSize (iocfacts).
+Applicable only for mpt3sas/SAS3.0 HBA's.
+
+Signed-off-by: Suganath prabu Subramani <suganath-prabu.subramani@avagotech.com>
+Signed-off-by: Chaitra P B <chaitra.basappa@avagotech.com>
+Reviewed-by: Tomas Henzl <thenzl@redhat.com>
+Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>
+Acked-by: Hannes Reinecke <hare@suse.de>
+---
+ drivers/scsi/mpt3sas/mpt3sas_base.c | 27 ++++++++++++++++++++++-----
+ drivers/scsi/mpt3sas/mpt3sas_base.h |  8 +++++++-
+ 2 files changed, 29 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/scsi/mpt3sas/mpt3sas_base.c b/drivers/scsi/mpt3sas/mpt3sas_base.c
+index 919d09b..c401e3f 100644
+--- a/drivers/scsi/mpt3sas/mpt3sas_base.c
++++ b/drivers/scsi/mpt3sas/mpt3sas_base.c
+@@ -3264,6 +3264,19 @@ _base_allocate_memory_pools(struct MPT3SAS_ADAPTER *ioc,  int sleep_flag)
+ 	/* reply frame size */
+ 	ioc->reply_sz = facts->ReplyFrameSize * 4;
+ 
++	/* chain segment size */
++	if (ioc->hba_mpi_version_belonged != MPI2_VERSION) {
++		if (facts->IOCMaxChainSegmentSize)
++			ioc->chain_segment_sz =
++					facts->IOCMaxChainSegmentSize *
++					MAX_CHAIN_ELEMT_SZ;
++		else
++		/* set to 128 bytes size if IOCMaxChainSegmentSize is zero */
++			ioc->chain_segment_sz = DEFAULT_NUM_FWCHAIN_ELEMTS *
++						    MAX_CHAIN_ELEMT_SZ;
++	} else
++		ioc->chain_segment_sz = ioc->request_sz;
++
+ 	/* calculate the max scatter element size */
+ 	sge_size = max_t(u16, ioc->sge_size, ioc->sge_size_ieee);
+ 
+@@ -3275,7 +3288,7 @@ _base_allocate_memory_pools(struct MPT3SAS_ADAPTER *ioc,  int sleep_flag)
+ 	ioc->max_sges_in_main_message = max_sge_elements/sge_size;
+ 
+ 	/* now do the same for a chain buffer */
+-	max_sge_elements = ioc->request_sz - sge_size;
++	max_sge_elements = ioc->chain_segment_sz - sge_size;
+ 	ioc->max_sges_in_chain_message = max_sge_elements/sge_size;
+ 
+ 	/*
+@@ -3467,7 +3480,7 @@ _base_allocate_memory_pools(struct MPT3SAS_ADAPTER *ioc,  int sleep_flag)
+ 		goto out;
+ 	}
+ 	ioc->chain_dma_pool = pci_pool_create("chain pool", ioc->pdev,
+-	    ioc->request_sz, 16, 0);
++	    ioc->chain_segment_sz, 16, 0);
+ 	if (!ioc->chain_dma_pool) {
+ 		pr_err(MPT3SAS_FMT "chain_dma_pool: pci_pool_create failed\n",
+ 			ioc->name);
+@@ -3481,13 +3494,13 @@ _base_allocate_memory_pools(struct MPT3SAS_ADAPTER *ioc,  int sleep_flag)
+ 			ioc->chain_depth = i;
+ 			goto chain_done;
+ 		}
+-		total_sz += ioc->request_sz;
++		total_sz += ioc->chain_segment_sz;
+ 	}
+  chain_done:
+ 	dinitprintk(ioc, pr_info(MPT3SAS_FMT
+ 		"chain pool depth(%d), frame_size(%d), pool_size(%d kB)\n",
+-		ioc->name, ioc->chain_depth, ioc->request_sz,
+-		((ioc->chain_depth *  ioc->request_sz))/1024));
++		ioc->name, ioc->chain_depth, ioc->chain_segment_sz,
++		((ioc->chain_depth *  ioc->chain_segment_sz))/1024));
+ 
+ 	/* initialize hi-priority queue smid's */
+ 	ioc->hpr_lookup = kcalloc(ioc->hi_priority_depth,
+@@ -4348,6 +4361,10 @@ _base_get_ioc_facts(struct MPT3SAS_ADAPTER *ioc, int sleep_flag)
+ 	facts->FWVersion.Word = le32_to_cpu(mpi_reply.FWVersion.Word);
+ 	facts->IOCRequestFrameSize =
+ 	    le16_to_cpu(mpi_reply.IOCRequestFrameSize);
++	if (ioc->hba_mpi_version_belonged != MPI2_VERSION) {
++		facts->IOCMaxChainSegmentSize =
++			le16_to_cpu(mpi_reply.IOCMaxChainSegmentSize);
++	}
+ 	facts->MaxInitiators = le16_to_cpu(mpi_reply.MaxInitiators);
+ 	facts->MaxTargets = le16_to_cpu(mpi_reply.MaxTargets);
+ 	ioc->shost->max_id = -1;
+diff --git a/drivers/scsi/mpt3sas/mpt3sas_base.h b/drivers/scsi/mpt3sas/mpt3sas_base.h
+index d109f25..24bd19a 100644
+--- a/drivers/scsi/mpt3sas/mpt3sas_base.h
++++ b/drivers/scsi/mpt3sas/mpt3sas_base.h
+@@ -129,6 +129,9 @@
+ 
+ #define MPT3SAS_INVALID_DEVICE_HANDLE	0xFFFF
+ 
++#define MAX_CHAIN_ELEMT_SZ		16
++#define DEFAULT_NUM_FWCHAIN_ELEMTS	8
++
+ /*
+  * reset phases
+  */
+@@ -761,7 +764,7 @@ struct mpt3sas_facts {
+ 	u32			IOCCapabilities;
+ 	union mpi3_version_union	FWVersion;
+ 	u16			IOCRequestFrameSize;
+-	u16			Reserved3;
++	u16			IOCMaxChainSegmentSize;
+ 	u16			MaxInitiators;
+ 	u16			MaxTargets;
+ 	u16			MaxSasExpanders;
+@@ -908,6 +911,8 @@ typedef void (*MPT3SAS_FLUSH_RUNNING_CMDS)(struct MPT3SAS_ADAPTER *ioc);
+  * @max_sges_in_chain_message: number sg elements per chain
+  * @chains_needed_per_io: max chains per io
+  * @chain_depth: total chains allocated
++ * @chain_segment_sz: gives the max number of
++ *			SGEs accommodate on single chain buffer
+  * @hi_priority_smid:
+  * @hi_priority:
+  * @hi_priority_dma:
+@@ -1115,6 +1120,7 @@ struct MPT3SAS_ADAPTER {
+ 	u16		max_sges_in_chain_message;
+ 	u16		chains_needed_per_io;
+ 	u32		chain_depth;
++	u16		chain_segment_sz;
+ 
+ 	/* hi-priority queue */
+ 	u16		hi_priority_smid;
+-- 
+1.9.1
+

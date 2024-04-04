@@ -1,0 +1,33 @@
+From edc8255cb791335c40b39c72e7a69eee04774cc0 Mon Sep 17 00:00:00 2001
+From: Emil Tantilov <emil.s.tantilov@intel.com>
+Date: Fri, 29 Jul 2016 10:30:06 -0700
+Subject: [PATCH 166/191] ixgbe: only check Tx queue enablement when debugging
+
+Following a write the TXDCTL.ENABLE bit is set only when the Tx queue
+is actually enabled, which may not happen during the configure phase even
+if we waited for it. Make this check debug only since this is causing
+confusion with users who notice the warning in dmesg.
+
+Signed-off-by: Emil Tantilov <emil.s.tantilov@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+---
+ drivers/net/ethernet/intel/ixgbe/ixgbe_main.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+index addd6cc..aac914a 100644
+--- a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
++++ b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+@@ -3224,7 +3224,7 @@ void ixgbe_configure_tx_ring(struct ixgbe_adapter *adapter,
+ 		txdctl = IXGBE_READ_REG(hw, IXGBE_TXDCTL(reg_idx));
+ 	} while (--wait_loop && !(txdctl & IXGBE_TXDCTL_ENABLE));
+ 	if (!wait_loop)
+-		e_err(drv, "Could not enable Tx Queue %d\n", reg_idx);
++		hw_dbg(hw, "Could not enable Tx Queue %d\n", reg_idx);
+ }
+ 
+ static void ixgbe_setup_mtqc(struct ixgbe_adapter *adapter)
+-- 
+1.9.1
+

@@ -1,0 +1,42 @@
+From: Tim Gardner <tim.gardner@canonical.com>
+Date: Thu, 25 Sep 2008 07:09:25 -0600
+Subject: Disable the fallback clause in hwclock when /dev/rtc cannot be
+ opened.
+
+hwclock should not access the x86 RTC using I/O instructions unless explicitly
+requested from the command line (--directisa). This issue was encountered
+while debugging a boot time race when hwclock.sh was run in parallel.
+
+Addresses-Ubuntu-Bug: 274402
+Signed-off-by: Tim Gardner <tim.gardner@canonical.com>
+Signed-off-by: LaMont Jones <lamont@debian.org>
+
+Conflicts:
+	hwclock/hwclock.c
+---
+ sys-utils/hwclock.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/sys-utils/hwclock.c b/sys-utils/hwclock.c
+index 474e04f..3af99ab 100644
+--- a/sys-utils/hwclock.c
++++ b/sys-utils/hwclock.c
+@@ -1259,8 +1259,18 @@ static void determine_clock_access_method(const bool user_requests_ISA)
+ 	if (!ur)
+ 		ur = probe_for_kd_clock();
+ 
++  /*
++   * This final clause is a really bad idea on x86/AT PCs. You run the
++   * risk of a race condition with another copy of hwclock
++   * that already has /dev/rtc open. The fallback case on
++   * x86 is to then raise I/O priviledge level and access
++   * the RTC CMOS directly using I/O instructions. Simultaneous
++   * access like that can really hose the RTC.
++   */
++#if !defined(__i386__)
+ 	if (!ur && !user_requests_ISA)
+ 		ur = probe_for_cmos_clock();
++#endif
+ 
+ 	if (debug) {
+ 		if (ur)

@@ -1,0 +1,60 @@
+From bbf31fe77e87b982eed786188d0f14921f54be88 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 14:59:20 -0800
+Subject: [PATCH 08/10] iscsi: fix ms initiators
+
+---
+ drivers/target/target_core_pr.c  | 5 ++---
+ drivers/target/target_core_spc.c | 6 +++++-
+ 2 files changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/target/target_core_pr.c b/drivers/target/target_core_pr.c
+index e793311..4d460c8 100644
+--- a/drivers/target/target_core_pr.c
++++ b/drivers/target/target_core_pr.c
+@@ -3752,7 +3752,8 @@ core_scsi3_pri_read_keys(struct se_cmd *cmd)
+ 		 * Check for overflow of 8byte PRI READ_KEYS payload and
+ 		 * next reservation key list descriptor.
+ 		 */
+-		if ((add_len + 8) > (cmd->data_length - 8))
++		add_len += 8;
++		if (add_len > (cmd->data_length - 8))
+ 			break;
+ 
+ 		buf[off++] = ((pr_reg->pr_res_key >> 56) & 0xff);
+@@ -3763,8 +3764,6 @@ core_scsi3_pri_read_keys(struct se_cmd *cmd)
+ 		buf[off++] = ((pr_reg->pr_res_key >> 16) & 0xff);
+ 		buf[off++] = ((pr_reg->pr_res_key >> 8) & 0xff);
+ 		buf[off++] = (pr_reg->pr_res_key & 0xff);
+-
+-		add_len += 8;
+ 	}
+ 	spin_unlock(&dev->t10_pr.registration_lock);
+ 
+diff --git a/drivers/target/target_core_spc.c b/drivers/target/target_core_spc.c
+index 9413e1a..3e5aa78 100644
+--- a/drivers/target/target_core_spc.c
++++ b/drivers/target/target_core_spc.c
+@@ -116,6 +116,10 @@ spc_emulate_inquiry_std(struct se_cmd *cmd, unsigned char *buf)
+ 	       min_t(size_t, strlen(dev->t10_wwn.revision), 4));
+ 	buf[4] = 31; /* Set additional length to 31 */
+ 
++	/* These next two are necessary for MS initiators */
++	buf[58] = 0x09;
++	buf[59] = 0x60;
++
+ 	return 0;
+ }
+ EXPORT_SYMBOL(spc_emulate_inquiry_std);
+@@ -1039,7 +1043,7 @@ static sense_reason_t spc_emulate_modesense(struct se_cmd *cmd)
+ 			length += 1;
+ 	}
+ 
+-	if (page == 0x3f) {
++	if (page == 0x3f || page == 0x00) {
+ 		if (subpage != 0x00 && subpage != 0xff) {
+ 			pr_warn("MODE_SENSE: Invalid subpage code: 0x%02x\n", subpage);
+ 			return TCM_INVALID_CDB_FIELD;
+-- 
+1.9.1
+

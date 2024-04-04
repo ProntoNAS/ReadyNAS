@@ -1,0 +1,35 @@
+From 50b22702befbcec81ec5ae2a48accaeb70221709 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 14:54:48 -0800
+Subject: [PATCH 02/10] iscsi: fix chap challenge string
+
+Remove nul bytes from the CHAP challenge string.
+---
+ drivers/target/iscsi/iscsi_target_auth.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/target/iscsi/iscsi_target_auth.c b/drivers/target/iscsi/iscsi_target_auth.c
+index c11467f..69a0580 100644
+--- a/drivers/target/iscsi/iscsi_target_auth.c
++++ b/drivers/target/iscsi/iscsi_target_auth.c
+@@ -135,10 +135,17 @@ static void chap_gen_challenge(
+ {
+ 	unsigned char challenge_asciihex[CHAP_CHALLENGE_LENGTH * 2 + 1];
+ 	struct iscsi_chap *chap = conn->auth_protocol;
++	int i = 0;
+ 
+ 	memset(challenge_asciihex, 0, CHAP_CHALLENGE_LENGTH * 2 + 1);
+ 
+ 	get_random_bytes(chap->challenge, CHAP_CHALLENGE_LENGTH);
++
++	/* Fix the challenge string - JASON QIAN, NETGEAR */
++	for (i=0; i<CHAP_CHALLENGE_LENGTH; i++)
++		if(chap->challenge[i] == 0)
++			chap->challenge[i] = 0x58;
++
+ 	chap_binaryhex_to_asciihex(challenge_asciihex, chap->challenge,
+ 				CHAP_CHALLENGE_LENGTH);
+ 	/*
+-- 
+1.9.1
+

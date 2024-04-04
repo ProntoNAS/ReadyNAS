@@ -1,0 +1,34 @@
+From 6821d6d74d15f56dbacd337ae1e01b544aa6a37d Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 10 Aug 2016 14:12:17 -0700
+Subject: [PATCH 3/7] don't always retry cryptsetup
+
+---
+ src/core/transaction.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/core/transaction.c b/src/core/transaction.c
+index c894001..b610d72 100644
+--- a/src/core/transaction.c
++++ b/src/core/transaction.c
+@@ -26,6 +26,7 @@
+ #include "terminal-util.h"
+ #include "transaction.h"
+ #include "dbus-unit.h"
++#include "string-util.h"
+ 
+ static void transaction_unlink_job(Transaction *tr, Job *j, bool delete_dependencies);
+ 
+@@ -872,6 +872,9 @@ int transaction_add_job_and_dependencies(
+                         return r;
+         }
+ 
++	if (by && strneq(by->unit->id, "cryptsetup", 10) && unit_active_state(unit) == UNIT_FAILED)
++		return 0;
++
+         if (!unit_job_is_applicable(unit, type))
+                 return sd_bus_error_setf(e, BUS_ERROR_JOB_TYPE_NOT_APPLICABLE,
+                                          "Job type %s is not applicable for unit %s.",
+-- 
+2.9.2
+

@@ -175,10 +175,8 @@ ProcessInterfaceWatch(int s, int s_ssdp, int s_ssdp6)
 				   (ifa->ifa_index == lan_addr->index)) {
 					getifaddr(lan_addr->ifname, lan_addr->str, sizeof(lan_addr->str),
 						  &lan_addr->addr, &lan_addr->mask);
-					if (!is_del) {
-						close(lan_addr->s_notify);
-						lan_addr->s_notify = OpenAndConfSSDPNotifySocket(lan_addr);
-					}
+					close(lan_addr->s_notify);
+					lan_addr->s_notify = is_del ? -1 : OpenAndConfSSDPNotifySocket(lan_addr);
 					if(ifa->ifa_family == AF_INET)
 						AddDropMulticastMembership(s_ssdp, lan_addr, 0, is_del);
 					else if(ifa->ifa_family == AF_INET6)

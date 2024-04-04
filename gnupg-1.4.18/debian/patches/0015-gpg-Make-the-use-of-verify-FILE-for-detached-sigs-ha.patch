@@ -1,0 +1,316 @@
+From fbb50867f81d790c4bf819dcadcd14be6c3f957b Mon Sep 17 00:00:00 2001
+From: Werner Koch <wk@gnupg.org>
+Date: Fri, 14 Nov 2014 09:36:19 +0100
+Subject: [PATCH 15/20] gpg: Make the use of "--verify FILE" for detached sigs
+ harder.
+
+* g10/openfile.c (open_sigfile): Factor some code out to ...
+(get_matching_datafile): new function.
+* g10/plaintext.c (hash_datafiles): Do not try to find matching file
+in batch mode.
+* g10/mainproc.c (check_sig_and_print): Print a warning if a possibly
+matching data file is not used by a standard signatures.
+--
+
+Allowing to use the abbreviated form for detached signatures is a long
+standing bug which has only been noticed by the public with the
+release of 2.1.0.  :-(
+
+What we do is to remove the ability to check detached signature in
+--batch using the one file abbreviated mode.  This should exhibit
+problems in scripts which use this insecure practice.  We also print a
+warning if a matching data file exists but was not considered because
+the detached signature was actually a standard signature:
+
+  gpgv: Good signature from "Werner Koch (dist sig)"
+  gpgv: WARNING: not a detached signature; \
+  file 'gnupg-2.1.0.tar.bz2' was NOT verified!
+
+We can only print a warning because it is possible that a standard
+signature is indeed to be verified but by coincidence a file with a
+matching name is stored alongside the standard signature.
+
+Reported-by: Simon Nicolussi (to gnupg-users on Nov 7)
+Signed-off-by: Werner Koch <wk@gnupg.org>
+
+(backported from commit 69384568f66a48eff3968bb1714aa13925580e9f)
+
+Updated doc/gpg.texi.
+---
+ doc/gpg.texi    | 27 ++++++++++-------
+ g10/main.h      |  1 +
+ g10/mainproc.c  | 38 ++++++++++++++++++++++++
+ g10/openfile.c  | 91 +++++++++++++++++++++++++++++++++++++--------------------
+ g10/plaintext.c | 21 ++++++++-----
+ 5 files changed, 130 insertions(+), 48 deletions(-)
+
+--- a/doc/gpg.texi
++++ b/doc/gpg.texi
+@@ -241,16 +241,22 @@
+ 
+ @item --verify
+ @opindex verify
+-Assume that the first argument is a signed file or a detached signature
+-and verify it without generating any output. With no arguments, the
+-signature packet is read from STDIN. If only a sigfile is given, it may
+-be a complete signature or a detached signature, in which case the
+-signed stuff is expected in a file without the ".sig" or ".asc"
+-extension.  With more than 1 argument, the first should be a detached
+-signature and the remaining files are the signed stuff. To read the
+-signed stuff from STDIN, use @samp{-} as the second filename.  For
+-security reasons a detached signature cannot read the signed material
+-from STDIN without denoting it in the above way.
++Assume that the first argument is a signed file and verify it without
++generating any output.  With no arguments, the signature packet is
++read from STDIN.  If only a one argument is given, it is expected to
++be a complete signature.
++
++With more than 1 argument, the first should be a detached signature
++and the remaining files ake up the the signed data. To read the signed
++data from STDIN, use @samp{-} as the second filename.  For security
++reasons a detached signature cannot read the signed material from
++STDIN without denoting it in the above way.
++
++Note: If the option @option{--batch} is not used, @command{gpg}
++may assume that a single argument is a file with a detached signature
++and it will try to find a matching data file by stripping certain
++suffixes.  Using this historical feature to verify a detached
++signature is strongly discouraged; always specify the data file too.
+ 
+ Note: When verifying a cleartext signature, @command{gpg} verifies
+ only what makes up the cleartext signed data and not any extra data
+@@ -260,6 +266,7 @@
+ format as well.  It is suggested to avoid cleartext signatures in
+ favor of detached signatures.
+ 
++
+ @item --multifile
+ @opindex multifile
+ This modifies certain other commands to accept multiple files for
+--- a/g10/main.h
++++ b/g10/main.h
+@@ -195,6 +195,7 @@
+ char *make_outfile_name( const char *iname );
+ char *ask_outfile_name( const char *name, size_t namelen );
+ int   open_outfile( const char *iname, int mode, IOBUF *a );
++char *get_matching_datafile (const char *sigfilename);
+ IOBUF open_sigfile( const char *iname, progress_filter_context_t *pfx );
+ void try_make_homedir( const char *fname );
+ 
+--- a/g10/mainproc.c
++++ b/g10/mainproc.c
+@@ -1949,6 +1949,44 @@
+ 		   sig->sig_class==0x01?_("textmode"):_("unknown"),
+ 		   digest_algo_to_string(sig->digest_algo));
+ 
++        if (!rc && !c->signed_data)
++          {
++            /* Signature is basically good but we test whether the
++               deprecated command
++                 gpg --verify FILE.sig
++               was used instead of
++                 gpg --verify FILE.sig FILE
++               to verify a detached signature.  If we figure out that a
++               data file with a matching name exists, we print a warning.
++
++               The problem is that the first form would also verify a
++               standard signature.  This behavior could be used to
++               create a made up .sig file for a tarball by creating a
++               standard signature from a valid detached signature packet
++               (for example from a signed git tag).  Then replace the
++               sig file on the FTP server along with a changed tarball.
++               Using the first form the verify command would correctly
++               verify the signature but don't even consider the tarball.  */
++            kbnode_t n;
++            char *dfile;
++
++            dfile = get_matching_datafile (c->sigfilename);
++            if (dfile)
++              {
++                for (n = c->list; n; n = n->next)
++                  if (n->pkt->pkttype != PKT_SIGNATURE)
++                    break;
++                if (n)
++                  {
++                    /* Not only signature packets in the tree thus this
++                       is not a detached signature.  */
++                    log_info (_("WARNING: not a detached signature; "
++                                "file '%s' was NOT verified!\n"), dfile);
++                  }
++                xfree (dfile);
++              }
++          }
++
+ 	if( rc )
+ 	    g10_errors_seen = 1;
+ 	if( opt.batch && rc )
+--- a/g10/openfile.c
++++ b/g10/openfile.c
+@@ -199,7 +199,7 @@
+   else {
+     char *buf = NULL;
+     const char *name;
+-    
++
+     if ( opt.dry_run )
+       {
+ #ifdef HAVE_W32_SYSTEM
+@@ -224,12 +224,12 @@
+           char *dot;
+           const char *newsfx = mode==1 ? ".asc" :
+                                mode==2 ? ".sig" : ".gpg";
+-          
++
+           buf = xmalloc(strlen(iname)+4+1);
+           strcpy(buf,iname);
+           dot = strrchr(buf, '.' );
+           if ( dot && dot > buf && dot[1] && strlen(dot) <= 4
+-               && CMP_FILENAME(newsfx, dot) 
++               && CMP_FILENAME(newsfx, dot)
+                && !(strchr (dot, '/') || strchr (dot, '\\')))
+             {
+               /* There is a dot, the dot is not the first character,
+@@ -272,7 +272,7 @@
+         xfree (buf);
+         name = buf = tmp;
+       }
+-    
++
+     if( !rc )
+       {
+         if (is_secured_filename (name) )
+@@ -300,41 +300,70 @@
+ }
+ 
+ 
++/* Find a matching data file for the signature file SIGFILENAME and
++   return it as a malloced string.  If no matching data file is found,
++   return NULL.  */
++char *
++get_matching_datafile (const char *sigfilename)
++{
++  char *fname = NULL;
++  size_t len;
++
++  if (iobuf_is_pipe_filename (sigfilename))
++    return NULL;
++
++  len = strlen (sigfilename);
++  if (len > 4
++      && (!strcmp (sigfilename + len - 4, EXTSEP_S "sig")
++          || (len > 5 && !strcmp(sigfilename + len - 5, EXTSEP_S "sign"))
++          || !strcmp(sigfilename + len - 4, EXTSEP_S "asc")))
++    {
++
++      fname = xstrdup (sigfilename);
++      fname[len-(fname[len-1]=='n'?5:4)] = 0 ;
++      if (access (fname, R_OK ))
++        {
++          /* Not found or other error.  */
++          xfree (fname);
++          fname = NULL;
++        }
++    }
++
++  return fname;
++}
++
++
+ /****************
+  * Try to open a file without the extension ".sig" or ".asc"
+  * Return NULL if such a file is not available.
+  */
+ IOBUF
+-open_sigfile( const char *iname, progress_filter_context_t *pfx )
++open_sigfile (const char *sigfilename, progress_filter_context_t *pfx)
+ {
+-    IOBUF a = NULL;
+-    size_t len;
++  iobuf_t a = NULL;
++  char *buf;
+ 
+-    if( !iobuf_is_pipe_filename (iname) ) {
+-	len = strlen(iname);
+-	if( len > 4 && ( !strcmp(iname + len - 4, EXTSEP_S "sig")
+-                        || ( len > 5 && !strcmp(iname + len - 5, EXTSEP_S "sign") )
+-                        || !strcmp(iname + len - 4, EXTSEP_S "asc")) ) {
+-	    char *buf;
+-	    buf = xstrdup(iname);
+-	    buf[len-(buf[len-1]=='n'?5:4)] = 0 ;
+-	    a = iobuf_open( buf );
+-            if (a && is_secured_file (iobuf_get_fd (a)))
+-              {
+-                iobuf_close (a);
+-                a = NULL;
+-                errno = EPERM;
+-              }
+-	    if( a && opt.verbose )
+-		log_info(_("assuming signed data in `%s'\n"), buf );
+-	    if (a && pfx)
+-	      handle_progress (pfx, a, buf);
+-            xfree(buf);
+-	}
++  buf = get_matching_datafile (sigfilename);
++  if (buf)
++    {
++      a = iobuf_open (buf);
++      if (a && is_secured_file (iobuf_get_fd (a)))
++        {
++          iobuf_close (a);
++          a = NULL;
++          errno = EPERM;
++        }
++      if (a)
++        log_info (_("assuming signed data in `%s'\n"), buf);
++      if (a && pfx)
++        handle_progress (pfx, a, buf);
++      xfree (buf);
+     }
+-    return a;
++
++  return a;
+ }
+ 
++
+ /****************
+  * Copy the option file skeleton to the given directory.
+  */
+@@ -398,7 +427,7 @@
+                     ;
+                 else if (c == '#')
+                     esc = 2;
+-                else 
++                else
+                     any_option = 1;
+             }
+         }
+--- a/g10/plaintext.c
++++ b/g10/plaintext.c
+@@ -538,13 +538,20 @@
+     STRLIST sl;
+ 
+     if( !files ) {
+-	/* check whether we can open the signed material */
+-	fp = open_sigfile( sigfilename, &pfx );
+-	if( fp ) {
+-	    do_hash( md, md2, fp, textmode );
+-	    iobuf_close(fp);
+-	    return 0;
+-	}
++      /* Check whether we can open the signed material.  We avoid
++         trying to open a file if run in batch mode.  This assumed
++         data file for a sig file feature is just a convenience thing
++         for the command line and the user needs to read possible
++         warning messages. */
++        if (!opt.batch) {
++            fp = open_sigfile( sigfilename, &pfx );
++            if( fp ) {
++                do_hash( md, md2, fp, textmode );
++	        iobuf_close(fp);
++	        return 0;
++            }
++        }
++
+         log_error (_("no signed data\n"));
+         return G10ERR_OPEN_FILE;
+     }

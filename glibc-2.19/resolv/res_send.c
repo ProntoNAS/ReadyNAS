@@ -200,6 +200,7 @@ evNowTime(struct timespec *res) {
 
 /* Forward. */
 
+static struct sockaddr *get_nsaddr (res_state, int);
 static int		send_vc(res_state, const u_char *, int,
 				const u_char *, int,
 				u_char **, int *, int *, int, u_char **,
@@ -237,20 +238,21 @@ res_ourserver_p(const res_state statp, const struct sockaddr_in6 *inp)
 	    in_port_t port = in4p->sin_port;
 	    in_addr_t addr = in4p->sin_addr.s_addr;
 
-	    for (ns = 0;  ns < MAXNS;  ns++) {
+	    for (ns = 0;  ns < statp->nscount;  ns++) {
 		const struct sockaddr_in *srv =
-		    (struct sockaddr_in *)EXT(statp).nsaddrs[ns];
+		    (struct sockaddr_in *) get_nsaddr (statp, ns);
 
-		if ((srv != NULL) && (srv->sin_family == AF_INET) &&
+		if ((srv->sin_family == AF_INET) &&
 		    (srv->sin_port == port) &&
 		    (srv->sin_addr.s_addr == INADDR_ANY ||
 		     srv->sin_addr.s_addr == addr))
 		    return (1);
 	    }
 	} else if (inp->sin6_family == AF_INET6) {
-	    for (ns = 0;  ns < MAXNS;  ns++) {
-		const struct sockaddr_in6 *srv = EXT(statp).nsaddrs[ns];
-		if ((srv != NULL) && (srv->sin6_family == AF_INET6) &&
+	    for (ns = 0;  ns < statp->nscount;  ns++) {
+		const struct sockaddr_in6 *srv
+		  = (struct sockaddr_in6 *) get_nsaddr (statp, ns);
+		if ((srv->sin6_family == AF_INET6) &&
 		    (srv->sin6_port == inp->sin6_port) &&
 		    !(memcmp(&srv->sin6_addr, &in6addr_any,
 			     sizeof (struct in6_addr)) &&
@@ -364,7 +366,7 @@ __libc_res_nsend(res_state statp, const u_char *buf, int buflen,
 {
   int gotsomewhere, terrno, try, v_circuit, resplen, ns, n;
 
-	if ((statp->nscount + EXT(statp).nscount6) == 0) {
+	if (statp->nscount == 0) {
 		__set_errno (ESRCH);
 		return (-1);
 	}
@@ -402,74 +404,48 @@ __libc_res_nsend(res_state statp, const u_char *buf, int buflen,
 	 * If the ns_addr_list in the resolver context has changed, then
 	 * invalidate our cached copy and the associated timing data.
 	 */
-	if (EXT(statp).nsinit) {
+	if (EXT(statp).nscount != 0) {
 		int needclose = 0;
 
 		if (EXT(statp).nscount != statp->nscount)
 			needclose++;
 		else
-			for (ns = 0; ns < MAXNS; ns++) {
-				unsigned int map = EXT(statp).nsmap[ns];
-				if (map < MAXNS
+			for (ns = 0; ns < statp->nscount; ns++) {
+				if (statp->nsaddr_list[ns].sin_family != 0
 				    && !sock_eq((struct sockaddr_in6 *)
-						&statp->nsaddr_list[map],
+						&statp->nsaddr_list[ns],
 						EXT(statp).nsaddrs[ns]))
 				{
 					needclose++;
 					break;
 				}
 			}
-		if (needclose)
+		if (needclose) {
 			__res_iclose(statp, false);
+			EXT(statp).nscount = 0;
+		}
 	}
 
 	/*
 	 * Maybe initialize our private copy of the ns_addr_list.
 	 */
-	if (EXT(statp).nsinit == 0) {
-		unsigned char map[MAXNS];
-
-		memset (map, MAXNS, sizeof (map));
-		for (n = 0; n < MAXNS; n++) {
-			ns = EXT(statp).nsmap[n];
-			if (ns < statp->nscount)
-				map[ns] = n;
-			else if (ns < MAXNS) {
-				free(EXT(statp).nsaddrs[n]);
-				EXT(statp).nsaddrs[n] = NULL;
-				EXT(statp).nsmap[n] = MAXNS;
-			}
-		}
-		n = statp->nscount;
-		if (statp->nscount > EXT(statp).nscount)
-			for (n = EXT(statp).nscount, ns = 0;
-			     n < statp->nscount; n++) {
-				while (ns < MAXNS
-				       && EXT(statp).nsmap[ns] != MAXNS)
-					ns++;
-				if (ns == MAXNS)
-					break;
-				EXT(statp).nsmap[ns] = n;
-				map[n] = ns++;
-			}
-		EXT(statp).nscount = n;
-		for (ns = 0; ns < EXT(statp).nscount; ns++) {
-			n = map[ns];
-			if (EXT(statp).nsaddrs[n] == NULL)
-				EXT(statp).nsaddrs[n] =
+	if (EXT(statp).nscount == 0) {
+		for (ns = 0; ns < statp->nscount; ns++) {
+			EXT(statp).nssocks[ns] = -1;
+			if (statp->nsaddr_list[ns].sin_family == 0)
+				continue;
+			if (EXT(statp).nsaddrs[ns] == NULL)
+				EXT(statp).nsaddrs[ns] =
 				    malloc(sizeof (struct sockaddr_in6));
-			if (EXT(statp).nsaddrs[n] != NULL) {
-				memset (mempcpy(EXT(statp).nsaddrs[n],
+			if (EXT(statp).nsaddrs[ns] != NULL)
+				memset (mempcpy(EXT(statp).nsaddrs[ns],
 						&statp->nsaddr_list[ns],
 						sizeof (struct sockaddr_in)),
 					'\0',
 					sizeof (struct sockaddr_in6)
 					- sizeof (struct sockaddr_in));
-				EXT(statp).nssocks[n] = -1;
-				n++;
-			}
 		}
-		EXT(statp).nsinit = 1;
+		EXT(statp).nscount = statp->nscount;
 	}
 
 	/*
@@ -478,44 +454,37 @@ __libc_res_nsend(res_state statp, const u_char *buf, int buflen,
 	 */
 	if (__builtin_expect ((statp->options & RES_ROTATE) != 0, 0) &&
 	    (statp->options & RES_BLAST) == 0) {
-		struct sockaddr_in6 *ina;
-		unsigned int map;
+		struct sockaddr_in ina;
+		struct sockaddr_in6 *inp;
+		int lastns = statp->nscount - 1;
+		int fd;
 
-		n = 0;
-		while (n < MAXNS && EXT(statp).nsmap[n] == MAXNS)
-			n++;
-		if (n < MAXNS) {
-			ina = EXT(statp).nsaddrs[n];
-			map = EXT(statp).nsmap[n];
-			for (;;) {
-				ns = n + 1;
-				while (ns < MAXNS
-				       && EXT(statp).nsmap[ns] == MAXNS)
-					ns++;
-				if (ns == MAXNS)
-					break;
-				EXT(statp).nsaddrs[n] = EXT(statp).nsaddrs[ns];
-				EXT(statp).nsmap[n] = EXT(statp).nsmap[ns];
-				n = ns;
-			}
-			EXT(statp).nsaddrs[n] = ina;
-			EXT(statp).nsmap[n] = map;
+		inp = EXT(statp).nsaddrs[0];
+		ina = statp->nsaddr_list[0];
+		fd = EXT(statp).nssocks[0];
+		for (ns = 0; ns < lastns; ns++) {
+		    EXT(statp).nsaddrs[ns] = EXT(statp).nsaddrs[ns + 1];
+		    statp->nsaddr_list[ns] = statp->nsaddr_list[ns + 1];
+		    EXT(statp).nssocks[ns] = EXT(statp).nssocks[ns + 1];
 		}
+		EXT(statp).nsaddrs[lastns] = inp;
+		statp->nsaddr_list[lastns] = ina;
+		EXT(statp).nssocks[lastns] = fd;
 	}
 
 	/*
 	 * Send request, RETRY times, or until successful.
 	 */
 	for (try = 0; try < statp->retry; try++) {
-	    for (ns = 0; ns < MAXNS; ns++)
+	    for (ns = 0; ns < statp->nscount; ns++)
 	    {
 #ifdef DEBUG
 		char tmpbuf[40];
 #endif
-		struct sockaddr_in6 *nsap = EXT(statp).nsaddrs[ns];
+#if defined USE_HOOKS || defined DEBUG
+		struct sockaddr *nsap = get_nsaddr (statp, ns);
+#endif
 
-		if (nsap == NULL)
-			goto next_ns;
 	    same_ns:
 #ifdef USE_HOOKS
 		if (__builtin_expect (statp->qhook != NULL, 0)) {
@@ -554,9 +523,9 @@ __libc_res_nsend(res_state statp, const u_char *buf, int buflen,
 
 		Dprint(statp->options & RES_DEBUG,
 		       (stdout, ";; Querying server (# %d) address = %s\n",
-			ns + 1, inet_ntop(nsap->sin6_family,
-					  (nsap->sin6_family == AF_INET6
-					   ? &nsap->sin6_addr
+			ns + 1, inet_ntop(nsap->sa_family,
+					  (nsap->sa_family == AF_INET6
+					   ? &((struct sockaddr_in6 *) nsap)->sin6_addr
 					   : &((struct sockaddr_in *) nsap)->sin_addr),
 					  tmpbuf, sizeof (tmpbuf))));
 
@@ -672,6 +641,33 @@ libresolv_hidden_def (res_nsend)
 
 /* Private */
 
+static struct sockaddr *
+get_nsaddr (res_state statp, int n)
+{
+
+  if (statp->nsaddr_list[n].sin_family == 0 && EXT(statp).nsaddrs[n] != NULL)
+    /* EXT(statp).nsaddrs[n] holds an address that is larger than
+       struct sockaddr, and user code did not update
+       statp->nsaddr_list[n].  */
+    return (struct sockaddr *) EXT(statp).nsaddrs[n];
+  else
+    /* User code updated statp->nsaddr_list[n], or statp->nsaddr_list[n]
+       has the same content as EXT(statp).nsaddrs[n].  */
+    return (struct sockaddr *) (void *) &statp->nsaddr_list[n];
+}
+
+/* Close the resolver structure, assign zero to *RESPLEN2 if RESPLEN2
+   is not NULL, and return zero.  */
+static int
+__attribute__ ((warn_unused_result))
+close_and_return_error (res_state statp, int *resplen2)
+{
+  __res_iclose(statp, false);
+  if (resplen2 != NULL)
+    *resplen2 = 0;
+  return 0;
+}
+
 /* The send_vc function is responsible for sending a DNS query over TCP
    to the nameserver numbered NS from the res_state STATP i.e.
    EXT(statp).nssocks[ns].  The function supports sending both IPv4 and
@@ -753,7 +749,7 @@ send_vc(res_state statp,
 	const HEADER *hp = (HEADER *) buf;
 	const HEADER *hp2 = (HEADER *) buf2;
 	HEADER *anhp = (HEADER *) *ansp;
-	struct sockaddr_in6 *nsap = EXT(statp).nsaddrs[ns];
+	struct sockaddr *nsap = get_nsaddr (statp, ns);
 	int truncating, connreset, resplen, n;
 	struct iovec iov[4];
 	u_short len;
@@ -773,8 +769,8 @@ send_vc(res_state statp,
 
 		if (getpeername(statp->_vcsock,
 				(struct sockaddr *)&peer, &size) < 0 ||
-		    !sock_eq(&peer, nsap)) {
-		  __res_iclose(statp, false);
+		    !sock_eq(&peer, (struct sockaddr_in6 *) nsap)) {
+			__res_iclose(statp, false);
 			statp->_flags &= ~RES_F_VC;
 		}
 	}
@@ -783,20 +779,19 @@ send_vc(res_state statp,
 		if (statp->_vcsock >= 0)
 		  __res_iclose(statp, false);
 
-		statp->_vcsock = socket(nsap->sin6_family, SOCK_STREAM, 0);
+		statp->_vcsock = socket(nsap->sa_family, SOCK_STREAM, 0);
 		if (statp->_vcsock < 0) {
 			*terrno = errno;
 			Perror(statp, stderr, "socket(vc)", errno);
 			return (-1);
 		}
 		__set_errno (0);
-		if (connect(statp->_vcsock, (struct sockaddr *)nsap,
-			    nsap->sin6_family == AF_INET
+		if (connect(statp->_vcsock, nsap,
+			    nsap->sa_family == AF_INET
 			    ? sizeof (struct sockaddr_in)
 			    : sizeof (struct sockaddr_in6)) < 0) {
 			*terrno = errno;
-			Aerror(statp, stderr, "connect/vc", errno,
-			       (struct sockaddr *) nsap);
+			Aerror(statp, stderr, "connect/vc", errno, nsap);
 			__res_iclose(statp, false);
 			return (0);
 		}
@@ -829,7 +824,7 @@ send_vc(res_state statp,
 	 */
 	int recvresp1 = 0;
 	/* Skip the second response if there is no second query.
-           To do that we mark the second response as received.  */
+	   To do that we mark the second response as received.  */
 	int recvresp2 = buf2 == NULL;
 	uint16_t rlen16;
  read_len:
@@ -990,8 +985,7 @@ static int
 reopen (res_state statp, int *terrno, int ns)
 {
 	if (EXT(statp).nssocks[ns] == -1) {
-		struct sockaddr *nsap
-		  = (struct sockaddr *) EXT(statp).nsaddrs[ns];
+		struct sockaddr *nsap = get_nsaddr (statp, ns);
 		socklen_t slen;
 
 		/* only try IPv6 if IPv6 NS and if not failed before */
@@ -1155,7 +1149,7 @@ send_dg(res_state statp,
 	 */
 	int seconds = (statp->retrans << ns);
 	if (ns > 0)
-		seconds /= (statp->nscount + EXT(statp).nscount6);
+		seconds /= statp->nscount;
 	if (seconds <= 0)
 		seconds = 1;
 	bool single_request_reopen = (statp->options & RES_SNGLKUPREOP) != 0;
@@ -1167,7 +1161,11 @@ send_dg(res_state statp,
  retry_reopen:
 	retval = reopen (statp, terrno, ns);
 	if (retval <= 0)
-		return retval;
+	  {
+	    if (resplen2 != NULL)
+	      *resplen2 = 0;
+	    return retval;
+	  }
  retry:
 	evNowTime(&now);
 	evConsTime(&timeout, seconds, 0);
@@ -1180,8 +1178,6 @@ send_dg(res_state statp,
 	int recvresp2 = buf2 == NULL;
 	pfd[0].fd = EXT(statp).nssocks[ns];
 	pfd[0].events = POLLOUT;
-	if (resplen2 != NULL)
-	  *resplen2 = 0;
  wait:
 	if (need_recompute) {
 	recompute_resend:
@@ -1189,9 +1185,7 @@ send_dg(res_state statp,
 		if (evCmpTime(finish, now) <= 0) {
 		poll_err_out:
 			Perror(statp, stderr, "poll", errno);
-		err_out:
-			__res_iclose(statp, false);
-			return (0);
+			return close_and_return_error (statp, resplen2);
 		}
 		evSubTime(&timeout, &finish, &now);
 		need_recompute = 0;
@@ -1238,7 +1232,9 @@ send_dg(res_state statp,
 		  }
 
 		*gotsomewhere = 1;
-		return (0);
+		if (resplen2 != NULL)
+		  *resplen2 = 0;
+		return 0;
 	}
 	if (n < 0) {
 		if (errno == EINTR)
@@ -1306,7 +1302,7 @@ send_dg(res_state statp,
 
 		      fail_sendmmsg:
 			Perror(statp, stderr, "sendmmsg", errno);
-			goto err_out;
+			return close_and_return_error (statp, resplen2);
 		      }
 		  }
 		else
@@ -1324,7 +1320,7 @@ send_dg(res_state statp,
 		      if (errno == EINTR || errno == EAGAIN)
 			goto recompute_resend;
 		      Perror(statp, stderr, "send", errno);
-		      goto err_out;
+		      return close_and_return_error (statp, resplen2);
 		    }
 		  just_one:
 		    if (nwritten != 0 || buf2 == NULL || single_request)
@@ -1402,7 +1398,7 @@ send_dg(res_state statp,
 				goto wait;
 			}
 			Perror(statp, stderr, "recvfrom", errno);
-			goto err_out;
+			return close_and_return_error (statp, resplen2);
 		}
 		*gotsomewhere = 1;
 		if (__builtin_expect (*thisresplenp < HFIXEDSZ, 0)) {
@@ -1413,7 +1409,7 @@ send_dg(res_state statp,
 			       (stdout, ";; undersized: %d\n",
 				*thisresplenp));
 			*terrno = EMSGSIZE;
-			goto err_out;
+			return close_and_return_error (statp, resplen2);
 		}
 		if ((recvresp1 || hp->id != anhp->id)
 		    && (recvresp2 || hp2->id != anhp->id)) {
@@ -1462,7 +1458,7 @@ send_dg(res_state statp,
 				? *thisanssizp : *thisresplenp);
 			/* record the error */
 			statp->_flags |= RES_F_EDNS0ERR;
-			goto err_out;
+			return close_and_return_error (statp, resplen2);
 	}
 #endif
 		if (!(statp->options & RES_INSECURE2)
@@ -1514,10 +1510,10 @@ send_dg(res_state statp,
 			    goto wait;
 			  }
 
-			__res_iclose(statp, false);
 			/* don't retry if called from dig */
 			if (!statp->pfcode)
-				return (0);
+			  return close_and_return_error (statp, resplen2);
+			__res_iclose(statp, false);
 		}
 		if (anhp->rcode == NOERROR && anhp->ancount == 0
 		    && anhp->aa == 0 && anhp->ra == 0 && anhp->arcount == 0) {
@@ -1539,6 +1535,8 @@ send_dg(res_state statp,
 			__res_iclose(statp, false);
 			// XXX if we have received one reply we could
 			// XXX use it and not repeat it over TCP...
+			if (resplen2 != NULL)
+			  *resplen2 = 0;
 			return (1);
 		}
 		/* Mark which reply we received.  */
@@ -1554,21 +1552,22 @@ send_dg(res_state statp,
 					__res_iclose (statp, false);
 					retval = reopen (statp, terrno, ns);
 					if (retval <= 0)
-						return retval;
+					  {
+					    if (resplen2 != NULL)
+					      *resplen2 = 0;
+					    return retval;
+					  }
 					pfd[0].fd = EXT(statp).nssocks[ns];
 				}
 			}
 			goto wait;
 		}
-		/*
-		 * All is well, or the error is fatal.  Signal that the
-		 * next nameserver ought not be tried.
-		 */
+		/* All is well.  We have received both responses (if
+		   two responses were requested).  */
 		return (resplen);
-	} else if (pfd[0].revents & (POLLERR | POLLHUP | POLLNVAL)) {
-		/* Something went wrong.  We can stop trying.  */
-		goto err_out;
-	}
+	} else if (pfd[0].revents & (POLLERR | POLLHUP | POLLNVAL))
+	  /* Something went wrong.  We can stop trying.  */
+	  return close_and_return_error (statp, resplen2);
 	else {
 		/* poll should not have returned > 0 in this case.  */
 		abort ();

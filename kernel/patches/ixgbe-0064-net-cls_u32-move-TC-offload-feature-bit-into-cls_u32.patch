@@ -1,0 +1,54 @@
+From 713b7e5774df0dcccefaa3b86d49e5e05449e8bc Mon Sep 17 00:00:00 2001
+From: John Fastabend <john.fastabend@gmail.com>
+Date: Fri, 26 Feb 2016 07:54:13 -0800
+Subject: [PATCH 64/82] net: cls_u32: move TC offload feature bit into cls_u32
+ offload logic
+
+In the original series drivers would get offload requests for cls_u32
+rules even if the feature bit is disabled. This meant the driver had
+to do a boiler plate check on the feature bit before adding/deleting
+the rule.
+
+This patch lifts the check into the core code and removes it from the
+driver specific case.
+
+Signed-off-by: John Fastabend <john.r.fastabend@intel.com>
+Acked-by: Jiri Pirko <jiri@mellanox.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+Acked-by: Benjamin Poirier <bpoirier@suse.com>
+---
+ drivers/net/ethernet/intel/ixgbe/ixgbe_main.c | 3 ---
+ include/net/pkt_cls.h                         | 3 +++
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+index efdbbf6..3a668e5 100644
+--- a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
++++ b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+@@ -8400,9 +8400,6 @@ int __ixgbe_setup_tc(struct net_device *dev, u32 handle, __be16 proto,
+ 
+ 	if (TC_H_MAJ(handle) == TC_H_MAJ(TC_H_INGRESS) &&
+ 	    tc->type == TC_SETUP_CLSU32) {
+-		if (!(dev->features & NETIF_F_HW_TC))
+-			return -EINVAL;
+-
+ 		switch (tc->cls_u32->command) {
+ 		case TC_CLSU32_NEW_KNODE:
+ 		case TC_CLSU32_REPLACE_KNODE:
+diff --git a/include/net/pkt_cls.h b/include/net/pkt_cls.h
+index 00f9187..f564bfd 100644
+--- a/include/net/pkt_cls.h
++++ b/include/net/pkt_cls.h
+@@ -394,6 +394,9 @@ struct tc_cls_u32_offload {
+ 
+ static inline bool tc_should_offload(struct net_device *dev)
+ {
++	if (!(dev->features & NETIF_F_HW_TC))
++		return false;
++
+ 	return dev->netdev_ops->ndo_setup_tc;
+ }
+ 
+-- 
+1.9.1
+

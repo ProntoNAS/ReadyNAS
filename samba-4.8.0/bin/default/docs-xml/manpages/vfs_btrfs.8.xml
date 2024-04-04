@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
+<refentry id="vfs_btrfs.8">
+
+<refmeta>
+	<refentrytitle>vfs_btrfs</refentrytitle>
+	<manvolnum>8</manvolnum>
+	<refmiscinfo class="source">Samba</refmiscinfo>
+	<refmiscinfo class="manual">System Administration tools</refmiscinfo>
+	<refmiscinfo class="version">4.8.0</refmiscinfo>
+</refmeta>
+
+
+<refnamediv>
+	<refname>vfs_btrfs</refname>
+	<refpurpose>
+		Utilize features provided by the Btrfs filesystem
+	</refpurpose>
+</refnamediv>
+
+<refsynopsisdiv>
+	<cmdsynopsis sepchar=" ">
+		<literal>vfs objects = btrfs</literal>
+	</cmdsynopsis>
+</refsynopsisdiv>
+
+<refsect1>
+	<title>DESCRIPTION</title>
+
+	<para>This VFS module is part of the
+	<citerefentry><refentrytitle>samba</refentrytitle>
+	<manvolnum>8</manvolnum></citerefentry> suite.</para>
+
+	<para>
+		The <literal>vfs_btrfs</literal> VFS module exposes Btrfs
+		specific features for use by Samba.
+	</para>
+
+	<para>
+		Btrfs allows for multiple files to share the same on-disk data
+		through the use cloned ranges. When an SMB client issues a
+		request to copy duplicate data (via FSCTL_SRV_COPYCHUNK), this
+		module maps the request to a Btrfs clone range IOCTL, instead
+		of performing reads and writes required by a traditional copy.
+		Doing so saves storage capacity and greatly reduces disk IO.
+	</para>
+
+	<para>
+		This module also exposes Btrfs per-file compression support to
+		SMB clients via the get/set compression fsctls.
+	</para>
+
+	<para>
+		Btrfs snapshots can be manipulated by Samba's FSRVP server.
+		Snapshot manipulation using this module is currently considered
+		experimental, and is therefore disabled by default. The
+		<literal>vfs_snapper</literal> module is instead recommended for
+		this purpose.
+	</para>
+
+	<para>
+		This module is stackable.
+	</para>
+</refsect1>
+
+<refsect1>
+	<title>OPTIONS</title>
+
+	<variablelist>
+		<varlistentry>
+		<term>btrfs: manipulate snapshots = [yes|no]</term>
+		<listitem>
+		<para>
+		When set to <emphasis>yes</emphasis>, experimental support for
+		the creation and deletion of snapshots via corresponding Btrfs
+		IOCTLs will be enabled. The default is <emphasis>no</emphasis>,
+		which means that such requests are passed through to any
+		underlying VFS module.
+		</para>
+		</listitem>
+		</varlistentry>
+	</variablelist>
+</refsect1>
+
+<refsect1>
+	<title>CONFIGURATION</title>
+
+	<para>
+		<literal>vfs_btrfs</literal> requires that the underlying share
+		path is a Btrfs subvolume.
+	</para>
+	<programlisting format="linespecific">
+		<parameter>[share]</parameter>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="VFSOBJECTS" xlink:href="smb.conf.5.html#VFSOBJECTS">vfs objects = btrfs</link>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="BTRFS:MANIPULATESNAPSHOTS" xlink:href="smb.conf.5.html#BTRFS:MANIPULATESNAPSHOTS">btrfs: manipulate snapshots = no</link>
+	</programlisting>
+	<para>
+		To use the experimental snapshot manipulation functionality
+		provided by this module, it must be explicitly enabled, and
+		Samba's FSRVP server must be running.
+	</para>
+	<para>
+		The <literal>vfs_shadow_copy</literal> module can be used to
+		expose snapshots created by <literal>vfs_btrfs</literal> to
+		Windows Explorer as file / directory "previous versions".
+	</para>
+
+	<programlisting format="linespecific">
+		<parameter>[global]</parameter>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="RPC_DAEMON:FSSD" xlink:href="smb.conf.5.html#RPC_DAEMON:FSSD">rpc_daemon:fssd = fork</link>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="REGISTRYSHARES" xlink:href="smb.conf.5.html#REGISTRYSHARES">registry shares = yes</link>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="INCLUDE" xlink:href="smb.conf.5.html#INCLUDE">include = registry</link>
+
+		<parameter>[share]</parameter>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="VFSOBJECTS" xlink:href="smb.conf.5.html#VFSOBJECTS">vfs objects = btrfs shadow_copy</link>
+		<link xmlns:xlink="http://www.w3.org/1999/xlink" linkend="BTRFS:MANIPULATESNAPSHOTS" xlink:href="smb.conf.5.html#BTRFS:MANIPULATESNAPSHOTS">btrfs: manipulate snapshots = yes</link>
+	</programlisting>
+</refsect1>
+
+<refsect1>
+	<title>VERSION</title>
+
+	<para>
+		This man page is part of version 4.8.0 of the Samba suite.
+	</para>
+</refsect1>
+
+<refsect1>
+	<title>AUTHOR</title>
+
+	<para>The original Samba software and related utilities
+	were created by Andrew Tridgell. Samba is now developed
+	by the Samba Team as an Open Source project similar
+	to the way the Linux kernel is developed.</para>
+
+</refsect1>
+
+</refentry>

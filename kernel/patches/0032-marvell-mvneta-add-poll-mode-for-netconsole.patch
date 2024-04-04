@@ -1,0 +1,48 @@
+From 7993ebd99282a1c0686a4c2427af1259f343ae50 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 16:50:01 -0800
+Subject: [PATCH 32/33] marvell: mvneta: add poll mode for netconsole
+
+---
+ drivers/net/ethernet/marvell/mvneta.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/drivers/net/ethernet/marvell/mvneta.c b/drivers/net/ethernet/marvell/mvneta.c
+index d63073d..3ac87c6 100644
+--- a/drivers/net/ethernet/marvell/mvneta.c
++++ b/drivers/net/ethernet/marvell/mvneta.c
+@@ -3126,6 +3126,21 @@ static int mvneta_ethtool_get_sset_count(struct net_device *dev, int sset)
+ 	return -EOPNOTSUPP;
+ }
+ 
++#ifdef CONFIG_NET_POLL_CONTROLLER
++/* Created after drivers/net/ethernet/dec/tulip/tulip_core.c */
++static void mvneta_poll_controller(struct net_device *dev)
++{
++	struct mvneta_port *pp = netdev_priv(dev);
++	int irq = pp->dev->irq;
++
++	/* disable_irq here is not very nice, but with the lockless
++	   interrupt handler we have no other choice. */
++	disable_irq(irq);
++	mvneta_isr(irq, dev);
++	enable_irq(irq);
++}
++#endif
++
+ static const struct net_device_ops mvneta_netdev_ops = {
+ 	.ndo_open            = mvneta_open,
+ 	.ndo_stop            = mvneta_stop,
+@@ -3136,6 +3151,9 @@ static const struct net_device_ops mvneta_netdev_ops = {
+ 	.ndo_fix_features    = mvneta_fix_features,
+ 	.ndo_get_stats64     = mvneta_get_stats64,
+ 	.ndo_do_ioctl        = mvneta_ioctl,
++#ifdef CONFIG_NET_POLL_CONTROLLER
++	.ndo_poll_controller = mvneta_poll_controller,
++#endif
+ };
+ 
+ const struct ethtool_ops mvneta_eth_tool_ops = {
+-- 
+1.9.1
+

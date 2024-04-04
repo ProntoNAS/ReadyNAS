@@ -1,0 +1,109 @@
+From 27d7addccf782d5cb0084cb17522d712d4a6d6b6 Mon Sep 17 00:00:00 2001
+From: Werner Koch <wk@gnupg.org>
+Date: Sat, 21 Feb 2015 23:10:27 -0500
+Subject: [PATCH 32/45] gpg: Limit the size of key packets to a sensible value.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+* g10/parse-packet.c (MAX_KEY_PACKET_LENGTH): New.
+(MAX_UID_PACKET_LENGTH): New.
+(MAX_COMMENT_PACKET_LENGTH): New.
+(MAX_ATTR_PACKET_LENGTH): New.
+(parse_key): Limit the size of a key packet to 256k.
+(parse_user_id): Use macro for the packet size limit.
+(parse_attribute): Ditto.
+(parse_comment): Ditto.
+--
+
+Without that it is possible to force gpg to allocate large amounts of
+memory by using a bad encoded MPI.  This would be an too easy DoS.
+Another way to mitigate would be to change the MPI read function to
+allocate memory dynamically while reading the MPI.  However, that
+complicates and possibly slows down the code.  A too large key packet
+is in any case a sign for broken data and thus gpg should not use it.
+
+Reported-by: Hanno Böck
+GnuPG-bug-id: 1823
+Signed-off-by: Werner Koch <wk@gnupg.org>
+
+(back ported from commit 382ba4b137b42d5f25a7e256bb7c053ee5ac7b64)
+
+[dkg: rebased to STABLE-BRANCH-1-4]
+Signed-off-by: Daniel Kahn Gillmor <dkg@fifthhorseman.net>
+---
+ g10/parse-packet.c | 30 ++++++++++++++++++++++++++++--
+ 1 file changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/g10/parse-packet.c b/g10/parse-packet.c
+index e4e524c..c0b6ad6 100644
+--- a/g10/parse-packet.c
++++ b/g10/parse-packet.c
+@@ -40,6 +40,12 @@
+ #define MAX_EXTERN_MPI_BITS 16384
+ #endif
+ 
++/* Maximum length of packets to avoid excessive memory allocation.  */
++#define MAX_KEY_PACKET_LENGTH     (256 * 1024)
++#define MAX_UID_PACKET_LENGTH     (  2 * 1024)
++#define MAX_COMMENT_PACKET_LENGTH ( 64 * 1024)
++#define MAX_ATTR_PACKET_LENGTH    ( 16 * 1024*1024)
++
+ 
+ static int mpi_print_mode;
+ static int list_mode;
+@@ -1663,6 +1669,13 @@ parse_key( IOBUF inp, int pkttype, unsigned long pktlen,
+         rc = G10ERR_INVALID_PACKET;
+ 	goto leave;
+     }
++    else if (pktlen > MAX_KEY_PACKET_LENGTH) {
++        log_error ("packet(%d) too large\n", pkttype);
++        if (list_mode)
++            fputs (":key packet: [too large]\n", listfp);
++        rc = G10ERR_INVALID_PACKET;
++        goto leave;
++    }
+ 
+     timestamp = read_32(inp); pktlen -= 4;
+     if( is_v4 ) {
+@@ -2083,7 +2096,7 @@ parse_user_id( IOBUF inp, int pkttype, unsigned long pktlen, PACKET *packet )
+        allocatable, and a very large pktlen could actually cause our
+        allocation to wrap around in xmalloc to a small number. */
+ 
+-    if(pktlen>2048)
++    if (pktlen > MAX_UID_PACKET_LENGTH)
+       {
+ 	log_error("packet(%d) too large\n", pkttype);
+ 	iobuf_skip_rest(inp, pktlen, 0);
+@@ -2152,6 +2165,19 @@ parse_attribute( IOBUF inp, int pkttype, unsigned long pktlen, PACKET *packet )
+ {
+     byte *p;
+ 
++    (void)pkttype;
++
++    /* We better cap the size of an attribute packet to make DoS not
++       too easy.  16MB should be more then enough for one attribute
++       packet (ie. a photo).  */
++    if (pktlen > MAX_ATTR_PACKET_LENGTH) {
++        log_error ("packet(%d) too large\n", pkttype);
++        if (list_mode)
++          fprintf (listfp, ":attribute packet: [too large]\n");
++        iobuf_skip_rest (inp, pktlen, 0);
++        return G10ERR_INVALID_PACKET;
++      }
++
+ #define EXTRA_UID_NAME_SPACE 71
+     packet->pkt.user_id = xmalloc_clear(sizeof *packet->pkt.user_id
+ 					+ EXTRA_UID_NAME_SPACE);
+@@ -2186,7 +2212,7 @@ parse_comment( IOBUF inp, int pkttype, unsigned long pktlen, PACKET *packet )
+        overflow in the malloc below.  Comment packets are actually not
+        anymore define my OpenPGP and we even stopped to use our
+        private comment packet. */
+-    if (pktlen>65536)
++    if (pktlen > MAX_COMMENT_PACKET_LENGTH)
+       {
+ 	log_error ("packet(%d) too large\n", pkttype);
+ 	iobuf_skip_rest (inp, pktlen, 0);
+-- 
+2.1.4
+

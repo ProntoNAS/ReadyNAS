@@ -1,0 +1,47 @@
+#!/usr/bin/make -f
+# debian/rules file for the sg3-utils package
+
+# This has to be exported to make some magic below work.
+export DH_OPTIONS
+
+
+# For Hardening
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+DPKG_EXPORT_BUILDFLAGS = 1
+include /usr/share/dpkg/buildflags.mk
+
+# Uncomment this to turn on verbose mode. 
+# export DH_VERBOSE=1
+
+DEB_HOST_ARCH_OS := $(shell dpkg-architecture -qDEB_HOST_ARCH_OS 2>/dev/null)
+PKG_VERS=$(shell dpkg-parsechangelog | sed -rne 's,^Version: ([^-]+).*,\1,p')
+
+INITRAMFS=$(CURDIR)/debian/sg3-utils-udev/usr/share/initramfs-tools/
+
+get-orig-source:
+	uscan --force-download --rename --repack --download-version=$(PKG_VERS) --destdir=.
+
+%:
+	dh "$@" --with autoreconf
+
+override_dh_install:
+	dh_testdir
+	dh_install
+
+	[ ! -f scripts/55-scsi-sg3_id.rules ] || cp scripts/55-scsi-sg3_id.rules debian/sg3-utils-udev.scsi-sg3_id.udev
+	[ ! -f scripts/58-scsi-sg3_symlink.rules ] || cp scripts/58-scsi-sg3_symlink.rules debian/sg3-utils-udev.scsi-sg3_symlink.udev
+
+	dh_installudev -psg3-utils-udev --priority=55 --name=scsi-sg3_id 
+	dh_installudev -psg3-utils-udev --priority=58 --name=scsi-sg3_symlink 
+
+	install -D -m 755 debian/initramfs/hooks $(INITRAMFS)/hooks/sg3-utils
+
+override_dh_clean:
+	dh_testdir
+
+	rm -f debian/sg3-utils-udev.scsi-sg3_id.udev
+	rm -f debian/sg3-utils-udev.scsi-sg3_symlink.udev
+
+	dh_clean
+
+.PHONY: get-orig-source

@@ -1,0 +1,32 @@
+#!/usr/bin/perl
+#
+# This script embeds a base64 encoded tarball into apache2.preinst.
+# See #794933
+
+use strict;
+use warnings;
+use autodie;
+
+
+sub readfile
+{
+	my $fname = shift;
+	local $/;
+	open(my $fd, "<", $fname);
+	my $content = <$fd>;
+	return $content;
+}
+
+sub writefile
+{
+	my $fname = shift;
+	my $content = shift;
+	open(my $fd, ">", $fname);
+	print $fd $content;
+}
+
+my $preinst = readfile("debian/apache2.preinst.in");
+my $embed = readfile("debian/fixup_conffiles.b64");
+
+$preinst =~ s/XXX_FIXUP_CONFFILES_BASE64_XXX/$embed/;
+writefile("debian/apache2.preinst", $preinst);

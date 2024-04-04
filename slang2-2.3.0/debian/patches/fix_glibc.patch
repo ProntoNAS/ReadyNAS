@@ -1,0 +1,72 @@
+Author: Alastair McKinstry <mckinstry@debian.org>
+Description: Fixes needed so that functions are visible (ip_mreq,strtoll)
+ Needed for glibc > 2.9
+Last-Updated 2014-09-21
+Forwarded: yes
+
+Index: slang-2.3.0/modules/socket-module.c
+===================================================================
+--- slang-2.3.0.orig/modules/socket-module.c
++++ slang-2.3.0/modules/socket-module.c
+@@ -40,6 +40,15 @@
+ 
+ #include <sys/types.h>
+ 
++/* struct in_mreq now hidden behind __USE_MISC.
++ *  Move up here; __USE_MISC needs to be after  types.h, etc
++ *  but before netdb.h
++ */
++#define __USE_MISC 1
++#ifdef HAVE_NETINET_IN_H
++# include <netinet/in.h>
++#endif
++
+ #include <time.h>
+ #ifdef HAVE_SYS_TIME_H
+ # include <sys/time.h>
+@@ -74,9 +83,6 @@
+ # include <sys/un.h>		       /* for AF_UNIX sockets */
+ #endif
+ 
+-#ifdef HAVE_NETINET_IN_H
+-# include <netinet/in.h>
+-#endif
+ 
+ #ifdef HAVE_ARPA_INET_H
+ # include <arpa/inet.h>
+@@ -95,6 +101,8 @@ static int SocketError = -1;
+ static int SocketHerrnoError = -1;
+ static int Socket_Type_Id = -1;
+ 
++struct ip_mreq group;
++
+ typedef struct Socket_Type Socket_Type;
+ typedef struct
+ {
+Index: slang-2.3.0/modules/json-module.c
+===================================================================
+--- slang-2.3.0.orig/modules/json-module.c
++++ slang-2.3.0/modules/json-module.c
+@@ -20,6 +20,8 @@ Foundation, Inc., 59 Temple Place - Suit
+ USA.
+ */
+ 
++/* _BSD_SOURCE needed for strtoll() definition */
++#define _BSD_SOURCE 1
+ #include "config.h"
+ 
+ #include <stdlib.h>
+Index: slang-2.3.0/src/slstd.c
+===================================================================
+--- slang-2.3.0.orig/src/slstd.c
++++ slang-2.3.0/src/slstd.c
+@@ -22,6 +22,9 @@ Foundation, Inc., 59 Temple Place - Suit
+ USA.
+ */
+ 
++/* _BSD_SOURCE needed for strtoll() definition */
++#define _BSD_SOURCE 1
++
+ #include "slinclud.h"
+ /*{{{ Include Files */
+ 

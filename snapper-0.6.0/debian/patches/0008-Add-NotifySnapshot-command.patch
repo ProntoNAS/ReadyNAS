@@ -1,0 +1,91 @@
+From 5e915b80efc3ef9790d9d6cdc7dc528ebce848de Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 28 Jul 2016 12:11:10 -0700
+Subject: [PATCH 8/9] Add NotifySnapshot command
+
+---
+ server/Client.cc | 41 +++++++++++++++++++++++++++++++++++++++++
+ server/Client.h  |  1 +
+ 2 files changed, 42 insertions(+)
+
+diff --git a/server/Client.cc b/server/Client.cc
+index a640ac4..0372ad0 100644
+--- a/server/Client.cc
++++ b/server/Client.cc
+@@ -324,6 +324,11 @@ Client::introspect(DBus::Connection& conn, DBus::Message& msg)
+ 	"      <arg name='user-request' type='b' direction='in'/>\n"
+ 	"    </method>\n"
+ 
++	"    <method name='NotifySnapshot'>\n"
++	"      <arg name='config-name' type='s' direction='in'/>\n"
++	"      <arg name='number' type='u' direction='in'/>\n"
++	"    </method>\n"
++
+ 	"    <method name='GetMountPoint'>\n"
+ 	"      <arg name='config-name' type='s' direction='in'/>\n"
+ 	"      <arg name='number' type='u' direction='in'/>\n"
+@@ -895,6 +900,40 @@ Client::create_single_snapshot(DBus::Connection& conn, DBus::Message& msg)
+ 
+ 
+ void
++Client::notify_snapshot(DBus::Connection& conn, DBus::Message& msg)
++{
++    string config_name;
++    dbus_uint32_t num;
++
++    DBus::Hihi hihi(msg);
++    hihi >> config_name >> num;
++
++    y2deb("NotifySnapshot config_name:" << config_name << " num:" << num);
++
++    boost::unique_lock<boost::shared_mutex> lock(big_mutex);
++
++    MetaSnappers::iterator it = meta_snappers.find(config_name);
++    if (it->is_loaded())
++	it->unload();
++
++    check_permission(conn, msg, *it);
++
++    Snapper* snapper = it->getSnapper();
++    Snapshots& snapshots = snapper->getSnapshots();
++
++    Snapshots::iterator snap = snapshots.find(num);
++    if (snap == snapshots.end())
++	throw IllegalSnapshotException();
++
++    DBus::MessageMethodReturn reply(msg);
++
++    conn.send(reply);
++
++    signal_snapshot_created(conn, config_name, num);
++}
++
++
++void
+ Client::create_single_snapshot_v2(DBus::Connection& conn, DBus::Message& msg)
+ {
+     string config_name;
+@@ -1497,6 +1536,8 @@ Client::dispatch(DBus::Connection& conn, DBus::Message& msg)
+ 	    set_snapshot(conn, msg);
+ 	else if (msg.is_method_call(INTERFACE, "CreateSingleSnapshot"))
+ 	    create_single_snapshot(conn, msg);
++	else if (msg.is_method_call(INTERFACE, "NotifySnapshot"))
++	    notify_snapshot(conn, msg);
+ 	else if (msg.is_method_call(INTERFACE, "CreateSingleSnapshotV2"))
+ 	    create_single_snapshot_v2(conn, msg);
+ 	else if (msg.is_method_call(INTERFACE, "CreateSingleSnapshotOfDefault"))
+diff --git a/server/Client.h b/server/Client.h
+index cad857b..2ab1f16 100644
+--- a/server/Client.h
++++ b/server/Client.h
+@@ -108,6 +108,7 @@ public:
+     void prepare_quota(DBus::Connection& conn, DBus::Message& msg);
+     void query_quota(DBus::Connection& conn, DBus::Message& msg);
+     void sync(DBus::Connection& conn, DBus::Message& msg);
++    void notify_snapshot(DBus::Connection& conn, DBus::Message& msg);
+     void debug(DBus::Connection& conn, DBus::Message& msg) const;
+ 
+     void dispatch(DBus::Connection& conn, DBus::Message& msg);
+-- 
+2.9.3
+

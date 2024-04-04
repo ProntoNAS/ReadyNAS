@@ -1,0 +1,64 @@
+Index: sqlite3-3.13.0/Makefile.in
+===================================================================
+--- sqlite3-3.13.0.orig/Makefile.in
++++ sqlite3-3.13.0/Makefile.in
+@@ -662,10 +662,20 @@
+ 
+ # Rules to build the LEMON compiler generator
+ #
+-lemon$(BEXE):	$(TOP)/tool/lemon.c $(TOP)/tool/lempar.c
++lemon-for-build$(BEXE):	$(TOP)/tool/lemon.c $(TOP)/tool/lempar.c
+ 	$(BCC) -o $@ $(TOP)/tool/lemon.c
+ 	cp $(TOP)/tool/lempar.c .
+ 
++lemon$(TEXE):	$(TOP)/tool/lemon.c $(TOP)/tool/lempar.c
++	$(LTLINK) -o $@ $(TOP)/tool/lemon.c
++	cp $(TOP)/tool/lempar.c .
++
++ifeq ($(CROSS_BUILDING),yes)
++LEMON_FOR_BUILD = lemon-for-build$(BEXE)
++else
++LEMON_FOR_BUILD = lemon$(TEXE)
++endif
++
+ # Rules to build the program that generates the source-id
+ #
+ mksourceid$(BEXE):	$(TOP)/tool/mksourceid.c
+@@ -924,10 +934,10 @@
+ #
+ parse.h:	parse.c
+ 
+-parse.c:	$(TOP)/src/parse.y lemon$(BEXE) $(TOP)/tool/addopcodes.tcl
++parse.c:	$(TOP)/src/parse.y $(LEMON_FOR_BUILD) $(TOP)/tool/addopcodes.tcl
+ 	cp $(TOP)/src/parse.y .
+ 	rm -f parse.h
+-	./lemon$(BEXE) $(OPT_FEATURE_FLAGS) $(OPTS) parse.y
++	./$(LEMON_FOR_BUILD) $(OPT_FEATURE_FLAGS) $(OPTS) parse.y
+ 	mv parse.h parse.h.temp
+ 	$(TCLSH_CMD) $(TOP)/tool/addopcodes.tcl parse.h.temp >parse.h
+ 
+@@ -1030,10 +1040,10 @@
+    $(TOP)/ext/fts5/fts5_varint.c \
+    $(TOP)/ext/fts5/fts5_vocab.c  \
+ 
+-fts5parse.c:	$(TOP)/ext/fts5/fts5parse.y lemon 
++fts5parse.c:	$(TOP)/ext/fts5/fts5parse.y $(LEMON_FOR_BUILD)
+ 	cp $(TOP)/ext/fts5/fts5parse.y .
+ 	rm -f fts5parse.h
+-	./lemon$(BEXE) $(OPTS) fts5parse.y
++	./$(LEMON_FOR_BUILD)$(BEXE) $(OPTS) fts5parse.y
+ 
+ fts5parse.h: fts5parse.c
+ 
+@@ -1227,7 +1237,10 @@
+ 	rm -f *.lo *.la *.o sqlite3$(TEXE) libsqlite3.la
+ 	rm -f sqlite3.h opcodes.*
+ 	rm -rf .libs .deps
+-	rm -f lemon$(BEXE) lempar.c parse.* sqlite*.tar.gz
++	rm -f $(LEMON_FOR_BUILD) lempar.c parse.* sqlite*.tar.gz
++ifeq ($(CROSS_BUILDING), yes)
++	rm -f lemon$(TEXE)
++endif
+ 	rm -f mkkeywordhash$(BEXE) keywordhash.h
+ 	rm -f *.da *.bb *.bbg gmon.out
+ 	rm -rf tsrc .target_source

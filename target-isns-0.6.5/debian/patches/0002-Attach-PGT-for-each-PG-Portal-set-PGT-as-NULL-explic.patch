@@ -1,0 +1,82 @@
+From 0fb0f50bf2216260d9ccccdb621ed58d0bf25dff Mon Sep 17 00:00:00 2001
+From: Justin Ding <justin.ding@netgear.com>
+Date: Tue, 14 Aug 2018 19:37:14 -0700
+Subject: [PATCH] Attach PGT for each PG Portal, set PGT as NULL explicily for
+ not-allowed portals.
+
+According to RFC4171,  an entity may have multiple Portals, each Portal
+consists of its IP address and port. Besides each PG (portal group)
+follows by its own PG IP addresses and TCP/UDP ports.
+In order for a Portal to provide access to an iSCSI Node, the PGT
+of the PG object MUST be non-NULL.  If the PGT value registered for
+a specified Portal and iSCSI Node is NULL, or if no PGT value is registered,
+then the Portal does not provide access to that iSCSI Node in the Entity.
+
+So PGT is a selector, that controls from which portal iSCSI Node
+is allowed to access. The current implementation attachs a default
+PGT with value of 0x00000001 at the end of each iSCSI target,
+means each iSCSI target is allowed to access from all portals
+ignoring np config in iSCSI target.
+
+For example: a host has two interfaces :
+      eth0:192.168.1.10/255.255.255.0
+      eth1:10.40.1.20/255.255.255.0
+   Also has two iSCSI targets:
+      target 1: iqn.1994-11.com.netgear:nas-e7-5b-4c:0e261f2a:group1, np is set as 192.168.1.10:3260.
+      target 2: iqn.1994-11.com.netgear:nas-e7-5b-4c:0e261f2a:group1, np is set as 10.40.1.20:3260.
+
+Obviously target 1 is allowed to access from eth0 and target 2 is only from eth1.
+While currebt target-isns notifies iSNS server target1 and target 2 can be
+accessed from both two interfaces, may cause connection failure.
+
+This change is to attach PGT for each PG Portal, set PGT as NULL explicily
+for not-allowed portals.
+---
+ src/isns.c | 23 ++++++++++++++---------
+ 1 file changed, 14 insertions(+), 9 deletions(-)
+
+diff --git a/src/isns.c b/src/isns.c
+index 7036666..4763a2b 100644
+--- a/src/isns.c
++++ b/src/isns.c
+@@ -580,11 +580,20 @@ static int isns_target_register(const struct target *target)
+ 					ISNS_ATTR_PG_ISCSI_NAME, tgt->name);
+ 			isns_target_register_flush(&tlv, &buf[0], sizeof(buf),
+ 					&length, &flags, &sequence);
+-
++			
++			uint32_t tag = htonl(tpg->tag * 10);
++			
+ 			list_for_each(&portals, portal, node) {
+-				if (!tpg_has_portal(tpg, portal))
+-					continue;
+-
++				if (tpg_has_portal(tpg, portal))
++				{
++					length += isns_tlv_set(&tlv, ISNS_ATTR_PG_TAG,
++					                       sizeof(tag), &tag);
++				}
++				else
++				{
++					length += isns_tlv_set(&tlv, ISNS_ATTR_PG_TAG,
++					                        0, 0);
++				}
+ 				uint32_t port = htonl(portal->port);
+ 				uint8_t ip_addr[16];
+ 				isns_ip_addr_set(portal, ip_addr);
+@@ -599,11 +608,7 @@ static int isns_target_register(const struct target *target)
+ 					sizeof(buf), &length, &flags,
+ 					&sequence);
+ 			}
+-			uint32_t tag = htonl(tpg->tag);
+-			length += isns_tlv_set(&tlv, ISNS_ATTR_PG_TAG,
+-					       sizeof(tag), &tag);
+-			isns_target_register_flush(&tlv, &buf[0], sizeof(buf),
+-						   &length, &flags, &sequence);
++
+ 		}
+ 	}
+ 
+-- 
+2.1.4
+

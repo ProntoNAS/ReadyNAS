@@ -1,0 +1,35 @@
+From da9f2b26d8e3c572e2e030baba86bcb856e86de3 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 30 Nov 2016 15:00:44 -0800
+Subject: [PATCH 10/10] iscsi: default to buffered io
+
+---
+ drivers/target/target_core_file.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/target/target_core_file.c b/drivers/target/target_core_file.c
+index 7929186..f830588 100644
+--- a/drivers/target/target_core_file.c
++++ b/drivers/target/target_core_file.c
+@@ -622,6 +622,7 @@ static ssize_t fd_set_configfs_dev_params(struct se_device *dev,
+ 	if (!opts)
+ 		return -ENOMEM;
+ 
++	fd_dev->fbd_flags |= FDBD_HAS_BUFFERED_IO_WCE;
+ 	orig = opts;
+ 
+ 	while ((ptr = strsep(&opts, ",\n")) != NULL) {
+@@ -661,6 +662,10 @@ static ssize_t fd_set_configfs_dev_params(struct se_device *dev,
+ 			ret = match_int(args, &arg);
+ 			if (ret)
+ 				goto out;
++			if (arg == 0) {
++				fd_dev->fbd_flags &= ~FDBD_HAS_BUFFERED_IO_WCE;
++				break;
++			}
+ 			if (arg != 1) {
+ 				pr_err("bogus fd_buffered_io=%d value\n", arg);
+ 				ret = -EINVAL;
+-- 
+1.9.1
+

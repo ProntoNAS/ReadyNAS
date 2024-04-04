@@ -1,0 +1,67 @@
+From d1bd178fb94efacd6ed693d24ac1cb3edbcdab52 Mon Sep 17 00:00:00 2001
+From: David Sterba <dsterba@suse.com>
+Date: Wed, 4 Nov 2015 15:38:29 +0100
+Subject: [PATCH 014/165] btrfs: use GFP_KERNEL for allocations in ioctl
+ handlers
+
+We don't have to use GFP_NOFS in the ioctl handlers because there's no
+risk of looping through the allocators back to the filesystem. This
+patch covers only allocations that are directly in the ioctl handlers.
+
+Signed-off-by: David Sterba <dsterba@suse.com>
+---
+ fs/btrfs/ioctl.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/fs/btrfs/ioctl.c b/fs/btrfs/ioctl.c
+index 317b99a..da5fc04 100644
+--- a/fs/btrfs/ioctl.c
++++ b/fs/btrfs/ioctl.c
+@@ -4243,7 +4243,7 @@ static long btrfs_ioctl_space_info(struct btrfs_root *root, void __user *arg)
+ 		return -ENOMEM;
+ 
+ 	space_args.total_spaces = 0;
+-	dest = kmalloc(alloc_size, GFP_NOFS);
++	dest = kmalloc(alloc_size, GFP_KERNEL);
+ 	if (!dest)
+ 		return -ENOMEM;
+ 	dest_orig = dest;
+@@ -4769,7 +4769,7 @@ locked:
+ 		goto out_bargs;
+ 	}
+ 
+-	bctl = kzalloc(sizeof(*bctl), GFP_NOFS);
++	bctl = kzalloc(sizeof(*bctl), GFP_KERNEL);
+ 	if (!bctl) {
+ 		ret = -ENOMEM;
+ 		goto out_bargs;
+@@ -4855,7 +4855,7 @@ static long btrfs_ioctl_balance_progress(struct btrfs_root *root,
+ 		goto out;
+ 	}
+ 
+-	bargs = kzalloc(sizeof(*bargs), GFP_NOFS);
++	bargs = kzalloc(sizeof(*bargs), GFP_KERNEL);
+ 	if (!bargs) {
+ 		ret = -ENOMEM;
+ 		goto out;
+@@ -5115,7 +5115,7 @@ static long btrfs_ioctl_quota_rescan_status(struct file *file, void __user *arg)
+ 	if (!capable(CAP_SYS_ADMIN))
+ 		return -EPERM;
+ 
+-	qsa = kzalloc(sizeof(*qsa), GFP_NOFS);
++	qsa = kzalloc(sizeof(*qsa), GFP_KERNEL);
+ 	if (!qsa)
+ 		return -ENOMEM;
+ 
+@@ -5245,7 +5245,7 @@ static long btrfs_ioctl_set_received_subvol_32(struct file *file,
+ 		goto out;
+ 	}
+ 
+-	args64 = kmalloc(sizeof(*args64), GFP_NOFS);
++	args64 = kmalloc(sizeof(*args64), GFP_KERNEL);
+ 	if (!args64) {
+ 		ret = -ENOMEM;
+ 		goto out;
+-- 
+1.9.1
+

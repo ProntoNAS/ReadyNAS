@@ -1,0 +1,37 @@
+From b2ff6d559b602d3e30873f93f3306b545b7215c1 Mon Sep 17 00:00:00 2001
+From: Alexander Duyck <aduyck@mirantis.com>
+Date: Wed, 6 Jan 2016 22:48:50 -0800
+Subject: [PATCH 104/191] ixgbe: Avoid adding VLAN 0 twice to VLVF and VFTA
+
+We were adding VLAN 0 twice each time we restored the VLAN configuration.
+Instead of doing it twice we can just start working through the active
+VLANs from ID 1 on and skip the double write.
+
+Signed-off-by: Alexander Duyck <aduyck@mirantis.com>
+Tested-by: Phil Schmitt <phillip.j.schmitt@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+---
+ drivers/net/ethernet/intel/ixgbe/ixgbe_main.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+index 4cf883d..9ba09d6 100644
+--- a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
++++ b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+@@ -4173,11 +4173,11 @@ static void ixgbe_vlan_promisc_disable(struct ixgbe_adapter *adapter)
+ 
+ static void ixgbe_restore_vlan(struct ixgbe_adapter *adapter)
+ {
+-	u16 vid;
++	u16 vid = 1;
+ 
+ 	ixgbe_vlan_rx_add_vid(adapter->netdev, htons(ETH_P_8021Q), 0);
+ 
+-	for_each_set_bit(vid, adapter->active_vlans, VLAN_N_VID)
++	for_each_set_bit_from(vid, adapter->active_vlans, VLAN_N_VID)
+ 		ixgbe_vlan_rx_add_vid(adapter->netdev, htons(ETH_P_8021Q), vid);
+ }
+ 
+-- 
+1.9.1
+

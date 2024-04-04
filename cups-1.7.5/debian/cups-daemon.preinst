@@ -1,0 +1,25 @@
+#!/bin/sh
+
+set -e
+
+
+case "$1" in
+install|upgrade)
+    if dpkg --compare-versions "$2" le "1.6.1" && [ -e /etc/cups/cupsd.conf ]; then
+        # Move cupsd.conf away as it becomes a non-conffile
+        mv /etc/cups/cupsd.conf /etc/cups/cupsd.conf.conffile-bak
+    fi
+
+    if dpkg --compare-versions "$2" le "1.7.5-7~"; then
+        # Delete cupsd-systemd-listen configuration files once used to socket-activate CUPS
+        for csl in cupsd-systemd-listen.conf cupsd-systemd-listen.conf.0; do
+            if [ -e /etc/cups/$csl ]; then
+                rm -f /etc/cups/$csl
+            fi
+        done
+    fi
+esac
+
+#DEBHELPER#
+
+exit 0

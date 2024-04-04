@@ -1,0 +1,36 @@
+thread/start_thread.o: \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/core/thread/start_thread.c \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/string.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/klibc/extern.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/stddef.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/bitsize/stddef.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/bitsize32/stddef.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/stdlib.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/klibc/compiler.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/com32.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/stdint.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/bitsize/stdint.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/bitsize32/stdint.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/bitsize/stdintlimits.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/bitsize32/stdintlimits.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/bitsize/stdintconst.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/bitsize32/stdintconst.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/stdbool.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/core/include/core.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/inttypes.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/stdio.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/stdarg.h \
+ /usr/lib/gcc/x86_64-linux-gnu/4.9/include/stdarg.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/dprintf.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/syslinux/debug.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/errno.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/syslinux/pmapi.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/syslinux/sysappend.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/core/include/kaboom.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/core/include/timer.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/core/include/thread.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/limits.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/bitsize/limits.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/bitsize32/limits.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/sys/cpu.h \
+ /home/jmaggard/source/readynas-platform/boot/syslinux/com32/include/sys/i386/cpu.h

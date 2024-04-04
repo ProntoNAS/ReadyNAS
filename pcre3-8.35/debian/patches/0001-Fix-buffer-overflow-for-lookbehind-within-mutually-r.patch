@@ -1,0 +1,47 @@
+Description: Fix buffer overflow for lookbehind within mutually recursive
+ subroutines.
+ .
+ Addresses CVE-2015-8386.
+Origin: upstream, http://vcs.pcre.org/pcre?view=revision&revision=1560
+Forwarded: not-needed
+Author: Salvatore Bonaccorso <carnil@debian.org>
+Last-Update: 2015-12-28
+Applied-Upstream: 8.38
+
+---
+ pcre_compile.c       | 2 +-
+ testdata/testinput2  | 3 +++
+ testdata/testoutput2 | 3 +++
+ 4 files changed, 11 insertions(+), 2 deletions(-)
+
+--- a/pcre_compile.c
++++ b/pcre_compile.c
+@@ -1782,7 +1782,7 @@ for (;;)
+     case OP_ASSERTBACK:
+     case OP_ASSERTBACK_NOT:
+     do cc += GET(cc, 1); while (*cc == OP_ALT);
+-    cc += PRIV(OP_lengths)[*cc];
++    cc += 1 + LINK_SIZE;
+     break;
+ 
+     /* Skip over things that don't match chars */
+--- a/testdata/testinput2
++++ b/testdata/testinput2
+@@ -4078,4 +4078,7 @@ backtracking verbs. --/
+ 
+ /(((?(R)){0,2}) (?''((?'X')((?'R')))))/
+ 
++".*?\h.+.\.+\R*?\xd(?i)(?=!(?=b`b`b`\`b\xa9b!)`\a`bbbbbbbbbbbbb`bbbbbbbbbbbb*R\x85bbbbbbb\C?{((?2)(?))((
++\H){8(?<=(?1){29}\xa8bbbb\x16\xd\xc6^($(?<! )(\xa9H4){4}h}1)B))\x15')"
++
+ /-- End of testinput2 --/
+--- a/testdata/testoutput2
++++ b/testdata/testoutput2
+@@ -14201,4 +14201,7 @@ Failed: unmatched parentheses at offset
+ 
+ /(((?(R)){0,2}) (?''((?'X')((?'R')))))/
+ 
++".*?\h.+.\.+\R*?\xd(?i)(?=!(?=b`b`b`\`b\xa9b!)`\a`bbbbbbbbbbbbb`bbbbbbbbbbbb*R\x85bbbbbbb\C?{((?2)(?))((
++\H){8(?<=(?1){29}\xa8bbbb\x16\xd\xc6^($(?<! )(\xa9H4){4}h}1)B))\x15')"
++
+ /-- End of testinput2 --/

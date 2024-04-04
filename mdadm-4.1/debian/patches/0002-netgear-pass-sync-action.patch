@@ -1,0 +1,95 @@
+From 9180d974d51cb7ad0fc4e5052226560557251da6 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 28 Sep 2016 18:46:49 +0000
+Subject: [PATCH 2/7] netgear: pass sync action
+
+Pass the sync action as a parameter via mdadm monitor's alert mechanism.
+
+For RebuildStarted and RebuildFinished events, also pass the actual sync action
+(check, resync, recover, repair) to the alert mechanism.
+---
+ Monitor.c | 33 +++++++++++++++++++++++++++------
+ 1 file changed, 27 insertions(+), 6 deletions(-)
+
+Index: mdadm-4.1/Monitor.c
+===================================================================
+--- mdadm-4.1.orig/Monitor.c
++++ mdadm-4.1/Monitor.c
+@@ -42,6 +42,7 @@ struct state {
+ 	int expected_spares;
+ 	int devstate[MAX_DISKS];
+ 	dev_t devid[MAX_DISKS];
++       int resync;     /* 3 if check, 2 if reshape, 1 if resync, 0 if recovery */
+ 	int percent;
+ 	char parent_devnm[32]; /* For subarray, devnm of parent.
+ 				* For others, ""
+@@ -447,6 +447,22 @@ static void alert(char *event, char *dev
+ 	}
+ }
+ 
++static char *resync_action_str(int resync)
++{
++	switch (resync) {
++	case 0:
++		return "recovery";
++	case 1:
++		return "resync";
++	case 2:
++		return "reshape";
++	case 3:
++		return "check";
++	default:
++		return NULL;
++	}
++}
++
+ static int check_array(struct state *st, struct mdstat_ent *mdstat,
+ 		       int test, struct alert_info *ainfo,
+ 		       int increments, char *prefer)
+@@ -554,11 +570,13 @@ static int check_array(struct state *st,
+ 	    sra->array.spare_disks < st->expected_spares)
+ 		alert("SparesMissing", dev, NULL, ainfo);
+ 	if (st->percent < 0 && st->percent != RESYNC_UNKNOWN &&
+-	    mse->percent >= 0)
+-		alert("RebuildStarted", dev, NULL, ainfo);
++	    mse->percent >= 0) {
++		alert("RebuildStarted", dev, resync_action_str(mse->resync), ainfo);
++	}
+ 	if (st->percent >= 0 && mse->percent >= 0 &&
+ 	    (mse->percent / increments) > (st->percent / increments)) {
+ 		char percentalert[18];
++		char *action = resync_action_str(mse->resync);
+ 		/*
+ 		 * "RebuildNN" (10 chars) or "RebuildStarted" (15 chars)
+ 		 */
+@@ -570,7 +588,7 @@ static int check_array(struct state *st,
+ 			snprintf(percentalert, sizeof(percentalert),
+ 				 "Rebuild%02d", mse->percent);
+ 
+-		alert(percentalert, dev, NULL, ainfo);
++		alert(percentalert, dev, action, ainfo);
+ 	}
+ 
+ 	if (mse->percent == RESYNC_NONE && st->percent >= 0) {
+@@ -578,16 +596,18 @@ static int check_array(struct state *st,
+ 		 * If there is a number in /mismatch_cnt,
+ 		 * we should report that.
+ 		 */
++		char *action = resync_action_str(st->resync);
+ 		if (sra && sra->mismatch_cnt > 0) {
+ 			char cnt[80];
+ 			snprintf(cnt, sizeof(cnt),
+-				 " mismatches found: %d (on raid level %d)",
+-				 sra->mismatch_cnt, sra->array.level);
++				 "%s: mismatches found: %d (on raid level %d)",
++				 action, sra->mismatch_cnt, sra->array.level);
+ 			alert("RebuildFinished", dev, cnt, ainfo);
+ 		} else
+-			alert("RebuildFinished", dev, NULL, ainfo);
++			alert("RebuildFinished", dev, action, ainfo);
+ 	}
+ 	st->percent = mse->percent;
++	st->resync = mse->resync;
+ 
+ 	remaining_disks = sra->array.nr_disks;
+ 	for (i = 0; i < MAX_DISKS && remaining_disks > 0; i++) {

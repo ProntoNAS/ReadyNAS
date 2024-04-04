@@ -69,9 +69,7 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 			}
 		}
 		else if (existing_sb.st_mtime >= file_header->mtime) {
-			if (!(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)
-			 && !S_ISDIR(file_header->mode)
-			) {
+			if (!S_ISDIR(file_header->mode)) {
 				bb_error_msg("%s not created: newer or "
 					"same age file exists", file_header->name);
 			}
@@ -92,9 +90,9 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 	) {
 		/* hard link */
 		res = link(file_header->link_target, file_header->name);
-		if ((res == -1) && !(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)) {
+		if (res != 0) {
 			bb_perror_msg("can't create %slink "
-					"from %s to %s", "hard",
+					"from '%s' to '%s'", "hard",
 					file_header->name,
 					file_header->link_target);
 		}
@@ -132,10 +130,9 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 	}
 	case S_IFDIR:
 		res = mkdir(file_header->name, file_header->mode);
-		if ((res == -1)
+		if ((res != 0)
 		 && (errno != EISDIR) /* btw, Linux doesn't return this */
 		 && (errno != EEXIST)
-		 && !(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)
 		) {
 			bb_perror_msg("can't make dir %s", file_header->name);
 		}
@@ -143,23 +140,38 @@ void FAST_FUNC data_extract_all(archive_handle_t *archive_handle)
 	case S_IFLNK:
 		/* Symlink */
 //TODO: what if file_header->link_target == NULL (say, corrupted tarball?)
-		res = symlink(file_header->link_target, file_header->name);
-		if ((res == -1)
-		 && !(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)
-		) {
-			bb_perror_msg("can't create %slink "
-				"from %s to %s", "sym",
-				file_header->name,
-				file_header->link_target);
-		}
+
+		/* To avoid a directory traversal attack via symlinks,
+		 * do not restore symlinks with ".." components
+		 * or symlinks starting with "/", unless a magic
+		 * envvar is set.
+		 *
+		 * For example, consider a .tar created via:
+		 *  $ tar cvf bug.tar anything.txt
+		 *  $ ln -s /tmp symlink
+		 *  $ tar --append -f bug.tar symlink
+		 *  $ rm symlink
+		 *  $ mkdir symlink
+		 *  $ tar --append -f bug.tar symlink/evil.py
+		 *
+		 * This will result in an archive that contains:
+		 *  $ tar --list -f bug.tar
+		 *  anything.txt
+		 *  symlink [-> /tmp]
+		 *  symlink/evil.py
+		 *
+		 * Untarring bug.tar would otherwise place evil.py in '/tmp'.
+		 */
+		create_or_remember_symlink(&archive_handle->symlink_placeholders,
+				file_header->link_target,
+				file_header->name);
 		break;
 	case S_IFSOCK:
 	case S_IFBLK:
 	case S_IFCHR:
 	case S_IFIFO:
 		res = mknod(file_header->name, file_header->mode, file_header->device);
-		if ((res == -1)
-		 && !(archive_handle->ah_flags & ARCHIVE_EXTRACT_QUIET)
+		if ((res != 0)
 		) {
 			bb_perror_msg("can't create node %s", file_header->name);
 		}

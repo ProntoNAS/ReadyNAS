@@ -1,0 +1,48 @@
+From 2ab759dd4acc25d3b94493696dcb0ea0fff36936 Mon Sep 17 00:00:00 2001
+From: Guenter Roeck <linux@roeck-us.net>
+Date: Sat, 28 Mar 2015 07:44:59 -0700
+Subject: [PATCH 04/28] hwmon: (it87) Simplify error return in it87_device_add
+
+Return directly on errors if there is no cleanup necessary.
+Don't create an error message on memory allocation errors.
+
+Tested-by: Martin Blumenstingl <martin.blumenstingl@googlemail.com>
+Signed-off-by: Guenter Roeck <linux@roeck-us.net>
+(cherry picked from commit 5cae84a58ee60eb54f636133f4f3ede9af93d476)
+---
+ drivers/hwmon/it87.c | 10 +++-------
+ 1 file changed, 3 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/hwmon/it87.c b/drivers/hwmon/it87.c
+index 68c8d98..9b36987 100644
+--- a/drivers/hwmon/it87.c
++++ b/drivers/hwmon/it87.c
+@@ -2898,14 +2898,11 @@ static int __init it87_device_add(unsigned short address,
+ 
+ 	err = acpi_check_resource_conflict(&res);
+ 	if (err)
+-		goto exit;
++		return err;
+ 
+ 	pdev = platform_device_alloc(DRVNAME, address);
+-	if (!pdev) {
+-		err = -ENOMEM;
+-		pr_err("Device allocation failed\n");
+-		goto exit;
+-	}
++	if (!pdev)
++		return -ENOMEM;
+ 
+ 	err = platform_device_add_resources(pdev, &res, 1);
+ 	if (err) {
+@@ -2930,7 +2927,6 @@ static int __init it87_device_add(unsigned short address,
+ 
+ exit_device_put:
+ 	platform_device_put(pdev);
+-exit:
+ 	return err;
+ }
+ 
+-- 
+1.9.1
+

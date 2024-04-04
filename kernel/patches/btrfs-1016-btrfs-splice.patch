@@ -1,0 +1,742 @@
+From 16a9f4d4995fcf656f55b7bebfbda26fc8deb928 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 1 Dec 2016 14:37:05 -0800
+Subject: [PATCH 1016/1016] btrfs: splice
+
+---
+ fs/btrfs/file.c        | 267 +++++++++++++++++++++++++++++++++++++++++++++++
+ fs/splice.c            | 274 +++++++++++++++++++++++++++++++++++++++----------
+ include/linux/fs.h     |   4 +
+ include/linux/skbuff.h |   8 ++
+ include/linux/socket.h |   1 +
+ net/ipv4/tcp.c         |  14 +++
+ 7 files changed, 517 insertions(+), 53 deletions(-)
+
+diff --git a/fs/btrfs/file.c b/fs/btrfs/file.c
+index fe6dd64..9f5f8b8 100644
+--- a/fs/btrfs/file.c
++++ b/fs/btrfs/file.c
+@@ -32,6 +32,10 @@
+ #include <linux/slab.h>
+ #include <linux/btrfs.h>
+ #include <linux/uio.h>
++#include <linux/sizes.h>
++#include <linux/socket.h>
++#include <linux/net.h>
++#include <net/sock.h>
+ #include "ctree.h"
+ #include "disk-io.h"
+ #include "transaction.h"
+@@ -2930,9 +2934,272 @@ out:
+ 	return offset;
+ }
+ 
++#ifdef CONFIG_ARM_PAGE_SIZE_32KB
++#define MAX_PAGES_PER_RECVFILE (SZ_1M / PAGE_SIZE)
++#else
++#define MAX_PAGES_PER_RECVFILE (SZ_128K / PAGE_SIZE)
++#endif
++
++static ssize_t btrfs_splice_from_socket(struct file *file, struct socket *sock,
++					loff_t __user *ppos, size_t count)
++{
++	struct inode *inode = file_inode(file);
++	struct btrfs_root *root = BTRFS_I(inode)->root;
++	struct page **pages = NULL;
++	struct kvec *iov = NULL;
++	struct msghdr msg;
++	long recvtimeo;
++	ssize_t copied = 0;
++	size_t offset, offset_tmp;
++	size_t reserve_bytes;
++	u64 release_bytes = 0;
++	u64 lockstart, lockend;
++	struct extent_state *cached_state = NULL;
++	int num_pages, dirty_pages = 0;
++	int err = 0;
++	loff_t pos = file->f_pos;
++	int i;
++	unsigned count_tmp = count;
++	bool sync = (file->f_flags & O_DSYNC) || IS_SYNC(file->f_mapping->host);
++	bool only_release_metadata = false, need_unlock = false;
++	struct iov_iter from;
++	struct kiocb iocb;
++
++#define ERROR_OUT do {mutex_unlock(&inode->i_mutex); goto out;} while(0)
++
++	if (!count)
++		return 0;
++
++	if (ppos && copy_from_user(&pos, ppos, sizeof pos))
++		return -EFAULT;
++
++	if (count > MAX_PAGES_PER_RECVFILE * PAGE_SIZE)
++		count = MAX_PAGES_PER_RECVFILE * PAGE_SIZE;
++
++	offset = pos & (PAGE_CACHE_SIZE - 1);
++	num_pages = (offset + count + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
++	reserve_bytes = num_pages << PAGE_CACHE_SHIFT;
++
++	if (!(pages = kmalloc(num_pages * sizeof(*pages), GFP_NOFS)) ||
++		!(iov = kmalloc(num_pages * sizeof(*iov), GFP_NOFS))) {
++		kfree(pages);
++		return -ENOMEM;
++	}
++
++	current->backing_dev_info = inode_to_bdi(inode);
++
++	mutex_lock(&inode->i_mutex);
++
++	from.count = count;
++
++	init_sync_kiocb(&iocb, file);
++	iocb.ki_pos = pos;
++
++	count = generic_write_checks(&iocb, &from);
++	if (count <= 0)
++		ERROR_OUT;
++
++	if ((err = file_remove_privs(file)))
++		ERROR_OUT;
++
++	if (test_bit(BTRFS_FS_STATE_ERROR, &root->fs_info->fs_state)) {
++                err = -EROFS;
++		ERROR_OUT;
++	}
++
++	update_time_for_write(inode);
++
++	if (round_down(pos, root->sectorsize) > i_size_read(inode)) {
++		u64 end_pos = round_up(pos + count, root->sectorsize);
++
++		err = btrfs_cont_expand(inode, i_size_read(inode),end_pos);
++		if (err)
++			ERROR_OUT;
++	}
++
++	if (sync)
++		atomic_inc(&BTRFS_I(inode)->sync_writers);
++
++	err = btrfs_check_data_free_space(inode, reserve_bytes, reserve_bytes);
++	if (err == -ENOSPC &&
++		(BTRFS_I(inode)->flags & (BTRFS_INODE_NODATACOW |
++					  BTRFS_INODE_PREALLOC))) {
++		err = check_can_nocow(inode, pos, &count);
++		if ((only_release_metadata = (err > 0))) {
++			/*
++			 * our prealloc extent may be smaller than
++			 * write_bytes, so scale down.
++			 */
++			num_pages = DIV_ROUND_UP(count + offset,
++						 PAGE_CACHE_SIZE);
++			reserve_bytes = num_pages << PAGE_CACHE_SHIFT;
++			err = 0;
++		} else {
++			err = -ENOSPC;
++		}
++	}
++
++	if (err)
++		goto out_free;
++
++	if ((err = btrfs_delalloc_reserve_metadata(inode, reserve_bytes))) {
++		if (only_release_metadata)
++			btrfs_end_write_no_snapshoting(root);
++		else
++			btrfs_free_reserved_data_space(inode, pos, reserve_bytes);
++		goto out_free;
++	}
++
++	release_bytes = reserve_bytes;
++	need_unlock = false;
++
++	do {
++		if ((err = prepare_pages(inode, pages, num_pages,
++						pos, count, false)))
++			goto out_free;
++		err = lock_and_cleanup_extent_if_need(inode, pages, num_pages,
++						pos, &lockstart, &lockend,
++						&cached_state);
++	} while (err == -EAGAIN);
++
++	if (err < 0)
++		goto out_free;
++
++	if ((need_unlock = (err > 0)))
++		err = 0;
++
++	for (i = 0, offset_tmp = offset; i < num_pages; i++) {
++		unsigned bytes = PAGE_CACHE_SIZE - offset_tmp;
++
++		if (bytes > count_tmp)
++			bytes = count_tmp;
++		iov[i].iov_base = kmap(pages[i]) + offset_tmp;
++		iov[i].iov_len = bytes;
++		offset_tmp = 0;
++		count_tmp -= bytes;
++	}
++
++	/* IOV is ready, receive the date from socket now */
++	memset(&msg, 0, sizeof msg);
++
++	recvtimeo = sock->sk->sk_rcvtimeo;
++	sock->sk->sk_rcvtimeo = 8 * HZ;
++	copied = kernel_recvmsg(sock, &msg, iov, num_pages, count,
++				MSG_WAITALL | MSG_NOCATCHSIG);
++	sock->sk->sk_rcvtimeo = recvtimeo;
++
++	if (copied < 0) {
++		err = copied;
++		copied = 0;
++	}
++
++	/* FIXME:
++	 * The following results in at least one dirty_page even for copied==0
++	 * unless offset==0, but otherwise the first page would be corrupted
++	 * for an unknown reason.
++	 */
++	dirty_pages = DIV_ROUND_UP(copied + offset, PAGE_CACHE_SIZE);
++
++	for (i = 0; i < num_pages; i++)
++		kunmap(pages[i]);
++
++	if (dirty_pages < num_pages) {
++		u64 __pos;
++
++		__pos = round_down(pos, root->sectorsize) +
++			(dirty_pages << PAGE_CACHE_SHIFT);
++		release_bytes =
++			(num_pages - dirty_pages) << PAGE_CACHE_SHIFT;
++
++		/*
++		 * FIXME:
++		 * The referenced code in __btrfs_buffered_write() checks
++		 * copied to determine the necessity of incrementing
++		 * outstanding_extents, but it would crash the kernel
++		 * for an unknown reason for this part.
++		 * Checking dirty_pages could result in one dirty_page
++		 * even if copied == 0 and offset !=0, but it should be
++		 * harmless to have a non-dirty page flushed out later.
++		 */
++		if (dirty_pages > 0) {
++			spin_lock(&BTRFS_I(inode)->lock);
++			BTRFS_I(inode)->outstanding_extents++;
++			spin_unlock(&BTRFS_I(inode)->lock);
++		}
++		if (only_release_metadata)
++			btrfs_delalloc_release_metadata(inode, release_bytes);
++		else
++			btrfs_delalloc_release_space(inode, __pos, release_bytes);
++	}
++
++	release_bytes = dirty_pages << PAGE_CACHE_SHIFT;
++
++	if (dirty_pages > 0)
++		err = btrfs_dirty_pages(root, inode, pages,
++					dirty_pages, pos, copied, NULL);
++
++	if (need_unlock)
++		unlock_extent_cached(&BTRFS_I(inode)->io_tree,
++				lockstart, lockend, &cached_state, GFP_NOFS);
++
++	if (err) {
++		btrfs_drop_pages(pages, num_pages);
++		goto out_free;
++	}
++
++	release_bytes = 0;
++	if (only_release_metadata)
++		btrfs_end_write_no_snapshoting(root);
++
++	if (only_release_metadata && copied > 0) {
++		u64 lstart = round_down(pos, root->sectorsize);
++		u64 lend = lstart + (dirty_pages << PAGE_CACHE_SHIFT) - 1;
++
++		set_extent_bit(&BTRFS_I(inode)->io_tree, lstart,
++				lend, EXTENT_NORESERVE, NULL,
++				NULL, GFP_NOFS);
++		only_release_metadata = false;
++	}
++
++	btrfs_drop_pages(pages, num_pages);
++	cond_resched();
++
++	balance_dirty_pages_ratelimited(inode->i_mapping);
++	if (dirty_pages < (root->nodesize >> PAGE_CACHE_SHIFT) + 1)
++		btrfs_btree_balance_dirty(root);
++out_free:
++	if (release_bytes) {
++		if (only_release_metadata) {
++			btrfs_end_write_no_snapshoting(root);
++			btrfs_delalloc_release_metadata(inode, release_bytes);
++		} else {
++			u64 __pos = round_down(pos, root->sectorsize) +
++					(dirty_pages << PAGE_CACHE_SHIFT);
++			btrfs_delalloc_release_space(inode, __pos, release_bytes);
++		}
++	}
++
++	mutex_unlock(&inode->i_mutex);
++
++	BTRFS_I(inode)->last_sub_trans = root->log_transid;
++	if (copied > 0 || err == -EIOCBQUEUED)
++		err = generic_write_sync(file, pos, copied);
++	file->f_pos = (pos += copied);
++	if (ppos && copy_to_user(ppos, &pos, sizeof *ppos))
++		err = -EFAULT;
++	if (sync)
++		atomic_dec(&BTRFS_I(inode)->sync_writers);
++out:
++	kfree(iov);
++	kfree(pages);
++	current->backing_dev_info = NULL;
++	return err ? err : copied;
++}
++
+ const struct file_operations btrfs_file_operations = {
+ 	.llseek		= btrfs_file_llseek,
+ 	.read_iter      = generic_file_read_iter,
++	.splice_from_socket	= btrfs_splice_from_socket,
+ 	.splice_read	= generic_file_splice_read,
+ 	.write_iter	= btrfs_file_write_iter,
+ 	.mmap		= btrfs_file_mmap,
+diff --git a/fs/splice.c b/fs/splice.c
+index 0f77e96..8f15d8f 100644
+--- a/fs/splice.c
++++ b/fs/splice.c
+@@ -21,11 +21,15 @@
+ #include <linux/file.h>
+ #include <linux/pagemap.h>
+ #include <linux/splice.h>
++#include <linux/backing-dev.h>
+ #include <linux/memcontrol.h>
+ #include <linux/mm_inline.h>
+ #include <linux/swap.h>
+ #include <linux/writeback.h>
+ #include <linux/export.h>
++#include <linux/buffer_head.h>
++#include <linux/module.h>
++#include <linux/sizes.h>
+ #include <linux/syscalls.h>
+ #include <linux/uio.h>
+ #include <linux/security.h>
+@@ -100,36 +104,34 @@ static int page_cache_pipe_buf_confirm(struct pipe_inode_info *pipe,
+ 				       struct pipe_buffer *buf)
+ {
+ 	struct page *page = buf->page;
+-	int err;
++	int err = 0;
+ 
+-	if (!PageUptodate(page)) {
+-		lock_page(page);
++	if (PageUptodate(page))
++		return 0;
+ 
+-		/*
+-		 * Page got truncated/unhashed. This will cause a 0-byte
+-		 * splice, if this is the first page.
+-		 */
+-		if (!page->mapping) {
+-			err = -ENODATA;
+-			goto error;
+-		}
++	lock_page(page);
+ 
+-		/*
+-		 * Uh oh, read-error from disk.
+-		 */
+-		if (!PageUptodate(page)) {
+-			err = -EIO;
+-			goto error;
+-		}
++	/*
++	 * Page got truncated/unhashed. This will cause a 0-byte
++	 * splice, if this is the first page.
++	 */
++	if (!page->mapping) {
++		err = -ENODATA;
++		goto out;
++	}
+ 
+-		/*
+-		 * Page is ok afterall, we are done.
+-		 */
+-		unlock_page(page);
++	/*
++	 * Uh oh, read-error from disk.
++	 */
++	if (!PageUptodate(page)) {
++		err = -EIO;
++		goto out;
+ 	}
+ 
+-	return 0;
+-error:
++	/*
++	 * Page is ok afterall, we are done.
++	 */
++out:
+ 	unlock_page(page);
+ 	return err;
+ }
+@@ -1134,8 +1136,6 @@ static long do_splice_to(struct file *in, loff_t *ppos,
+ 			 struct pipe_inode_info *pipe, size_t len,
+ 			 unsigned int flags)
+ {
+-	ssize_t (*splice_read)(struct file *, loff_t *,
+-			       struct pipe_inode_info *, size_t, unsigned int);
+ 	int ret;
+ 
+ 	if (unlikely(!(in->f_mode & FMODE_READ)))
+@@ -1145,12 +1145,9 @@ static long do_splice_to(struct file *in, loff_t *ppos,
+ 	if (unlikely(ret < 0))
+ 		return ret;
+ 
+-	if (in->f_op->splice_read)
+-		splice_read = in->f_op->splice_read;
+-	else
+-		splice_read = default_file_splice_read;
+-
+-	return splice_read(in, ppos, pipe, len, flags);
++	return (in->f_op && in->f_op->splice_read)
++		? in->f_op->splice_read(in, ppos, pipe, len, flags)
++		: default_file_splice_read(in, ppos, pipe, len, flags);
+ }
+ 
+ /**
+@@ -1375,9 +1372,7 @@ static long do_splice(struct file *in, loff_t __user *off_in,
+ 			return -EINVAL;
+ 
+ 		return splice_pipe_to_pipe(ipipe, opipe, len, flags);
+-	}
+-
+-	if (ipipe) {
++	} else if (ipipe) {
+ 		if (off_in)
+ 			return -ESPIPE;
+ 		if (off_out) {
+@@ -1409,9 +1404,7 @@ static long do_splice(struct file *in, loff_t __user *off_in,
+ 			ret = -EFAULT;
+ 
+ 		return ret;
+-	}
+-
+-	if (opipe) {
++	} else if (opipe) {
+ 		if (off_out)
+ 			return -ESPIPE;
+ 		if (off_in) {
+@@ -1436,6 +1429,162 @@ static long do_splice(struct file *in, loff_t __user *off_in,
+ 	return -EINVAL;
+ }
+ 
++#include <net/sock.h>
++struct RECV_FILE_CONTROL_BLOCK {
++	struct page *rv_page;
++	loff_t rv_pos;
++	size_t  rv_count;
++	void *rv_fsdata;
++};
++
++#define MAX_PAGES_PER_RECVFILE (SZ_128K / PAGE_SIZE)
++
++static ssize_t do_splice_from_socket(struct file *file, struct socket *sock,
++				     loff_t __user *ppos, size_t count)
++{
++	struct address_space *mapping = file->f_mapping;
++	struct inode	*inode = mapping->host;
++	loff_t pos;
++	int count_tmp;
++	int err = 0;
++	int cPagePtr = 0;
++	int cPagesAllocated = 0;
++	struct RECV_FILE_CONTROL_BLOCK *rv_cb;
++	struct kvec *iov;
++	struct msghdr msg;
++	long rcvtimeo;
++	int ret;
++	struct iov_iter from;
++	struct kiocb iocb;
++
++	if (copy_from_user(&pos, ppos, sizeof(loff_t)))
++		return -EFAULT;
++
++	if (count > MAX_PAGES_PER_RECVFILE * PAGE_SIZE)
++		count = MAX_PAGES_PER_RECVFILE * PAGE_SIZE;
++
++	if (!(rv_cb = kzalloc(sizeof *rv_cb * (MAX_PAGES_PER_RECVFILE + 1),
++				GFP_NOFS)))
++		return -ENOMEM;
++	if (!(iov = kzalloc(sizeof *iov * (MAX_PAGES_PER_RECVFILE + 1),
++				GFP_NOFS))) {
++		kfree(rv_cb);
++		return -ENOMEM;
++	}
++
++	mutex_lock(&inode->i_mutex);
++
++	// vfs_check_frozen(inode->i_sb, SB_FREEZE_WRITE);
++	// TODO: add sb_start_write(inode->i_sb); and end somewhere
++	/* We can write back this queue in page reclaim */
++	current->backing_dev_info = inode_to_bdi(inode);
++
++	from.count = count;
++
++	init_sync_kiocb(&iocb, file);
++	iocb.ki_pos = pos;
++
++	count = generic_write_checks(&iocb, &from);
++	if (count <= 0)
++		goto done;
++
++	file_remove_privs(file);
++	file_update_time(file);
++
++	count_tmp = count;
++	do {
++		unsigned long bytes;	/* Bytes to write to page */
++		unsigned long offset;	/* Offset into pagecache page */
++		struct page *pageP;
++		void *fsdata;
++
++		offset = (pos & (PAGE_CACHE_SIZE - 1));
++		bytes = PAGE_CACHE_SIZE - offset;
++		if (bytes > count_tmp)
++			bytes = count_tmp;
++		BUG_ON(!mapping->a_ops->write_begin);
++		ret =  mapping->a_ops->write_begin(file, mapping, pos, bytes,
++						   AOP_FLAG_UNINTERRUPTIBLE,
++						   &pageP,&fsdata);
++		if (unlikely(ret)) {
++			err = ret;
++			for(cPagePtr = 0; cPagePtr < cPagesAllocated; cPagePtr++) {
++				kunmap(rv_cb[cPagePtr].rv_page);
++				ret = mapping->a_ops->write_end(file, mapping,
++								rv_cb[cPagePtr].rv_pos,
++								rv_cb[cPagePtr].rv_count,
++								rv_cb[cPagePtr].rv_count,
++								rv_cb[cPagePtr].rv_page,
++								rv_cb[cPagePtr].rv_fsdata);
++			}
++			goto done;
++		}
++		rv_cb[cPagesAllocated].rv_page = pageP;
++		rv_cb[cPagesAllocated].rv_pos = pos;
++		rv_cb[cPagesAllocated].rv_count = bytes;
++		rv_cb[cPagesAllocated].rv_fsdata = fsdata;
++		iov[cPagesAllocated].iov_base = kmap(pageP) + offset;
++		iov[cPagesAllocated].iov_len = bytes;
++		cPagesAllocated++;
++		count_tmp -= bytes;
++		pos += bytes;
++	} while (count_tmp);
++
++	/* IOV is ready, receive the data from socket now */
++	memset(&msg, 0, sizeof msg);
++	rcvtimeo = sock->sk->sk_rcvtimeo;
++	sock->sk->sk_rcvtimeo = 8 * HZ;
++
++	ret = kernel_recvmsg(sock, &msg, &iov[0], cPagesAllocated, count,
++			     MSG_WAITALL | MSG_NOCATCHSIG);
++
++	sock->sk->sk_rcvtimeo = rcvtimeo;
++
++	if (unlikely(ret < 0)) {
++		err = ret;
++		for(cPagePtr = 0; cPagePtr < cPagesAllocated; cPagePtr++){
++			kunmap(rv_cb[cPagePtr].rv_page);
++			ret = mapping->a_ops->write_end(file, mapping,
++							rv_cb[cPagePtr].rv_pos,
++							rv_cb[cPagePtr].rv_count,
++							rv_cb[cPagePtr].rv_count,
++							rv_cb[cPagePtr].rv_page,
++							rv_cb[cPagePtr].rv_fsdata);
++		}
++		goto done;
++	} else {
++		err = 0;
++		pos = pos - count + ret;
++		count = ret;
++	}
++
++	for (cPagePtr=0;cPagePtr < cPagesAllocated;cPagePtr++) {
++		//flush_dcache_page(pageP);
++		kunmap(rv_cb[cPagePtr].rv_page);
++		ret = mapping->a_ops->write_end(file, mapping,
++						rv_cb[cPagePtr].rv_pos,
++						rv_cb[cPagePtr].rv_count,
++						rv_cb[cPagePtr].rv_count,
++						rv_cb[cPagePtr].rv_page,
++						rv_cb[cPagePtr].rv_fsdata);
++
++		if (unlikely(ret < 0))
++			printk("%s: write_end fail,ret = %d\n",__func__,ret);
++		//cond_resched();
++	}
++	balance_dirty_pages_ratelimited(mapping);
++	err = copy_to_user(ppos,&pos,sizeof(loff_t));
++
++done:
++	current->backing_dev_info = NULL;
++	mutex_unlock(&inode->i_mutex);
++
++	kfree(rv_cb);
++	kfree(iov);
++
++	return err ? err : count;
++}
++
+ /*
+  * Map an iov into an array of pages and offset/length tupples. With the
+  * partial_page structure, we can map several non-contiguous ranges into
+@@ -1690,27 +1839,48 @@ SYSCALL_DEFINE6(splice, int, fd_in, loff_t __user *, off_in,
+ 		int, fd_out, loff_t __user *, off_out,
+ 		size_t, len, unsigned int, flags)
+ {
+-	struct fd in, out;
+-	long error;
++	struct fd out;
++	struct file *ofile;
++	long error = -EBADF;
++	struct socket *sock;
+ 
+ 	if (unlikely(!len))
+ 		return 0;
+ 
+-	error = -EBADF;
+-	in = fdget(fd_in);
+-	if (in.file) {
+-		if (in.file->f_mode & FMODE_READ) {
+-			out = fdget(fd_out);
+-			if (out.file) {
+-				if (out.file->f_mode & FMODE_WRITE)
+-					error = do_splice(in.file, off_in,
+-							  out.file, off_out,
++	out = fdget(fd_out);
++	if (!(ofile = out.file))
++		return error;
++	if (!(ofile->f_mode & FMODE_WRITE))
++		goto done;
++
++	/* check fd_in is socket fd */
++	if (!get_pipe_info(ofile) &&
++		(sock = sockfd_lookup(fd_in, (int *)&error))) {
++		if (!sock->sk) {
++			BUG();
++		} else {
++
++			if (ofile->f_op &&
++				ofile->f_op->splice_from_socket)
++				error = ofile->f_op->splice_from_socket(
++						ofile, sock, off_out, len);
++			else
++				error = do_splice_from_socket(ofile,
++						sock, off_out, len);
++		}
++		fput(sock->file);
++	} else {
++		struct fd in = fdget(fd_in);
++		if (in.file) {
++			if (in.file->f_mode & FMODE_READ)
++				error = do_splice(in.file, off_in,
++							  ofile, off_out,
+ 							  len, flags);
+-				fdput(out);
+-			}
++			fdput(in);
+ 		}
+-		fdput(in);
+ 	}
++done:
++	fdput(out);
+ 	return error;
+ }
+ 
+diff --git a/include/linux/fs.h b/include/linux/fs.h
+index d54ed69..048b7b3 100644
+--- a/include/linux/fs.h
++++ b/include/linux/fs.h
+@@ -32,6 +32,7 @@
+ #include <linux/workqueue.h>
+ #include <linux/percpu-rwsem.h>
+ 
++#include <linux/net.h>
+ #include <asm/byteorder.h>
+ #include <uapi/linux/fs.h>
+ 
+@@ -1667,6 +1668,9 @@ struct file_operations {
+ 	int (*flock) (struct file *, int, struct file_lock *);
+ 	ssize_t (*splice_write)(struct pipe_inode_info *, struct file *, loff_t *, size_t, unsigned int);
+ 	ssize_t (*splice_read)(struct file *, loff_t *, struct pipe_inode_info *, size_t, unsigned int);
++
++	ssize_t (*splice_from_socket)(struct file *file, struct socket *sock,
++					loff_t __user *ppos, size_t count);
+ 	int (*setlease)(struct file *, long, struct file_lock **, void **);
+ 	long (*fallocate)(struct file *file, int mode, loff_t offset,
+ 			  loff_t len);
+diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
+index d443d9a..f4b6cd9 100644
+--- a/include/linux/skbuff.h
++++ b/include/linux/skbuff.h
+@@ -132,6 +132,10 @@
+  * Any questions? No questions, good.		--ANK
+  */
+ 
++#if defined(CONFIG_NET_SKB_HEADROOM)
++# define NET_SKB_PAD  CONFIG_NET_SKB_HEADROOM
++#endif
++
+ /* Don't change this without changing skb_csum_unnecessary! */
+ #define CHECKSUM_NONE		0
+ #define CHECKSUM_UNNECESSARY	1
+@@ -573,6 +577,10 @@ struct sk_buff {
+ #ifdef CONFIG_XFRM
+ 	struct	sec_path	*sp;
+ #endif
++#ifdef CONFIG_NET_SKB_RECYCLE
++	int			(*skb_recycle) (struct sk_buff *skb);
++	void			*hw_cookie;
++#endif /* CONFIG_NET_SKB_RECYCLE */
+ #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
+ 	struct nf_conntrack	*nfct;
+ #endif
+diff --git a/include/linux/socket.h b/include/linux/socket.h
+index 5bf59c8..f8efdf6 100644
+--- a/include/linux/socket.h
++++ b/include/linux/socket.h
+@@ -274,6 +274,7 @@ struct ucred {
+ #define MSG_MORE	0x8000	/* Sender will send more */
+ #define MSG_WAITFORONE	0x10000	/* recvmmsg(): block until 1+ packets avail */
+ #define MSG_SENDPAGE_NOTLAST 0x20000 /* sendpage() internal : not the last page */
++#define MSG_NOCATCHSIG	0x80000
+ #define MSG_EOF         MSG_FIN
+ 
+ #define MSG_FASTOPEN	0x20000000	/* Send data in TCP SYN */
+diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
+index 69daa81..d64355d 100644
+--- a/net/ipv4/tcp.c
++++ b/net/ipv4/tcp.c
+@@ -1631,6 +1631,20 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
+ 	do {
+ 		u32 offset;
+ 
++		if (flags & MSG_NOCATCHSIG) {
++			if (signal_pending(current) &&
++			(sigismember(&current->pending.signal, SIGQUIT) ||
++			 sigismember(&current->pending.signal, SIGABRT) ||
++			 sigismember(&current->pending.signal, SIGKILL) ||
++			 sigismember(&current->pending.signal, SIGTERM) ||
++			 sigismember(&current->pending.signal, SIGSTOP))) {
++				if (copied)
++					break;
++				copied = timeo ? sock_intr_errno(timeo)
++						: -EAGAIN;
++				break;
++			}
++		} else
+ 		/* Are we at urgent data? Stop if we have read anything or have SIGURG pending. */
+ 		if (tp->urg_data && tp->urg_seq == *seq) {
+ 			if (copied)
+-- 
+1.9.1
+

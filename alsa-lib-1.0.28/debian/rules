@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+%:
+	dh $@ --with autoreconf
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		--with-plugindir=/usr/lib/$(DEB_HOST_MULTIARCH)/alsa-lib \
+		--disable-silent-rules \
+		--disable-static \
+		--disable-python
+
+override_dh_auto_build-indep:
+	$(MAKE) doc
+
+override_dh_auto_test-indep:
+
+override_dh_auto_install-indep:
+	$(MAKE) -C doc install
+
+override_dh_strip:
+	dh_strip --dbg-package=libasound2-dbg
+
+override_dh_makeshlibs:
+	dh_makeshlibs --exclude=usr/lib/$(DEB_HOST_MULTIARCH)/alsa-lib/smixer -V'libasound2 (>= 1.0.27)' --add-udeb=libasound2-udeb -- -c4
+
+override_dh_install:
+	dh_install --list-missing
+
+override_dh_installchangelogs:
+	dh_installchangelogs debian/changelog.ALSA

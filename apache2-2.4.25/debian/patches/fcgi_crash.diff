@@ -1,0 +1,37 @@
+# https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=902906
+# https://bz.apache.org/bugzilla/show_bug.cgi?id=60275
+# https://svn.apache.org/r1778050
+--- apache2.orig/server/util_fcgi.c
++++ apache2/server/util_fcgi.c
+@@ -153,7 +153,7 @@ AP_DECLARE(apr_size_t) ap_fcgi_encoded_e
+ 
+         envlen += keylen;
+ 
+-        vallen = strlen(elts[i].val);
++        vallen = elts[i].val ? strlen(elts[i].val) : 0;
+ 
+         if (vallen >> 7 == 0) {
+             envlen += 1;
+@@ -226,7 +226,7 @@ AP_DECLARE(apr_status_t) ap_fcgi_encode_
+             buflen -= 4;
+         }
+ 
+-        vallen = strlen(elts[i].val);
++        vallen = elts[i].val ? strlen(elts[i].val) : 0;
+ 
+         if (vallen >> 7 == 0) {
+             if (buflen < 1) {
+@@ -262,8 +262,11 @@ AP_DECLARE(apr_status_t) ap_fcgi_encode_
+             rv = APR_ENOSPC; /* overflow */
+             break;
+         }
+-        memcpy(itr, elts[i].val, vallen);
+-        itr += vallen;
++
++        if (elts[i].val) {
++            memcpy(itr, elts[i].val, vallen);
++            itr += vallen;
++        }
+ 
+         if (buflen == vallen) {
+             (*starting_elem)++;

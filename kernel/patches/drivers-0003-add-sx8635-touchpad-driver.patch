@@ -1,0 +1,2524 @@
+From 8799da9786572bf6ee62d32e448f60372123f2af Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Mon, 5 Dec 2016 15:28:59 -0800
+Subject: [PATCH 3/6] add sx8635 touchpad driver
+
+---
+ drivers/i2c/busses/i2c-i801.c                      |   11 +
+ drivers/i2c/busses/spec.h                          | 1044 ++++++++++++++++++++
+ drivers/input/misc/Kconfig                         |    2 +
+ drivers/input/misc/smtc/Kconfig                    |   17 +
+ include/linux/input/smtc/misc/sx8635_i2c_reg.h     |   41 +
+ .../linux/input/smtc/misc/sx8635_platform_data.h   |  306 ++++++
+ include/linux/input/smtc/misc/sx8635_spm_cfg.h     |  140 +++
+ include/linux/input/smtc/misc/sx863x_i2c_reg.h     |  157 +++
+ include/linux/input/smtc/misc/sx863x_spm_cfg.h     |  701 +++++++++++++
+ 9 files changed, 2419 insertions(+)
+ create mode 100644 drivers/i2c/busses/spec.h
+ create mode 100644 drivers/input/misc/smtc/Kconfig
+ create mode 100644 include/linux/input/smtc/misc/sx8635_i2c_reg.h
+ create mode 100644 include/linux/input/smtc/misc/sx8635_platform_data.h
+ create mode 100644 include/linux/input/smtc/misc/sx8635_spm_cfg.h
+ create mode 100644 include/linux/input/smtc/misc/sx863x_i2c_reg.h
+ create mode 100644 include/linux/input/smtc/misc/sx863x_spm_cfg.h
+
+diff --git a/drivers/i2c/busses/i2c-i801.c b/drivers/i2c/busses/i2c-i801.c
+index 85f39cc..d310f24 100644
+--- a/drivers/i2c/busses/i2c-i801.c
++++ b/drivers/i2c/busses/i2c-i801.c
+@@ -100,6 +100,9 @@
+ #include <linux/gpio.h>
+ #include <linux/i2c-mux-gpio.h>
+ #endif
++#if IS_ENABLED(CONFIG_INPUT_SX8635)
++#include "spec.h"
++#endif
+ 
+ /* I801 SMBus address offsets */
+ #define SMBHSTSTS(p)	(0 + (p)->smba)
+@@ -1313,6 +1316,11 @@ static int i801_acpi_probe(struct i801_priv *priv)
+ 			return 0;
+ 	}
+ 
++#if IS_ENABLED(CONFIG_INPUT_SX8635)
++	if (!memcmp(dmi_get_system_info(DMI_PRODUCT_NAME), "RN316", 5) ||
++	    !memcmp(dmi_get_system_info(DMI_PRODUCT_NAME), "RN516", 5))
++		return 0;
++#endif
+ 	return acpi_check_resource_conflict(&priv->pci_dev->resource[SMBBAR]);
+ }
+ 
+@@ -1491,6 +1499,9 @@ static int i801_probe(struct pci_dev *dev, const struct pci_device_id *id)
+ 		return err;
+ 	}
+ 
++#if IS_ENABLED(CONFIG_INPUT_SX8635)
++	sx8635_i2c_init(&priv->adapter);
++#endif
+ 	i801_probe_optional_slaves(priv);
+ 	/* We ignore errors - multiplexing is optional */
+ 	i801_add_mux(priv);
+diff --git a/drivers/i2c/busses/spec.h b/drivers/i2c/busses/spec.h
+new file mode 100644
+index 0000000..8dd4df1
+--- /dev/null
++++ b/drivers/i2c/busses/spec.h
+@@ -0,0 +1,1044 @@
++/*
++ * SX8635 specifics.
++ * NOTE: the includes listed below are required for the development
++ * board this was written on using the OMAP processor. These defines
++ * may be different depending on the functions the specific processor
++ * uses.
++ *
++ * Copyright 2012 Semtech Corp.
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * version 2 as published by the Free Software Foundation.
++ */
++
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/err.h>
++#include <linux/init.h>
++#include <linux/io.h>
++#include <linux/kernel.h>
++#include <linux/platform_device.h>
++#include <linux/i2c/twl.h>
++#include <linux/regulator/machine.h>
++#include <linux/gpio.h>
++
++#include <linux/input/smtc/misc/sx8635_platform_data.h>
++#include <linux/input/smtc/misc/sx8635_i2c_reg.h>
++#include <linux/input/smtc/misc/sx8635_spm_cfg.h>
++
++
++/* IO Used for NIRQ */
++#define ICH10_FOX
++
++
++
++#include <linux/input/smtc/misc/sx8635_platform_data.h>
++#include <linux/input/smtc/misc/sx8635_i2c_reg.h>
++#include <linux/input/smtc/misc/sx8635_spm_cfg.h>
++
++#ifdef ICH10_FOX
++//ICH10
++//#define GPIO_SX8635_NIRQ 205 //GPIO0
++#define GPIO_SX8635_NIRQ 206 //GPIO0
++#else
++//ICH9
++#define GPIO_SX8635_NIRQ 196	//GPIO1
++#endif
++
++#define SX8635_NIRQ 9//16//2
++static int sx8635_get_nirq_state(void)
++{	int ret = 0;
++	ret=gpio_get_value(GPIO_SX8635_NIRQ);
++	return !ret;
++}
++
++static inline void __init s_sx8635_init(void)
++{
++  printk(KERN_INFO "s_sx8635_init()\n");
++  if ((gpio_request(GPIO_SX8635_NIRQ, "SX8635_NIRQ") == 0) &&
++		(gpio_direction_input(GPIO_SX8635_NIRQ) == 0)) {
++    gpio_export(GPIO_SX8635_NIRQ, 0);
++    printk(KERN_ERR "obtained gpio for SX8635_NIRQ:GPIO_SX8635_NIRQ=0x%x\n",GPIO_SX8635_NIRQ);
++  } else {
++	  return;
++  }
++}
++
++/* Define Registers that need to be initialized to values different than
++ * the default
++ *************************************
++ * Add registers to this by writing
++ * {
++ *   .reg = REG_ADDRESS,
++ *   .val = REG_VALUE,
++ * },
++ ************************
++ * defines and values of register address can be found in
++ * sx863x_i2c_reg.h and sx8635_i2c_reg.h
++ *************************************
++ */
++static struct smtc_reg_data sx8635_i2c_reg_setup[] = {
++  {
++    .reg = SX863X_COMPOPMODE_REG,
++    .val = SX863X_COMPOPMODE_OPERATINGMODE_ACTIVE,
++  }
++};
++/* Define SPM configuration map to be intialized to values different than
++ * default. NOTE: Programming is done in 8 blocks.
++ * However, the driver is setup to perform needed reads and adjustments so
++ * that it is not required to add in extra default values.
++ * When final SPM values are obtained it may be advantageous to set them in
++ * NVM so that the driver does not need to initialize them.
++ *************************************
++ * Add spm registers to this by writing
++ * {
++ *   .reg = SPM_ADDRESS,
++ *   .val = SPM_VALUE,
++ * },
++ ************************
++ * defines and values of spm register address can be found in
++ * sx863x_spm_reg.h and sx8635_spm_reg.h
++ *************************************
++*/
++static struct smtc_reg_data sx8635_spm_cfg_setup[] = {
++  {
++    .reg = 0x00,
++    .val = 0x2F,
++  },
++  {
++    .reg =  0x01,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x02,
++    .val =  0x19,
++  },
++  {
++    .reg =  0x03,
++    .val =  0x0E,
++  },
++  {
++    .reg =  SX863X_I2CADDRESS_SPM,
++    .val =  0x2B,
++  },
++  {
++    .reg =  SX863X_ACTIVESCANPERIOD_SPM,
++    //.val =  0x01,
++    .val =  0x02,
++  },
++  {
++    .reg =  SX863X_DOZESCANPERIOD_SPM,
++    .val =  0x0D,
++  },
++  {
++    .reg = SX863X_PASSIVETIMER_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x08,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_CAPEMODEMISC_SPM,
++    .val =  0x04,
++  },
++  {
++    .reg =  SX863X_CAPMODE11_8_SPM,
++    .val =  0x0F,
++  },
++  {
++    .reg =  SX863X_CAPMODE7_4_SPM,
++    .val =  0xFF,
++  },
++  {
++    .reg =  SX863X_CAPMODE3_0_SPM,
++    .val =  0xF5,
++  },
++  {
++    .reg =  SX863X_CAPSENSITIVITY0_1_SPM,
++    .val =  0x75,
++  },
++  {
++    .reg =  SX863X_CAPSENSITIVITY2_3_SPM,
++    //.val =  0x44,
++    .val =  0x55,
++  },
++  {
++    .reg =  SX863X_CAPSENSITIVITY4_5_SPM,
++    //.val =  0x44,
++    .val =  0x55,
++  },
++  {
++    .reg =  SX863X_CAPSENSITIVITY6_7_SPM,
++    //.val =  0x44,
++    .val =  0x55,
++  },
++  {
++    .reg =  SX863X_CAPSENSITIVITY8_9_SPM,
++    //.val =  0x44,
++    .val =  0x55,
++  },
++  {
++    .reg =  SX863X_CAPSENSITIVITY10_11_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH0_SPM,
++    //.val =  0x70,
++    .val =  0x80,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH1_SPM,
++    .val =  0xB0,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH2_SPM,
++    .val =  0x98,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH3_SPM,
++    .val =  0x98,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH4_SPM,
++    .val =  0x98,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH5_SPM,
++    .val =  0x98,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH6_SPM,
++    .val =  0x98,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH7_SPM,
++    .val =  0x98,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH8_SPM,
++    .val =  0x98,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH9_SPM,
++    .val =  0x98,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH10_SPM,
++    .val =  0x98,
++  },
++  {
++    .reg =  SX863X_CAPTHRESH11_SPM,
++    .val =  0x98,
++  },
++  {
++    .reg =  SX863X_CAPPERCOMP_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x20,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_BTNCFG_SPM,
++    //.val =  0x38,
++    .val =  0x30,
++  },
++  {
++    .reg =  SX863X_BTNAVGTHRESH_SPM,
++    .val =  0x48,
++  },
++  {
++    .reg =  SX863X_BTNCOMPNEGTHRESH_SPM,
++    //.val =  0x60,
++    .val =  0x48,
++  },
++  {
++    .reg =  SX863X_BTNCOMPNEGCNTMAX_SPM,
++    .val =  0x01,
++  },
++  {
++    .reg =  SX863X_BTNHYSTERESIS_SPM,
++    .val =  0x05,
++  },
++  {
++    .reg =  SX863X_BTNSTUCKATTIMEOUT_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_WHLCFG_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_WHLSTUCKATTIMEOUT_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_WHLHYSTERESIS_SPM,
++    .val =  0x05,
++  },
++  {
++    .reg =  0x2A,
++    .val =  0xFF,
++  },
++  {
++    .reg =  SX863X_WHLNORMMSB_SPM,
++    .val =  0x01,
++  },
++  {
++    .reg =  SX863X_WHLNORMLSB_SPM,
++    .val =  0x40,
++  },
++  {
++    .reg =  SX863X_WHLAVGTHRESH_SPM,
++    .val =  0x50,
++  },
++  {
++    .reg =  SX863X_WHLCOMPNEGTHRESH_SPM,
++    //.val =  0x60,
++    .val =  0x50,
++  },
++  {
++    .reg =  SX863X_WHLCOMPNEGCNTMAX_SPM,
++    .val =  0x03,
++  },
++  {
++    .reg =  SX863X_WHLROTATETHRESH_SPM,
++    .val =  0x0A,
++  },
++  {
++    .reg =  SX863X_WHLOFFSET_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x32,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_MAPWAKEUPSIZE_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_MAPWAKEUPVALUE0_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_MAPWAKEUPVALUE1_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_MAPWAKEUPVALUE2_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_MAPAUTOLIGHT0_SPM,
++    .val =  0xBB,
++  },
++  {
++    .reg =  SX863X_MAPAUTOLIGHT1_SPM,
++    .val =  0xBB,
++  },
++  {
++    .reg =  SX863X_MAPAUTOLIGHT2_SPM,
++    .val =  0xBB,
++  },
++  {
++    .reg =  SX863X_MAPAUTOLIGHT3_SPM,
++    .val =  0xBB,
++  },
++  {
++    .reg =  SX863X_MAPAUTOLIGHTGRP0MSB_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_MAPAUTOLIGHTGRP0LSB_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_MAPAUTOLIGHTGRP1MSB_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_MAPAUTOLIGHTGRP1LSB_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x3F,
++    .val =  0x02,
++  },
++  {
++    .reg =  SX863X_GPIOMODE7_4_SPM,
++    .val =  0x55,
++  },
++  {
++    .reg =  SX863X_GPIOMODE3_0_SPM,
++    .val =  0x55,
++  },
++  {
++    .reg =  SX863X_GPIOOUTPWRUP_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOAUTOLIGHT_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOPOLARITY_SPM,
++    .val =  0x3F,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYON0_SPM,
++    .val =  0xFF,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYON1_SPM,
++    .val =  0xFF,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYON2_SPM,
++    .val =  0xFF,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYON3_SPM,
++    .val =  0xFF,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYON4_SPM,
++    .val =  0xFF,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYON5_SPM,
++    .val =  0xFF,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYON6_SPM,
++    .val =  0xFF,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYON7_SPM,
++    .val =  0xFF,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYOFF0_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYOFF1_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYOFF2_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYOFF3_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYOFF4_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYOFF5_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYOFF6_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINTENSITYOFF7_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x55,
++    .val =  0xFF,
++  },
++  {
++    .reg =  SX863X_GPIOFUNCTION_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINCFACTOR_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIODECFACTOR_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINCTIME7_6_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINCTIME5_4_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINCTIME3_2_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINCTIME1_0_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIODECTIME7_6_SPM,
++    .val =  0x44,
++  },
++  {
++    .reg =  SX863X_GPIODECTIME5_4_SPM,
++    .val =  0x44,
++  },
++  {
++    .reg =  SX863X_GPIODECTIME3_2_SPM,
++    .val =  0x44,
++  },
++  {
++    .reg =  SX863X_GPIODECTIME1_0_SPM,
++    .val =  0x44,
++  },
++  {
++    .reg =  SX863X_GPIOOFFDELAY7_6_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOOFFDELAY5_4_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOOFFDELAY3_2_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOOFFDELAY1_0_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOPULLUPDOWN7_4_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOPULLUPDOWN3_0_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINTERRUPT7_4_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIOINTERRUPT3_0_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  SX863X_GPIODEBOUNCE_SPM,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x6A,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x6B,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x6C,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x6D,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x6E,
++    .val =  0x00,
++  },
++  {
++    .reg =  0x6F,
++    .val =  0x50,
++  },
++  {
++    .reg =  SX863X_CAPPROXENABLE_SPM,
++    .val =  0x74,
++  },
++  {
++    .reg =  0x71,
++    .val =  0x10,
++  },
++  {
++    .reg =  0x72,
++    .val =  0x45,
++  },
++  {
++    .reg =  0x73,
++    .val =  0x02,
++  },
++  {
++    .reg =  0x74,
++    .val =  0xFF,
++  },
++  {
++    .reg =  0x75,
++    .val =  0xFF,
++  },
++  {
++    .reg =  0x76,
++    .val =  0xFF,
++  },
++  {
++    .reg =  0x77,
++    .val =  0xD5,
++  },
++  {
++    .reg =  0x78,
++    .val =  0x55,
++  },
++  {
++    .reg =  0x79,
++    .val =  0x55,
++  },
++  {
++    .reg =  0x7A,
++    .val =  0x7F,
++  },
++  {
++    .reg =  0x7B,
++    .val =  0x23,
++  },
++  {
++    .reg =  0x7C,
++    .val =  0x22,
++  },
++  {
++    .reg =  0x7D,
++    .val =  0x41,
++  },
++  {
++    .reg =  0x7E,
++    .val =  0xFF,
++  },
++};
++/***********************************************************/
++/***********************************************************/
++/* Define the intensities for each action. The name of the
++ * variable corresponds to what action the intensities are
++ * for.
++ *************************************
++ * Adding or removing different LEDs from being set can be
++ * done by adding or removing the io section.
++ * IO sections are defined by
++ * {
++ *   .io = IO_CHANGING,
++ *   .intensity = INTENSITY_TO_PROGRAM_TO_DEVICE,
++ * },
++ ************************
++ * defines of the currently used intensities and leds can be found in
++ * sx8635_platform_data.h
++ *************************************
++ */
++static struct _ledInfo wheelUpIntensities[] = {
++  {
++    .io = WHEEL_UP_LED,
++    .intensity = SMTC_ON_INTENSITY,
++  },
++  {
++    .io = WHEEL_RIGHT_LED,
++    .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++    .io = WHEEL_DOWN_LED,
++    .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++    .io = WHEEL_LEFT_LED,
++    .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++    .io = MIDDLE_BUTTON_LED,
++    .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++    .io = LOGO_LED,
++    .intensity = SMTC_ON_INTENSITY,
++  },
++};
++static struct _ledInfo wheelRightIntensities[] = {
++    {
++      .io = WHEEL_UP_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++    },
++    {
++      .io = WHEEL_RIGHT_LED,
++      .intensity = SMTC_ON_INTENSITY,
++    },
++    {
++      .io = WHEEL_DOWN_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++    },
++    {
++      .io = WHEEL_LEFT_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++    },
++    {
++      .io = MIDDLE_BUTTON_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++    },
++    {
++      .io = LOGO_LED,
++      .intensity = SMTC_ON_INTENSITY,
++    },
++};
++
++static struct _ledInfo wheelDownIntensities[] = {
++    {
++      .io = WHEEL_UP_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++    },
++    {
++      .io = WHEEL_RIGHT_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++    },
++    {
++      .io = WHEEL_DOWN_LED,
++      .intensity = SMTC_ON_INTENSITY,
++    },
++    {
++      .io = WHEEL_LEFT_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++    },
++    {
++      .io = MIDDLE_BUTTON_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++    },
++    {
++      .io = LOGO_LED,
++      .intensity = SMTC_ON_INTENSITY,
++    },
++};
++static struct _ledInfo wheelLeftIntensities[] = {
++  {
++      .io = WHEEL_UP_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = WHEEL_RIGHT_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = WHEEL_DOWN_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = WHEEL_LEFT_LED,
++      .intensity = SMTC_ON_INTENSITY,
++  },
++  {
++      .io = MIDDLE_BUTTON_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = LOGO_LED,
++      .intensity = SMTC_ON_INTENSITY,
++  },
++};
++
++
++static struct _ledInfo offIntensities[] = {
++  {
++      .io = WHEEL_UP_LED,
++      .intensity = SMTC_OFF_INTENSITY,
++  },
++  {
++      .io = WHEEL_RIGHT_LED,
++      .intensity = SMTC_OFF_INTENSITY,
++  },
++  {
++      .io = WHEEL_DOWN_LED,
++      .intensity = SMTC_OFF_INTENSITY,
++  },
++  {
++      .io = WHEEL_LEFT_LED,
++      .intensity = SMTC_OFF_INTENSITY,
++  },
++  {
++      .io = MIDDLE_BUTTON_LED,
++      .intensity = SMTC_OFF_INTENSITY,
++  },
++  {
++      .io = LOGO_LED,
++      .intensity = SMTC_OFF_INTENSITY,
++  },
++};
++
++static struct _ledInfo buttonMiddleIntensities[] = {
++  {
++      .io = WHEEL_UP_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = WHEEL_RIGHT_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = WHEEL_DOWN_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = WHEEL_LEFT_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = MIDDLE_BUTTON_LED,
++      .intensity = SMTC_ON_INTENSITY,
++  },
++  {
++      .io = LOGO_LED,
++      .intensity = SMTC_ON_INTENSITY,
++  },
++};
++
++static struct _ledInfo buttonProxIntensities[] = {
++  {
++      .io = WHEEL_UP_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = WHEEL_RIGHT_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = WHEEL_DOWN_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = WHEEL_LEFT_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = MIDDLE_BUTTON_LED,
++      .intensity = SMTC_PROX_INTENSITY,
++  },
++  {
++      .io = LOGO_LED,
++      .intensity = SMTC_ON_INTENSITY,
++  },
++};
++/***********************************************************/
++/***********************************************************/
++
++
++
++
++/***********************************************************/
++/***********************************************************/
++/* Define the input key to be used for each section (or action).
++ * The driver defines the action to be a touch and release when
++ * sending the action.
++ *************************************
++ * To change this, simply change the following.
++ *   .key = CORRESPONDING_KEY_CODE,
++ ************************
++ * defines of the inputs can be found in
++ * input.h
++ *************************************
++ */
++static inputEvent_t buttonMiddleInput = {
++  .key = KEY_OK,
++};
++
++static inputEvent_t wheelDownInput = {
++  .key = KEY_DOWN,
++};
++
++static inputEvent_t wheelRightInput = {
++  .key = KEY_FORWARD,
++};
++
++static inputEvent_t wheelUpInput = {
++  .key = KEY_UP,
++};
++
++static inputEvent_t wheelLeftInput = {
++  .key = KEY_BACK,
++};
++
++static inputEvent_t wheelMoveCWiseInput = {
++  .key = KEY_SCROLLDOWN,
++};
++
++static inputEvent_t wheelMoveCCWiseInput = {
++  .key = KEY_SCROLLUP,
++};
++/***********************************************************/
++/***********************************************************/
++
++/*************************************
++ * The following structs and arrays normally should not be changed as they
++ * group the above settings in their correct sections and actions.
++ * If items such as sending a specific input is needed when proximity
++ * occurs, it can be done here..
++ * Below is a description of the variables
++ *  .sectionID = SECTION_ID_FOR_DRIVER_IDENTIFYING,
++ *  .pLEDState = POINTER_TO_INTENSITY_TO_SEND,
++ *  .nLEDStateSize = SIZE_OF_LED_POINTER_AS_A_VARIABLE_LED_AMOUNT_CAN_BE_USED,
++ *  .pInputState = POINTER_TO_INPUT_STATE_TO_SEND,
++ ************************
++ * The pointers are defined above
++ *************************************
++*/
++/***********************************************************/
++/***********************************************************/
++/* Define some specific sections such as the off and proximity.
++ * Generally only the LED part will be used but this allows a
++ * more generic way to handle it in case later requirements
++ * change.
++  */
++static struct _touchSection allOffSection = {
++  .sectionID = ALL_OFF,
++  .pLEDState = offIntensities,
++  .nLEDStateSize = ARRAY_SIZE(offIntensities),
++  .pInputState = NULL,
++};
++static struct _touchSection proxSection = {
++    .sectionID = BUTTON_PROX,
++    .pLEDState = buttonProxIntensities,
++    .nLEDStateSize = ARRAY_SIZE(buttonProxIntensities),
++    .pInputState = NULL,
++};
++/* Define array of the sections specific to button sensors.
++ * This is the proximity and middle.
++ */
++static struct _touchSection buttonSectionArray[] = {
++  {
++    .sectionID = BUTTON_PROX,
++    .pLEDState = buttonProxIntensities,
++    .nLEDStateSize = ARRAY_SIZE(buttonProxIntensities),
++    .pInputState = NULL,
++  },
++  {
++    .sectionID = BUTTON_MIDDLE,
++    .pLEDState = buttonMiddleIntensities,
++    .nLEDStateSize = ARRAY_SIZE(buttonMiddleIntensities),
++    .pInputState = &buttonMiddleInput,
++  },
++
++};
++/* Define array of the sections specific to wheel sensors.
++ * This is WHEEL UP, DOWN, LEFT, RIGHT
++ */
++static struct _touchSection wheelSectionArray[] = {
++  {
++    .sectionID = WHEEL_DOWN,
++    .pLEDState = wheelDownIntensities,
++    .nLEDStateSize = ARRAY_SIZE(wheelDownIntensities),
++    .pInputState = &wheelDownInput,
++  },
++  {
++    .sectionID = WHEEL_RIGHT,
++    .pLEDState = wheelRightIntensities,
++    .nLEDStateSize = ARRAY_SIZE(wheelRightIntensities),
++    .pInputState = &wheelRightInput,
++  },
++  {
++    .sectionID = WHEEL_UP,
++    .pLEDState = wheelUpIntensities,
++    .nLEDStateSize = ARRAY_SIZE(wheelUpIntensities),
++    .pInputState = &wheelUpInput,
++  },
++  {
++    .sectionID = WHEEL_LEFT,
++    .pLEDState =   wheelLeftIntensities,
++     .nLEDStateSize = ARRAY_SIZE(wheelLeftIntensities),
++    .pInputState = &wheelLeftInput,
++  },
++};
++/***********************************************************/
++/***********************************************************/
++
++
++/***********************************************************/
++/***********************************************************/
++/* This is the main struct for keeping track of wheel and button information.
++ * .nSensors should be defined as the number of wheel sensors
++ * .move_threshold_factor This is a shift amount from the max value to define
++ *                         how far the wheel position must be changed to be
++ *                         seen as a move (rotate)
++ * .wheelSectionGroup This is the array defined above for the wheel sections
++ * .nWheelSectionGroupSize This is how many sections are in the wheel array
++ * .moveCWISE_InputState This is what input key should be used for a CWISE move
++ * .moveCCWISE_InputState This is the input key for a CCWISE movement
++ * .offSection This is what should be used when nothing is touching
++ * .proxSection This is what should be used when running on the proximity timer
++ * .buttonSectionGroup This is the array for button sections (middle/prox)
++ * .nButtonSectionGroupSize This is the size of the button section array
++ * .nLEDIncrementSteps The amount of steps to use when fade out/in
++ * .nLEDDelayBetweenSteps The delay between each fade out/in step
++ * .nLEDTimeoutOffDelay This is the delay for when using the proximity timer
++ */
++static struct _touchInformation touchInformation = {
++  .nSensors   = 8, /* must coincide with SPM settings */
++  .move_threshold_factor = 4,
++  .wheelSectionGroup = wheelSectionArray,
++  .nWheelSectionGroupSize = ARRAY_SIZE(wheelSectionArray),
++  .moveCWISE_InputState = &wheelMoveCWiseInput,
++  .moveCCWISE_InputState = &wheelMoveCCWiseInput,
++  .offSection = &allOffSection,
++  .proxSection = &proxSection,
++  .buttonSectionGroup = buttonSectionArray,
++  .nButtonSectionGroupSize = ARRAY_SIZE(buttonSectionArray),
++  .nLEDIncrementSteps = 40,
++  .nLEDDelayBetweenSteps = 1,
++  .nLEDTimeoutOffDelay = 30000,
++  .bLEDFadeInEnable = 0,
++  .bLEDFadeOutEnable = 1,
++};
++/***********************************************************/
++/***********************************************************/
++
++/***********************************************************/
++/* Main struct */
++static sx8635_platform_data_t sx8635_config = {
++  /* Function pointer to get the NIRQ state (1->NIRQ-low, 0->NIRQ-high) */
++  .get_is_nirq_low = sx8635_get_nirq_state,
++  /*  pointer to an initializer function. Here in case needed in the future */
++  .init_platform_hw = 0,
++  /*  pointer to an exit function. Here in case needed in the future */
++  .exit_platform_hw = 0,
++  /* number of i2c registers to initialize */
++  .i2c_reg_num = ARRAY_SIZE(sx8635_i2c_reg_setup),
++  /* number of spm registers to initialize */
++  .spm_cfg_num = ARRAY_SIZE(sx8635_spm_cfg_setup),
++  /* The i2c register array for initializing */
++  .i2c_reg = sx8635_i2c_reg_setup,
++  /* The spm register array for initializing */
++  .spm_cfg = sx8635_spm_cfg_setup,
++  /* Pointer to struct defined above */
++  .touchInformation = &touchInformation,
++};
++/***********************************************************/
++
++
++
++/********************************************************************/
++/* Use this define in the board specific array initializer */
++#define SX8635_BOARD_INFO \
++    I2C_BOARD_INFO("sx8635", 0x2B), \
++		.flags         = I2C_CLIENT_WAKE,\
++		.irq           = SX8635_NIRQ, \
++		.platform_data = &sx8635_config,
++/********************************************************************/
++
++/* Below is an example of how to initialize this */
++static struct i2c_board_info __initdata smtc_i2c_boardinfo[] = {
++  {
++    SX8635_BOARD_INFO
++  },
++};
++static int __init sx8635_i2c_init(struct i2c_adapter *adapter)
++{
++	s_sx8635_init();
++	printk(KERN_INFO " sx8635 i2c_new_device()\n");
++	i2c_new_device(adapter,smtc_i2c_boardinfo);
++	return 0;
++}
+diff --git a/drivers/input/misc/Kconfig b/drivers/input/misc/Kconfig
+index d6d16fa..6fab6ec 100644
+--- a/drivers/input/misc/Kconfig
++++ b/drivers/input/misc/Kconfig
+@@ -12,6 +12,8 @@ menuconfig INPUT_MISC
+ 
+ if INPUT_MISC
+ 
++source "drivers/input/misc/smtc/Kconfig"
++
+ config INPUT_88PM860X_ONKEY
+ 	tristate "88PM860x ONKEY support"
+ 	depends on MFD_88PM860X
+diff --git a/drivers/input/misc/smtc/Kconfig b/drivers/input/misc/smtc/Kconfig
+new file mode 100644
+index 0000000..7f50c33
+--- /dev/null
++++ b/drivers/input/misc/smtc/Kconfig
+@@ -0,0 +1,17 @@
++#
++# Input misc drivers configuration for SX8636
++#
++#	depends on I2C && I2C_I801
++menu "Semtech Capacitive Touch Sensors"
++
++config INPUT_SX8635
++	tristate "Semtech SX8635"
++	depends on I2C_I801
++	help
++	  Say Y here if you want to use the SX8635 for Capacitive Buttons/Wheel.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called sx8635.
++
++
++endmenu
+diff --git a/include/linux/input/smtc/misc/sx8635_i2c_reg.h b/include/linux/input/smtc/misc/sx8635_i2c_reg.h
+new file mode 100644
+index 0000000..b61431c
+--- /dev/null
++++ b/include/linux/input/smtc/misc/sx8635_i2c_reg.h
+@@ -0,0 +1,41 @@
++/*
++ * SX8635 Cap Touch specific registers
++ *
++ * Copyright 2011 Semtech Corp.
++ *
++ * Licensed under the GPL-2 or later.
++ */
++
++#ifndef _SX8635_I2C_REG_H_
++#define _SX8635_I2C_REG_H_
++#include "sx863x_i2c_reg.h"
++/*
++ *  I2C Registers
++ */
++#define SX863X_CAPSTATMSB_REG     0x01
++
++#define SX863X_WHLPOSMSB_REG  0x03
++#define SX863X_WHLPOSLSB_REG  0x04
++
++#define SX863X_CAPSTAT_BUTTON11        0x800
++#define SX863X_CAPSTAT_BUTTON10        0x400
++#define SX863X_CAPSTAT_BUTTON9         0x200
++#define SX863X_CAPSTAT_BUTTON8         0x100
++
++
++/*
++ *  I2C Register Values
++ */
++
++
++#define SX863X_IRQSRC_WHEEL_FLAG      0x08
++
++/*      CapStatMsb */
++/* Did wheel rotate clockwise? */
++#define SX863X_CAPSTATMSB_WHL_CWISE   0x40
++/* Did wheel rotate counter-clockwise? */
++#define SX863X_CAPSTATMSB_WHL_CCWISE  0x20
++/* Was wheel touched or released? */
++#define SX863X_CAPSTATMSB_WHL_TOUCHED 0x10
++
++#endif /* _SX8635_I2C_REG_H_*/
+diff --git a/include/linux/input/smtc/misc/sx8635_platform_data.h b/include/linux/input/smtc/misc/sx8635_platform_data.h
+new file mode 100644
+index 0000000..b74b812
+--- /dev/null
++++ b/include/linux/input/smtc/misc/sx8635_platform_data.h
+@@ -0,0 +1,306 @@
++/* !
++ * \file sx8635_platform_data.h
++ *
++ * SX8635 Platform Data
++ *
++ * Copyright 2012 Semtech Corp.
++ *
++ * Licensed under the GPL-2 or later.
++ */
++
++#ifndef _SX8635_PLATFORM_DATA_H_
++#define _SX8635_PLATFORM_DATA_H_
++
++#include <linux/slab.h>
++#include <linux/input.h>
++
++/*
++ * \defgroup INTENSITY_GROUP LED Intensities
++ * \{
++ */
++/*! Off Intensity Code
++ */
++#define SMTC_OFF_INTENSITY 0
++/*! On Intensity Code
++ */
++#define SMTC_ON_INTENSITY 255
++/*! Proximity Intensity Code
++ */
++#define SMTC_PROX_INTENSITY 76  // ~ 30%
++/*!  \}
++ */
++
++/*
++ * \defgroup IO_GROUP IO Numbers for LEDs
++ * \{
++ */
++/*! IO for the LED corresponding to Wheel Up
++ */
++#define WHEEL_UP_LED 0
++/*! IO for the LED corresponding to Wheel Right
++ */
++#define WHEEL_RIGHT_LED 1
++/*! IO for the LED corresponding to Wheel Down
++ */
++#define WHEEL_DOWN_LED 2
++/*! IO for the LED corresponding to Wheel Left
++ */
++#define WHEEL_LEFT_LED 3
++/*! IO for the LED corresponding to the middle button
++ */
++#define MIDDLE_BUTTON_LED 4
++/*! IO for the LED corresponding to the LOGO
++ */
++#define LOGO_LED 5
++/*!  \}
++ */
++
++
++/*! \brief Section ID codes used for Wheel and Button information
++ */
++enum _touchSectionIDs {
++  UNKNOWN_SECTION,ALL_OFF,WHEEL_UP,WHEEL_DOWN,WHEEL_LEFT,WHEEL_RIGHT,MAX_WHEEL_STATES,BUTTON_MIDDLE,BUTTON_PROX
++};
++
++/*! \brief State codes used for Wheel and Button information
++ */
++enum _states {
++  /*! In case an error or something else unknown occurs, use this
++   */
++  UNKNOWN,
++  /*! When user releases the touch, this is the event to use.
++   * If previous was TOUCH, send touch/no touch.
++   * If previous was MOVE or STOPPED, do nothing
++   */
++  RELEASED,
++  /*! When user touches a button or the wheel, go here. Does not mean to send
++   * data but the next event will determine what to send (MOVE or RELEASED)
++   * Record initial position
++   * No events should be sent out
++   * LEDs will be processed on the other section
++   */
++  TOUCH,
++  /*! When user moves passed threshold in clock wise motion send this.
++   */
++  MOVE_CWISE,
++  /*! When user moves passed threshold in counter clock wise motion send this.
++   */
++  MOVE_CCWISE,
++  /*! This is the event that is used after a wheel event occurred and user is
++   * not moving the wheel.  This only should be used as the main event IF a
++   * move has already occurred. For example, if the user TOUCHES but does not
++   * trigger a move, the main event should stay as TOUCHED so that when
++   * RELEASE occurs, the touch event gets sent.
++   */
++  STOPPED
++};
++
++
++/************************************************/
++/*! \brief Input struct. Right now just need a keycode
++ */
++struct _inputEvent {
++  int key;
++};
++typedef struct _inputEvent inputEvent_t;
++/************************************************/
++
++
++
++/************************************************/
++/*! \brief LED IO mapping struct
++ */
++struct _ledInfo {
++  /*! The IO the variable is referring to
++   */
++  u8 io;
++  /*! The intensity to set the IO to
++   */
++  u8 intensity;
++};
++/*! \brief Struct to hold the size and array of LED IO mappings
++ */
++struct _ioGroup {
++  /*! Size of the array
++   */
++  int size;
++  /*! Array of LED IO mappings
++   */
++  struct _ledInfo *led;
++};
++typedef struct _ioGroup ioGroup_t;
++typedef struct _ioGroup *pioGroup_t;
++/************************************************/
++
++
++/********************************************************/
++/*! \brief Struct containing information related to a speific
++ * wheel or button section.
++ */
++struct _touchSection {
++  /*! The Section ID associated with this variable
++   */
++  int sectionID;
++  /*! Array of what to set the IOs for LEDs to when this section is active
++   */
++  struct _ledInfo *pLEDState;
++  /*! Pointer to the Input to use for this section
++   */
++  inputEvent_t *pInputState;
++  /*! Size of pLEDState
++   */
++  int nLEDStateSize;
++  /*! \brief Current state of this section.
++   * \description This does not need to be filled in as it is changed in the
++   * code when copies of the section are made.
++   */
++  int state;
++  /*! \brief Minimum section's position when relating to a wheel section.
++   * \description This does not need to be filled in as it is changed in the
++   * code when copies of the section are made.
++   */
++  int minSection;
++  /*! \brief Maximum section's position when relating to a wheel section.
++   * \description This does not need to be filled in as it is changed in the
++   * code when copies of the section are made.
++   */
++  int maxSection;
++  /*! \brief Current section's position when relating to a wheel section.
++   * \description This does not need to be filled in as it is changed in the
++   * code when copies of the section are made.
++   */
++  int position;
++};
++typedef struct _touchSection touchSection_t;
++/********************************************************/
++
++
++/********************************************************/
++/*! \brief Struct containing information related to the wheel and
++ * button information.
++ */
++struct _touchInformation {
++
++  /*! Array for button sections (middle/prox)
++   */
++  touchSection_t *buttonSectionGroup;
++  /*! Size of the button section array
++   */
++  int nButtonSectionGroupSize;
++  /*! Array for the wheel sections
++   */
++  touchSection_t *wheelSectionGroup;
++  /*! Size of the wheel section array
++   */
++  int nWheelSectionGroupSize;
++
++  /*! Input key that should be used for a CWISE move
++   */
++  inputEvent_t *moveCWISE_InputState;
++  /*! Input key that should be used for a CCWISE movement
++   */
++  inputEvent_t *moveCCWISE_InputState;
++
++  /*! The number of wheel sensors (must coincide with SPM settings)
++   */
++  int nSensors;
++  /*! A shift amount from the max value to define how far the wheel position
++   * must be changed to be seen as a move (rotate)
++   */
++  int move_threshold_factor;
++
++  /*! Section to use when nothing is touch or in proximity
++   */
++  touchSection_t *offSection;
++  /*! Section to set when startig the proximity timer
++   */
++  touchSection_t *proxSection;
++   /*! Amount of steps to use when fading out/in
++   */
++  int nLEDIncrementSteps;
++  /*! Delay between each fade out/in steps (in milliseconds)
++   */
++  int nLEDDelayBetweenSteps;
++  /*! Timeout delay for when using the proximity timer (in milliseconds)
++   */
++  int nLEDTimeoutOffDelay;
++
++  /*! Whether to fade in when proximity first appears
++   */
++  char bLEDFadeInEnable;
++  /*! Whether to fade out when proximity is removed
++   */
++  char bLEDFadeOutEnable;
++
++  /*! \brief Max position value of the wheel
++   *  \description This is calculated inside the driver.
++   */
++  int max_value;
++  /*! \brief Move threshold for the wheel
++   *  \description This is calculated inside the driver.
++   */
++  int move_threshold;
++  /*! \brief Copy of the last section that was used
++   *  \description This is calculated inside the driver.
++   */
++  touchSection_t lastSentSection;
++  /*! \brief Input to use when sending key events
++   *  \description This is calculated inside the driver.
++   */
++  struct input_dev *input;
++};
++typedef struct _touchInformation touchInformation_t;
++/********************************************************/
++
++
++
++/*! \brief Structure containing register address and value
++ */
++struct smtc_reg_data {
++  /*! Register Address
++   */
++  unsigned char reg;
++  /*! Register Value
++   */
++  unsigned char val;
++};
++typedef struct smtc_reg_data smtc_reg_data_t;
++typedef struct smtc_reg_data *psmtc_reg_data_t;
++
++/*! \brief Main struct containing spm, i2c, touch, nirq, etc
++ */
++struct sx8635_platform_data {
++  /*! Number of i2c registers to initialize
++   */
++  int i2c_reg_num;
++  /*! Number of spm registers to initialize
++   */
++  int spm_cfg_num;
++  /*! Array of i2c registers
++   */
++  struct smtc_reg_data *i2c_reg;
++  /*! Array of spm registers
++   */
++  struct smtc_reg_data *spm_cfg;
++
++  /*! Pointer to touch information structure
++   */
++  struct _touchInformation *touchInformation;
++
++  /*! \brief Function pointer to nirq status
++   * \description Since we use ACPI this is actually not needed
++   * but here in case things change
++   */
++  int (*get_is_nirq_low)(void);
++  /*! Function pointer that can contain platform data to initialize
++   */
++  int     (*init_platform_hw)(void);
++  /*! Function pointer that can contain platform data exiting information
++   */
++  void    (*exit_platform_hw)(void);
++
++};
++typedef struct sx8635_platform_data sx8635_platform_data_t;
++typedef struct sx8635_platform_data *psx8635_platform_data_t;
++
++#endif
+diff --git a/include/linux/input/smtc/misc/sx8635_spm_cfg.h b/include/linux/input/smtc/misc/sx8635_spm_cfg.h
+new file mode 100644
+index 0000000..1b1e648
+--- /dev/null
++++ b/include/linux/input/smtc/misc/sx8635_spm_cfg.h
+@@ -0,0 +1,140 @@
++/*
++ * SX8635 Cap Touch specific registers
++ * Defines are written as 3X to make it easier when using them in code
++ *
++ * Copyright 2012 Semtech Corp.
++ *
++ * Licensed under the GPL-2 or later.
++ */
++
++#ifndef _SX8635_SPM_REG_H_
++#define _SX8635_SPM_REG_H_
++#include "sx863x_spm_cfg.h"
++
++/*
++ * spm address map supplemental for SX8635
++ */
++
++#define SX863X_CAPMODE11_8_SPM 0x0A /* default QSM: 0xAA */
++#define SX863X_CAPSENSITIVITY8_9_SPM 0x11 /* default QSM: 0x00 */
++#define SX863X_CAPSENSITIVITY10_11_SPM 0x12 /* default QSM: 0x00 */
++#define SX863X_CAPTHRESH8_SPM 0x1B /* default QSM: 0xA0 */
++#define SX863X_CAPTHRESH9_SPM 0x1C /* default QSM: 0xA0 */
++#define SX863X_CAPTHRESH10_SPM 0x1D /* default QSM: 0xA0 */
++#define SX863X_CAPTHRESH11_SPM 0x1E /* default QSM: 0xA0 */
++
++#define SX863X_WHLCFG_SPM             0x27
++#define SX863X_WHLSTUCKATTIMEOUT_SPM  0x28
++#define SX863X_WHLHYSTERESIS_SPM      0x29
++#define SX863X_WHLNORMMSB_SPM         0x2B
++#define SX863X_WHLNORMLSB_SPM         0x2C
++#define SX863X_WHLAVGTHRESH_SPM       0x2D
++#define SX863X_WHLCOMPNEGTHRESH_SPM   0x2E
++#define SX863X_WHLCOMPNEGCNTMAX_SPM   0x2F
++#define SX863X_WHLROTATETHRESH_SPM    0x30
++#define SX863X_WHLOFFSET_SPM          0x31
++
++/*
++ * SPM Values
++ */
++/*    CapMode11_8          */
++#define SX863X_CAPMODE11_8_CAP11_BUTTON 0x40
++#define SX863X_CAPMODE11_8_CAP10_BUTTON 0x10
++#define SX863X_CAPMODE11_8_CAP9_BUTTON 0x04
++#define SX863X_CAPMODE11_8_CAP8_BUTTON 0x01
++
++#define SX863X_CAPMODE11_8_CAP11_WHEEL 0xC0
++#define SX863X_CAPMODE11_8_CAP10_WHEEL 0x30
++#define SX863X_CAPMODE11_8_CAP9_WHEEL  0x0C
++#define SX863X_CAPMODE11_8_CAP8_WHEEL  0x03
++/*    CapMode7_4          */
++#define SX863X_CAPMODE7_4_CAP7_WHEEL   0xC0
++#define SX863X_CAPMODE7_4_CAP6_WHEEL   0x30
++#define SX863X_CAPMODE7_4_CAP5_WHEEL   0x0C
++#define SX863X_CAPMODE7_4_CAP4_WHEEL   0x03
++/*    CapMode3_0          */
++#define SX863X_CAPMODE3_0_CAP3_WHEEL   0xC0
++#define SX863X_CAPMODE3_0_CAP2_WHEEL   0x30
++#define SX863X_CAPMODE3_0_CAP1_WHEEL   0x0C
++#define SX863X_CAPMODE3_0_CAP0_WHEEL   0x03
++/*    CapSensitivity8_9   */
++#define SX863X_CAPSENSITIVITY8_9_MSK 0x77
++#define SX863X_CAPSENSITIVITY8_9_DEFAULT 0x00
++/*    CapSensitivity10_11   */
++#define SX863X_CAPSENSITIVITY10_11_MSK 0x77
++#define SX863X_CAPSENSITIVITY10_11_DEFAULT 0x00
++
++/*    CapThresh8   */
++#define SX863X_CAPTHRESH8_640 0xA0
++#define SX863X_CAPTHRESH8_DEFAULT SX863X_CAPTHRESH8_640
++/*    CapThresh9   */
++#define SX863X_CAPTHRESH9_640 0xA0
++#define SX863X_CAPTHRESH9_DEFAULT SX863X_CAPTHRESH9_640
++/*    CapThresh10   */
++#define SX863X_CAPTHRESH10_640 0xA0
++#define SX863X_CAPTHRESH10_DEFAULT SX863X_CAPTHRESH10_640
++/*    CapThresh11   */
++#define SX863X_CAPTHRESH11_640 0xA0
++#define SX863X_CAPTHRESH11_DEFAULT SX863X_CAPTHRESH11_640
++
++/*    WhlCfg              */
++#define SX863X_WHLCFG_RELEASE_DEBOUNCE_OFF 0x00
++#define SX863X_WHLCFG_RELEASE_DEBOUNCE_2   0x04
++#define SX863X_WHLCFG_RELEASE_DEBOUNCE_3   0x08
++#define SX863X_WHLCFG_RELEASE_DEBOUNCE_4   0x0C
++
++#define SX863X_WHLCFG_TOUCH_DEBOUNCE_OFF 0x00
++#define SX863X_WHLCFG_TOUCH_DEBOUNCE_2   0x01
++#define SX863X_WHLCFG_TOUCH_DEBOUNCE_3   0x02
++#define SX863X_WHLCFG_TOUCH_DEBOUNCE_4   0x03
++
++#define SX863X_WHLCFG_DEFAULT SX863X_WHLCFG_RELEASE_DEBOUNCE_OFF | \
++                              SX863X_WHLCFG_TOUCH_DEBOUNCE_OFF
++
++
++#define SX863X_WHLSTUCKATTIMEOUT_OFF   0x00
++#define SX863X_WHLSTUCKATTIMEOUT_1S    0x01
++#define SX863X_WHLSTUCKATTIMEOUT_255S   0xFF
++#define SX863X_WHLSTUCKATTIMEOUT_DEFAULT SX863X_WHLSTUCKATTIMEOUT_OFF
++
++
++#define SX863X_WHLNORM_320  0x0140
++#define SX863X_WHLNORM_DEFAULT SX863X_WHLNORM_320
++
++
++
++#define SX863X_WHLHYSTERESIS_O     0x00
++#define SX863X_WHLHYSTERESIS_4     0x01
++#define SX863X_WHLHYSTERESIS_12    0x03
++#define SX863X_WHLHYSTERESIS_1020  0xFF
++#define SX863X_WHLHYSTERESIS_DEFAULT SX863X_WHLHYSTERESIS_12
++
++#define SX863X_WHLAVGTHRESH_O     0x00
++#define SX863X_WHLAVGTHRESH_4     0x01
++#define SX863X_WHLAVGTHRESH_320   0x50
++#define SX863X_WHLAVGTHRESH_1020  0xFF
++#define SX863X_WHLAVGTHRESH_DEFAULT SX863X_WHLAVGTHRESH_320
++
++#define SX863X_WHLCOMPNEGTHRESH_O     0x00
++#define SX863X_WHLCOMPNEGTHRESH_4     0x01
++#define SX863X_WHLCOMPNEGTHRESH_320   0x50
++#define SX863X_WHLCOMPNEGTHRESH_1020  0xFF
++#define SX863X_WHLCOMPNEGTHRESH_DEFAULT SX863X_WHLCOMPNEGTHRESH_320
++
++#define SX863X_WHLCOMPNEGCNTMAX_RESERVED   0x00
++#define SX863X_WHLCOMPNEGCNTMAX_1SAMPLE    0x01
++#define SX863X_WHLCOMPNEGCNTMAX_255SAMPLES 0xFF
++#define SX863X_WHLCOMPNEGCNTMAX_DEFAULT SX863X_WHLCOMPNEGCNTMAX_1SAMPLE
++
++#define SX863X_WHLROTATETHRESH_0PERCENT   0x00
++#define SX863X_WHLROTATETHRESH_2PERCENT   0x02
++#define SX863X_WHLROTATETHRESH_100PERCENT  0x64
++#define SX863X_WHLROTATETHRESH_DEFAULT SX863X_WHLROTATETHRESH_2PERCENT
++
++#define SX863X_WHLOFFSET_0       0x00
++#define SX863X_WHLOFFSET_1_256   0x01
++#define SX863X_WHLOFFSET_255_256 0xFF
++#define SX863X_WHLOFFSET_DEFAULT SX863X_WHLOFFSET_0
++
++
++#endif /* _SX8635_SPM_REG_H_*/
+diff --git a/include/linux/input/smtc/misc/sx863x_i2c_reg.h b/include/linux/input/smtc/misc/sx863x_i2c_reg.h
+new file mode 100644
+index 0000000..27746f5
+--- /dev/null
++++ b/include/linux/input/smtc/misc/sx863x_i2c_reg.h
+@@ -0,0 +1,157 @@
++/*
++ * SX863X Cap Touch
++ * Currently Supports:
++ *  SX8636
++ * Future Supports:
++ *  SX8634, SX8635, SX8644, etc
++ *
++ * Copyright 2011 Semtech Corp.
++ *
++ * Licensed under the GPL-2 or later.
++ */
++
++#ifndef _SX863X_I2C_REG_H_
++#define _SX863X_I2C_REG_H_
++
++/*
++ *  I2C Registers
++ */
++#define SX863X_IRQSRC_REG         0x00
++#define SX863X_RESERVED_0x01_REG  0x01
++#define SX863X_CAPSTATLSB_REG     0x02
++#define SX863X_RESERVED_0x03_REG  0x03
++#define SX863X_RESERVED_0x04_REG  0x04
++#define SX863X_RESERVED_0x05_REG  0x05
++#define SX863X_RESERVED_0x06_REG  0x06
++#define SX863X_GPISTAT_REG        0x07
++#define SX863X_SPMSTAT_REG        0x08
++#define SX863X_COMPOPMODE_REG     0x09
++#define SX863X_GPOCTRL_REG        0x0A
++#define SX863X_GPPID_REG          0x0B
++#define SX863X_GPPINTENSITY_REG   0x0C
++#define SX863X_SPMCFG_REG         0x0D
++#define SX863X_SPMBASEADDR_REG    0x0E
++#define SX863X_RESERVED_0x0F_REG  0x0F
++#define SX863X_SPMKEYMSB_REG      0xAC
++#define SX863X_SPMKEYLSB_REG      0xAD
++#define SX863X_SOFTRESET_REG      0xB1
++
++
++/*
++ *  I2C Register Values
++ */
++/*      IrqSrc 0:Inactive 1:Active     */
++#define SX863X_IRQSRC_RESERVED_0x80       0x80
++#define SX863X_IRQSRC_NVM_BURN_FLAG       0x40
++#define SX863X_IRQSRC_SPM_WRITE_FLAG      0x20
++#define SX863X_IRQSRC_GPI_FLAG            0x10
++#define SX863X_IRQSRC_RESERVED_0x08       0x08
++#define SX863X_IRQSRC_BUTTON_FLAG         0x04
++#define SX863X_IRQSRC_COMPENSATION_FLAG   0x02
++#define SX863X_IRQSRC_OPERATING_MODE_FLAG 0x01
++
++
++#define SX863X_CAPSTAT_BUTTON7         0x080
++#define SX863X_CAPSTAT_BUTTON6         0x040
++#define SX863X_CAPSTAT_BUTTON5         0x020
++#define SX863X_CAPSTAT_BUTTON4         0x010
++#define SX863X_CAPSTAT_BUTTON3         0x008
++#define SX863X_CAPSTAT_BUTTON2         0x004
++#define SX863X_CAPSTAT_BUTTON1         0x002
++#define SX863X_CAPSTAT_BUTTON0         0x001
++
++
++
++/*      CapStatLsb 0:Released 1:Touched     */
++#define SX863X_CAPSTATLSB_BUTTON7         0x80
++#define SX863X_CAPSTATLSB_BUTTON6         0x40
++#define SX863X_CAPSTATLSB_BUTTON5         0x20
++#define SX863X_CAPSTATLSB_BUTTON4         0x10
++#define SX863X_CAPSTATLSB_BUTTON3         0x08
++#define SX863X_CAPSTATLSB_BUTTON2         0x04
++#define SX863X_CAPSTATLSB_BUTTON1         0x02
++#define SX863X_CAPSTATLSB_BUTTON0         0x01
++
++/*      GpiStat 0:Low 1:High     */
++#define SX863X_GPISTAT_7         0x80
++#define SX863X_GPISTAT_6         0x40
++#define SX863X_GPISTAT_5         0x20
++#define SX863X_GPISTAT_4         0x10
++#define SX863X_GPISTAT_3         0x08
++#define SX863X_GPISTAT_2         0x04
++#define SX863X_GPISTAT_1         0x02
++#define SX863X_GPISTAT_0         0x01
++
++/*      SpmStat                  */
++#define SX863X_SPMSTAT_RESERVED_0xF0  0xF0
++#define SX863X_SPMSTAT_NVMVALID       0x08
++#define SX863X_SPMSTAT_NVMCOUNT_MSK       0x07
++#define SX863X_SPMSTAT_NVMCOUNT_NONE      0x00
++#define SX863X_SPMSTAT_NVMCOUNT_ONCE      0x01
++#define SX863X_SPMSTAT_NVMCOUNT_TWICE     0x02
++#define SX863X_SPMSTAT_NVMCOUNT_THREE     0x03
++#define SX863X_SPMSTAT_NVMCOUNT_MORETHERE 0x04
++
++/*      CompOpMode                  */
++#define SX863X_COMPOPMODE_RESERVED_0xF8           0x00
++#define SX863X_COMPOPMODE_COMPENSATION            0x04
++#define SX863X_COMPOPMODE_OPERATINGMODE_MSK       0x03
++#define SX863X_COMPOPMODE_OPERATINGMODE_ACTIVE    0x00
++#define SX863X_COMPOPMODE_OPERATINGMODE_DOZE      0x01
++#define SX863X_COMPOPMODE_OPERATINGMODE_SLEEP     0x02
++#define SX863X_COMPOPMODE_OPERATINGMODE_RESERVED  0x03
++
++/*      GpoCtrl 0:OFF 1:ON     */
++#define SX863X_GPOCTRL_ON7         0x80
++#define SX863X_GPOCTRL_ON6         0x40
++#define SX863X_GPOCTRL_ON5         0x20
++#define SX863X_GPOCTRL_ON4         0x10
++#define SX863X_GPOCTRL_ON3         0x08
++#define SX863X_GPOCTRL_ON2         0x04
++#define SX863X_GPOCTRL_ON1         0x02
++#define SX863X_GPOCTRL_ON0         0x01
++
++/*      GppPinId  */
++#define SX863X_GPPPINID_RESERVED_0xF8  0xF8
++#define SX863X_GPPPINID_GPPID_MSK      0x07
++#define SX863X_GPPPINID_GPPID_GPP0     0x00
++#define SX863X_GPPPINID_GPPID_GPP1     0x01
++#define SX863X_GPPPINID_GPPID_GPP2     0x02
++#define SX863X_GPPPINID_GPPID_GPP3     0x03
++#define SX863X_GPPPINID_GPPID_GPP4     0x04
++#define SX863X_GPPPINID_GPPID_GPP5     0x05
++#define SX863X_GPPPINID_GPPID_GPP6     0x06
++#define SX863X_GPPPINID_GPPID_GPP7     0x07
++
++/*      GppIntensity Specify 0 - 255 */
++#define SX863X_GPPPINTENSITY_MSK  0xFF
++
++/*      SoftReset */
++#define SX863X_SOFTRESET_COMMAND1  0xDE
++#define SX863X_SOFTRESET_COMMAND2  0x00
++
++/*      SpmCfg */
++#define SX863X_SPMCFG_RESERVED_0xC0    0xC0
++#define SX863X_SPMCFG_I2CSPM_MSK       0x30
++#define SX863X_SPMCFG_I2CSPM_OFF       0x00
++#define SX863X_SPMCFG_I2CSPM_ON        0x10
++#define SX863X_SPMCFG_I2CSPM_RESERVED1 0x20
++#define SX863X_SPMCFG_I2CSPM_RESERVED2 0x30
++#define SX863X_SPMCFG_RWSPM_MSK        0x08
++#define SX863X_SPMCFG_RWSPM_WRITE      0x00
++#define SX863X_SPMCFG_RWSPM_READ       0x08
++#define SX863X_SPMCFG_RESERVED_0x07    0x07
++#define SX863X_SPMCFG_MONITORMODE_MSK  0x04
++#define SX863X_SPMCFG_MONITORMODE_OFF  0x00
++#define SX863X_SPMCFG_MONITORMODE_ON   0x04
++
++/*  SpmBaseAddr Specify 0x00 - 0x78 (mod 8) */
++#define SX863X_SPMBASEADDR_MSK  0xFF
++
++/*  SpmKeyMsb  */
++#define SX863X_SPMKEYMSB_UNLOCK 0x62
++
++/*  SpmKeyLsb  */
++#define SX863X_SPMKEYLSB_UNLOCK 0x9D
++
++#endif /* _SX863X_I2C_REG_H_*/
+diff --git a/include/linux/input/smtc/misc/sx863x_spm_cfg.h b/include/linux/input/smtc/misc/sx863x_spm_cfg.h
+new file mode 100644
+index 0000000..32dfabb
+--- /dev/null
++++ b/include/linux/input/smtc/misc/sx863x_spm_cfg.h
+@@ -0,0 +1,701 @@
++/*
++ * SX863X Cap Touch
++ * Currently Supports:
++ *  SX8636
++ * Future Supports:
++ *  SX8634, SX8635
++ *
++ * Copyright 2011 Semtech Corp.
++ *
++ * Licensed under the GPL-2 or later.
++ */
++
++#ifndef _SX863X_SPM_REG_H_
++#define _SX863X_SPM_REG_H_
++
++/*
++ * spm address map... (currently only showing SX8636 )
++ */
++
++/* Reserved 0x00, 0x01, 0x02, 0x03 */
++/*  --  General --  */
++#define SX863X_I2CADDRESS_SPM       0x04 /* default QSM: 0x2B */
++#define SX863X_ACTIVESCANPERIOD_SPM 0x05 /* default QSM: 0x02 */
++#define SX863X_DOZESCANPERIOD_SPM   0x06 /* default QSM: 0x0D */
++#define SX863X_PASSIVETIMER_SPM     0x07 /* default QSM: 0x00 */
++/* Reserved 0x08 */
++/*  --  Capacitive Sensors --  */
++#define SX863X_CAPEMODEMISC_SPM     0x09 /* default QSM: 0x01 */
++/* Reserved 0x0A */
++#define SX863X_CAPMODE7_4_SPM 0x0B /* default QSM: 0x55 */
++#define SX863X_CAPMODE3_0_SPM 0x0C /* default QSM: 0x55 */
++#define SX863X_CAPSENSITIVITY0_1_SPM 0x0D /* default QSM: 0x00 */
++#define SX863X_CAPSENSITIVITY2_3_SPM 0x0E /* default QSM: 0x00 */
++#define SX863X_CAPSENSITIVITY4_5_SPM 0x0F /* default QSM: 0x00 */
++#define SX863X_CAPSENSITIVITY6_7_SPM 0x10 /* default QSM: 0x00 */
++/* Reserved 0x11, 0x12 */
++#define SX863X_CAPTHRESH0_SPM 0x13 /* default QSM: 0xA0 */
++#define SX863X_CAPTHRESH1_SPM 0x14 /* default QSM: 0xA0 */
++#define SX863X_CAPTHRESH2_SPM 0x15 /* default QSM: 0xA0 */
++#define SX863X_CAPTHRESH3_SPM 0x16 /* default QSM: 0xA0 */
++#define SX863X_CAPTHRESH4_SPM 0x17 /* default QSM: 0xA0 */
++#define SX863X_CAPTHRESH5_SPM 0x18 /* default QSM: 0xA0 */
++#define SX863X_CAPTHRESH6_SPM 0x19 /* default QSM: 0xA0 */
++#define SX863X_CAPTHRESH7_SPM 0x1A /* default QSM: 0xA0 */
++/* Reserved 0x1B, 0x1C, 0x1D, 0x1E */
++#define SX863X_CAPPERCOMP_SPM 0x1F /* default QSM: 0x00 */
++/* Reserved 0x20 */
++/*  --  Button --  */
++#define SX863X_BTNCFG_SPM            0x21 /* default QSM: 0x30 */
++#define SX863X_BTNAVGTHRESH_SPM      0x22 /* default QSM: 0x50 */
++#define SX863X_BTNCOMPNEGTHRESH_SPM  0x23 /* default QSM: 0x50 */
++#define SX863X_BTNCOMPNEGCNTMAX_SPM  0x24 /* default QSM: 0x01 */
++#define SX863X_BTNHYSTERESIS_SPM     0x25 /* default QSM: 0x0A */
++#define SX863X_BTNSTUCKATTIMEOUT_SPM 0x26 /* default QSM: 0x00 */
++/* Reserved 0x27, 0x28, 0x29, 0x2A, 0x2B,
++ * 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x32 */
++/*  --  Mapping --  */
++#define SX863X_MAPWAKEUPSIZE_SPM       0x33 /* default QSM: 0x00 */
++#define SX863X_MAPWAKEUPVALUE0_SPM     0x34 /* default QSM: 0x00 */
++#define SX863X_MAPWAKEUPVALUE1_SPM     0x35 /* default QSM: 0x00 */
++#define SX863X_MAPWAKEUPVALUE2_SPM     0x36 /* default QSM: 0x00 */
++#define SX863X_MAPAUTOLIGHT0_SPM       0x37 /* default QSM: 0x76 */
++#define SX863X_MAPAUTOLIGHT1_SPM       0x38 /* default QSM: 0x54 */
++#define SX863X_MAPAUTOLIGHT2_SPM       0x39 /* default QSM: 0x32 */
++#define SX863X_MAPAUTOLIGHT3_SPM       0x3A /* default QSM: 0x10 */
++#define SX863X_MAPAUTOLIGHTGRP0MSB_SPM 0x3B /* default QSM: 0x00 */
++#define SX863X_MAPAUTOLIGHTGRP0LSB_SPM 0x3C /* default QSM: 0x00 */
++#define SX863X_MAPAUTOLIGHTGRP1MSB_SPM 0x3D /* default QSM: 0x00 */
++#define SX863X_MAPAUTOLIGHTGRP1LSB_SPM 0x3E /* default QSM: 0x00 */
++/* Reserved 0x3F */
++#define SX863X_GPIOMODE7_4_SPM						0x40
++#define SX863X_GPIOMODE3_0_SPM						0x41
++#define SX863X_GPIOOUTPWRUP_SPM					0x42
++#define SX863X_GPIOAUTOLIGHT_SPM					0x43
++#define SX863X_GPIOPOLARITY_SPM					0x44
++#define SX863X_GPIOINTENSITYON0_SPM				0x45
++#define SX863X_GPIOINTENSITYON1_SPM				0x46
++#define SX863X_GPIOINTENSITYON2_SPM				0x47
++#define SX863X_GPIOINTENSITYON3_SPM				0x48
++#define SX863X_GPIOINTENSITYON4_SPM				0x49
++#define SX863X_GPIOINTENSITYON5_SPM				0x4A
++#define SX863X_GPIOINTENSITYON6_SPM				0x4B
++#define SX863X_GPIOINTENSITYON7_SPM				0x4C
++#define SX863X_GPIOINTENSITYOFF0_SPM				0x4D
++#define SX863X_GPIOINTENSITYOFF1_SPM				0x4E
++#define SX863X_GPIOINTENSITYOFF2_SPM				0x4F
++#define SX863X_GPIOINTENSITYOFF3_SPM				0x50
++#define SX863X_GPIOINTENSITYOFF4_SPM				0x51
++#define SX863X_GPIOINTENSITYOFF5_SPM				0x52
++#define SX863X_GPIOINTENSITYOFF6_SPM				0x53
++#define SX863X_GPIOINTENSITYOFF7_SPM				0x54
++/* Reserved 0x55 */
++#define SX863X_GPIOFUNCTION_SPM					0x56
++#define SX863X_GPIOINCFACTOR_SPM					0x57
++#define SX863X_GPIODECFACTOR_SPM					0x58
++#define SX863X_GPIOINCTIME7_6_SPM					0x59
++#define SX863X_GPIOINCTIME5_4_SPM					0x5A
++#define SX863X_GPIOINCTIME3_2_SPM					0x5B
++#define SX863X_GPIOINCTIME1_0_SPM					0x5C
++#define SX863X_GPIODECTIME7_6_SPM					0x5D
++#define SX863X_GPIODECTIME5_4_SPM					0x5E
++#define SX863X_GPIODECTIME3_2_SPM					0x5F
++#define SX863X_GPIODECTIME1_0_SPM					0x60
++#define SX863X_GPIOOFFDELAY7_6_SPM					0x61
++#define SX863X_GPIOOFFDELAY5_4_SPM					0x62
++#define SX863X_GPIOOFFDELAY3_2_SPM					0x63
++#define SX863X_GPIOOFFDELAY1_0_SPM					0x64
++#define SX863X_GPIOPULLUPDOWN7_4_SPM				0x65
++#define SX863X_GPIOPULLUPDOWN3_0_SPM				0x66
++#define SX863X_GPIOINTERRUPT7_4_SPM					0x67
++#define SX863X_GPIOINTERRUPT3_0_SPM					0x68
++#define SX863X_GPIODEBOUNCE_SPM					0x69
++/* Reserved 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F */
++/* -- Proximity -- */
++#define SX863X_CAPPROXENABLE_SPM						0x70
++/* Reserved 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
++ * 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E */
++/* -- SPM Crc -- */
++#define SX863X_CRC_SPM								0x7F
++/* Monitor Addressing */
++#define SX863X_CAPRAW_0_MSB_SPM					0x80
++#define SX863X_CAPRAW_0_LSB_SPM					0x81
++#define SX863X_CAPRAW_1_MSB_SPM					0x82
++#define SX863X_CAPRAW_1_LSB_SPM					0x83
++#define SX863X_CAPRAW_2_MSB_SPM					0x84
++#define SX863X_CAPRAW_2_LSB_SPM					0x85
++#define SX863X_CAPRAW_3_MSB_SPM					0x86
++#define SX863X_CAPRAW_3_LSB_SPM					0x87
++#define SX863X_CAPRAW_4_MSB_SPM					0x88
++#define SX863X_CAPRAW_4_LSB_SPM					0x89
++#define SX863X_CAPRAW_5_MSB_SPM					0x8A
++#define SX863X_CAPRAW_5_LSB_SPM					0x8B
++#define SX863X_CAPRAW_6_MSB_SPM					0x8C
++#define SX863X_CAPRAW_6_LSB_SPM					0x8D
++#define SX863X_CAPRAW_7_MSB_SPM					0x8E
++#define SX863X_CAPRAW_7_LSB_SPM					0x8F
++
++#define SX863X_CAPAVG_0_MSB_SPM					0x9A
++#define SX863X_CAPAVG_0_LSB_SPM					0x9B
++#define SX863X_CAPAVG_1_MSB_SPM					0x9C
++#define SX863X_CAPAVG_1_LSB_SPM					0x9D
++#define SX863X_CAPAVG_2_MSB_SPM					0x9E
++#define SX863X_CAPAVG_2_LSB_SPM					0x9F
++#define SX863X_CAPAVG_3_MSB_SPM					0xA0
++#define SX863X_CAPAVG_3_LSB_SPM					0xA1
++#define SX863X_CAPAVG_4_MSB_SPM					0xA2
++#define SX863X_CAPAVG_4_LSB_SPM					0xA3
++#define SX863X_CAPAVG_5_MSB_SPM					0xA4
++#define SX863X_CAPAVG_5_LSB_SPM					0xA5
++#define SX863X_CAPAVG_6_MSB_SPM					0xA6
++#define SX863X_CAPAVG_6_LSB_SPM					0xA7
++#define SX863X_CAPAVG_7_MSB_SPM					0xA8
++#define SX863X_CAPAVG_7_LSB_SPM					0xA9
++
++/* DIFF information. NOTE: 8 bit boundary start at 0xB0 */
++#define SX863X_CAPDIFF_0_MSB_SPM					0xB4
++#define SX863X_CAPDIFF_0_LSB_SPM					0xB5
++#define SX863X_CAPDIFF_1_MSB_SPM					0xB6
++#define SX863X_CAPDIFF_1_LSB_SPM					0xB7
++#define SX863X_CAPDIFF_2_MSB_SPM					0xB8
++#define SX863X_CAPDIFF_2_LSB_SPM					0xB9
++#define SX863X_CAPDIFF_3_MSB_SPM					0xBA
++#define SX863X_CAPDIFF_3_LSB_SPM					0xBB
++#define SX863X_CAPDIFF_4_MSB_SPM					0xBC
++#define SX863X_CAPDIFF_4_LSB_SPM					0xBD
++#define SX863X_CAPDIFF_5_MSB_SPM					0xBE
++#define SX863X_CAPDIFF_5_LSB_SPM					0xBF
++#define SX863X_CAPDIFF_6_MSB_SPM					0xC0
++#define SX863X_CAPDIFF_6_LSB_SPM					0xC1
++#define SX863X_CAPDIFF_7_MSB_SPM					0xC2
++#define SX863X_CAPDIFF_7_LSB_SPM					0xC3
++/* Monitor mode period */
++/* for 8 bit boundary use 0xF8 */
++#define SX863X_CAP_MONITOR_PERIOD_SPM			0xF9
++
++
++
++
++/*
++ * SPM Values
++ */
++/*  --  General --  */
++/*    I2C Address     */
++#define SX863X_I2CADDRESS_MSK       0x7F
++/*    Active Scan Period    */
++#define SX863X_ACTIVESCANPERIOD_30MS 0x02
++#define SX863X_ACTIVESCANPERIOD_DEFAULT SX863X_ACTIVESCANPERIOD_30MS
++/*    Doze Scan Period    */
++#define SX863X_DOZESCANPERIOD_195MS   0x0D
++#define SX863X_DOZESCANPERIOD_DEFAULT   SX863X_DOZESCANPERIOD_195MS
++/*    Passive Timer        */
++#define SX863X_PASSIVETIMER_OFF     0x00
++#define SX863X_PASSIVETIMER_DEFAULT SX863X_PASSIVETIMER_OFF
++/*  --  Capacitive Sensors --  */
++/*    CapModeMisc         */
++#define SX863X_CAPEMODEMISC_MSK         0x05
++#define SX863X_CAPEMODEMISC_COMMON      0x01
++#define SX863X_CAPEMODEMISC_INDIVIDUAL  0x04
++/*    CapMode7_4          */
++#define SX863X_CAPMODE7_4_CAP7_BUTTON 0x40
++#define SX863X_CAPMODE7_4_CAP6_BUTTON 0x10
++#define SX863X_CAPMODE7_4_CAP5_BUTTON 0x04
++#define SX863X_CAPMODE7_4_CAP4_BUTTON 0x01
++/*    CapMode3_0          */
++#define SX863X_CAPMODE3_0_CAP3_BUTTON 0x40
++#define SX863X_CAPMODE3_0_CAP2_BUTTON 0x10
++#define SX863X_CAPMODE3_0_CAP1_BUTTON 0x04
++#define SX863X_CAPMODE3_0_CAP0_BUTTON 0x01
++/*    CapSensitivity0_1   */
++#define SX863X_CAPSENSITIVITY0_1_MSK 0x77
++#define SX863X_CAPSENSITIVITY0_1_DEFAULT 0x00
++/*    CapSensitivity2_3   */
++#define SX863X_CAPSENSITIVITY2_3_MSK 0x77
++#define SX863X_CAPSENSITIVITY2_3_DEFAULT 0x00
++/*    CapSensitivity4_5   */
++#define SX863X_CAPSENSITIVITY4_5_MSK 0x77
++#define SX863X_CAPSENSITIVITY4_5_DEFAULT 0x00
++/*    CapSensitivity6_7   */
++#define SX863X_CAPSENSITIVITY6_7_MSK 0x77
++#define SX863X_CAPSENSITIVITY6_7_DEFAULT 0x00
++
++/*    CapThresh0   */
++#define SX863X_CAPTHRESH0_640 0xA0
++#define SX863X_CAPTHRESH0_DEFAULT SX863X_CAPTHRESH0_640
++/*    CapThresh1   */
++#define SX863X_CAPTHRESH1_640 0xA0
++#define SX863X_CAPTHRESH1_DEFAULT SX863X_CAPTHRESH1_640
++/*    CapThresh2   */
++#define SX863X_CAPTHRESH2_640 0xA0
++#define SX863X_CAPTHRESH2_DEFAULT SX863X_CAPTHRESH2_640
++/*    CapThresh3   */
++#define SX863X_CAPTHRESH3_640 0xA0
++#define SX863X_CAPTHRESH3_DEFAULT SX863X_CAPTHRESH3_640
++/*    CapThresh4   */
++#define SX863X_CAPTHRESH4_640 0xA0
++#define SX863X_CAPTHRESH4_DEFAULT SX863X_CAPTHRESH4_640
++/*    CapThresh5   */
++#define SX863X_CAPTHRESH5_640 0xA0
++#define SX863X_CAPTHRESH5_DEFAULT SX863X_CAPTHRESH5_640
++/*    CapThresh6   */
++#define SX863X_CAPTHRESH6_640 0xA0
++#define SX863X_CAPTHRESH6_DEFAULT SX863X_CAPTHRESH6_640
++/*    CapThresh7   */
++#define SX863X_CAPTHRESH7_640 0xA0
++#define SX863X_CAPTHRESH7_DEFAULT SX863X_CAPTHRESH7_640
++
++/*    CapPerComp  */
++#define SX863X_CAPPERCOMP_MSK 0x0F
++#define SX863X_CAPPERCOMP_OFF 0x00
++#define SX863X_CAPPERCOMP_DEFAULT SX863X_CAPPERCOMP_OFF
++/* -- Proximity -- */
++/*    CapProxEnable */
++#define SX863X_CAPPROXENABLE_OFF	0x46
++#define SX863X_CAPPROXENABLE_ON 	0x74
++/*  --  Button --  */
++/*    BtnCfg        */
++#define SX863X_BTNCFG_REPORT_MULTIPLE 0x00
++#define SX863X_BTNCFG_REPORT_SINGLE   0x40
++#define SX863X_BTNCFG_REPROT_DEFAULT  SX863X_BTNCFG_REPORT_MULTIPLE
++#define SX863X_BTNCFG_INTERRUPT_MASKED  0x00
++#define SX863X_BTNCFG_INTERRUPT_TOUCHED  0x10
++#define SX863X_BTNCFG_INTERRUPT_RELEASE  0x20
++#define SX863X_BTNCFG_INTERRUPT_BOTH     0x30
++#define SX863X_BTNCFG_INTERRUPT_DEFAULT  SX863X_BTNCFG_INTERRUPT_BOTH
++#define SX863X_BTNCFG_RELEASE_DEBOUNCE_OFF      0x00
++#define SX863X_BTNCFG_RELEASE_DEBOUNCE_2SAMPLE  0x04
++#define SX863X_BTNCFG_RELEASE_DEBOUNCE_3SAMPLE  0x08
++#define SX863X_BTNCFG_RELEASE_DEBOUNCE_4SAMPLE  0x0C
++#define SX863X_BTNCFG_TOUCH_DEBOUNCE_OFF      0x00
++#define SX863X_BTNCFG_TOUCH_DEBOUNCE_2SAMPLE  0x01
++#define SX863X_BTNCFG_TOUCH_DEBOUNCE_3SAMPLE  0x02
++#define SX863X_BTNCFG_TOUCH_DEBOUNCE_4SAMPLE  0x03
++/*    BtnAvgThresh    */
++#define SX863X_BTNAVGTHRESH_320      0x50
++#define SX863X_BTNAVGTHRESH_DEFAULT SX863X_BTNAVGTHRESH_320
++/*    BtnCompNegThresh  */
++#define SX863X_BTNCOMPNEGTHRESH_320  0x50
++#define SX863X_BTNCOMPNEGTHRESH_DEFAULT SX863X_BTNCOMPNEGTHRESH_320
++/*    BtnCompNegCntMax  */
++#define SX863X_BTNCOMPNEGCNTMAX_1SAMPLE  0x01
++#define SX863X_BTNCOMPNEGCNTMAX_DEFAULT SX863X_BTNCOMPNEGCNTMAX_1SAMPLE
++/*    BtnHysteresis   */
++#define SX863X_BTNHYSTERESIS_10PERCENT  0x0A
++#define SX863X_BTNHYSTERESIS_DEFAULT  SX863X_BTNHYSTERESIS_10PERCENT
++/*    BtnStuckAtTimeout   */
++#define SX863X_BTNSTUCKATTIMEOUT_OFF 0x00
++#define SX863X_BTNSTUCKATTIMEOUT_DEFAULT SX863X_BTNSTUCKATTIMEOUT_OFF
++/*  --  Mapping --  */
++/*    MapWakeupSize   */
++#define SX863X_MAPWAKEUPSIZE_MSK            0x07
++#define SX863X_MAPWAKEUPSIZE_ANY            0x00
++#define SX863X_MAPWAKEUPSIZE_KEY0           0x01
++#define SX863X_MAPWAKEUPSIZE_KEY0_1         0x02
++#define SX863X_MAPWAKEUPSIZE_KEY0_1_2       0x03
++#define SX863X_MAPWAKEUPSIZE_KEY0_1_2_3     0x04
++#define SX863X_MAPWAKEUPSIZE_KEY0_1_2_3_4   0x05
++#define SX863X_MAPWAKEUPSIZE_KEY0_1_2_3_4_5 0x06
++#define SX863X_MAPWAKEUPSIZE_NONE           0x07
++/*    MapWakeupValue0  */
++#define SX863X_MAPWAKEUPVALUE0_KEY5_BTN0 0x00
++#define SX863X_MAPWAKEUPVALUE0_KEY5_BTN1 0x10
++#define SX863X_MAPWAKEUPVALUE0_KEY5_BTN2 0x20
++#define SX863X_MAPWAKEUPVALUE0_KEY5_BTN3 0x30
++#define SX863X_MAPWAKEUPVALUE0_KEY5_BTN4 0x40
++#define SX863X_MAPWAKEUPVALUE0_KEY5_BTN5 0x50
++#define SX863X_MAPWAKEUPVALUE0_KEY5_BTN6 0x60
++#define SX863X_MAPWAKEUPVALUE0_KEY5_BTN7 0x70
++#define SX863X_MAPWAKEUPVALUE0_KEY4_BTN0 0x00
++#define SX863X_MAPWAKEUPVALUE0_KEY4_BTN1 0x01
++#define SX863X_MAPWAKEUPVALUE0_KEY4_BTN2 0x02
++#define SX863X_MAPWAKEUPVALUE0_KEY4_BTN3 0x03
++#define SX863X_MAPWAKEUPVALUE0_KEY4_BTN4 0x04
++#define SX863X_MAPWAKEUPVALUE0_KEY4_BTN5 0x05
++#define SX863X_MAPWAKEUPVALUE0_KEY4_BTN6 0x06
++#define SX863X_MAPWAKEUPVALUE0_KEY4_BTN7 0x07
++
++/*    MapWakeupValue1  */
++#define SX863X_MAPWAKEUPVALUE1_KEY3_BTN0 0x00
++#define SX863X_MAPWAKEUPVALUE1_KEY3_BTN1 0x10
++#define SX863X_MAPWAKEUPVALUE1_KEY3_BTN2 0x20
++#define SX863X_MAPWAKEUPVALUE1_KEY3_BTN3 0x30
++#define SX863X_MAPWAKEUPVALUE1_KEY3_BTN4 0x40
++#define SX863X_MAPWAKEUPVALUE1_KEY3_BTN5 0x50
++#define SX863X_MAPWAKEUPVALUE1_KEY3_BTN6 0x60
++#define SX863X_MAPWAKEUPVALUE1_KEY3_BTN7 0x70
++#define SX863X_MAPWAKEUPVALUE1_KEY2_BTN0 0x00
++#define SX863X_MAPWAKEUPVALUE1_KEY2_BTN1 0x01
++#define SX863X_MAPWAKEUPVALUE1_KEY2_BTN2 0x02
++#define SX863X_MAPWAKEUPVALUE1_KEY2_BTN3 0x03
++#define SX863X_MAPWAKEUPVALUE1_KEY2_BTN4 0x04
++#define SX863X_MAPWAKEUPVALUE1_KEY2_BTN5 0x05
++#define SX863X_MAPWAKEUPVALUE1_KEY2_BTN6 0x06
++#define SX863X_MAPWAKEUPVALUE1_KEY2_BTN7 0x07
++
++/*    MapWakeupValue2  */
++#define SX863X_MAPWAKEUPVALUE2_KEY1_BTN0 0x00
++#define SX863X_MAPWAKEUPVALUE2_KEY1_BTN1 0x10
++#define SX863X_MAPWAKEUPVALUE2_KEY1_BTN2 0x20
++#define SX863X_MAPWAKEUPVALUE2_KEY1_BTN3 0x30
++#define SX863X_MAPWAKEUPVALUE2_KEY1_BTN4 0x40
++#define SX863X_MAPWAKEUPVALUE2_KEY1_BTN5 0x50
++#define SX863X_MAPWAKEUPVALUE2_KEY1_BTN6 0x60
++#define SX863X_MAPWAKEUPVALUE2_KEY1_BTN7 0x70
++#define SX863X_MAPWAKEUPVALUE2_KEY0_BTN0 0x00
++#define SX863X_MAPWAKEUPVALUE2_KEY0_BTN1 0x01
++#define SX863X_MAPWAKEUPVALUE2_KEY0_BTN2 0x02
++#define SX863X_MAPWAKEUPVALUE2_KEY0_BTN3 0x03
++#define SX863X_MAPWAKEUPVALUE2_KEY0_BTN4 0x04
++#define SX863X_MAPWAKEUPVALUE2_KEY0_BTN5 0x05
++#define SX863X_MAPWAKEUPVALUE2_KEY0_BTN6 0x06
++#define SX863X_MAPWAKEUPVALUE2_KEY0_BTN7 0x07
++/*      MapAutoLight0   */
++#define SX863X_MAPAUTOLIGHT0_GPIO7_BTN0 0x000
++#define SX863X_MAPAUTOLIGHT0_GPIO7_BTN1 0x10
++#define SX863X_MAPAUTOLIGHT0_GPIO7_BTN2 0x20
++#define SX863X_MAPAUTOLIGHT0_GPIO7_BTN3 0x30
++#define SX863X_MAPAUTOLIGHT0_GPIO7_BTN4 0x40
++#define SX863X_MAPAUTOLIGHT0_GPIO7_BTN5 0x50
++#define SX863X_MAPAUTOLIGHT0_GPIO7_BTN6 0x60
++#define SX863X_MAPAUTOLIGHT0_GPIO7_BTN7 0x70
++#define SX863X_MAPAUTOLIGHT0_GPIO7_GROUP0 0xC0
++#define SX863X_MAPAUTOLIGHT0_GPIO7_GROUP1 0xD0
++#define SX863X_MAPAUTOLIGHT0_GPIO6_BTN0 0x00
++#define SX863X_MAPAUTOLIGHT0_GPIO6_BTN1 0x01
++#define SX863X_MAPAUTOLIGHT0_GPIO6_BTN2 0x02
++#define SX863X_MAPAUTOLIGHT0_GPIO6_BTN3 0x03
++#define SX863X_MAPAUTOLIGHT0_GPIO6_BTN4 0x04
++#define SX863X_MAPAUTOLIGHT0_GPIO6_BTN5 0x05
++#define SX863X_MAPAUTOLIGHT0_GPIO6_BTN6 0x06
++#define SX863X_MAPAUTOLIGHT0_GPIO6_BTN7 0x07
++#define SX863X_MAPAUTOLIGHT0_GPIO6_GROUP0 0x0C
++#define SX863X_MAPAUTOLIGHT0_GPIO6_GROUP1 0x0D
++/*      MapAutoLight1   */
++#define SX863X_MAPAUTOLIGHT1_GPIO5_BTN0 0x00
++#define SX863X_MAPAUTOLIGHT1_GPIO5_BTN1 0x10
++#define SX863X_MAPAUTOLIGHT1_GPIO5_BTN2 0x20
++#define SX863X_MAPAUTOLIGHT1_GPIO5_BTN3 0x30
++#define SX863X_MAPAUTOLIGHT1_GPIO5_BTN4 0x40
++#define SX863X_MAPAUTOLIGHT1_GPIO5_BTN5 0x50
++#define SX863X_MAPAUTOLIGHT1_GPIO5_BTN6 0x60
++#define SX863X_MAPAUTOLIGHT1_GPIO5_BTN7 0x70
++#define SX863X_MAPAUTOLIGHT1_GPIO5_GROUP0 0xC0
++#define SX863X_MAPAUTOLIGHT1_GPIO5_GROUP1 0xD0
++#define SX863X_MAPAUTOLIGHT1_GPIO4_BTN0 0x00
++#define SX863X_MAPAUTOLIGHT1_GPIO4_BTN1 0x01
++#define SX863X_MAPAUTOLIGHT1_GPIO4_BTN2 0x02
++#define SX863X_MAPAUTOLIGHT1_GPIO4_BTN3 0x03
++#define SX863X_MAPAUTOLIGHT1_GPIO4_BTN4 0x04
++#define SX863X_MAPAUTOLIGHT1_GPIO4_BTN5 0x05
++#define SX863X_MAPAUTOLIGHT1_GPIO4_BTN6 0x06
++#define SX863X_MAPAUTOLIGHT1_GPIO4_BTN7 0x07
++#define SX863X_MAPAUTOLIGHT1_GPIO4_GROUP0 0x0C
++#define SX863X_MAPAUTOLIGHT1_GPIO4_GROUP1 0x0D
++/*      MapAutoLight2   */
++#define SX863X_MAPAUTOLIGHT2_GPIO3_BTN0 0x00
++#define SX863X_MAPAUTOLIGHT2_GPIO3_BTN1 0x10
++#define SX863X_MAPAUTOLIGHT2_GPIO3_BTN2 0x20
++#define SX863X_MAPAUTOLIGHT2_GPIO3_BTN3 0x30
++#define SX863X_MAPAUTOLIGHT2_GPIO3_BTN4 0x40
++#define SX863X_MAPAUTOLIGHT2_GPIO3_BTN5 0x50
++#define SX863X_MAPAUTOLIGHT2_GPIO3_BTN6 0x60
++#define SX863X_MAPAUTOLIGHT2_GPIO3_BTN7 0x70
++#define SX863X_MAPAUTOLIGHT2_GPIO3_GROUP0 0xC0
++#define SX863X_MAPAUTOLIGHT2_GPIO3_GROUP1 0xD0
++#define SX863X_MAPAUTOLIGHT2_GPIO2_BTN0 0x00
++#define SX863X_MAPAUTOLIGHT2_GPIO2_BTN1 0x01
++#define SX863X_MAPAUTOLIGHT2_GPIO2_BTN2 0x02
++#define SX863X_MAPAUTOLIGHT2_GPIO2_BTN3 0x03
++#define SX863X_MAPAUTOLIGHT2_GPIO2_BTN4 0x04
++#define SX863X_MAPAUTOLIGHT2_GPIO2_BTN5 0x05
++#define SX863X_MAPAUTOLIGHT2_GPIO2_BTN6 0x06
++#define SX863X_MAPAUTOLIGHT2_GPIO2_BTN7 0x07
++#define SX863X_MAPAUTOLIGHT2_GPIO2_GROUP0 0x0C
++#define SX863X_MAPAUTOLIGHT2_GPIO2_GROUP1 0x0D
++/*      MapAutoLight3   */
++#define SX863X_MAPAUTOLIGHT3_GPIO1_BTN0 0x00
++#define SX863X_MAPAUTOLIGHT3_GPIO1_BTN1 0x10
++#define SX863X_MAPAUTOLIGHT3_GPIO1_BTN2 0x20
++#define SX863X_MAPAUTOLIGHT3_GPIO1_BTN3 0x30
++#define SX863X_MAPAUTOLIGHT3_GPIO1_BTN4 0x40
++#define SX863X_MAPAUTOLIGHT3_GPIO1_BTN5 0x50
++#define SX863X_MAPAUTOLIGHT3_GPIO1_BTN6 0x60
++#define SX863X_MAPAUTOLIGHT3_GPIO1_BTN7 0x70
++#define SX863X_MAPAUTOLIGHT3_GPIO1_GROUP0 0xC0
++#define SX863X_MAPAUTOLIGHT3_GPIO1_GROUP1 0xD0
++#define SX863X_MAPAUTOLIGHT3_GPIO0_BTN0 0x00
++#define SX863X_MAPAUTOLIGHT3_GPIO0_BTN1 0x01
++#define SX863X_MAPAUTOLIGHT3_GPIO0_BTN2 0x02
++#define SX863X_MAPAUTOLIGHT3_GPIO0_BTN3 0x03
++#define SX863X_MAPAUTOLIGHT3_GPIO0_BTN4 0x04
++#define SX863X_MAPAUTOLIGHT3_GPIO0_BTN5 0x05
++#define SX863X_MAPAUTOLIGHT3_GPIO0_BTN6 0x06
++#define SX863X_MAPAUTOLIGHT3_GPIO0_BTN7 0x07
++#define SX863X_MAPAUTOLIGHT3_GPIO0_GROUP0 0x0C
++#define SX863X_MAPAUTOLIGHT3_GPIO0_GROUP1 0x0D
++/*    MapAutoLightGrp0Lsb   */
++#define SX863X_MAPAUTOLIGHTGRP0LSB_BTN7 0x80
++#define SX863X_MAPAUTOLIGHTGRP0LSB_BTN6 0x40
++#define SX863X_MAPAUTOLIGHTGRP0LSB_BTN5 0x20
++#define SX863X_MAPAUTOLIGHTGRP0LSB_BTN4 0x10
++#define SX863X_MAPAUTOLIGHTGRP0LSB_BTN3 0x08
++#define SX863X_MAPAUTOLIGHTGRP0LSB_BTN2 0x04
++#define SX863X_MAPAUTOLIGHTGRP0LSB_BTN1 0x02
++#define SX863X_MAPAUTOLIGHTGRP0LSB_BTN0 0x01
++/*    MapAutoLightGrp1Lsb     */
++#define SX863X_MAPAUTOLIGHTGRP1LSB_BTN7 0x80
++#define SX863X_MAPAUTOLIGHTGRP1LSB_BTN6 0x40
++#define SX863X_MAPAUTOLIGHTGRP1LSB_BTN5 0x20
++#define SX863X_MAPAUTOLIGHTGRP1LSB_BTN4 0x10
++#define SX863X_MAPAUTOLIGHTGRP1LSB_BTN3 0x08
++#define SX863X_MAPAUTOLIGHTGRP1LSB_BTN2 0x04
++#define SX863X_MAPAUTOLIGHTGRP1LSB_BTN1 0x02
++#define SX863X_MAPAUTOLIGHTGRP1LSB_BTN0 0x01
++/*    GpioMode7_4   */
++#define SX863X_GPIOMODE7_4_GPIO7_GPO  0x00
++#define SX863X_GPIOMODE7_4_GPIO7_GPP  0x40
++#define SX863X_GPIOMODE7_4_GPIO7_GPI  0x80
++#define SX863X_GPIOMODE7_4_GPIO6_GPO  0x00
++#define SX863X_GPIOMODE7_4_GPIO6_GPP  0x10
++#define SX863X_GPIOMODE7_4_GPIO6_GPI  0x20
++#define SX863X_GPIOMODE7_4_GPIO5_GPO  0x00
++#define SX863X_GPIOMODE7_4_GPIO5_GPP  0x04
++#define SX863X_GPIOMODE7_4_GPIO5_GPI  0x08
++#define SX863X_GPIOMODE7_4_GPIO4_GPO  0x00
++#define SX863X_GPIOMODE7_4_GPIO4_GPP  0x01
++#define SX863X_GPIOMODE7_4_GPIO4_GPI  0x02
++/*    GpioMode3_0   */
++#define SX863X_GPIOMODE3_0_GPIO3_GPO  0x00
++#define SX863X_GPIOMODE3_0_GPIO3_GPP  0x40
++#define SX863X_GPIOMODE3_0_GPIO3_GPI  0x80
++#define SX863X_GPIOMODE3_0_GPIO2_GPO  0x00
++#define SX863X_GPIOMODE3_0_GPIO2_GPP  0x10
++#define SX863X_GPIOMODE3_0_GPIO2_GPI  0x20
++#define SX863X_GPIOMODE3_0_GPIO1_GPO  0x00
++#define SX863X_GPIOMODE3_0_GPIO1_GPP  0x04
++#define SX863X_GPIOMODE3_0_GPIO1_GPI  0x08
++#define SX863X_GPIOMODE3_0_GPIO0_GPO  0x00
++#define SX863X_GPIOMODE3_0_GPIO0_GPP  0x01
++#define SX863X_GPIOMODE3_0_GPIO0_GPI  0x02
++/*    GpioOutPwrUp    */
++#define SX863X_GPIOOUTPWRUP_GPIO7_ON	0x80
++#define SX863X_GPIOOUTPWRUP_GPIO6_ON	0x40
++#define SX863X_GPIOOUTPWRUP_GPIO5_ON	0x20
++#define SX863X_GPIOOUTPWRUP_GPIO4_ON	0x10
++#define SX863X_GPIOOUTPWRUP_GPIO3_ON	0x08
++#define SX863X_GPIOOUTPWRUP_GPIO2_ON	0x04
++#define SX863X_GPIOOUTPWRUP_GPIO1_ON	0x02
++#define SX863X_GPIOOUTPWRUP_GPIO0_ON	0x01
++/*    GpioAutoLight   */
++#define SX863X_GPIOAUTOLIGHT_GPIO7_ON	0x80
++#define SX863X_GPIOAUTOLIGHT_GPIO6_ON	0x40
++#define SX863X_GPIOAUTOLIGHT_GPIO5_ON	0x20
++#define SX863X_GPIOAUTOLIGHT_GPIO4_ON	0x10
++#define SX863X_GPIOAUTOLIGHT_GPIO3_ON	0x08
++#define SX863X_GPIOAUTOLIGHT_GPIO2_ON	0x04
++#define SX863X_GPIOAUTOLIGHT_GPIO1_ON	0x02
++#define SX863X_GPIOAUTOLIGHT_GPIO0_ON	0x01
++/*    GpioPolarity  0: Inverted, 1: Normal  */
++#define SX863X_GPIOPOLARITY_GPIO7_NORMAL	0x80
++#define SX863X_GPIOPOLARITY_GPIO6_NORMAL	0x40
++#define SX863X_GPIOPOLARITY_GPIO5_NORMAL	0x20
++#define SX863X_GPIOPOLARITY_GPIO4_NORMAL	0x10
++#define SX863X_GPIOPOLARITY_GPIO3_NORMAL	0x08
++#define SX863X_GPIOPOLARITY_GPIO2_NORMAL	0x04
++#define SX863X_GPIOPOLARITY_GPIO1_NORMAL	0x02
++#define SX863X_GPIOPOLARITY_GPIO0_NORMAL	0x01
++/* GpioIntensityOn0-7 ON Intensity Index */
++#define SX863X_GPIOINTENSITYONX_255   0xFF
++#define SX863X_GPIOINTENSITYONX_DEFAULT SX863X_GPIOINTENSITYONX_255
++/* GpioIntensityOff0-7 OFF Intensity Index */
++#define SX863X_GPIOINTENSITYOFFX_0   0x00
++#define SX863X_GPIOINTENSITYOFFX_DEFAULT SX863X_GPIOINTENSITYOFFX_0
++/* GpioFunction 0: Logarithmic (default) 1: Linear */
++#define SX863X_GPIOFUNCTION_GPIO7_LOG	    0x00
++#define SX863X_GPIOFUNCTION_GPIO7_LINEAR	0x80
++#define SX863X_GPIOFUNCTION_GPIO6_LOG	    0x00
++#define SX863X_GPIOFUNCTION_GPIO6_LINEAR	0x40
++#define SX863X_GPIOFUNCTION_GPIO5_LOG	    0x00
++#define SX863X_GPIOFUNCTION_GPIO5_LINEAR	0x20
++#define SX863X_GPIOFUNCTION_GPIO4_LOG	    0x00
++#define SX863X_GPIOFUNCTION_GPIO4_LINEAR	0x10
++#define SX863X_GPIOFUNCTION_GPIO3_LOG	    0x00
++#define SX863X_GPIOFUNCTION_GPIO3_LINEAR	0x08
++#define SX863X_GPIOFUNCTION_GPIO2_LOG	    0x00
++#define SX863X_GPIOFUNCTION_GPIO2_LINEAR	0x04
++#define SX863X_GPIOFUNCTION_GPIO1_LOG	    0x00
++#define SX863X_GPIOFUNCTION_GPIO1_LINEAR	0x02
++#define SX863X_GPIOFUNCTION_GPIO0_LOG	    0x00
++#define SX863X_GPIOFUNCTION_GPIO0_LINEAR	0x01
++
++/* GpioIncFactor 0: 1 (default) 1: Linear */
++#define SX863X_GPIOINCFACTOR_GPIO7_1	    0x00
++#define SX863X_GPIOINCFACTOR_GPIO7_16	0x80
++#define SX863X_GPIOINCFACTOR_GPIO6_1	    0x00
++#define SX863X_GPIOINCFACTOR_GPIO6_16	0x40
++#define SX863X_GPIOINCFACTOR_GPIO5_1	    0x00
++#define SX863X_GPIOINCFACTOR_GPIO5_16	0x20
++#define SX863X_GPIOINCFACTOR_GPIO4_1	    0x00
++#define SX863X_GPIOINCFACTOR_GPIO4_16	0x10
++#define SX863X_GPIOINCFACTOR_GPIO3_1	    0x00
++#define SX863X_GPIOINCFACTOR_GPIO3_16	0x08
++#define SX863X_GPIOINCFACTOR_GPIO2_1	    0x00
++#define SX863X_GPIOINCFACTOR_GPIO2_16	0x04
++#define SX863X_GPIOINCFACTOR_GPIO1_1	    0x00
++#define SX863X_GPIOINCFACTOR_GPIO1_16	0x02
++#define SX863X_GPIOINCFACTOR_GPIO0_1	    0x00
++#define SX863X_GPIOINCFACTOR_GPIO0_16	0x01
++
++/* GpioIncFactor 0: 1 (default) 1: Linear */
++#define SX863X_GPIODECFACTOR_GPIO7_1	    0x00
++#define SX863X_GPIODECFACTOR_GPIO7_16	0x80
++#define SX863X_GPIODECFACTOR_GPIO6_1	    0x00
++#define SX863X_GPIODECFACTOR_GPIO6_16	0x40
++#define SX863X_GPIODECFACTOR_GPIO5_1	    0x00
++#define SX863X_GPIODECFACTOR_GPIO5_16	0x20
++#define SX863X_GPIODECFACTOR_GPIO4_1	    0x00
++#define SX863X_GPIODECFACTOR_GPIO4_16	0x10
++#define SX863X_GPIODECFACTOR_GPIO3_1	    0x00
++#define SX863X_GPIODECFACTOR_GPIO3_16	0x08
++#define SX863X_GPIODECFACTOR_GPIO2_1	    0x00
++#define SX863X_GPIODECFACTOR_GPIO2_16	0x04
++#define SX863X_GPIODECFACTOR_GPIO1_1	    0x00
++#define SX863X_GPIODECFACTOR_GPIO1_16	0x02
++#define SX863X_GPIODECFACTOR_GPIO0_1	    0x00
++#define SX863X_GPIODECFACTOR_GPIO0_16	0x01
++/*    GpioIncTime7_6  GpioIncTime*GpioIncFactor*(GpioIntensityOn-GpioIntensityOff) */
++#define SX863X_GPIOINCTIME7_6_GPIO7_OFF	  0x00
++#define SX863X_GPIOINCTIME7_6_GPIO7_7_5MS	0xF0
++#define SX863X_GPIOINCTIME7_6_GPIO6_OFF	  0x00
++#define SX863X_GPIOINCTIME7_6_GPIO6_7_5MS	0x0F
++/*    GpioIncTime5_4  GpioIncTime*GpioIncFactor*(GpioIntensityOn-GpioIntensityOff) */
++#define SX863X_GPIOINCTIME5_4_GPIO5_OFF	  0x00
++#define SX863X_GPIOINCTIME5_4_GPIO5_7_5MS	0xF0
++#define SX863X_GPIOINCTIME5_4_GPIO4_OFF	  0x00
++#define SX863X_GPIOINCTIME5_4_GPIO4_7_5MS	0x0F
++/*    GpioIncTime3_2  GpioIncTime*GpioIncFactor*(GpioIntensityOn-GpioIntensityOff) */
++#define SX863X_GPIOINCTIME3_2_GPIO3_OFF	  0x00
++#define SX863X_GPIOINCTIME3_2_GPIO3_7_5MS	0xF0
++#define SX863X_GPIOINCTIME3_2_GPIO2_OFF	  0x00
++#define SX863X_GPIOINCTIME3_2_GPIO2_7_5MS	0x0F
++/*    GpioIncTime1_0  GpioIncTime*GpioIncFactor*(GpioIntensityOn-GpioIntensityOff) */
++#define SX863X_GPIOINCTIME1_0_GPIO1_OFF	  0x00
++#define SX863X_GPIOINCTIME1_0_GPIO1_7_5MS	0xF0
++#define SX863X_GPIOINCTIME1_0_GPIO0_OFF	  0x00
++#define SX863X_GPIOINCTIME1_0_GPIO0_7_5MS	0x0F
++
++/*    GpioDecTime7_6  GpioDecTime*GpioDecFactor*(GpioIntensityOn-GpioIntensityOff) */
++#define SX863X_GPIODECTIME7_6_GPIO7_OFF	  0x00
++#define SX863X_GPIODECTIME7_6_GPIO7_7_5MS	0xF0
++#define SX863X_GPIODECTIME7_6_GPIO6_OFF	  0x00
++#define SX863X_GPIODECTIME7_6_GPIO6_7_5MS	0x0F
++/*    GpioDecTime5_4  GpioDecTime*GpioDecFactor*(GpioIntensityOn-GpioIntensityOff) */
++#define SX863X_GPIODECTIME5_4_GPIO5_OFF	  0x00
++#define SX863X_GPIODECTIME5_4_GPIO5_7_5MS	0xF0
++#define SX863X_GPIODECTIME5_4_GPIO4_OFF	  0x00
++#define SX863X_GPIODECTIME5_4_GPIO4_7_5MS	0x0F
++/*    GpioDecTime3_2  GpioDecTime*GpioDecFactor*(GpioIntensityOn-GpioIntensityOff) */
++#define SX863X_GPIODECTIME3_2_GPIO3_OFF	  0x00
++#define SX863X_GPIODECTIME3_2_GPIO3_7_5MS	0xF0
++#define SX863X_GPIODECTIME3_2_GPIO2_OFF	  0x00
++#define SX863X_GPIODECTIME3_2_GPIO2_7_5MS	0x0F
++/*    GpioDecTime1_0  GpioDecTime*GpioDecFactor*(GpioIntensityOn-GpioIntensityOff) */
++#define SX863X_GPIODECTIME1_0_GPIO1_OFF	  0x00
++#define SX863X_GPIODECTIME1_0_GPIO1_7_5MS	0xF0
++#define SX863X_GPIODECTIME1_0_GPIO0_OFF	  0x00
++#define SX863X_GPIODECTIME1_0_GPIO0_7_5MS	0x0F
++
++/*    GpioOffDelay7_6   */
++#define SX863X_GPIOOFFDELAY7_6_GPIO7_OFF	  0x00
++#define SX863X_GPIOOFFDELAY7_6_GPIO7_3000MS	0xF0
++#define SX863X_GPIOOFFDELAY7_6_GPIO6_OFF	  0x00
++#define SX863X_GPIOOFFDELAY7_6_GPIO6_3000MS	0x0F
++/*    GpioOffDelay5_4 */
++#define SX863X_GPIOOFFDELAY5_4_GPIO5_OFF	  0x00
++#define SX863X_GPIOOFFDELAY5_4_GPIO5_3000MS	0xF0
++#define SX863X_GPIOOFFDELAY5_4_GPIO4_OFF	  0x00
++#define SX863X_GPIOOFFDELAY5_4_GPIO4_3000MS	0x0F
++/*    GpioOffDelay3_2 */
++#define SX863X_GPIOOFFDELAY3_2_GPIO3_OFF	  0x00
++#define SX863X_GPIOOFFDELAY3_2_GPIO3_3000MS	0xF0
++#define SX863X_GPIOOFFDELAY3_2_GPIO2_OFF	  0x00
++#define SX863X_GPIOOFFDELAY3_2_GPIO2_3000MS	0x0F
++/*    GpioOffDelay1_0 */
++#define SX863X_GPIOOFFDELAY1_0_GPIO1_OFF	  0x00
++#define SX863X_GPIOOFFDELAY1_0_GPIO1_3000MS	0xF0
++#define SX863X_GPIOOFFDELAY1_0_GPIO0_OFF	  0x00
++#define SX863X_GPIOOFFDELAY1_0_GPIO0_3000MS	0x0F
++
++/*    Gpio PullUpDown7_4 */
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO7_NONE     0x00
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO7_PULLUP   0x40
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO7_PULLDOWN 0x80
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO6_NONE     0x00
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO6_PULLUP   0x10
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO6_PULLDOWN 0x20
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO5_NONE     0x00
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO5_PULLUP   0x04
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO5_PULLDOWN 0x08
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO4_NONE     0x00
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO4_PULLUP   0x01
++#define SX863X_GPIOPULLUPDOWN7_4_GPIO4_PULLDOWN 0x02
++
++
++/*    Gpio PullUpDown3_0 */
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO3_NONE     0x00
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO3_PULLUP   0x40
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO3_PULLDOWN 0x80
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO2_NONE     0x00
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO2_PULLUP   0x10
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO2_PULLDOWN 0x20
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO1_NONE     0x00
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO1_PULLUP   0x04
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO1_PULLDOWN 0x08
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO0_NONE     0x00
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO0_PULLUP   0x01
++#define SX863X_GPIOPULLUPDOWN3_0_GPIO0_PULLDOWN 0x02
++/*    GpioInterrupt7_4    */
++#define SX863X_GPIOINTERRUPT7_4_GPIO7_NONE	  0x00
++#define SX863X_GPIOINTERRUPT7_4_GPIO7_RISING	0x40
++#define SX863X_GPIOINTERRUPT7_4_GPIO7_FALLING	0x80
++#define SX863X_GPIOINTERRUPT7_4_GPIO7_BOTH	  0xC0
++#define SX863X_GPIOINTERRUPT7_4_GPIO6_NONE	  0x00
++#define SX863X_GPIOINTERRUPT7_4_GPIO6_RISING	0x10
++#define SX863X_GPIOINTERRUPT7_4_GPIO6_FALLING	0x20
++#define SX863X_GPIOINTERRUPT7_4_GPIO6_BOTH	  0x30
++#define SX863X_GPIOINTERRUPT7_4_GPIO5_NONE	  0x00
++#define SX863X_GPIOINTERRUPT7_4_GPIO5_RISING	0x04
++#define SX863X_GPIOINTERRUPT7_4_GPIO5_FALLING	0x08
++#define SX863X_GPIOINTERRUPT7_4_GPIO5_BOTH	  0x0C
++#define SX863X_GPIOINTERRUPT7_4_GPIO4_NONE	  0x00
++#define SX863X_GPIOINTERRUPT7_4_GPIO4_RISING	0x01
++#define SX863X_GPIOINTERRUPT7_4_GPIO4_FALLING	0x02
++#define SX863X_GPIOINTERRUPT7_4_GPIO4_BOTH	  0x03
++/*    GpioInterrupt3_0    */
++#define SX863X_GPIOINTERRUPT3_0_GPIO3_NONE	  0x00
++#define SX863X_GPIOINTERRUPT3_0_GPIO3_RISING	0x40
++#define SX863X_GPIOINTERRUPT3_0_GPIO3_FALLING	0x80
++#define SX863X_GPIOINTERRUPT3_0_GPIO3_BOTH	  0xC0
++#define SX863X_GPIOINTERRUPT3_0_GPIO2_NONE	  0x00
++#define SX863X_GPIOINTERRUPT3_0_GPIO2_RISING	0x10
++#define SX863X_GPIOINTERRUPT3_0_GPIO2_FALLING	0x20
++#define SX863X_GPIOINTERRUPT3_0_GPIO2_BOTH	  0x30
++#define SX863X_GPIOINTERRUPT3_0_GPIO1_NONE	  0x00
++#define SX863X_GPIOINTERRUPT3_0_GPIO1_RISING	0x04
++#define SX863X_GPIOINTERRUPT3_0_GPIO1_FALLING	0x08
++#define SX863X_GPIOINTERRUPT3_0_GPIO1_BOTH	  0x0C
++#define SX863X_GPIOINTERRUPT3_0_GPIO0_NONE	  0x00
++#define SX863X_GPIOINTERRUPT3_0_GPIO0_RISING	0x01
++#define SX863X_GPIOINTERRUPT3_0_GPIO0_FALLING	0x02
++#define SX863X_GPIOINTERRUPT3_0_GPIO0_BOTH	  0x03
++/*    GpioDebounce    */
++#define SX863X_GPIODEBOUNCE_GPIO7_ON	0x80
++#define SX863X_GPIODEBOUNCE_GPIO6_ON	0x40
++#define SX863X_GPIODEBOUNCE_GPIO5_ON	0x20
++#define SX863X_GPIODEBOUNCE_GPIO4_ON	0x10
++#define SX863X_GPIODEBOUNCE_GPIO3_ON	0x08
++#define SX863X_GPIODEBOUNCE_GPIO2_ON	0x04
++#define SX863X_GPIODEBOUNCE_GPIO1_ON	0x02
++#define SX863X_GPIODEBOUNCE_GPIO0_ON	0x01
++
++#endif /* _SX863X_SPM_REG_H_*/
+-- 
+1.9.1
+

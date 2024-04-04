@@ -1,0 +1,49 @@
+From b9eac2ce784ad3fd6778e1a990e26ef5a4b26022 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <justin.maggard@netgear.com>
+Date: Thu, 2 Jun 2016 23:09:36 +0000
+Subject: [PATCH 10/21] enable dns servers from all sevices
+
+Don't disable DNS servers from non-default services.  ReadyNAS is often
+multi-homed, so it's counter-productive.
+---
+ src/dnsproxy.c | 15 +++------------
+ 1 file changed, 3 insertions(+), 12 deletions(-)
+
+diff --git a/src/dnsproxy.c b/src/dnsproxy.c
+index 67e3219..896fcf4 100644
+--- a/src/dnsproxy.c
++++ b/src/dnsproxy.c
+@@ -2631,14 +2631,10 @@ static struct server_data *create_server(int index,
+ 	}
+ 
+ 	if (protocol == IPPROTO_UDP) {
+-		if (__connman_service_index_is_default(data->index) ||
+-				__connman_service_index_is_split_routing(
+-								data->index)) {
+-			data->enabled = true;
+-			DBG("Adding DNS server %s", data->server);
++		data->enabled = true;
++		DBG("Adding DNS server %s", data->server);
+ 
+-			enable_fallback(false);
+-		}
++		enable_fallback(false);
+ 
+ 		server_list = g_slist_append(server_list, data);
+ 	}
+@@ -2891,12 +2887,7 @@ static void dnsproxy_default_changed(struct connman_service *service)
+ 		struct server_data *data = list->data;
+ 
+ 		if (data->index == index) {
+-			DBG("Enabling DNS server %s", data->server);
+-			data->enabled = true;
+ 			server_enabled = true;
+-		} else {
+-			DBG("Disabling DNS server %s", data->server);
+-			data->enabled = false;
+ 		}
+ 	}
+ 
+-- 
+2.1.4
+

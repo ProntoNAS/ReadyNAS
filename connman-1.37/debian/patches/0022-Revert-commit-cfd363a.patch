@@ -1,0 +1,54 @@
+From 1f79cbeffec2dabf4e23455195b65d811d8eacaa Mon Sep 17 00:00:00 2001
+From: Justin Ding <justin.ding@netgear.com>
+Date: Sun, 12 Jan 2020 18:02:35 -0800
+Subject: [PATCH] Revert commit cfd363a80ef22966c4042639c6770d70d0abc75a.
+
+"timeserver: Do not start several time server lookups"
+
+This tends to cause failed to disable NTP service.
+---
+ src/timeserver.c | 7 -------
+ 1 file changed, 7 deletions(-)
+
+diff --git a/src/timeserver.c b/src/timeserver.c
+index 9832c2a..57fb87d 100644
+--- a/src/timeserver.c
++++ b/src/timeserver.c
+@@ -34,7 +34,6 @@
+ 
+ #define TS_RECHECK_INTERVAL     7200
+ 
+-static struct connman_service *ts_service;
+ static GSList *timeservers_list = NULL;
+ static GSList *ts_list = NULL;
+ static char *ts_current = NULL;
+@@ -345,9 +344,6 @@ int __connman_timeserver_sync(struct connman_service *default_service)
+ 	if (!service)
+ 		return -EINVAL;
+ 
+-	if (service == ts_service)
+-		return -EALREADY;
+-
+ 	if (!resolv)
+ 		return 0;
+ 	/*
+@@ -386,7 +382,6 @@ int __connman_timeserver_sync(struct connman_service *default_service)
+ 
+ 	ts_recheck_enable();
+ 
+-	ts_service = service;
+ 	timeserver_sync_start();
+ 
+ 	return 0;
+@@ -438,8 +433,6 @@ static void timeserver_stop(void)
+ {
+ 	DBG(" ");
+ 
+-	ts_service = NULL;
+-
+ 	if (resolv) {
+ 		g_resolv_unref(resolv);
+ 		resolv = NULL;
+-- 
+2.1.4
+

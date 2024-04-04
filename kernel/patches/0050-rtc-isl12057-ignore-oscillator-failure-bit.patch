@@ -1,0 +1,32 @@
+From ec9a432de9bd2740c4934b347a5e1a5063b7e2e2 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Mon, 9 Nov 2015 13:56:32 -0800
+Subject: [PATCH 50/51] rtc: isl12057: ignore oscillator failure bit
+
+ReadyNASOS < 6.4.0 used a 3.0 kernel with a hacked up RTC driver that
+didn't account for the oscillator status registers.  Somehow the
+oscillator failure bit was always set, so when people updated to 6.4.0,
+their date would get reset to epoch time.  So unfortunately, it looks
+like we'll need to simply ignore the failure bit.
+---
+ drivers/rtc/rtc-isl12057.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/rtc/rtc-isl12057.c b/drivers/rtc/rtc-isl12057.c
+index 54328d4..2888d98 100644
+--- a/drivers/rtc/rtc-isl12057.c
++++ b/drivers/rtc/rtc-isl12057.c
+@@ -210,8 +210,8 @@ static int _isl12057_rtc_read_time(struct device *dev, struct rtc_time *tm)
+ 		goto out;
+ 	} else {
+ 		if (sr & ISL12057_REG_SR_OSF) {
+-			ret = -ENODATA;
+-			goto out;
++			dev_err(dev, "%s: oscillator failure bit set, "
++				"continuing anyway\n", __func__);
+ 		}
+ 	}
+ 
+-- 
+1.9.1
+

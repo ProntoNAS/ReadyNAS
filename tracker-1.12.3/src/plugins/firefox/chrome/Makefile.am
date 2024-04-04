@@ -1,0 +1,1 @@
+SUBDIRS = skin locale content

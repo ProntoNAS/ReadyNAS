@@ -7,6 +7,16 @@
 #                    Also mounts SMB filesystems now, so the name of
 #                    this script is getting increasingly inaccurate.
 
+# Skip the mountnfs hook when being triggered by the networking SysV init
+# script and instead use the systemd built-in mechanisms to mount remote
+# file systems.
+# This avoids a deadlock caused by the rpcbind SysV init script depending
+# on $network and the $network LSB facility being provided by the networking
+# SysV init script.
+if [ -d /run/systemd/system ]; then
+	systemctl list-jobs | grep -q network.target && exit 0
+fi
+
 PATH=/sbin:/bin
 . /lib/init/vars.sh
 
@@ -121,7 +131,10 @@ do_start() {
 exit_unless_last_interface() {
     ifaces="$(ifquery --list)"
     for i in $ifaces ; do
-	if ! grep -q $i /etc/network/run/ifstate ; then
+	if [ "$i" = "lo" ]; then
+	    continue
+	fi
+	if ! ifquery --state $i >/dev/null ; then
 	    msg="if-up.d/mountnfs[$IFACE]: waiting for interface $i before doing NFS mounts"
 	    log_warning_msg "$msg"
 	    exit 0

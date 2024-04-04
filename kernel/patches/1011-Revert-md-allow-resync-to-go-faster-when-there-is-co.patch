@@ -1,0 +1,46 @@
+From e17c326b816484706f9c416e58b374c2e3be6f28 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Mon, 21 Sep 2015 14:54:20 -0700
+Subject: [PATCH 1011/1014] Revert "md: allow resync to go faster when there is
+ competing IO."
+
+The change was causing some filesystem mounts to take an extremely long
+time.  Forum user jukkaforss' data volume took 22 minutes to mount while
+a resync was occurring; setting sync_speed_max to 50000 brought it down
+to between 1 and 2 minutes.  So, instead of bringing sync_speed_max down
+let's just revert this change.  That way, it can still get up over 100
+MB/sec if the system is otherwise idle.
+
+This reverts commit ac8fa4196d205ac8fff3f8932bddbad4f16e4110.
+---
+ drivers/md/md.c | 11 ++---------
+ 1 file changed, 2 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/md/md.c b/drivers/md/md.c
+index c1c7d4f..dfc31f9 100644
+--- a/drivers/md/md.c
++++ b/drivers/md/md.c
+@@ -8038,18 +8038,11 @@ void md_do_sync(struct md_thread *thread)
+ 			/((jiffies-mddev->resync_mark)/HZ +1) +1;
+ 
+ 		if (currspeed > speed_min(mddev)) {
+-			if (currspeed > speed_max(mddev)) {
++			if ((currspeed > speed_max(mddev)) ||
++					!is_mddev_idle(mddev, 0)) {
+ 				msleep(500);
+ 				goto repeat;
+ 			}
+-			if (!is_mddev_idle(mddev, 0)) {
+-				/*
+-				 * Give other IO more of a chance.
+-				 * The faster the devices, the less we wait.
+-				 */
+-				wait_event(mddev->recovery_wait,
+-					   !atomic_read(&mddev->recovery_active));
+-			}
+ 		}
+ 	}
+ 	printk(KERN_INFO "md: %s: %s %s.\n",mdname(mddev), desc,
+-- 
+1.9.1
+

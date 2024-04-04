@@ -1,0 +1,33 @@
+From e0836469938ddb0a2171d08d3d48326443f154ba Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 15 Dec 2016 14:18:36 -0800
+Subject: [PATCH] ixgbe: Accept strange WoL feature bits in EEPROM
+
+The RN422/424 EVT system we have recevied so far have both the "WoL
+supported on ports 0 & 1" and "WoL supported on port 0" bits set, which
+is a configuration that the upstream ixgbe driver rejects.  So for now
+we'll change the driver to accept this configuration.
+
+Fixes: Bug #22527 (RN422&RN424: WOL cannot work)
+---
+ drivers/net/ethernet/intel/ixgbe/ixgbe_main.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+index 9f7ca83..eb763e6 100644
+--- a/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
++++ b/drivers/net/ethernet/intel/ixgbe/ixgbe_main.c
+@@ -9297,8 +9297,8 @@ bool ixgbe_wol_supported(struct ixgbe_adapter *adapter, u16 device_id,
+ 
+ 	/* check eeprom to see if WOL is enabled for X540 and newer */
+ 	if (hw->mac.type >= ixgbe_mac_X540) {
+-		if ((wol_cap == IXGBE_DEVICE_CAPS_WOL_PORT0_1) ||
+-		    ((wol_cap == IXGBE_DEVICE_CAPS_WOL_PORT0) &&
++		if ((wol_cap & IXGBE_DEVICE_CAPS_WOL_PORT0_1) ||
++		    ((wol_cap & IXGBE_DEVICE_CAPS_WOL_PORT0) &&
+ 		     (hw->bus.func == 0)))
+ 			return true;
+ 	}
+-- 
+1.9.1
+

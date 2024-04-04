@@ -1,0 +1,38 @@
+From 694af1d47d4547a8be07bdbc20dbbce74a8ac83d Mon Sep 17 00:00:00 2001
+From: Alexander Duyck <alexander.h.duyck@intel.com>
+Date: Fri, 19 Aug 2016 20:58:26 -0700
+Subject: [PATCH 168/191] ixgbe: Do not clear RAR entry when clearing VMDq for
+ SAN MAC
+
+The RAR entry for the SAN MAC address was being cleared when we were
+clearing the VMDq pool bits.  In order to prevent this we need to add
+an extra check to protect the SAN MAC from being cleared.
+
+Fixes: 6e982aeae ("ixgbe: Clear stale pool mappings")
+Signed-off-by: Alexander Duyck <alexander.h.duyck@intel.com>
+Tested-by: Andrew Bowers <andrewx.bowers@intel.com>
+Signed-off-by: Jeff Kirsher <jeffrey.t.kirsher@intel.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/intel/ixgbe/ixgbe_common.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/ethernet/intel/ixgbe/ixgbe_common.c b/drivers/net/ethernet/intel/ixgbe/ixgbe_common.c
+index b4217f3..c47b605 100644
+--- a/drivers/net/ethernet/intel/ixgbe/ixgbe_common.c
++++ b/drivers/net/ethernet/intel/ixgbe/ixgbe_common.c
+@@ -2958,8 +2958,10 @@ s32 ixgbe_clear_vmdq_generic(struct ixgbe_hw *hw, u32 rar, u32 vmdq)
+ 	}
+ 
+ 	/* was that the last pool using this rar? */
+-	if (mpsar_lo == 0 && mpsar_hi == 0 && rar != 0)
++	if (mpsar_lo == 0 && mpsar_hi == 0 &&
++	    rar != 0 && rar != hw->mac.san_mac_rar_index)
+ 		hw->mac.ops.clear_rar(hw, rar);
++
+ 	return 0;
+ }
+ 
+-- 
+1.9.1
+

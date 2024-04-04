@@ -1,0 +1,41 @@
+From f6a8f9bc61347f746304403bd1bc1d34238f039f Mon Sep 17 00:00:00 2001
+From: Justin Ding <justin.ding@netgear.com>
+Date: Mon, 7 Jan 2019 18:15:15 -0800
+Subject: [PATCH] Delete service configuration file when removing service.
+
+Extend service remove interface to support service configuration deletion.
+---
+ src/service.c | 10 +++-------
+ 1 file changed, 3 insertions(+), 7 deletions(-)
+
+diff --git a/src/service.c b/src/service.c
+index 02cd51f..66ab895 100644
+--- a/src/service.c
++++ b/src/service.c
+@@ -4243,8 +4243,7 @@ static DBusMessage *disconnect_service(DBusConnection *conn,
+ 
+ bool __connman_service_remove(struct connman_service *service)
+ {
+-	if (service->type == CONNMAN_SERVICE_TYPE_ETHERNET ||
+-			service->type == CONNMAN_SERVICE_TYPE_GADGET)
++	if (service->type == CONNMAN_SERVICE_TYPE_GADGET)
+ 		return false;
+ 
+ 	if (service->immutable || service->hidden ||
+@@ -4285,11 +4284,8 @@ bool __connman_service_remove(struct connman_service *service)
+ 
+ 	service->error = CONNMAN_SERVICE_ERROR_UNKNOWN;
+ 
+-	__connman_service_set_favorite(service, false);
+-
+-	__connman_ipconfig_ipv6_reset_privacy(service->ipconfig_ipv6);
+-
+-	service_save(service);
++	if (!__connman_storage_remove_service(service->identifier))
++		return false;
+ 
+ 	return true;
+ }
+-- 
+2.1.4
+

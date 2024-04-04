@@ -1,0 +1,38 @@
+From 567d71de1c4441bfa56c9f81908897d5e95430cf Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 18 Aug 2015 11:23:53 -0700
+Subject: [PATCH 1002/1016] btrfs: Use nodump attribute for forced compression
+
+---
+ fs/btrfs/inode.c | 1 +
+ fs/btrfs/ioctl.c | 2 ++
+ 2 files changed, 3 insertions(+)
+
+diff --git a/fs/btrfs/inode.c b/fs/btrfs/inode.c
+index a2a02f3..67ac478 100644
+--- a/fs/btrfs/inode.c
++++ b/fs/btrfs/inode.c
+@@ -603,6 +603,7 @@ cont:
+ 
+ 		/* flag the file so we don't compress in the future */
+ 		if (!btrfs_test_opt(root, FORCE_COMPRESS) &&
++		    !(BTRFS_I(inode)->flags & BTRFS_INODE_NODUMP) &&
+ 		    !(BTRFS_I(inode)->force_compress)) {
+ 			BTRFS_I(inode)->flags |= BTRFS_INODE_NOCOMPRESS;
+ 		}
+diff --git a/fs/btrfs/ioctl.c b/fs/btrfs/ioctl.c
+index e1dd639..6ca8b7e 100644
+--- a/fs/btrfs/ioctl.c
++++ b/fs/btrfs/ioctl.c
+@@ -176,6 +176,8 @@ void btrfs_inherit_iflags(struct inode *inode, struct inode *dir)
+ 	} else if (flags & BTRFS_INODE_COMPRESS) {
+ 		BTRFS_I(inode)->flags &= ~BTRFS_INODE_NOCOMPRESS;
+ 		BTRFS_I(inode)->flags |= BTRFS_INODE_COMPRESS;
++		if (flags & BTRFS_INODE_NODUMP)
++			BTRFS_I(inode)->flags |= BTRFS_INODE_NODUMP;
+ 	}
+ 
+ 	if (flags & BTRFS_INODE_NODATACOW) {
+-- 
+1.9.1
+
