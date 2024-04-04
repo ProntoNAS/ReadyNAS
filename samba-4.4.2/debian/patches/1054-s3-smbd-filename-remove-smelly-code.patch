@@ -1,0 +1,68 @@
+From f4f4eaf2ebfb974f4e795899eb449968396bb56b Mon Sep 17 00:00:00 2001
+From: Christian Ambach <ambi@samba.org>
+Date: Tue, 5 Apr 2016 02:58:48 +0200
+Subject: [PATCH 1054/1096] s3:smbd/filename remove smelly code
+
+not sure how this chunk ended up there, but I agree with
+the statement in the comment that behavior should not depend
+on developer mode
+
+make test does not seem to depend on it anymore.
+
+This piece had some bad influence on the tests I wrote
+for case insensitivite behavior of SMB2/3, so let us
+remove this technical debt.
+
+Signed-off-by: Christian Ambach <ambi@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+
+The last 3 patches address
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11438
+
+(cherry picked from commit ae7e3d1d041a2ff24ea46de77b87c5606fcb060b)
+---
+ source3/smbd/filename.c | 28 ----------------------------
+ 1 file changed, 28 deletions(-)
+
+diff --git a/source3/smbd/filename.c b/source3/smbd/filename.c
+index f2c9184..e89575d 100644
+--- a/source3/smbd/filename.c
++++ b/source3/smbd/filename.c
+@@ -940,34 +940,6 @@ NTSTATUS unix_convert(TALLOC_CTX *ctx,
+ 			TALLOC_FREE(found_name);
+ 		} /* end else */
+ 
+-#ifdef DEVELOPER
+-		/*
+-		 * This sucks!
+-		 * We should never provide different behaviors
+-		 * depending on DEVELOPER!!!
+-		 */
+-		if (VALID_STAT(smb_fname->st)) {
+-			bool delete_pending;
+-			uint32_t name_hash;
+-
+-			status = file_name_hash(conn,
+-					smb_fname_str_dbg(smb_fname),
+-					&name_hash);
+-			if (!NT_STATUS_IS_OK(status)) {
+-				goto fail;
+-			}
+-
+-			get_file_infos(vfs_file_id_from_sbuf(conn,
+-							     &smb_fname->st),
+-				       name_hash,
+-				       &delete_pending, NULL);
+-			if (delete_pending) {
+-				status = NT_STATUS_DELETE_PENDING;
+-				goto fail;
+-			}
+-		}
+-#endif
+-
+ 		/*
+ 		 * Add to the dirpath that we have resolved so far.
+ 		 */
+-- 
+2.9.0
+

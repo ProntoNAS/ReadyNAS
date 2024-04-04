@@ -1,0 +1,31 @@
+From 84d28d106864601f48a35c37391dc7c4a937617d Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 9 Jun 2016 11:29:24 -0700
+Subject: [PATCH 8/8] Log the source IP address of unrecognized method
+ warnings.
+
+---
+ minissdpd.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/minissdpd.c b/minissdpd.c
+index a0d1b3b..e10bac1 100644
+--- a/minissdpd.c
++++ b/minissdpd.c
+@@ -741,7 +741,12 @@ ParseSSDPPacket(int s, const char * p, ssize_t n,
+ 	case METHOD_YOUKU:
+ 		break;
+ 	default:
+-		syslog(LOG_WARNING, "method %.*s, don't know what to do", methodlen, p);
++		{
++			char buf[64];
++			sockaddr_to_string(addr, buf, sizeof(buf));
++			syslog(LOG_WARNING, "Unrecognized method '%.*s' from %s",
++			       methodlen, p, buf);
++		}
+ 	}
+ 	return r;
+ }
+-- 
+1.9.1
+

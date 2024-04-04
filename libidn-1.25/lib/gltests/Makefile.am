@@ -823,6 +823,16 @@ EXTRA_DIST += test-unistd.c
 
 ## end   gnulib module unistd-tests
 
+## begin gnulib module unistr/u8-check-tests
+
+TESTS += test-u8-check
+check_PROGRAMS += test-u8-check
+test_u8_check_SOURCES = unistr/test-u8-check.c
+test_u8_check_LDADD = $(LDADD) $(LIBUNISTRING)
+EXTRA_DIST += unistr/test-u8-check.c macros.h
+
+## end   gnulib module unistr/u8-check-tests
+
 ## begin gnulib module unistr/u8-mbtoucr-tests
 
 TESTS += test-u8-mbtoucr

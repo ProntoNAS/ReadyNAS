@@ -46,6 +46,8 @@ struct _iakerb_ctx_id_rec {
     gss_ctx_id_t gssc;
     krb5_data conv;                     /* conversation for checksumming */
     unsigned int count;                 /* number of round trips */
+    int initiate;
+    int established;
     krb5_get_init_creds_opt *gic_opts;
 };
 
@@ -701,7 +703,7 @@ cleanup:
  * Allocate and initialise an IAKERB context
  */
 static krb5_error_code
-iakerb_alloc_context(iakerb_ctx_id_t *pctx)
+iakerb_alloc_context(iakerb_ctx_id_t *pctx, int initiate)
 {
     iakerb_ctx_id_t ctx;
     krb5_error_code code;
@@ -714,6 +716,8 @@ iakerb_alloc_context(iakerb_ctx_id_t *pctx)
     ctx->magic = KG_IAKERB_CONTEXT;
     ctx->state = IAKERB_AS_REQ;
     ctx->count = 0;
+    ctx->initiate = initiate;
+    ctx->established = 0;
 
     code = krb5_gss_init_context(&ctx->k5c);
     if (code != 0)
@@ -728,16 +732,12 @@ cleanup:
     return code;
 }
 
-/*
- * Delete an IAKERB context. This can also accept Kerberos context
- * handles. The heuristic is similar to SPNEGO's delete_sec_context.
- */
 OM_uint32 KRB5_CALLCONV
 iakerb_gss_delete_sec_context(OM_uint32 *minor_status,
                               gss_ctx_id_t *context_handle,
                               gss_buffer_t output_token)
 {
-    OM_uint32 major_status = GSS_S_COMPLETE;
+    iakerb_ctx_id_t iakerb_ctx = (iakerb_ctx_id_t)*context_handle;
 
     if (output_token != GSS_C_NO_BUFFER) {
         output_token->length = 0;
@@ -745,23 +745,10 @@ iakerb_gss_delete_sec_context(OM_uint32 *minor_status,
     }
 
     *minor_status = 0;
+    *context_handle = GSS_C_NO_CONTEXT;
+    iakerb_release_context(iakerb_ctx);
 
-    if (*context_handle != GSS_C_NO_CONTEXT) {
-        iakerb_ctx_id_t iakerb_ctx = (iakerb_ctx_id_t)*context_handle;
-
-        if (iakerb_ctx->magic == KG_IAKERB_CONTEXT) {
-            iakerb_release_context(iakerb_ctx);
-            *context_handle = GSS_C_NO_CONTEXT;
-        } else {
-            assert(iakerb_ctx->magic == KG_CONTEXT);
-
-            major_status = krb5_gss_delete_sec_context(minor_status,
-                                                       context_handle,
-                                                       output_token);
-        }
-    }
-
-    return major_status;
+    return GSS_S_COMPLETE;
 }
 
 static krb5_boolean
@@ -807,7 +794,7 @@ iakerb_gss_accept_sec_context(OM_uint32 *minor_status,
     int initialContextToken = (*context_handle == GSS_C_NO_CONTEXT);
 
     if (initialContextToken) {
-        code = iakerb_alloc_context(&ctx);
+        code = iakerb_alloc_context(&ctx, 0);
         if (code != 0)
             goto cleanup;
 
@@ -859,11 +846,8 @@ iakerb_gss_accept_sec_context(OM_uint32 *minor_status,
                                                        time_rec,
                                                        delegated_cred_handle,
                                                        &exts);
-        if (major_status == GSS_S_COMPLETE) {
-            *context_handle = ctx->gssc;
-            ctx->gssc = NULL;
-            iakerb_release_context(ctx);
-        }
+        if (major_status == GSS_S_COMPLETE)
+            ctx->established = 1;
         if (mech_type != NULL)
             *mech_type = (gss_OID)gss_mech_krb5;
     }
@@ -904,7 +888,7 @@ iakerb_gss_init_sec_context(OM_uint32 *minor_status,
     int initialContextToken = (*context_handle == GSS_C_NO_CONTEXT);
 
     if (initialContextToken) {
-        code = iakerb_alloc_context(&ctx);
+        code = iakerb_alloc_context(&ctx, 1);
         if (code != 0) {
             *minor_status = code;
             goto cleanup;
@@ -988,11 +972,8 @@ iakerb_gss_init_sec_context(OM_uint32 *minor_status,
                                                      ret_flags,
                                                      time_rec,
                                                      &exts);
-        if (major_status == GSS_S_COMPLETE) {
-            *context_handle = ctx->gssc;
-            ctx->gssc = GSS_C_NO_CONTEXT;
-            iakerb_release_context(ctx);
-        }
+        if (major_status == GSS_S_COMPLETE)
+            ctx->established = 1;
         if (actual_mech_type != NULL)
             *actual_mech_type = (gss_OID)gss_mech_krb5;
     } else {
@@ -1015,4 +996,296 @@ cleanup:
     krb5_gss_release_cred(&tmpmin, &defcred);
 
     return major_status;
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_unwrap(OM_uint32 *minor_status, gss_ctx_id_t context_handle,
+                  gss_buffer_t input_message_buffer,
+                  gss_buffer_t output_message_buffer, int *conf_state,
+                  gss_qop_t *qop_state)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_NO_CONTEXT;
+
+    return krb5_gss_unwrap(minor_status, ctx->gssc, input_message_buffer,
+                           output_message_buffer, conf_state, qop_state);
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_wrap(OM_uint32 *minor_status, gss_ctx_id_t context_handle,
+                int conf_req_flag, gss_qop_t qop_req,
+                gss_buffer_t input_message_buffer, int *conf_state,
+                gss_buffer_t output_message_buffer)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_NO_CONTEXT;
+
+    return krb5_gss_wrap(minor_status, ctx->gssc, conf_req_flag, qop_req,
+                         input_message_buffer, conf_state,
+                         output_message_buffer);
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_process_context_token(OM_uint32 *minor_status,
+                                 const gss_ctx_id_t context_handle,
+                                 const gss_buffer_t token_buffer)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_DEFECTIVE_TOKEN;
+
+    return krb5_gss_process_context_token(minor_status, ctx->gssc,
+                                          token_buffer);
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_context_time(OM_uint32 *minor_status, gss_ctx_id_t context_handle,
+                        OM_uint32 *time_rec)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_NO_CONTEXT;
+
+    return krb5_gss_context_time(minor_status, ctx->gssc, time_rec);
+}
+
+#ifndef LEAN_CLIENT
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_export_sec_context(OM_uint32 *minor_status,
+                              gss_ctx_id_t *context_handle,
+                              gss_buffer_t interprocess_token)
+{
+    OM_uint32 maj;
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)*context_handle;
+
+    /* We don't currently support exporting partially established contexts. */
+    if (!ctx->established)
+        return GSS_S_UNAVAILABLE;
+
+    maj = krb5_gss_export_sec_context(minor_status, &ctx->gssc,
+                                      interprocess_token);
+    if (ctx->gssc == GSS_C_NO_CONTEXT) {
+        iakerb_release_context(ctx);
+        *context_handle = GSS_C_NO_CONTEXT;
+    }
+    return maj;
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_import_sec_context(OM_uint32 *minor_status,
+                              gss_buffer_t interprocess_token,
+                              gss_ctx_id_t *context_handle)
+{
+    OM_uint32 maj, tmpmin;
+    krb5_error_code code;
+    gss_ctx_id_t gssc;
+    krb5_gss_ctx_id_t kctx;
+    iakerb_ctx_id_t ctx;
+
+    maj = krb5_gss_import_sec_context(minor_status, interprocess_token, &gssc);
+    if (maj != GSS_S_COMPLETE)
+        return maj;
+    kctx = (krb5_gss_ctx_id_t)gssc;
+
+    if (!kctx->established) {
+        /* We don't currently support importing partially established
+         * contexts. */
+        krb5_gss_delete_sec_context(&tmpmin, &gssc, GSS_C_NO_BUFFER);
+        return GSS_S_FAILURE;
+    }
+
+    code = iakerb_alloc_context(&ctx, kctx->initiate);
+    if (code != 0) {
+        krb5_gss_delete_sec_context(&tmpmin, &gssc, GSS_C_NO_BUFFER);
+        *minor_status = code;
+        return GSS_S_FAILURE;
+    }
+
+    ctx->gssc = gssc;
+    ctx->established = 1;
+    *context_handle = (gss_ctx_id_t)ctx;
+    return GSS_S_COMPLETE;
+}
+#endif /* LEAN_CLIENT */
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_inquire_context(OM_uint32 *minor_status,
+                           gss_ctx_id_t context_handle, gss_name_t *src_name,
+                           gss_name_t *targ_name, OM_uint32 *lifetime_rec,
+                           gss_OID *mech_type, OM_uint32 *ctx_flags,
+                           int *initiate, int *opened)
+{
+    OM_uint32 ret;
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (src_name != NULL)
+        *src_name = GSS_C_NO_NAME;
+    if (targ_name != NULL)
+        *targ_name = GSS_C_NO_NAME;
+    if (lifetime_rec != NULL)
+        *lifetime_rec = 0;
+    if (mech_type != NULL)
+        *mech_type = (gss_OID)gss_mech_iakerb;
+    if (ctx_flags != NULL)
+        *ctx_flags = 0;
+    if (initiate != NULL)
+        *initiate = ctx->initiate;
+    if (opened != NULL)
+        *opened = ctx->established;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_COMPLETE;
+
+    ret = krb5_gss_inquire_context(minor_status, ctx->gssc, src_name,
+                                   targ_name, lifetime_rec, mech_type,
+                                   ctx_flags, initiate, opened);
+
+    if (!ctx->established) {
+        /* Report IAKERB as the mech OID until the context is established. */
+        if (mech_type != NULL)
+            *mech_type = (gss_OID)gss_mech_iakerb;
+
+        /* We don't support exporting partially-established contexts. */
+        if (ctx_flags != NULL)
+            *ctx_flags &= ~GSS_C_TRANS_FLAG;
+    }
+
+    return ret;
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_wrap_size_limit(OM_uint32 *minor_status,
+                           gss_ctx_id_t context_handle, int conf_req_flag,
+                           gss_qop_t qop_req, OM_uint32 req_output_size,
+                           OM_uint32 *max_input_size)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_NO_CONTEXT;
+
+    return krb5_gss_wrap_size_limit(minor_status, ctx->gssc, conf_req_flag,
+                                    qop_req, req_output_size, max_input_size);
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_get_mic(OM_uint32 *minor_status, gss_ctx_id_t context_handle,
+                   gss_qop_t qop_req, gss_buffer_t message_buffer,
+                   gss_buffer_t message_token)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_NO_CONTEXT;
+
+    return krb5_gss_get_mic(minor_status, ctx->gssc, qop_req, message_buffer,
+                            message_token);
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_verify_mic(OM_uint32 *minor_status, gss_ctx_id_t context_handle,
+                      gss_buffer_t msg_buffer, gss_buffer_t token_buffer,
+                      gss_qop_t *qop_state)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_NO_CONTEXT;
+
+    return krb5_gss_verify_mic(minor_status, ctx->gssc, msg_buffer,
+                               token_buffer, qop_state);
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_inquire_sec_context_by_oid(OM_uint32 *minor_status,
+                                      const gss_ctx_id_t context_handle,
+                                      const gss_OID desired_object,
+                                      gss_buffer_set_t *data_set)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_UNAVAILABLE;
+
+    return krb5_gss_inquire_sec_context_by_oid(minor_status, ctx->gssc,
+                                               desired_object, data_set);
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_set_sec_context_option(OM_uint32 *minor_status,
+                                  gss_ctx_id_t *context_handle,
+                                  const gss_OID desired_object,
+                                  const gss_buffer_t value)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)*context_handle;
+
+    if (ctx == NULL || ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_UNAVAILABLE;
+
+    return krb5_gss_set_sec_context_option(minor_status, &ctx->gssc,
+                                           desired_object, value);
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_wrap_iov(OM_uint32 *minor_status, gss_ctx_id_t context_handle,
+                    int conf_req_flag, gss_qop_t qop_req, int *conf_state,
+                    gss_iov_buffer_desc *iov, int iov_count)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_NO_CONTEXT;
+
+    return krb5_gss_wrap_iov(minor_status, ctx->gssc, conf_req_flag, qop_req,
+                             conf_state, iov, iov_count);
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_unwrap_iov(OM_uint32 *minor_status, gss_ctx_id_t context_handle,
+                      int *conf_state, gss_qop_t *qop_state,
+                      gss_iov_buffer_desc *iov, int iov_count)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_NO_CONTEXT;
+
+    return krb5_gss_unwrap_iov(minor_status, ctx->gssc, conf_state, qop_state,
+                               iov, iov_count);
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_wrap_iov_length(OM_uint32 *minor_status,
+                           gss_ctx_id_t context_handle, int conf_req_flag,
+                           gss_qop_t qop_req, int *conf_state,
+                           gss_iov_buffer_desc *iov, int iov_count)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_NO_CONTEXT;
+
+    return krb5_gss_wrap_iov_length(minor_status, ctx->gssc, conf_req_flag,
+                                    qop_req, conf_state, iov, iov_count);
+}
+
+OM_uint32 KRB5_CALLCONV
+iakerb_gss_pseudo_random(OM_uint32 *minor_status, gss_ctx_id_t context_handle,
+                         int prf_key, const gss_buffer_t prf_in,
+                         ssize_t desired_output_len, gss_buffer_t prf_out)
+{
+    iakerb_ctx_id_t ctx = (iakerb_ctx_id_t)context_handle;
+
+    if (ctx->gssc == GSS_C_NO_CONTEXT)
+        return GSS_S_NO_CONTEXT;
+
+    return krb5_gss_pseudo_random(minor_status, ctx->gssc, prf_key, prf_in,
+                                  desired_output_len, prf_out);
 }

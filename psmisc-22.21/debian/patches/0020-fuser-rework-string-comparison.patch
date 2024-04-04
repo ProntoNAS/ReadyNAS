@@ -1,0 +1,931 @@
+From c29931c654278eda29b28041ff094fd5c3630712 Mon Sep 17 00:00:00 2001
+From: Craig Small <csmall@enc.com.au>
+Date: Thu, 25 Jun 2015 21:31:17 +1000
+Subject: [PATCH 20/21] fuser: rework string comparison
+
+This one is a patch that reworks the string comparision for file name
+space in fuser. It makes the usage of this configurable with
+--enable-mountinfo-list at build time as well as at runtime with
+--inode. Also it uses shared memory maps to reduce the load on
+write/read the stat buffers.
+
+References:
+  https://sourceforge.net/p/psmisc/patches/36/
+---
+ ChangeLog     |   5 ++
+ configure.ac  |  11 ++++
+ doc/fuser.1   |   6 ++
+ src/fuser.c   | 187 ++++++++++++++++------------------------------------------
+ src/fuser.h   |   5 +-
+ src/lists.h   | 132 +++++++++++++++++++++++++++++++++++++++--
+ src/timeout.c | 163 +++++++++++++++++++++++++++++++++++++++++---------
+ src/timeout.h |  13 +++-
+ 8 files changed, 351 insertions(+), 171 deletions(-)
+
+diff --git a/ChangeLog b/ChangeLog
+index 14e8df6..aa97e56 100644
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,5 +1,10 @@
+ Changes in 22.22
+ ================
++	* Make usage of linked lists of devices found in
++	  /proc/self/mountinfo optional
++	* Make timeout() in timeout.c work with shared mmap to
++	  reduce the load due write/read the stat buffers
++	* Add list_sort() to lists.h to be able to sort lists
+ 	* fuser: Fixed typo for  -M flag. Debian #740275
+ 	* pstree: by default doesn't show threadnames, use -t to show
+ 	  as it disables compaction. SF [#33]
+diff --git a/configure.ac b/configure.ac
+index 20549f6..4a159b4 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -42,6 +42,17 @@ if test "$enable_timeout_stat" = "static"; then
+ fi
+ AM_CONDITIONAL([WANT_TIMEOUT_STAT], [test "$enable_timeout_stat" = "static"])
+ 
++# Use string search for network based file systems but only if the system
++# has /proc/self/mountinfo
++AC_SUBST([WITH_MOUNTINFO_LIST])
++AC_ARG_ENABLE([mountinfo_list],
++  [AS_HELP_STRING([--enable-mountinfo-list], [Use the list in /proc/self/mountinfo to replace stat(2) syscall on network file systems shares])],
++  [enable_mountinfo_list="yes"],
++  [enable_mountinfo_list="no"])
++if test "$enable_mountinfo_list" = "yes" -a -e /proc/self/mountinfo ; then
++  AC_DEFINE([WITH_MOUNTINFO_LIST], [1], [Use list in /proc/self/mountinfo to replace stat calls])
++fi
++
+ # Enable hardened compile and link flags
+ AC_ARG_ENABLE([harden_flags],
+   [AS_HELP_STRING([--disable-harden-flags], [disable hardened compilier and linker flags])],
+diff --git a/doc/fuser.1 b/doc/fuser.1
+index f95e8d8..9f150da 100644
+--- a/doc/fuser.1
++++ b/doc/fuser.1
+@@ -120,6 +120,12 @@ silently ignored if
+ .B \-k
+ is not present too.
+ .TP
++\fB\-I\fR, \fB\-\-inode\fR
++For the name space
++.B file
++let all comparisions be based on the inodes of the specified file(s)
++and never on the file names even on network based file systems.
++.TP
+ \fB\-l\fR, \fB\-\-list\-signals\fR
+ List all known signal names.
+ .TP
+diff --git a/src/fuser.c b/src/fuser.c
+index 4eeac7d..da94d22 100644
+--- a/src/fuser.c
++++ b/src/fuser.c
+@@ -58,6 +58,7 @@
+ #include "fuser.h"
+ #include "signals.h"
+ #include "i18n.h"
++#include "timeout.h"
+ 
+ //#define DEBUG 1
+ 
+@@ -104,25 +105,14 @@ static void debug_match_lists(struct names *names_head,
+ 			      struct device_list *dev_head);
+ #endif
+ 
+-#ifdef _LISTS_H
++#if defined(WITH_MOUNTINFO_LIST)
+ static void clear_mntinfo(void) __attribute__ ((__destructor__));
+ static void init_mntinfo(void) __attribute__ ((__constructor__));
+-static dev_t device(const char *path);
++static int mntstat(const char *path, struct stat *buf);
+ #endif
++static stat_t thestat = stat;
+ static char *expandpath(const char *path);
+ 
+-#ifdef WITH_TIMEOUT_STAT
+-#if (WITH_TIMEOUT_STAT == 2)
+-#include "timeout.h"
+-#else
+-typedef int (*stat_t) (const char *, struct stat *);
+-static int timeout(stat_t func, const char *path, struct stat *buf,
+-		   unsigned int seconds);
+-#endif
+-#else
+-#define timeout(func,path,buf,dummy) (func)((path),(buf))
+-#endif				/* WITH_TIMEOUT_STAT */
+-
+ static void usage(const char *errormsg)
+ {
+ 	if (errormsg != NULL)
+@@ -135,6 +125,7 @@ static void usage(const char *errormsg)
+ 		 "Show which processes use the named files, sockets, or filesystems.\n\n"
+ 		 "  -a,--all              display unused files too\n"
+ 		 "  -i,--interactive      ask before killing (ignored without -k)\n"
++		 "  -I,--inode            use always inodes to compare files\n"
+ 		 "  -k,--kill             kill processes accessing the named file\n"
+ 		 "  -l,--list-signals     list available signal names\n"
+ 		 "  -m,--mount            show all processes using the named filesystems or block device\n"
+@@ -191,10 +182,6 @@ scan_procs(struct names *names_head, struct inode_list *ino_head,
+ 		struct stat *cwd_stat = NULL;
+ 		struct stat *exe_stat = NULL;
+ 		struct stat *root_stat = NULL;
+-#ifdef _LISTS_H
+-		char path[256] = "/proc/", *slash;
+-		ssize_t len;
+-#endif
+ 
+ 		if (topproc_dent->d_name[0] < '0' || topproc_dent->d_name[0] > '9')	/* Not a process */
+ 			continue;
+@@ -204,30 +191,12 @@ scan_procs(struct names *names_head, struct inode_list *ino_head,
+ 			continue;
+ 		uid = getpiduid(pid);
+ 
+-#ifdef _LISTS_H
+-		strcpy(&path[6], topproc_dent->d_name);
+-		len = strlen(path);
+-		slash = &path[len];
+-
+-		*slash = '\0';
+-		strcat(slash, "/cwd");
+-		cwd_dev = device(path);
+-
+-		*slash = '\0';
+-		strcat(slash, "/exe");
+-		exe_dev = device(path);
+-
+-		*slash = '\0';
+-		strcat(slash, "/root");
+-		root_dev = device(path);
+-#else
+ 		cwd_stat = get_pidstat(pid, "cwd");
+ 		exe_stat = get_pidstat(pid, "exe");
+ 		root_stat = get_pidstat(pid, "root");
+ 		cwd_dev = cwd_stat ? cwd_stat->st_dev : 0;
+ 		exe_dev = exe_stat ? exe_stat->st_dev : 0;
+ 		root_dev = root_stat ? root_stat->st_dev : 0;
+-#endif
+ 
+ 		/* Scan the devices */
+ 		for (dev_tmp = dev_head; dev_tmp != NULL;
+@@ -463,7 +432,7 @@ add_special_proc(struct names *name_list, const char ptype, const uid_t uid,
+ }
+ 
+ int parse_file(struct names *this_name, struct inode_list **ino_list,
+-	       const char opts)
++	       const opt_type opts)
+ {
+ 	char *new = expandpath(this_name->filename);
+ 	if (new) {
+@@ -471,8 +440,7 @@ int parse_file(struct names *this_name, struct inode_list **ino_list,
+ 			free(this_name->filename);
+ 		this_name->filename = strdup(new);
+ 	}
+-
+-	if (timeout(stat, this_name->filename, &(this_name->st), 5) != 0) {
++	if (timeout(thestat, this_name->filename, &(this_name->st), 5) != 0) {
+ 		if (errno == ENOENT)
+ 			fprintf(stderr,
+ 				_("Specified filename %s does not exist.\n"),
+@@ -514,7 +482,7 @@ parse_unixsockets(struct names *this_name, struct inode_list **ino_list,
+ 
+ int
+ parse_mounts(struct names *this_name, struct device_list **dev_list,
+-	     const char opts)
++	     const opt_type opts)
+ {
+ 	dev_t match_device;
+ 
+@@ -953,6 +921,7 @@ int main(int argc, char *argv[])
+ 		{"all", 0, NULL, 'a'},
+ 		{"kill", 0, NULL, 'k'},
+ 		{"interactive", 0, NULL, 'i'},
++		{"inode", 0, NULL, 'I'},
+ 		{"list-signals", 0, NULL, 'l'},
+ 		{"mount", 0, NULL, 'm'},
+ 		{"ismountpoint", 0, NULL, 'M'},
+@@ -1029,6 +998,7 @@ int main(int argc, char *argv[])
+ 					break;
+ 				case 'c':
+ 					opts |= OPT_MOUNTS;
++					read_proc_mounts(&mounts);
+ 					break;
+ 				case 'f':
+ 					/* ignored */
+@@ -1039,6 +1009,11 @@ int main(int argc, char *argv[])
+ 				case 'i':
+ 					opts |= OPT_INTERACTIVE;
+ 					break;
++				case 'I':
++#if defined(WITH_MOUNTINFO_LIST)
++					opts |= OPT_ALWAYSSTAT;
++#endif
++					break;
+ 				case 'k':
+ 					opts |= OPT_KILL;
+ 					break;
+@@ -1112,6 +1087,10 @@ int main(int argc, char *argv[])
+ 			continue;
+ 		}
+ 
++#if defined(WITH_MOUNTINFO_LIST)
++		if ((opts & OPT_ALWAYSSTAT) == 0)
++			thestat = mntstat;
++#endif
+ 		/* an option */
+ 		/* Not an option, must be a file specification */
+ 		if ((this_name = malloc(sizeof(struct names))) == NULL)
+@@ -1416,7 +1395,7 @@ static struct stat *get_pidstat(const pid_t pid, const char *filename)
+ 	if ((st = (struct stat *)malloc(sizeof(struct stat))) == NULL)
+ 		return NULL;
+ 	snprintf(pathname, 256, "/proc/%d/%s", pid, filename);
+-	if (timeout(stat, pathname, st, 5) != 0) {
++	if (timeout(thestat, pathname, st, 5) != 0) {
+ 		free(st);
+ 		return NULL;
+ 	}
+@@ -1448,7 +1427,7 @@ check_dir(const pid_t pid, const char *dirname, struct device_list *dev_head,
+ 		snprintf(filepath, MAX_PATHNAME, "/proc/%d/%s/%s",
+ 			 pid, dirname, direntry->d_name);
+ 
+-		if (timeout(stat, filepath, &st, 5) != 0) {
++		if (timeout(thestat, filepath, &st, 5) != 0) {
+ 			if (errno != ENOENT && errno != ENOTDIR) {
+ 				fprintf(stderr, _("Cannot stat file %s: %s\n"),
+ 					filepath, strerror(errno));
+@@ -1487,7 +1466,7 @@ check_dir(const pid_t pid, const char *dirname, struct device_list *dev_head,
+ 				if (thedev != ino_tmp->device)
+ 					continue;
+ 				if (!st.st_ino
+-				    && timeout(stat, filepath, &st, 5) != 0) {
++				    && timeout(thestat, filepath, &st, 5) != 0) {
+ 					fprintf(stderr,
+ 						_("Cannot stat file %s: %s\n"),
+ 						filepath, strerror(errno));
+@@ -1557,7 +1536,7 @@ static uid_t getpiduid(const pid_t pid)
+ 
+ 	if (snprintf(pathname, MAX_PATHNAME, "/proc/%d", pid) < 0)
+ 		return 0;
+-	if (timeout(stat, pathname, &st, 5) != 0)
++	if (timeout(thestat, pathname, &st, 5) != 0)
+ 		return 0;
+ 	return st.st_uid;
+ }
+@@ -1593,7 +1572,7 @@ void fill_unix_cache(struct unixsocket_list **unixsocket_head)
+ 		path = scanned_path;
+ 		if (*scanned_path == '@')
+ 			scanned_path++;
+-		if (timeout(stat, scanned_path, &st, 5) < 0) {
++		if (timeout(thestat, scanned_path, &st, 5) < 0) {
+ 			free(path);
+ 			continue;
+ 		}
+@@ -1738,7 +1717,7 @@ scan_knfsd(struct names *names_head, struct inode_list *ino_head,
+ 		if ((find_space = strpbrk(line, " \t")) == NULL)
+ 			continue;
+ 		*find_space = '\0';
+-		if (timeout(stat, line, &st, 5) != 0) {
++		if (timeout(thestat, line, &st, 5) != 0) {
+ 			continue;
+ 		}
+ 		/* Scan the devices */
+@@ -1782,7 +1761,7 @@ scan_mounts(struct names *names_head, struct inode_list *ino_head,
+ 		if ((find_space = strchr(find_mountp, ' ')) == NULL)
+ 			continue;
+ 		*find_space = '\0';
+-		if (timeout(stat, find_mountp, &st, 5) != 0) {
++		if (timeout(thestat, find_mountp, &st, 5) != 0) {
+ 			continue;
+ 		}
+ 		/* Scan the devices */
+@@ -1829,7 +1808,7 @@ scan_swaps(struct names *names_head, struct inode_list *ino_head,
+ 			if (*find_space == '\0')
+ 				continue;
+ 		}
+-		if (timeout(stat, line, &st, 5) != 0) {
++		if (timeout(thestat, line, &st, 5) != 0) {
+ 			continue;
+ 		}
+ 		/* Scan the devices */
+@@ -1850,73 +1829,7 @@ scan_swaps(struct names *names_head, struct inode_list *ino_head,
+ 	fclose(fp);
+ }
+ 
+-/*
+- * Execute stat(2) system call with timeout to avoid deadlock
+- * on network based file systems.
+- */
+-#if defined(WITH_TIMEOUT_STAT) && (WITH_TIMEOUT_STAT == 1)
+-
+-static sigjmp_buf jenv;
+-
+-static void sigalarm(int sig)
+-{
+-	if (sig == SIGALRM)
+-		siglongjmp(jenv, 1);
+-}
+-
+-static int
+-timeout(stat_t func, const char *path, struct stat *buf, unsigned int seconds)
+-{
+-	pid_t pid = 0;
+-	int ret = 0, pipes[4];
+-	ssize_t len;
+-
+-	if (pipe(&pipes[0]) < 0)
+-		goto err;
+-	switch ((pid = fork())) {
+-	case -1:
+-		close(pipes[0]);
+-		close(pipes[1]);
+-		goto err;
+-	case 0:
+-		(void)signal(SIGALRM, SIG_DFL);
+-		close(pipes[0]);
+-		if ((ret = func(path, buf)) == 0)
+-			do
+-				len = write(pipes[1], buf, sizeof(struct stat));
+-			while (len < 0 && errno == EINTR);
+-		close(pipes[1]);
+-		exit(ret);
+-	default:
+-		close(pipes[1]);
+-		if (sigsetjmp(jenv, 1)) {
+-			(void)alarm(0);
+-			(void)signal(SIGALRM, SIG_DFL);
+-			if (waitpid(0, (int *)0, WNOHANG) == 0)
+-				kill(pid, SIGKILL);
+-			errno = ETIMEDOUT;
+-			seconds = 1;
+-			goto err;
+-		}
+-		(void)signal(SIGALRM, sigalarm);
+-		(void)alarm(seconds);
+-		if (read(pipes[0], buf, sizeof(struct stat)) == 0) {
+-			errno = EFAULT;
+-			ret = -1;
+-		}
+-		(void)alarm(0);
+-		(void)signal(SIGALRM, SIG_DFL);
+-		close(pipes[0]);
+-		waitpid(pid, NULL, 0);
+-		break;
+-	}
+-	return ret;
+- err:
+-	return -1;
+-}
+-#endif				/* WITH_TIMEOUT_STAT */
+-
+-#ifdef _LISTS_H
++#if defined(WITH_MOUNTINFO_LIST)
+ /*
+  * Use /proc/self/mountinfo of modern linux system to determine
+  * the device numbers of the mount points. Use this to avoid the
+@@ -2005,42 +1918,46 @@ static void init_mntinfo(void)
+ /*
+  * Determine device of links below /proc/
+  */
+-static dev_t device(const char *path)
++static int mntstat(const char *path, struct stat *buf)
+ {
+ 	char name[PATH_MAX + 1];
+ 	const char *use;
+ 	ssize_t nlen;
+ 	list_t *ptr;
+ 
+-	if ((nlen = readlink(path, name, PATH_MAX)) < 0) {
+-		nlen = strlen(path);
+-		use = &path[0];
+-	} else {
+-		name[nlen] = '\0';
+-		use = &name[0];
+-	}
+-
+-	if (*use != '/') {	/* special file (socket, pipe, inotify) */
+-		struct stat st;
+-		if (timeout(stat, path, &st, 5) != 0)
+-			return (dev_t) - 1;
+-		return st.st_dev;
++	if ((use = realpath(path, name)) == NULL || *use != '/')
++	{
++		if (errno == ENOENT)
++			return -1;
++		/*
++		 * Could be a special file (socket, pipe, inotify)
++		 */
++		errno = 0;
++		return stat(path, buf);
+ 	}
+ 
++	nlen = strlen(use);
+ 	list_for_each(ptr, &mntinfo) {
+ 		mntinfo_t *mnt = list_entry(ptr, mntinfo_t);
+ 		if (nlen < mnt->nlen)
+ 			continue;
+-		if (mnt->nlen == 1)	/* root fs is the last entry */
+-			return mnt->dev;
++		if (mnt->nlen == 1) {	/* root fs is the last entry */
++			buf->st_dev = mnt->dev;
++			buf->st_ino = 0;
++			return 0;
++		}
+ 		if (use[mnt->nlen] != '\0' && use[mnt->nlen] != '/')
+ 			continue;
+-		if (strncmp(use, mnt->mpoint, mnt->nlen) == 0)
+-			return mnt->dev;
++		if (strncmp(use, mnt->mpoint, mnt->nlen) == 0) {
++			buf->st_dev = mnt->dev;
++			buf->st_ino = 0;
++			return 0;
++		}
+ 	}
+-	return (dev_t) - 1;
++	errno = ENOENT;
++	return -1;
+ }
+-#endif				/* _LISTS_H */
++#endif				/* WITH_MOUNTINFO_LIST */
+ 
+ /*
+  * Somehow the realpath(3) glibc function call, nevertheless
+diff --git a/src/fuser.h b/src/fuser.h
+index 242ce19..a4df711 100644
+--- a/src/fuser.h
++++ b/src/fuser.h
+@@ -11,6 +11,7 @@ typedef unsigned short opt_type;
+ #define OPT_USER 64
+ #define OPT_ISMOUNTPOINT 128
+ #define OPT_WRITE 256
++#define OPT_ALWAYSSTAT 512
+ 
+ struct procs {
+ 	pid_t pid;
+@@ -86,7 +87,7 @@ struct mount_list {
+ 	struct mount_list *next;
+ };
+ 
+-#if defined (__GNUC__) && defined(__OPTIMIZE__) && !defined (__CYGWIN__)
++#if defined (__GNUC__) && defined(WITH_MOUNTINFO_LIST)
+ # include "lists.h"
+ typedef struct mntinfo_s {
+     list_t   this;
+@@ -95,6 +96,8 @@ typedef struct mntinfo_s {
+     size_t   nlen;
+     char  *mpoint;
+ } mntinfo_t;
++#else
++# undef WITH_MOUNTINFO_LIST
+ #endif
+ 
+ #define NAMESPACE_FILE 0
+diff --git a/src/lists.h b/src/lists.h
+index ae8929e..bd371a4 100644
+--- a/src/lists.h
++++ b/src/lists.h
+@@ -1,10 +1,10 @@
+ /*
+- * lists.h	Simple doubly linked list implementation,
+- *		based on <linux/list.h> and <linux/prefetch.h>.
++ * lists.h	Simple doubly linked list implementation, based on
++ *		<linux/list.h>, <linux/prefetch.h>, and lib/list_sort.c
+  *
+- * Version:	0.1 01-Feb-2011 Fink
++ * Version:	0.2 11-Dec-2012 Fink
+  *
+- * Copyright 2011 Werner Fink, 2005 SUSE LINUX Products GmbH, Germany.
++ * Copyright 2011,2012 Werner Fink, 2005,2012 SUSE LINUX Products GmbH, Germany.
+  *
+  * This program is free software; you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License as published by
+@@ -246,4 +246,128 @@ static inline void move_tail(list_t *restrict entry, list_t *restrict head)
+ #define np_list_for_each_prev(pos, head)	\
+ 	for (pos = (head)->prev; pos != (head); pos = pos->prev)
+ 
++#define MAX_LIST_LENGTH_BITS 20
++
++/*
++ * Returns a list organized in an intermediate format suited
++ * to chaining of merge() calls: null-terminated, no reserved or
++ * sentinel head node, "prev" links not maintained.
++ */
++static inline list_t *merge(int (*cmp)(list_t *a, list_t *b), list_t *a, list_t *b)
++{
++    list_t head, *tail = &head;
++    while (a && b) {
++	/* if equal, take 'a' -- important for sort stability */
++	if ((*cmp)(a, b) <= 0) {
++	    tail->next = a;
++	    a = a->next;
++	} else {
++	    tail->next = b;
++	    b = b->next;
++	}
++	tail = tail->next;
++    }
++    tail->next = a ? a : b;
++    return head.next;
++}
++
++/*
++ * Combine final list merge with restoration of standard doubly-linked
++ * list structure.  This approach duplicates code from merge(), but
++ * runs faster than the tidier alternatives of either a separate final
++ * prev-link restoration pass, or maintaining the prev links
++ * throughout.
++ */
++static inline void merge_and_restore_back_links(int (*cmp)(list_t *a, list_t *b), list_t *head, list_t *a, list_t *b)
++{
++    list_t *tail = head;
++
++    while (a && b) {
++	/* if equal, take 'a' -- important for sort stability */
++	if ((*cmp)(a, b) <= 0) {
++	    tail->next = a;
++	    a->prev = tail;
++	    a = a->next;
++	} else {
++	    tail->next = b;
++	    b->prev = tail;
++	    b = b->next;
++	}
++	tail = tail->next;
++    }
++    tail->next = a ? a : b;
++
++    do {
++	/*
++	 * In worst cases this loop may run many iterations.
++	 * Continue callbacks to the client even though no
++	 * element comparison is needed, so the client's cmp()
++	 * routine can invoke cond_resched() periodically.
++	 */
++	(*cmp)(tail->next, tail->next);
++
++	tail->next->prev = tail;
++	tail = tail->next;
++    } while (tail->next);
++
++    tail->next = head;
++    head->prev = tail;
++}
++
++
++/**
++ * list_sort - sort a list
++ * @head: the list to sort
++ * @cmp: the elements comparison function
++ *
++ * This function implements "merge sort", which has O(nlog(n))
++ * complexity.
++ *
++ * The comparison function @cmp must return a negative value if @a
++ * should sort before @b, and a positive value if @a should sort after
++ * @b. If @a and @b are equivalent, and their original relative
++ * ordering is to be preserved, @cmp must return 0.
++ */
++static inline void list_sort(list_t *head, int (*cmp)(list_t *a, list_t *b))
++{
++    list_t *part[MAX_LIST_LENGTH_BITS+1]; /* sorted partial lists
++						-- last slot is a sentinel */
++    size_t lev;  /* index into part[] */
++    size_t max_lev = 0;
++    list_t *list;
++
++    if (list_empty(head))
++	return;
++
++    memset(part, 0, sizeof(part));
++
++    head->prev->next = NULL;
++    list = head->next;
++
++    while (list) {
++	list_t *cur = list;
++	list = list->next;
++	cur->next = NULL;
++
++	for (lev = 0; part[lev]; lev++) {
++	    cur = merge(cmp, part[lev], cur);
++	    part[lev] = NULL;
++	}
++	if (lev > max_lev) {
++	    /* list passed to list_sort() too long for efficiency */
++	    if (lev >= MAX_LIST_LENGTH_BITS)
++		lev--;
++	    max_lev = lev;
++	}
++	part[lev] = cur;
++    }
++
++    for (lev = 0; lev < max_lev; lev++) {
++	if (part[lev])
++	    list = merge(cmp, part[lev], list);
++    }
++
++    merge_and_restore_back_links(cmp, head, part[max_lev], list);
++}
++
+ #endif /* _LISTS_H */
+diff --git a/src/timeout.c b/src/timeout.c
+index 1fe0354..ca4a7cd 100644
+--- a/src/timeout.c
++++ b/src/timeout.c
+@@ -2,9 +2,9 @@
+  * timout.c	Advanced timeout handling for file system calls
+  *		to avoid deadlocks on remote file shares.
+  *
+- * Version:	0.1 07-Sep-2011 Fink
++ * Version:	0.2 11-Dec-2012 Fink
+  *
+- * Copyright 2011 Werner Fink, 2011 SUSE LINUX Products GmbH, Germany.
++ * Copyright 2011,2012 Werner Fink, 2011,2012 SUSE LINUX Products GmbH, Germany.
+  *
+  * This program is free software; you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License as published by
+@@ -18,26 +18,29 @@
+ # define _GNU_SOURCE
+ #endif
+ 
+-#ifndef USE_SOCKETPAIR
+-# define USE_SOCKETPAIR		1
+-#endif
+-
+ #ifdef _FEATURES_H
+ # error Include local config.h before any system header file
+ #endif
+-#include "config.h"		/* For _FILE_OFFSET_BITS */
++#include "config.h"
++
++#ifndef WITH_TIMEOUT_STAT
++# define WITH_TIMEOUT_STAT	0
++#endif
++
++#ifndef USE_SOCKETPAIR
++# define USE_SOCKETPAIR		1
++#endif
+ 
+ #include <errno.h>
+-#include <pthread.h>
+ #include <setjmp.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <sys/mman.h>
+ #include <sys/time.h>
+ #include <sys/types.h>
+ #include <sys/select.h>
+ #include <sys/stat.h>
+-
+ #include <unistd.h>
+ #if USE_SOCKETPAIR
+ # include <sys/socket.h>
+@@ -86,6 +89,15 @@
+ # define strcpy(d,s)		__builtin_strcpy((d),(s))   /* Without boundary check please */
+ #endif
+ 
++#if WITH_TIMEOUT_STAT
++static sigjmp_buf jenv;
++static void sigjump(int sig attribute((unused)))
++{
++	siglongjmp(jenv, 1);
++}
++#endif
++
++#if WITH_TIMEOUT_STAT == 2
+ /*
+  * The structure used for communication between the processes
+  */
+@@ -106,7 +118,8 @@ typedef struct _handle {
+ 
+ static volatile pid_t active;
+ static int pipes[4] = {-1, -1, -1, -1};
+-static char buf[PATH_MAX + sizeof(handle_t) + 1];
++static handle_t *restrict handle;
++static const size_t buflen = PATH_MAX+sizeof(handle_t)+1;
+ 
+ static void sigchild(int sig attribute((unused)))
+ {
+@@ -122,6 +135,7 @@ static void attribute((constructor)) start(void)
+ {
+ 	sigset_t sigset, oldset;
+ 	struct sigaction act;
++	char sync[1];
+ 	ssize_t in;
+ 
+ 	if (pipes[1] >= 0) close(pipes[1]);
+@@ -138,6 +152,12 @@ static void attribute((constructor)) start(void)
+ 	act.sa_handler = sigchild;
+ 	sigaction(SIGCHLD, &act, 0);
+ 
++	if (!handle)
++		handle = mmap(NULL, buflen, PROT_READ|PROT_WRITE,
++			      MAP_ANONYMOUS|MAP_SHARED, -1, 0);
++	if (handle == MAP_FAILED)
++		goto error;
++
+ 	if ((active = fork()) < 0)
+ 		goto error;
+ 
+@@ -164,16 +184,22 @@ static void attribute((constructor)) start(void)
+ 	pipes[1] = pipes[2] = -1;
+ 	pipes[0] = pipes[3] = -1;
+ 
+-	{
+-		handle_t *restrict handle = (void*)&buf[0];
+-
+-		while ((in = read(STDIN_FILENO, handle, sizeof(buf))) > sizeof(handle_t)) {
+-			if (handle->function(handle->path, &handle->argument) < 0)
+-					handle->errcode = errno;
+-			write(STDOUT_FILENO, &handle->errcode, sizeof(handle->errcode)+sizeof(handle->argument));
+-			memset(handle, 0, sizeof(handle_t));
++	while ((in = read(STDIN_FILENO, &sync, sizeof(sync))) != 0) {
++		ssize_t out;
++		if (in < 0) {
++			if (errno == EINTR)
++				continue;
++			break;
+ 		}
++		if (!handle)
++			break;
++		if (handle->function(handle->path, &handle->argument) < 0)
++				handle->errcode = errno;
++		do
++			out = write(STDOUT_FILENO, &sync, sizeof(sync));
++		while (out < 0 && errno == EINTR);
+ 	}
++
+ 	sigprocmask(SIG_SETMASK, &oldset, NULL);
+ 	exit(0);
+ error:
+@@ -181,6 +207,9 @@ error:
+ 	if (pipes[1] >= 0) close(pipes[1]);
+ 	if (pipes[2] >= 0) close(pipes[2]);
+ 	if (pipes[3] >= 0) close(pipes[3]);
++	if (handle && handle != MAP_FAILED)
++		munmap(handle, buflen);
++	handle = NULL;
+ }
+ 
+ static void /* attribute((destructor)) */ stop(void)
+@@ -189,24 +218,24 @@ static void /* attribute((destructor)) */ stop(void)
+ 		kill(active, SIGKILL);
+ }
+ 
+-static sigjmp_buf jenv;
+-static void sigjump(int sig attribute((unused)))
+-{
+-	siglongjmp(jenv, 1);
+-}
+-
+ /*
+  * External routine
++ *
++ * Execute stat(2) system call with timeout to avoid deadlock
++ * on network based file systems.
++ *
+  */
+-int timeout(stat_t function, const char *path, struct stat *restrict argument, time_t seconds)
++int
++timeout(stat_t function, const char *path, struct stat *restrict argument, time_t seconds)
+ {
+-	handle_t *restrict handle = (void*)&buf[0];
+ 	struct sigaction alrm_act, pipe_act, new_act;
+ 	sigset_t sigset, oldset;
++	char sync[1] = "x";
+ 
+ 	if (active <= 0)	/* Oops, last one failed therefore clear status and restart */
+ 		start();
+-
++	if (!handle)		/* No shared memory area */
++		return function(path, argument);
+ 	memset(handle, 0, sizeof(handle_t));
+ 	handle->len = strlen(path) + 1;
+ 	if (handle->len >= PATH_MAX) {
+@@ -235,8 +264,8 @@ int timeout(stat_t function, const char *path, struct stat *restrict argument, t
+ 	sigaction(SIGPIPE, &new_act, &pipe_act);
+ 	alarm(seconds);
+ 
+-	write(pipes[1], handle, sizeof(handle_t)+handle->len);
+-	read(pipes[2], &handle->errcode, sizeof(handle->errcode)+sizeof(handle->argument));
++	write(pipes[1], &sync, sizeof(sync));
++	read(pipes[2], &sync, sizeof(sync));
+ 
+ 	alarm(0);
+ 	sigaction(SIGPIPE, &pipe_act, NULL);
+@@ -261,6 +290,82 @@ timed:
+ error:
+ 	return -1;
+ }
++#elif WITH_TIMEOUT_STAT == 1
++/*
++ * External routine
++ *
++ * Execute stat(2) system call with timeout to avoid deadlock
++ * on network based file systems.
++ *
++ */
++int
++timeout(stat_t function, const char *path, struct stat *restrict argument, time_t seconds)
++{
++	struct sigaction alrm_act, pipe_act, new_act;
++	sigset_t sigset, oldset;
++	int ret = 0, pipes[4];
++	pid_t pid = 0;
++	ssize_t len;
++
++	if (pipe(&pipes[0]) < 0)
++		goto error;
++	switch ((pid = fork())) {
++	case -1:
++		close(pipes[0]);
++		close(pipes[1]);
++		goto error;
++	case 0:
++		new_act.sa_handler = SIG_DFL;
++		sigaction(SIGALRM, &new_act, NULL);
++		close(pipes[0]);
++		if ((ret = function(path, argument)) == 0)
++			do
++				len = write(pipes[1], argument, sizeof(struct stat));
++			while (len < 0 && errno == EINTR);
++		close(pipes[1]);
++		exit(ret);
++	default:
++		close(pipes[1]);
++
++		sigemptyset(&sigset);
++		sigaddset(&sigset, SIGALRM);
++		sigaddset(&sigset, SIGPIPE);
++		sigprocmask(SIG_UNBLOCK, &sigset, &oldset);
++
++		memset(&new_act, 0, sizeof(new_act));
++		sigemptyset(&new_act.sa_mask);
++
++		if (sigsetjmp(jenv, 1))
++			goto timed;
++
++		new_act.sa_handler = sigjump;
++		sigaction(SIGALRM, &new_act, &alrm_act);
++		sigaction(SIGPIPE, &new_act, &pipe_act);
++		alarm(seconds);
++		if (read(pipes[0], argument, sizeof(struct stat)) == 0) {
++			errno = EFAULT;
++			ret = -1;
++		}
++		(void)alarm(0);
++		sigaction(SIGPIPE, &pipe_act, NULL);
++		sigaction(SIGALRM, &alrm_act, NULL);
++
++		close(pipes[0]);
++		waitpid(pid, NULL, 0);
++		break;
++	}
++	return ret;
++timed:
++	(void)alarm(0);
++	sigaction(SIGPIPE, &pipe_act, NULL);
++	sigaction(SIGALRM, &alrm_act, NULL);
++	if (waitpid(0, NULL, WNOHANG) == 0)
++		kill(pid, SIGKILL);
++	errno = ETIMEDOUT;
++error:
++	return -1;
++}
++#endif
+ 
+ /*
+  * End of timeout.c
+diff --git a/src/timeout.h b/src/timeout.h
+index 546c13b..f372297 100644
+--- a/src/timeout.h
++++ b/src/timeout.h
+@@ -17,7 +17,11 @@
+ #ifndef _TIMEOUT_H
+ #define _TIMEOUT_H
+ 
+-#include "config.h"		/* For _FILE_OFFSET_BITS */
++#include "config.h"
++
++#ifndef WITH_TIMEOUT_STAT
++# define WITH_TIMEOUT_STAT 0
++#endif
+ 
+ #include <sys/types.h>
+ #include <sys/stat.h>
+@@ -30,7 +34,12 @@
+ # endif
+ #endif
+ 
+-typedef int (*stat_t)(const char *, struct stat *restrict);
++typedef int (*stat_t)(const char *, struct stat *);
++
++#if WITH_TIMEOUT_STAT > 0
+ extern int timeout(stat_t, const char *, struct stat *restrict, time_t);
++#else
++# define timeout(func,path,buf,dummy)	(func)((path),(buf))
++#endif
+ 
+ #endif
+-- 
+2.5.2
+

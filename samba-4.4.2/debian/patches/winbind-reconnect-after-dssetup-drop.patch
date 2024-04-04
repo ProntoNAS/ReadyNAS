@@ -1,0 +1,19 @@
+diff --git a/source3/winbindd/winbindd_cm.c b/source3/winbindd/winbindd_cm.c
+index cbce0c4..3847c30 100644
+--- a/source3/winbindd/winbindd_cm.c
++++ b/source3/winbindd/winbindd_cm.c
+@@ -2204,6 +2204,14 @@ static void set_dc_type_and_flags_connect( struct winbindd_domain *domain )
+ 		 * identifying so that we can in the end return with
+ 		 * domain->initialized = True - gd */
+ 
++		/* We've seen a firewall drop our connection to the DC once we
++		 * make this DSSETUP call.  This causes all further calls to
++		 * fail, and prevents AD from working at all.  So we'll check
++		 * the connection and reset if necessary. */
++		if (!connection_ok(domain)) {
++			invalidate_cm_connection(&domain->conn);
++			cm_open_connection(domain, &domain->conn);
++		}
+ 		goto no_dssetup;
+ 	}
+ 

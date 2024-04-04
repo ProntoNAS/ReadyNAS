@@ -1,0 +1,56 @@
+From 1f5a4aacae8fabcf1d260d5723177156e0a2d63b Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 12 Aug 2015 14:44:52 -0700
+Subject: [PATCH 4/8] Update addr info on netlink events.
+
+---
+ ifacewatch.c     | 2 ++
+ openssdpsocket.c | 5 +++--
+ 2 files changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/ifacewatch.c b/ifacewatch.c
+index 6aa08f6..fd2c8c9 100644
+--- a/ifacewatch.c
++++ b/ifacewatch.c
+@@ -172,6 +172,8 @@ ProcessInterfaceWatch(int s, int s_ssdp, int s_ssdp6)
+ 				if((0 == strcmp(address, lan_addr->str)) ||
+ 				   (0 == strcmp(ifname, lan_addr->ifname)) ||
+ 				   (ifa->ifa_index == lan_addr->index)) {
++					getifaddr(lan_addr->ifname, lan_addr->str, sizeof(lan_addr->str),
++						  &lan_addr->addr, &lan_addr->mask);
+ 					if(ifa->ifa_family == AF_INET)
+ 						AddDropMulticastMembership(s_ssdp, lan_addr, 0, is_del);
+ 					else if(ifa->ifa_family == AF_INET6)
+diff --git a/openssdpsocket.c b/openssdpsocket.c
+index 0fe2162..46915d8 100644
+--- a/openssdpsocket.c
++++ b/openssdpsocket.c
+@@ -18,6 +18,7 @@
+ 
+ #include "openssdpsocket.h"
+ #include "upnputils.h"
++#include "getifaddr.h"
+ #include "minissdpdtypes.h"
+ 
+ extern struct lan_addr_list lan_addrs;
+@@ -89,7 +90,7 @@ AddDropMulticastMembership(int s, struct lan_addr_s * lan_addr, int ipv6, int dr
+ 		if (setsockopt(s, IPPROTO_IP, drop ? IP_DROP_MEMBERSHIP : IP_ADD_MEMBERSHIP,
+ 		    (void *)&imr, sizeof(struct ip_mreq)) < 0)
+ 		{
+-			syslog(LOG_ERR, "setsockopt(udp, %s)(%s): %m",
++			syslog(LOG_INFO, "setsockopt(udp, %s)(%s): %m",
+ 			       drop ? "IP_DROP_MEMBERSHIP" : "IP_ADD_MEMBERSHIP",
+ 			       lan_addr->ifname);
+ 			return -1;
+@@ -217,7 +218,7 @@ OpenAndConfSSDPReceiveSocket(int ipv6, unsigned char ttl)
+ 	{
+ 		if(AddDropMulticastMembership(s, lan_addr, ipv6, 0) < 0)
+ 		{
+-			syslog(LOG_WARNING, "Failed to add IPv%d multicast membership for interface %s.",
++			syslog(LOG_INFO, "Failed to add IPv%d multicast membership for interface %s.",
+ 			       ipv6 ? 6 : 4,
+ 			       lan_addr->ifname);
+ 		}
+-- 
+1.9.1
+

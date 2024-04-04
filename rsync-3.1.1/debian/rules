@@ -12,7 +12,6 @@
 
 SHELL =	/bin/bash
 BINS = rsync
-CFLAGS= -Wall -Izlib
 INSTALL = install
 INSTALL_FILE = $(INSTALL) -p    -o root -g root  -m  644
 INSTALL_PROGRAM = $(INSTALL) -p    -o root -g root  -m  755
@@ -20,19 +19,11 @@ INSTALL_SCRIPT = $(INSTALL) -p    -o root -g root  -m  755
 INSTALL_DIR = $(INSTALL) -p -d -o root -g root  -m  755
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
-DPKG_EXPORT_BUILDFLAGS = 1
 
-CFLAGS += $(shell dpkg-buildflags --get CFLAGS)
-LDFLAGS = $(shell dpkg-buildflags --get LDFLAGS)
-
-CPPFLAGS:=$(shell dpkg-buildflags --get CPPFLAGS)
-
-# policy stuff
-ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
-CFLAGS += -g
-else
-CFLAGS += -g -O2
-endif
+dpkg_buildflags = DEB_BUILD_MAINT_OPTIONS=$(DEB_BUILD_MAINT_OPTIONS) dpkg-buildflags
+CPPFLAGS := -Izlib $(shell $(dpkg_buildflags) --get CPPFLAGS)
+CFLAGS   := -Wall  $(shell $(dpkg_buildflags) --get CFLAGS)
+LDFLAGS  :=        $(shell $(dpkg_buildflags) --get LDFLAGS)
 
 # backwards compatibility stuff, from dpkg-architecture manpage
 DEB_BUILD_ARCH := $(shell dpkg --print-architecture)

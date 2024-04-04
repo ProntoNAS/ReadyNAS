@@ -1,0 +1,76 @@
+From cc379e42b872445b0ff077554d69c70cf9197ff4 Mon Sep 17 00:00:00 2001
+From: Michael Adam <obnox@samba.org>
+Date: Sun, 15 May 2016 23:24:08 +0200
+Subject: [PATCH 1081/1096] smbd:close: only remove kernel share modes if they
+ had been taken at open
+
+This avoids errors due to 'not implemented' for SMB_VFS_KERNEL_FLOCK
+on some file systems like glusterfs (with the vfs module). The only
+other code path where SMB_VFS_KERNEL_FLOCK is called, is already protected.
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11919
+
+Signed-off-by: Michael Adam <obnox@samba.org>
+Reviewed-by: Christian Ambach <ambi@samba.org>
+
+Autobuild-User(master): Christian Ambach <ambi@samba.org>
+Autobuild-Date(master): Thu May 19 02:34:36 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 6b232b2720a3d71bc0b4b5603215b3f9d3de5ca6)
+(cherry picked from commit 8ac105e900758c164a7bb223f7297b265b1189ee)
+---
+ source3/smbd/close.c | 17 ++++++++++-------
+ source3/smbd/open.c  |  2 ++
+ 2 files changed, 12 insertions(+), 7 deletions(-)
+
+diff --git a/source3/smbd/close.c b/source3/smbd/close.c
+index 1cb5460..3ab04b7 100644
+--- a/source3/smbd/close.c
++++ b/source3/smbd/close.c
+@@ -246,7 +246,6 @@ static NTSTATUS close_remove_share_mode(files_struct *fsp,
+ 	const struct security_token *del_nt_token = NULL;
+ 	bool got_tokens = false;
+ 	bool normal_close;
+-	int ret_flock;
+ 
+ 	/* Ensure any pending write time updates are done. */
+ 	if (fsp->update_write_time_event) {
+@@ -470,12 +469,16 @@ static NTSTATUS close_remove_share_mode(files_struct *fsp,
+ 		pop_sec_ctx();
+ 	}
+ 
+-	/* remove filesystem sharemodes */
+-	ret_flock = SMB_VFS_KERNEL_FLOCK(fsp, 0, 0);
+-	if (ret_flock == -1) {
+-		DEBUG(2, ("close_remove_share_mode: removing kernel flock for "
+-					"%s failed: %s\n", fsp_str_dbg(fsp),
+-					strerror(errno)));
++	if (fsp->kernel_share_modes_taken) {
++		int ret_flock;
++
++		/* remove filesystem sharemodes */
++		ret_flock = SMB_VFS_KERNEL_FLOCK(fsp, 0, 0);
++		if (ret_flock == -1) {
++			DEBUG(2, ("close_remove_share_mode: removing kernel "
++				  "flock for %s failed: %s\n",
++				  fsp_str_dbg(fsp), strerror(errno)));
++		}
+ 	}
+ 
+ 	if (!del_share_mode(lck, fsp)) {
+diff --git a/source3/smbd/open.c b/source3/smbd/open.c
+index 0d90c99..61b7145 100644
+--- a/source3/smbd/open.c
++++ b/source3/smbd/open.c
+@@ -3084,6 +3084,8 @@ static NTSTATUS open_file_ntcreate(connection_struct *conn,
+ 
+ 			return NT_STATUS_SHARING_VIOLATION;
+ 		}
++
++		fsp->kernel_share_modes_taken = true;
+ 	}
+ 
+ 	/*
+-- 
+2.9.0
+

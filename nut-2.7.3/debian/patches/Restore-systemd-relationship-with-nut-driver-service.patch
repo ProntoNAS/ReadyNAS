@@ -1,0 +1,32 @@
+From c98fab9f5dec993aa9f5e0a3e79de53ae9ecd32b Mon Sep 17 00:00:00 2001
+From: Arnaud Quette <arnaud.quette@free.fr>
+Date: Thu, 7 May 2015 15:43:17 +0200
+Subject: [PATCH] Restore systemd relationship with nut-driver service
+
+The Requires directive from nut-server to nut-driver was previously
+removed, since it was preventing upsd from starting whenever one or more
+drivers, among several, was failing to start.
+Use the Wants directive, a weaker version of Requires, which will start
+upsd even if the nut-driver unit fails to start.
+
+closes https://github.com/networkupstools/nut/issues/200
+---
+ scripts/systemd/nut-server.service.in | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/scripts/systemd/nut-server.service.in b/scripts/systemd/nut-server.service.in
+index dada977..fe20145 100644
+--- a/scripts/systemd/nut-server.service.in
++++ b/scripts/systemd/nut-server.service.in
+@@ -4,7 +4,7 @@ After=local-fs.target network.target nut-driver.service
+ # We don't Require drivers to be successfully started! This would be
+ # a change of behavior compared to init SysV, and could prevent from
+ # accessing successfully started, at least to audit a system.
+-#Requires=nut-driver.service
++Wants=nut-driver.service
+ Before=nut-monitor.service
+ 
+ [Service]
+-- 
+2.4.6
+

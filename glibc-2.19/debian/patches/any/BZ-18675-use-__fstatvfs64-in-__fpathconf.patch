@@ -1,0 +1,48 @@
+From d18c36e6007b03533a38c890c68544daa78d301a Mon Sep 17 00:00:00 2001
+From: Paul Pluzhnikov <ppluzhnikov@google.com>
+Date: Wed, 9 Sep 2015 18:41:25 -0700
+Subject: [PATCH] To fix BZ #18675, use __fstatvfs64 in __fpathconf.
+
+---
+ ChangeLog                 |  5 +++++
+ NEWS                      |  6 +++---
+ sysdeps/posix/fpathconf.c | 14 +++-----------
+ 3 files changed, 11 insertions(+), 14 deletions(-)
+
+diff --git a/sysdeps/posix/fpathconf.c b/sysdeps/posix/fpathconf.c
+index 25f632e..088eb15 100644
+--- a/sysdeps/posix/fpathconf.c
++++ b/sysdeps/posix/fpathconf.c
+@@ -66,10 +66,10 @@ __fpathconf (fd, name)
+     case _PC_NAME_MAX:
+ #ifdef	NAME_MAX
+       {
+-	struct statfs buf;
++	struct statvfs64 sv;
+ 	int save_errno = errno;
+ 
+-	if (__fstatfs (fd, &buf) < 0)
++	if (__fstatvfs64 (fd, &sv) < 0)
+ 	  {
+ 	    if (errno == ENOSYS)
+ 	      {
+@@ -83,15 +83,7 @@ __fpathconf (fd, name)
+ 	  }
+ 	else
+ 	  {
+-#ifdef _STATFS_F_NAMELEN
+-	    return buf.f_namelen;
+-#else
+-# ifdef _STATFS_F_NAME_MAX
+-	    return buf.f_name_max;
+-# else
+-	    return NAME_MAX;
+-# endif
+-#endif
++	    return sv.f_namemax;
+ 	  }
+       }
+ #else
+-- 
+2.7.0
+

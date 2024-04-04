@@ -306,6 +306,7 @@ receive(
 	int	authlen;		/* offset of MAC field */
 	int	is_authentic = 0;	/* cryptosum ok */
 	int	retcode = AM_NOMATCH;	/* match code */
+	int	xleave_mismatch = 0;	/* mismatch in xleave mode */
 	keyid_t	skeyid = 0;		/* key IDs */
 	u_int32	opcode = 0;		/* extension field opcode */
 	sockaddr_u *dstadr_sin; 	/* active runway */
@@ -674,10 +675,13 @@ receive(
 		 * succeed in bloating the key cache. If an autokey,
 		 * purge it immediately, since we won't be needing it
 		 * again. If the packet is authentic, it can mobilize an
-		 * association. Note that there is no key zero.
+		 * association. If it's a persistent association using a
+		 * symmetric key, the key ID has to match the configured
+		 * value. Note that there is no key zero. 
 		 */
-		if (!authdecrypt(skeyid, (u_int32 *)pkt, authlen,
-		    has_mac))
+		if ((peer && !(peer->flags & FLAG_PREEMPT) &&
+		     peer->keyid <= NTP_MAXKEY && skeyid != peer->keyid) ||
+		    !authdecrypt(skeyid, (u_int32 *)pkt, authlen, has_mac))
 			is_authentic = AUTH_ERROR;
 		else
 			is_authentic = AUTH_OK;
@@ -957,6 +961,24 @@ receive(
 				sys_restricted++;
 				return;
 			}
+			/* [Bug 2941]
+			 * If we got here, the packet isn't part of an
+			 * existing association, it isn't correctly
+			 * authenticated, and it didn't meet either of
+			 * the previous two special cases so we should
+			 * just drop it on the floor.  For example,
+			 * crypto-NAKs (is_authentic == AUTH_CRYPTO)
+			 * will make it this far.  This is just
+			 * debug-printed and not logged to avoid log
+			 * flooding.
+			 */
+			DPRINTF(1, ("receive: at %ld refusing to mobilize passive association"
+				    " with unknown peer %s mode %d keyid %08x len %d auth %d\n",
+				    current_time, stoa(&rbufp->recv_srcadr),
+				    hismode, skeyid, (authlen + has_mac),
+				    is_authentic));
+			sys_declined++;
+			return;
 		}
 
 		/*
@@ -1065,18 +1087,16 @@ receive(
 		}
 
 	/*
-	 * Check for bogus packet in basic mode. If found, switch to
-	 * interleaved mode and resynchronize, but only after confirming
-	 * the packet is not bogus in symmetric interleaved mode.
+	 * Check for bogus packet in basic mode. If found, check if it's not
+	 * a valid packet in symmetric interleaved mode.
 	 */
 	} else if (peer->flip == 0) {
-		if (!L_ISEQU(&p_org, &peer->aorg)) {
+		if (L_ISZERO(&p_org) || !L_ISEQU(&p_org, &peer->aorg)) {
 			peer->bogusorg++;
 			peer->flash |= TEST2;	/* bogus */
 			if (!L_ISZERO(&peer->dst) && L_ISEQU(&p_org,
 			    &peer->dst)) {
-				peer->flip = 1;
-				report_event(PEVNT_XLEAVE, peer, NULL);
+				xleave_mismatch = 1;
 			}
 		} else {
 			L_CLR(&peer->aorg);
@@ -1110,7 +1130,8 @@ receive(
 		report_event(PEVNT_AUTH, peer, "crypto_NAK");
 		peer->flash |= TEST5;		/* bad auth */
 		peer->badauth++;
-		if (peer->flags & FLAG_PREEMPT) {
+		if (peer->flags & FLAG_PREEMPT && hismode != MODE_BROADCAST &&
+		    !(peer->flash & (TEST2 | TEST3))) {
 			unpeer(peer);
 			return;
 		}
@@ -1136,7 +1157,8 @@ receive(
 		if (has_mac &&
 		    (hismode == MODE_ACTIVE || hismode == MODE_PASSIVE))
 			fast_xmit(rbufp, MODE_ACTIVE, 0, restrict_mask);
-		if (peer->flags & FLAG_PREEMPT) {
+		if (peer->flags & FLAG_PREEMPT && hismode != MODE_BROADCAST &&
+		    !(peer->flash & (TEST2 | TEST3))) {
 			unpeer(peer);
 			return;
 		}
@@ -1145,6 +1167,16 @@ receive(
 			peer_clear(peer, "AUTH");
 #endif /* OPENSSL */
 		return;
+	}
+
+	/*
+	 * If the packet is bogus in basic mode but not in symmetric
+	 * interleaved mode and it passed the authentication check,
+	 * enable the mode and resynchronize.
+	 */
+	if (xleave_mismatch && hismode == MODE_ACTIVE) {
+		peer->flip = 1;
+		report_event(PEVNT_XLEAVE, peer, NULL);
 	}
 
 	/*
@@ -1166,7 +1198,7 @@ receive(
 	peer->ppoll = max(peer->minpoll, pkt->ppoll);
 	if (hismode == MODE_SERVER && hisleap == LEAP_NOTINSYNC &&
 	    hisstratum == STRATUM_UNSPEC && memcmp(&pkt->refid,
-	    "RATE", 4) == 0) {
+	    "RATE", 4) == 0 && !(peer->flash & PKT_TEST_MASK)) {
 		peer->selbroken++;
 		report_event(PEVNT_RATE, peer, NULL);
 		if (pkt->ppoll > peer->minpoll)
@@ -1684,6 +1716,13 @@ clock_update(
 	sys_rootdisp = dtemp + peer->rootdisp;
 	sys_rootdelay = peer->delay + peer->rootdelay;
 	sys_reftime = peer->dst;
+	
+	/* Randomize the fraction part of the reference time to not reveal
+	   peer->dst to NTP clients as it could be used in a DoS attack
+	   enabling the symmetric interleaved mode with spoofed packets */
+	ntp_crypto_random_buf(&sys_reftime.l_uf, sizeof (sys_reftime.l_uf));
+	if (L_ISHIS(&sys_reftime, &peer->dst))
+		sys_reftime.l_ui--;
 
 #ifdef DEBUG
 	if (debug)

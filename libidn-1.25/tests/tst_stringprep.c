@@ -100,7 +100,8 @@ const struct stringprep strprep[] = {
    "\xF4\x8F\xBF\xBF", NULL, "Nameprep", 0,
    STRINGPREP_CONTAINS_PROHIBITED},
   {"Surrogate code U+DF42",
-   "\xED\xBD\x82", NULL, "Nameprep", 0, STRINGPREP_CONTAINS_PROHIBITED},
+   "\xED\xBD\x82", NULL, "Nameprep", 0, STRINGPREP_ICONV_ERROR
+   /* was STRINGPREP_CONTAINS_PROHIBITED */},
   {"Non-plain text character U+FFFD",
    "\xEF\xBF\xBD", NULL, "Nameprep", 0, STRINGPREP_CONTAINS_PROHIBITED},
   {"Ideographic description character U+2FF5",
@@ -229,15 +230,22 @@ doit (void)
 	  hexprint (strprep[i].in, strlen (strprep[i].in));
 	  binprint (strprep[i].in, strlen (strprep[i].in));
 	}
-
       {
 	uint32_t *l;
-	char *x;
+	char *x = NULL;
 	l = stringprep_utf8_to_ucs4 (strprep[i].in, -1, NULL);
-	x = stringprep_ucs4_to_utf8 (l, -1, NULL, NULL);
+	if (l)
+	  x = stringprep_ucs4_to_utf8 (l, -1, NULL, NULL);
 	free (l);
-
-	if (strcmp (strprep[i].in, x) != 0)
+	if (i == 29)
+	  /* Ignoring known bad UTF-8 in entry 29 */
+	  continue;
+	else if (l == NULL)
+	  {
+	    fail ("bad UTF-8 in entry %ld\n", i);
+	    continue;
+	  }
+	else if (strcmp (strprep[i].in, x) != 0)
 	  {
 	    fail ("bad UTF-8 in entry %ld\n", i);
 	    if (debug)
@@ -249,10 +257,12 @@ doit (void)
 		escapeprint (x, strlen (x));
 		hexprint (x, strlen (x));
 	      }
+	    continue;
 	  }
 
 	free (x);
       }
+
       rc = stringprep_profile (strprep[i].in, &p,
 			       strprep[i].profile ?
 			       strprep[i].profile :

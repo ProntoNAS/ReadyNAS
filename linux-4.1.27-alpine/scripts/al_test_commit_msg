@@ -1,0 +1,45 @@
+#!/bin/bash
+
+msg=`git log -1 --format=%s`
+
+tags=("[Bug fix]" "[Build fix]" "[API Change]" "[Optimization]"
+	"[New feature]" "[Cosmetic Change]" "[Hal Update]" "[Jenkins Change]" "[Porting]")
+
+#if [Porting] - no need to define unit.
+units=("Linux" "AL eth" "AL raid" "AL dma" "AL sata" "AL nand" "AL pci" "AL mach"
+	"AL defconfig" "AL tools" "[Porting]")
+
+
+tag_valid() {
+	for tag in "${tags[@]}"; do
+		if grep -i -q "\\$tag" <<< "$msg"; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+unit_valid() {
+	for unit in "${units[@]}"; do
+		if grep -i -q "^\\$unit" <<< "$msg"; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+if ! tag_valid; then
+	echo "Error! commit message must contain one of the following:"
+	for tag in "${tags[@]}"; do
+		echo " $tag"
+	done
+	exit 1
+fi
+if ! unit_valid; then
+	echo "Error! commit message must begin with one of the following:"
+	for unit in "${units[@]}"; do
+		echo " $unit"
+	done
+	exit 1
+fi
+

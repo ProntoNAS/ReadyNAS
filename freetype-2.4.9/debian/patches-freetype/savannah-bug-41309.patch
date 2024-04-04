@@ -1,0 +1,230 @@
+Backport of:
+
+From 8b281f83e8516535756f92dbf90940ac44bd45e1 Mon Sep 17 00:00:00 2001
+From: Werner Lemberg <wl@gnu.org>
+Date: Thu, 23 Jan 2014 07:14:53 +0000
+Subject: Fix Savannah bug #41309.
+
+Origin: ubuntu, http://bazaar.launchpad.net/~ubuntu-branches/ubuntu/precise/freetype/precise-security/view/head:/debian/patches-freetype/savannah-bug-41309.patch
+Bug-Debian: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=798619
+
+* src/type1/t1load.c (t1_parse_font_matrix): Properly handle result
+of `T1_ToFixedArray'.
+
+* src/cid/cidload.c (cid_parse_font_matrix): Synchronize with
+`t1_parse_font_matrix'.
+
+* src/type42/t42parse.c (t42_parse_font_matrix): Synchronize with
+`t1_parse_font_matrix'.
+(t42_parse_encoding): Synchronize with `t1_parse_encoding'.
+
+* src/psaux/psobjs.c (ps_parser_load_field) <T1_FIELD_TYPE_BBOX>,
+<T1_FIELD_TYPE_MMOX>: Properly handle result of `ps_tofixedarray'.
+---
+Index: freetype-2.4.2/src/cid/cidload.c
+===================================================================
+--- freetype-2.4.2.orig/src/cid/cidload.c
++++ freetype-2.4.2/src/cid/cidload.c
+@@ -152,6 +152,7 @@
+   {
+     FT_Matrix*    matrix;
+     FT_Vector*    offset;
++    FT_Int        result;
+     CID_FaceDict  dict;
+     FT_Face       root = (FT_Face)&face->root;
+     FT_Fixed      temp[6];
+@@ -164,10 +165,19 @@
+       matrix = &dict->font_matrix;
+       offset = &dict->font_offset;
+ 
+-      (void)cid_parser_to_fixed_array( parser, 6, temp, 3 );
++      result = cid_parser_to_fixed_array( parser, 6, temp, 3 );
++
++      if ( result < 6 )
++        return CID_Err_Syntax_Error;
+ 
+       temp_scale = FT_ABS( temp[3] );
+ 
++      if ( temp_scale == 0 )
++      {
++        FT_ERROR(( "cid_parse_font_matrix: invalid font matrix\n" ));
++        return CID_Err_Syntax_Error;
++      }
++
+       /* Set units per EM based on FontMatrix values.  We set the value to */
+       /* `1000/temp_scale', because temp_scale was already multiplied by   */
+       /* 1000 (in `t1_tofixed', from psobjs.c).                            */
+@@ -182,7 +192,7 @@
+         temp[2] = FT_DivFix( temp[2], temp_scale );
+         temp[4] = FT_DivFix( temp[4], temp_scale );
+         temp[5] = FT_DivFix( temp[5], temp_scale );
+-        temp[3] = 0x10000L;
++        temp[3] = temp[3] < 0 ? -0x10000L : 0x10000L;
+       }
+ 
+       matrix->xx = temp[0];
+@@ -195,8 +205,7 @@
+       offset->y  = temp[5] >> 16;
+     }
+ 
+-    return CID_Err_Ok;      /* this is a callback function; */
+-                            /* we must return an error code */
++    return CID_Err_Ok;
+   }
+ 
+ 
+Index: freetype-2.4.2/src/psaux/psobjs.c
+===================================================================
+--- freetype-2.4.2.orig/src/psaux/psobjs.c
++++ freetype-2.4.2/src/psaux/psobjs.c
+@@ -848,6 +848,8 @@
+   /* first character must be a delimiter or a part of a number */
+   /* NB: `values' can be NULL if we just want to skip the      */
+   /*     array; in this case we ignore `max_values'            */
++  /*                                                           */
++  /* return number of successfully parsed values               */
+ 
+   static FT_Int
+   ps_tofixedarray( FT_Byte*  *acur,
+@@ -1194,7 +1196,7 @@
+ 
+           result = ps_tofixedarray( &cur, limit, 4, temp, 0 );
+ 
+-          if ( result < 0 )
++          if ( result < 4 )
+           {
+             FT_ERROR(( "ps_parser_load_field:"
+                        " expected four integers in bounding box\n" ));
+Index: freetype-2.4.2/src/type1/t1load.c
+===================================================================
+--- freetype-2.4.2.orig/src/type1/t1load.c
++++ freetype-2.4.2/src/type1/t1load.c
+@@ -1081,7 +1081,7 @@
+ 
+     result = T1_ToFixedArray( parser, 6, temp, 3 );
+ 
+-    if ( result < 0 )
++    if ( result < 6 )
+     {
+       parser->root.error = T1_Err_Invalid_File_Format;
+       return;
+Index: freetype-2.4.2/src/type42/t42parse.c
+===================================================================
+--- freetype-2.4.2.orig/src/type42/t42parse.c
++++ freetype-2.4.2/src/type42/t42parse.c
+@@ -255,12 +255,26 @@
+     FT_Face     root   = (FT_Face)&face->root;
+     FT_Fixed    temp[6];
+     FT_Fixed    temp_scale;
++    FT_Int      result;
+ 
+ 
+-    (void)T1_ToFixedArray( parser, 6, temp, 3 );
++    result = T1_ToFixedArray( parser, 6, temp, 3 );
++
++    if ( result < 6 )
++    {
++      parser->root.error = T42_Err_Invalid_File_Format;
++      return;
++    }
+ 
+     temp_scale = FT_ABS( temp[3] );
+ 
++    if ( temp_scale == 0 )
++    {
++      FT_ERROR(( "t1_parse_font_matrix: invalid font matrix\n" ));
++      parser->root.error = T42_Err_Invalid_File_Format;
++      return;
++    }
++
+     /* Set Units per EM based on FontMatrix values.  We set the value to */
+     /* 1000 / temp_scale, because temp_scale was already multiplied by   */
+     /* 1000 (in t1_tofixed, from psobjs.c).                              */
+@@ -276,7 +290,7 @@
+       temp[2] = FT_DivFix( temp[2], temp_scale );
+       temp[4] = FT_DivFix( temp[4], temp_scale );
+       temp[5] = FT_DivFix( temp[5], temp_scale );
+-      temp[3] = 0x10000L;
++      temp[3] = temp[3] < 0 ? -0x10000L : 0x10000L;
+     }
+ 
+     matrix->xx = temp[0];
+@@ -315,7 +329,7 @@
+     if ( ft_isdigit( *cur ) || *cur == '[' )
+     {
+       T1_Encoding  encode          = &face->type1.encoding;
+-      FT_UInt      count, n;
++      FT_Int       count, n;
+       PS_Table     char_table      = &loader->encoding_table;
+       FT_Memory    memory          = parser->root.memory;
+       FT_Error     error;
+@@ -330,7 +344,7 @@
+         parser->root.cursor++;
+       }
+       else
+-        count = (FT_UInt)T1_ToInt( parser );
++        count = (FT_Int)T1_ToInt( parser );
+ 
+       T1_Skip_Spaces( parser );
+       if ( parser->root.cursor >= limit )
+@@ -418,7 +432,7 @@
+ 
+           cur = parser->root.cursor;
+ 
+-          if ( *cur == '/' && cur + 2 < limit && n < count )
++          if ( cur + 2 < limit && *cur == '/' && n < count )
+           {
+             FT_PtrDist  len;
+ 
+@@ -427,6 +441,8 @@
+ 
+             parser->root.cursor = cur;
+             T1_Skip_PS_Token( parser );
++            if ( parser->root.cursor >= limit )
++              return;
+             if ( parser->root.error )
+               return;
+ 
+@@ -440,6 +456,19 @@
+ 
+             n++;
+           }
++          else if ( only_immediates )
++          {
++            /* Since the current position is not updated for           */
++            /* immediates-only mode we would get an infinite loop if   */
++            /* we don't do anything here.                              */
++            /*                                                         */
++            /* This encoding array is not valid according to the type1 */
++            /* specification (it might be an encoding for a CID type1  */
++            /* font, however), so we conclude that this font is NOT a  */
++            /* type1 font.                                             */
++            parser->root.error = T42_Err_Unknown_File_Format;
++            return;
++          }
+         }
+         else
+         {
+@@ -451,8 +480,8 @@
+         T1_Skip_Spaces( parser );
+       }
+ 
+-      face->type1.encoding_type  = T1_ENCODING_TYPE_ARRAY;
+-      parser->root.cursor        = cur;
++      face->type1.encoding_type = T1_ENCODING_TYPE_ARRAY;
++      parser->root.cursor       = cur;
+     }
+ 
+     /* Otherwise, we should have either `StandardEncoding', */
+@@ -472,10 +501,7 @@
+         face->type1.encoding_type = T1_ENCODING_TYPE_ISOLATIN1;
+ 
+       else
+-      {
+-        FT_ERROR(( "t42_parse_encoding: invalid token\n" ));
+-        parser->root.error = T42_Err_Invalid_File_Format;
+-      }
++        parser->root.error = T42_Err_Ignore;
+     }
+   }
+ 

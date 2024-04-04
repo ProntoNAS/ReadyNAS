@@ -1,0 +1,290 @@
+/*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+#include <linux/sched.h>
+#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/slab.h>
+#include <linux/interrupt.h>
+#include <linux/irq.h>
+#include <linux/platform_device.h>
+#include <linux/err.h>
+#include <linux/mutex.h>
+#include <linux/hwmon.h>
+#include <linux/gpio.h>
+#include <linux/of_platform.h>
+#include <linux/of_gpio.h>
+
+struct pwm_fan_platform_data {
+	unsigned		ctrl;	/* fan control GPIOs. */
+};
+
+struct pwm_fan_data {
+	struct platform_device	*pdev;
+	struct device		*hwmon_dev;
+	struct mutex		lock; /* lock GPIOs operations. */
+	unsigned		ctrl;
+	unsigned 		duty_on;
+	unsigned 		duty_off;
+};
+static unsigned int *VIRT_ADDR;
+#define INTERNAL_REGS_BASE 0xF1000000
+#define INTERNAL_REGS_SIZE 1024*1024
+#define GPIO_BLINK_COUNTER_B_ON 0x181C8
+#define GPIO_BLINK_COUNTER_B_OFF 0x181CC
+#define GPIO_0_31_BLINK_ENABLE 0x18108
+#define GPIO_0_31_BLINK_COUNTER_SELECT 0x18120
+
+//#define CORE_CLK 250000000UL
+//#define FAN_CLK 50000UL
+//#define NUM_CLK do_div(CORE_CLK,FAN_CLK)
+#define NUM_CLK 5000
+
+#define REG_READ(addr) \
+	((*((volatile unsigned int *)(addr))))
+#define REG_WRITE(addr, data) \
+	((*((volatile unsigned int *)(addr))) = ((unsigned int)(data)))
+
+static inline int _get_pwm(struct pwm_fan_data *fan_data)
+{
+	return (fan_data->duty_on * 256) / (fan_data->duty_on + fan_data->duty_off);
+}
+
+static ssize_t show_fan_rpm(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	struct pwm_fan_data *fan_data = dev_get_drvdata(dev);
+	unsigned rpm;
+	int pwm;
+
+	pwm = _get_pwm(fan_data);
+	if (pwm < 60)
+		rpm = 0;
+	else
+		rpm = (pwm - 60) * 13 + 800;
+
+	return sprintf(buf, "%u\n", rpm);
+}
+
+static DEVICE_ATTR(fan1_input, S_IRUGO, show_fan_rpm, NULL);
+
+/*
+ * Control GPIO.
+ */
+
+/* Must be called with fan_data->lock held, except during initialization. */
+static void __set_fan_ctrl(struct pwm_fan_data *fan_data)
+{
+	REG_WRITE((unsigned long)VIRT_ADDR+GPIO_BLINK_COUNTER_B_ON,fan_data->duty_on);
+	REG_WRITE((unsigned long)VIRT_ADDR+GPIO_BLINK_COUNTER_B_OFF,fan_data->duty_off);
+}
+
+
+/* Must be called with fan_data->lock held, except during initialization. */
+static void set_fan_speed(struct pwm_fan_data *fan_data)
+{
+	__set_fan_ctrl(fan_data);
+}
+
+static ssize_t show_pwm(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct pwm_fan_data *fan_data = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%d\n", _get_pwm(fan_data));
+}
+
+static ssize_t set_pwm(struct device *dev, struct device_attribute *attr,
+		       const char *buf, size_t count)
+{
+	struct pwm_fan_data *fan_data = dev_get_drvdata(dev);
+	unsigned long pwm;
+	int ret = count;
+
+	if (kstrtoul(buf, 10, &pwm) || pwm > 255)
+		return -EINVAL;
+
+	mutex_lock(&fan_data->lock);
+
+	fan_data->duty_on = (NUM_CLK * pwm)/256;
+	fan_data->duty_off = NUM_CLK - fan_data->duty_on;
+	set_fan_speed(fan_data);
+
+	mutex_unlock(&fan_data->lock);
+
+	return ret;
+}
+
+
+static ssize_t show_name(struct device *dev,
+			 struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "pwm-fan\n");
+}
+
+static DEVICE_ATTR(pwm1, S_IRUGO | S_IWUSR, show_pwm, set_pwm);
+static DEVICE_ATTR(name, S_IRUGO, show_name, NULL);
+
+
+static struct attribute *pwm_fan_attributes[] = {
+	&dev_attr_name.attr,
+	&dev_attr_pwm1.attr,
+	&dev_attr_fan1_input.attr,
+	NULL
+};
+
+static const struct attribute_group pwm_fan_group = {
+	.attrs = pwm_fan_attributes,
+};
+
+static int fan_ctrl_init(struct pwm_fan_data *fan_data,
+			 struct pwm_fan_platform_data *pdata)
+{
+	struct platform_device *pdev = fan_data->pdev;
+	int err;
+
+	err = devm_gpio_request(&pdev->dev, pdata->ctrl,"GPIO fan control");
+	if (err)
+		return err;
+
+	fan_data->ctrl = pdata->ctrl;
+	fan_data->duty_on = NUM_CLK/2;
+	fan_data->duty_off = NUM_CLK - fan_data->duty_on;
+
+	REG_WRITE((unsigned long)VIRT_ADDR+GPIO_BLINK_COUNTER_B_ON,fan_data->duty_on);
+	REG_WRITE((unsigned long)VIRT_ADDR+GPIO_BLINK_COUNTER_B_OFF,fan_data->duty_off);
+	REG_WRITE((unsigned long)VIRT_ADDR+GPIO_0_31_BLINK_COUNTER_SELECT,(0x1<<fan_data->ctrl));
+	REG_WRITE((unsigned long)VIRT_ADDR+GPIO_0_31_BLINK_ENABLE,(0x1<<fan_data->ctrl));
+
+	//gpio_direction_output(pdata->ctrl,1);
+
+	return 0;
+}
+
+#ifdef CONFIG_OF_GPIO
+/*
+ * Translate OpenFirmware node properties into platform_data
+ */
+static int pwm_fan_get_of_pdata(struct device *dev,
+			    struct pwm_fan_platform_data *pdata)
+{
+	struct device_node *node;
+	int ret;
+
+	node = dev->of_node;
+	ret = of_get_named_gpio(node, "ctrl-gpio", 0);
+	if (ret > 0){
+		pdata->ctrl = ret;
+	}
+
+	return 0;
+}
+
+static struct of_device_id of_pwm_fan_match[] = {
+	{ .compatible = "pwm-fan-armada-38x", },
+	{},
+};
+#endif /* CONFIG_OF_GPIO */
+
+static int pwm_fan_probe(struct platform_device *pdev)
+{
+	int err;
+	struct pwm_fan_data *fan_data;
+	struct pwm_fan_platform_data *pdata = pdev->dev.platform_data;
+
+	//remap the phy register adr to vir adr
+	VIRT_ADDR = ioremap(INTERNAL_REGS_BASE, INTERNAL_REGS_SIZE);
+	printk("virt_addr=0x%lx\n", (unsigned long)VIRT_ADDR);
+
+#ifdef CONFIG_OF_GPIO
+	if (!pdata) {
+		pdata = devm_kzalloc(&pdev->dev,
+					sizeof(struct pwm_fan_platform_data),
+					GFP_KERNEL);
+		if (!pdata)
+			return -ENOMEM;
+
+		err = pwm_fan_get_of_pdata(&pdev->dev, pdata);
+		if (err)
+			return err;
+	}
+#else /* CONFIG_OF_GPIO */
+	if (!pdata)
+		return -EINVAL;
+#endif /* CONFIG_OF_GPIO */
+
+	fan_data = devm_kzalloc(&pdev->dev, sizeof(struct pwm_fan_data),
+				GFP_KERNEL);
+	if (!fan_data)
+		return -ENOMEM;
+
+	fan_data->pdev = pdev;
+	platform_set_drvdata(pdev, fan_data);
+	mutex_init(&fan_data->lock);
+
+	/* Configure control GPIOs if available. */
+	if (pdata->ctrl) {
+		err = fan_ctrl_init(fan_data, pdata);
+		if (err)
+			return err;
+	}
+
+	err = sysfs_create_group(&pdev->dev.kobj, &pwm_fan_group);
+	if (err)
+		return err;
+
+	/* Make this driver part of hwmon class. */
+	fan_data->hwmon_dev = hwmon_device_register(&pdev->dev);
+	if (IS_ERR(fan_data->hwmon_dev)) {
+		err = PTR_ERR(fan_data->hwmon_dev);
+		goto err_remove;
+	}
+
+	dev_info(&pdev->dev, "PWM fan initialized\n");
+
+	return 0;
+
+err_remove:
+	sysfs_remove_group(&pdev->dev.kobj, &pwm_fan_group);
+	return err;
+}
+
+static int pwm_fan_remove(struct platform_device *pdev)
+{
+	struct pwm_fan_data *fan_data = platform_get_drvdata(pdev);
+
+	hwmon_device_unregister(fan_data->hwmon_dev);
+	sysfs_remove_group(&pdev->dev.kobj, &pwm_fan_group);
+
+	return 0;
+}
+
+static struct platform_driver pwm_fan_driver = {
+	.probe		= pwm_fan_probe,
+	.remove		= pwm_fan_remove,
+	.driver	= {
+		.name	= "pwm-fan-armada-38x",
+#ifdef CONFIG_OF_GPIO
+		.of_match_table = of_match_ptr(of_pwm_fan_match),
+#endif
+	},
+};
+
+module_platform_driver(pwm_fan_driver);
+
+MODULE_AUTHOR("Eva Zhang <eva_zhang@usish.com>");
+MODULE_DESCRIPTION("PWM FAN driver");
+MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:pwm-fan");

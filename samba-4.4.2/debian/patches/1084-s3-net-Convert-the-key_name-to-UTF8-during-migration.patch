@@ -1,0 +1,170 @@
+From 3eabd4cd4d9ecee55c37c2a3a28547bd6717f259 Mon Sep 17 00:00:00 2001
+From: Andreas Schneider <asn@samba.org>
+Date: Wed, 18 May 2016 16:51:45 +0200
+Subject: [PATCH 1084/1096] s3-net: Convert the key_name to UTF8 during
+ migration
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11922
+
+Pair-Programmed-With: Guenther Deschner <gd@samba.org>
+Signed-off-by: Andreas Schneider <asn@samba.org>
+Signed-off-by: Guenther Deschner <gd@samba.org>
+(cherry picked from commit 858e1eaa64858790888b42d97ae4d6962a09756b)
+(cherry picked from commit 730ec25f3b11d421888714d3c86273f81b844fde)
+---
+ source3/utils/net_printing.c | 90 +++++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 84 insertions(+), 6 deletions(-)
+
+diff --git a/source3/utils/net_printing.c b/source3/utils/net_printing.c
+index 6f805eb..cc82e51 100644
+--- a/source3/utils/net_printing.c
++++ b/source3/utils/net_printing.c
+@@ -264,27 +264,66 @@ static int net_printing_dump(struct net_context *c, int argc,
+ 		}
+ 
+ 		if (strncmp((const char *)kbuf.dptr, FORMS_PREFIX, strlen(FORMS_PREFIX)) == 0) {
+-			dump_form(ctx, (const char *)kbuf.dptr+strlen(FORMS_PREFIX), dbuf.dptr, dbuf.dsize);
++			char *key_name = NULL;
++			size_t converted_size = 0;
++			bool ok;
++
++			ok = pull_ascii_talloc(ctx,
++					       &key_name,
++					       (const char *) kbuf.dptr + strlen(FORMS_PREFIX),
++					       &converted_size);
++			if (!ok) {
++				continue;
++			}
++
++			dump_form(ctx, key_name, dbuf.dptr, dbuf.dsize);
++			TALLOC_FREE(key_name);
+ 			SAFE_FREE(dbuf.dptr);
+ 			continue;
+ 		}
+ 
+ 		if (strncmp((const char *)kbuf.dptr, DRIVERS_PREFIX, strlen(DRIVERS_PREFIX)) == 0) {
++			char *key_name = NULL;
++			size_t converted_size = 0;
++			bool ok;
++
++			ok = pull_ascii_talloc(ctx,
++					       &key_name,
++					       (const char *) kbuf.dptr + strlen(DRIVERS_PREFIX),
++					       &converted_size);
++			if (!ok) {
++				continue;
++			}
++
+ 			dump_driver(ctx,
+-				    (const char *)kbuf.dptr+strlen(DRIVERS_PREFIX),
++				    key_name,
+ 				    dbuf.dptr,
+ 				    dbuf.dsize,
+ 				    do_string_conversion);
++			TALLOC_FREE(key_name);
+ 			SAFE_FREE(dbuf.dptr);
+ 			continue;
+ 		}
+ 
+ 		if (strncmp((const char *)kbuf.dptr, PRINTERS_PREFIX, strlen(PRINTERS_PREFIX)) == 0) {
++			char *key_name = NULL;
++			size_t converted_size = 0;
++			bool ok;
++
++			ok = pull_ascii_talloc(ctx,
++					       &key_name,
++					       (const char *) kbuf.dptr + strlen(PRINTERS_PREFIX),
++					       &converted_size);
++			if (!ok) {
++				continue;
++			}
++
+ 			dump_printer(ctx,
+-				     (const char *)kbuf.dptr+strlen(PRINTERS_PREFIX),
++				     key_name,
+ 				     dbuf.dptr,
+ 				     dbuf.dsize,
+ 				     do_string_conversion);
++			TALLOC_FREE(key_name);
+ 			SAFE_FREE(dbuf.dptr);
+ 			continue;
+ 		}
+@@ -357,33 +396,72 @@ static NTSTATUS printing_migrate_internal(struct net_context *c,
+ 		}
+ 
+ 		if (strncmp((const char *) kbuf.dptr, FORMS_PREFIX, strlen(FORMS_PREFIX)) == 0) {
++			char *key_name = NULL;
++			size_t converted_size = 0;
++			bool ok;
++
++			ok = pull_ascii_talloc(tmp_ctx,
++					       &key_name,
++					       (const char *) kbuf.dptr + strlen(FORMS_PREFIX),
++					       &converted_size);
++			if (!ok) {
++				continue;
++			}
++
+ 			printing_tdb_migrate_form(tmp_ctx,
+ 				     winreg_pipe,
+-				     (const char *) kbuf.dptr + strlen(FORMS_PREFIX),
++				     key_name,
+ 				     dbuf.dptr,
+ 				     dbuf.dsize);
++			TALLOC_FREE(key_name);
+ 			SAFE_FREE(dbuf.dptr);
+ 			continue;
+ 		}
+ 
+ 		if (strncmp((const char *) kbuf.dptr, DRIVERS_PREFIX, strlen(DRIVERS_PREFIX)) == 0) {
++			char *key_name = NULL;
++			size_t converted_size = 0;
++			bool ok;
++
++			ok = pull_ascii_talloc(tmp_ctx,
++					       &key_name,
++					       (const char *) kbuf.dptr + strlen(DRIVERS_PREFIX),
++					       &converted_size);
++			if (!ok) {
++				continue;
++			}
++
+ 			printing_tdb_migrate_driver(tmp_ctx,
+ 				       winreg_pipe,
+-				       (const char *) kbuf.dptr + strlen(DRIVERS_PREFIX),
++				       key_name,
+ 				       dbuf.dptr,
+ 				       dbuf.dsize,
+ 				       do_string_conversion);
++			TALLOC_FREE(key_name);
+ 			SAFE_FREE(dbuf.dptr);
+ 			continue;
+ 		}
+ 
+ 		if (strncmp((const char *) kbuf.dptr, PRINTERS_PREFIX, strlen(PRINTERS_PREFIX)) == 0) {
++			char *key_name = NULL;
++			size_t converted_size = 0;
++			bool ok;
++
++			ok = pull_ascii_talloc(tmp_ctx,
++					       &key_name,
++					       (const char *) kbuf.dptr + strlen(PRINTERS_PREFIX),
++					       &converted_size);
++			if (!ok) {
++				continue;
++			}
++
+ 			printing_tdb_migrate_printer(tmp_ctx,
+ 					winreg_pipe,
+-					(const char *) kbuf.dptr + strlen(PRINTERS_PREFIX),
++					key_name,
+ 					dbuf.dptr,
+ 					dbuf.dsize,
+ 					do_string_conversion);
++			TALLOC_FREE(key_name);
+ 			SAFE_FREE(dbuf.dptr);
+ 			continue;
+ 		}
+-- 
+2.9.0
+

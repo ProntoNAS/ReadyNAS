@@ -1342,7 +1342,6 @@ do_conf(
 	memset(&temp_cp, 0, sizeof(struct conf_peer));
 	memcpy(&temp_cp, (char *)cp, INFO_ITEMSIZE(inpkt->mbz_itemsize));
 
-#if 0 /* paranoid checking - these are done in newpeer() */
 	fl = 0;
 	while (items-- > 0 && !fl) {
 		if (((temp_cp.version) > NTP_VERSION)
@@ -1363,7 +1362,6 @@ do_conf(
 		req_ack(srcadr, inter, inpkt, INFO_ERR_FMT);
 		return;
 	}
-#endif /* end paranoid checking */
 
 	/*
 	 * Looks okay, try it out
@@ -1626,11 +1624,13 @@ do_unconf(
 			if (peer->flags & FLAG_CONFIG)
 				found = 1;
 		}
-		NTP_INSIST(found);
-		NTP_INSIST(peer);
 
-		peer_clear(peer, "GONE");
-		unpeer(peer);
+		if (found) {
+			NTP_INSIST(peer);
+
+			peer_clear(peer, "GONE");
+			unpeer(peer);
+		}
 
 		cp = (struct conf_unpeer *)
 			((char *)cp + INFO_ITEMSIZE(inpkt->mbz_itemsize));
@@ -1730,56 +1730,143 @@ setclr_flags(
 	     	loop_config(LOOP_DRIFTCOMP, drift_comp);
 }
 
+/* There have been some issues with the restrict list processing,
+ * ranging from problems with deep recursion (resulting in stack
+ * overflows) and overfull reply buffers.
+ *
+ * To avoid this trouble the list reversal is done iteratively using a
+ * scratch pad.
+ */
+typedef struct RestrictStack RestrictStackT;
+struct RestrictStack {
+	RestrictStackT   *link;
+	size_t            fcnt;
+	const restrict_u *pres[63];
+};
+
+static size_t
+getStackSheetSize(
+	RestrictStackT *sp
+	)
+{
+	if (sp)
+		return sizeof(sp->pres)/sizeof(sp->pres[0]);
+	return 0u;
+}
+
+static int/*BOOL*/
+pushRestriction(
+	RestrictStackT  **spp,
+	const restrict_u *ptr
+	)
+{
+	RestrictStackT *sp;
+
+	if (NULL == (sp = *spp) || 0 == sp->fcnt) {
+		/* need another sheet in the scratch pad */
+		sp = emalloc(sizeof(*sp));
+		sp->link = *spp;
+		sp->fcnt = getStackSheetSize(sp);
+		*spp = sp;
+	}
+	sp->pres[--sp->fcnt] = ptr;
+	return TRUE;
+}
+
+static int/*BOOL*/
+popRestriction(
+	RestrictStackT   **spp,
+	const restrict_u **opp
+	)
+{
+	RestrictStackT *sp;
+
+	if (NULL == (sp = *spp) || sp->fcnt >= getStackSheetSize(sp))
+		return FALSE;
+	
+	*opp = sp->pres[sp->fcnt++];
+	if (sp->fcnt >= getStackSheetSize(sp)) {
+		/* discard sheet from scratch pad */
+		*spp = sp->link;
+		free(sp);
+	}
+	return TRUE;
+}
+
+static void
+flushRestrictionStack(
+	RestrictStackT **spp
+	)
+{
+	RestrictStackT *sp;
+
+	while (NULL != (sp = *spp)) {
+		*spp = sp->link;
+		free(sp);
+	}
+}
+
 /*
- * list_restrict4 - recursive helper for list_restrict dumps IPv4
+ * list_restrict4 - iterative helper for list_restrict dumps IPv4
  *		    restriction list in reverse order.
  */
 static void
 list_restrict4(
-	restrict_u *		res,
+	const restrict_u *	res,
 	struct info_restrict **	ppir
 	)
 {
+	RestrictStackT *	rpad;
 	struct info_restrict *	pir;
 
-	if (res->link != NULL)
-		list_restrict4(res->link, ppir);
-
 	pir = *ppir;
-	pir->addr = htonl(res->u.v4.addr);
-	if (client_v6_capable) 
-		pir->v6_flag = 0;
-	pir->mask = htonl(res->u.v4.mask);
-	pir->count = htonl(res->count);
-	pir->flags = htons(res->flags);
-	pir->mflags = htons(res->mflags);
-	*ppir = (struct info_restrict *)more_pkt();
+	for (rpad = NULL; res; res = res->link)
+		if (!pushRestriction(&rpad, res))
+			break;
+	
+	while (pir && popRestriction(&rpad, &res)) {
+		pir->addr = htonl(res->u.v4.addr);
+		if (client_v6_capable) 
+			pir->v6_flag = 0;
+		pir->mask = htonl(res->u.v4.mask);
+		pir->count = htonl(res->count);
+		pir->flags = htons(res->flags);
+		pir->mflags = htons(res->mflags);
+		pir = (struct info_restrict *)more_pkt();
+	}
+	flushRestrictionStack(&rpad);
+	*ppir = pir;
 }
 
-
 /*
- * list_restrict6 - recursive helper for list_restrict dumps IPv6
+ * list_restrict6 - iterative helper for list_restrict dumps IPv6
  *		    restriction list in reverse order.
  */
 static void
 list_restrict6(
-	restrict_u *		res,
+	const restrict_u *	res,
 	struct info_restrict **	ppir
 	)
 {
+	RestrictStackT *	rpad;
 	struct info_restrict *	pir;
 
-	if (res->link != NULL)
-		list_restrict6(res->link, ppir);
-
 	pir = *ppir;
-	pir->addr6 = res->u.v6.addr; 
-	pir->mask6 = res->u.v6.mask;
-	pir->v6_flag = 1;
-	pir->count = htonl(res->count);
-	pir->flags = htons(res->flags);
-	pir->mflags = htons(res->mflags);
-	*ppir = (struct info_restrict *)more_pkt();
+	for (rpad = NULL; res; res = res->link)
+		if (!pushRestriction(&rpad, res))
+			break;
+
+	while (pir && popRestriction(&rpad, &res)) {
+		pir->addr6 = res->u.v6.addr; 
+		pir->mask6 = res->u.v6.mask;
+		pir->v6_flag = 1;
+		pir->count = htonl(res->count);
+		pir->flags = htons(res->flags);
+		pir->mflags = htons(res->mflags);
+		pir = (struct info_restrict *)more_pkt();
+	}
+	flushRestrictionStack(&rpad);
+	*ppir = pir;
 }
 
 
@@ -1803,8 +1890,7 @@ list_restrict(
 	/*
 	 * The restriction lists are kept sorted in the reverse order
 	 * than they were originally.  To preserve the output semantics,
-	 * dump each list in reverse order.  A recursive helper function
-	 * achieves that.
+	 * dump each list in reverse order. The workers take care of that.
 	 */
 	list_restrict4(restrictlist4, &ir);
 	if (client_v6_capable)

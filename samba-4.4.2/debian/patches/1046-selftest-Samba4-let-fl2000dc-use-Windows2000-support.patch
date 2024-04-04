@@ -1,0 +1,62 @@
+From cad1d40b801764f09fc8b29f4c57c69b69493e17 Mon Sep 17 00:00:00 2001
+From: Stefan Metzmacher <metze@samba.org>
+Date: Wed, 27 Apr 2016 01:00:14 +0200
+Subject: [PATCH 1046/1096] selftest:Samba4: let fl2000dc use Windows2000
+ supported_enctypes
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11849
+
+Signed-off-by: Stefan Metzmacher <metze@samba.org>
+Reviewed-by: Andreas Schneider <asn@samba.org>
+Reviewed-by: Günther Deschner <gd@samba.org>
+(cherry picked from commit 587b5db7979c1ca1055f5bfd81ab79606cd3c2dd)
+(cherry picked from commit 883660adc5590fa4d178eac7dc4c5332b66a44cc)
+---
+ selftest/target/Samba.pm  | 13 +++++++++++++
+ selftest/target/Samba4.pm |  3 +++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/selftest/target/Samba.pm b/selftest/target/Samba.pm
+index 6ca1036..17a2bbe 100644
+--- a/selftest/target/Samba.pm
++++ b/selftest/target/Samba.pm
+@@ -200,6 +200,19 @@ sub mk_krb5_conf($$)
+  forwardable = yes
+  allow_weak_crypto = yes
+ 
++";
++
++        if (defined($ctx->{supported_enctypes})) {
++		print KRB5CONF "
++ default_etypes = $ctx->{supported_enctypes}
++ default_as_etypes = $ctx->{supported_enctypes}
++ default_tgs_enctypes = $ctx->{supported_enctypes}
++ default_tkt_enctypes = $ctx->{supported_enctypes}
++ permitted_enctypes = $ctx->{supported_enctypes}
++";
++	}
++
++	print KRB5CONF "
+ [realms]
+  $our_realms_stanza
+ ";
+diff --git a/selftest/target/Samba4.pm b/selftest/target/Samba4.pm
+index 4a6f976..e43c0b3 100755
+--- a/selftest/target/Samba4.pm
++++ b/selftest/target/Samba4.pm
+@@ -386,6 +386,9 @@ sub provision_raw_prepare($$$$$$$$$$$)
+ 	$ctx->{password} = $password;
+ 	$ctx->{kdc_ipv4} = $kdc_ipv4;
+ 	$ctx->{kdc_ipv6} = $kdc_ipv6;
++	if ($functional_level eq "2000") {
++		$ctx->{supported_enctypes} = "arcfour-hmac-md5 des-cbc-md5 des-cbc-crc"
++	}
+ 
+ #
+ # Set smbd log level here.
+-- 
+2.9.0
+

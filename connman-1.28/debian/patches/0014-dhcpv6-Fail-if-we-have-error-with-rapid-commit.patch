@@ -1,0 +1,40 @@
+From 4f4af01ad9d17f5588860026c75e71fa7632a38d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pasi=20Sj=C3=B6holm?= <pasi.sjoholm@jollamobile.com>
+Date: Mon, 2 Mar 2015 10:09:34 +0200
+Subject: [PATCH 14/22] dhcpv6: Fail if we have error with rapid commit
+
+If an error is received from a DHCPv6 server the operation should fail
+instead of doing DAD as this can lead into a loop of solicitation ->
+reply -> solicitation -> reply ->...
+
+(cherry picked from commit ac4673c9a53373348c0e6d7ce0d06a44eee4e1f1)
+---
+ src/dhcpv6.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/src/dhcpv6.c b/src/dhcpv6.c
+index 9249e55..d3ff127 100644
+--- a/src/dhcpv6.c
++++ b/src/dhcpv6.c
+@@ -1682,9 +1682,16 @@ static void solicitation_cb(GDHCPClient *dhcp_client, gpointer user_data)
+ 
+ 	clear_timer(dhcp);
+ 
+-	do_dad(dhcp_client, dhcp);
+-
+ 	g_dhcpv6_client_clear_retransmit(dhcp_client);
++
++	if (g_dhcpv6_client_get_status(dhcp_client) != 0) {
++		if (dhcp->callback)
++			dhcp->callback(dhcp->network,
++					CONNMAN_DHCPV6_STATUS_FAIL, NULL);
++		return;
++	}
++
++	do_dad(dhcp_client, dhcp);
+ }
+ 
+ static gboolean timeout_solicitation(gpointer user_data)
+-- 
+1.9.1
+

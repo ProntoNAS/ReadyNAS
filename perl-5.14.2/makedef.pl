@@ -85,6 +85,39 @@ if ($PLATFORM eq 'win32' or $PLATFORM eq 'wince' or $PLATFORM eq "aix") {
 	foreach (split /\s+/, $options) {
 		$define{$_} = 1;
 	}
+
+{
+    my @PLATFORM = qw(aix win32 wince os2 netware vms test);
+    my %PLATFORM;
+    @PLATFORM{@PLATFORM} = ();
+
+    die "PLATFORM undefined, must be one of: @PLATFORM\n"
+	unless defined $ARGS{PLATFORM};
+    die "PLATFORM must be one of: @PLATFORM\n"
+	unless exists $PLATFORM{$ARGS{PLATFORM}};
+}
+
+# Is the following guard strictly necessary? Added during refactoring
+# to keep the same behaviour when merging other code into here.
+process_cc_flags(@Config{qw(ccflags optimize)})
+    if $ARGS{PLATFORM} ne 'win32' && $ARGS{PLATFORM} ne 'wince'
+    && $ARGS{PLATFORM} ne 'netware';
+
+# Add the compile-time options that miniperl was built with to %define.
+# On Win32 these are not the same options as perl itself will be built
+# with since miniperl is built with a canned config (one of the win32/
+# config_H.*) and none of the BUILDOPT's that are set in the makefiles,
+# but they do include some #define's that are hard-coded in various
+# source files and header files and don't include any BUILDOPT's that
+# the user might have chosen to disable because the canned configs are
+# minimal configs that don't include any of those options.
+
+#don't use the host Perl's -V defines for the WinCE Perl
+if($ARGS{PLATFORM} ne 'wince') {
+    my @options = sort(Config::bincompat_options(), Config::non_bincompat_options());
+    print STDERR "Options: (@options)\n" unless $ARGS{PLATFORM} eq 'test';
+    $define{$_} = 1 foreach @options;
+>>>>>>> 8cbf26c... Patch unit tests to explicitly insert "." into @INC when needed.
 }
 
 my %exportperlmalloc =

@@ -1,0 +1,72 @@
+From e5e6d329842536e036e0dc8cc4910cd161888b26 Mon Sep 17 00:00:00 2001
+From: Christian Ambach <ambi@samba.org>
+Date: Wed, 11 May 2016 19:21:20 +0200
+Subject: [PATCH 1091/1096] s3:selftest add a test for rpcclient --pw-nt-hash
+ option
+
+Signed-off-by: Christian Ambach <ambi@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+(cherry picked from commit d0cdf02dc9733dae960021ff1ca07587d8155e58)
+
+Autobuild-User(v4-4-test): Karolin Seeger <kseeger@samba.org>
+Autobuild-Date(v4-4-test): Tue May 31 16:49:03 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 8f142c8a0e7545e55fed56290c06c21838bd7d11)
+---
+ source3/script/tests/test_rpcclient_pw_nt_hash.sh | 27 +++++++++++++++++++++++
+ source3/selftest/tests.py                         |  5 +++++
+ 2 files changed, 32 insertions(+)
+ create mode 100755 source3/script/tests/test_rpcclient_pw_nt_hash.sh
+
+diff --git a/source3/script/tests/test_rpcclient_pw_nt_hash.sh b/source3/script/tests/test_rpcclient_pw_nt_hash.sh
+new file mode 100755
+index 0000000..c03d22f
+--- /dev/null
++++ b/source3/script/tests/test_rpcclient_pw_nt_hash.sh
+@@ -0,0 +1,27 @@
++#!/bin/sh
++#
++# Blackbox tests for the rpcclient --pw-nt-hash option
++#
++
++if [ $# -lt 4 ]; then
++cat <<EOF
++Usage: test_rpcclient_pw_nt_hash.sh USERNAME PASSWORD SERVER RPCCLIENT
++EOF
++exit 1;
++fi
++
++USERNAME="$1"
++PASSWORD="$2"
++SERVER="$3"
++RPCCLIENT="$4"
++
++HASH=`echo -n $PASSWORD | iconv -t utf16le | openssl md4 |cut -d ' ' -f2`
++
++RPCCLIENTCMD="$RPCCLIENT $SERVER --pw-nt-hash -U$USERNAME%$HASH -c queryuser"
++
++incdir=$(dirname $0)/../../../testprogs/blackbox
++. $incdir/subunit.sh
++
++testit "rpcclient --pw-nt-hash" $RPCCLIENTCMD || failed=`expr $failed + 1`
++
++testok $0 $failed
+diff --git a/source3/selftest/tests.py b/source3/selftest/tests.py
+index ce26212..753cff6 100755
+--- a/source3/selftest/tests.py
++++ b/source3/selftest/tests.py
+@@ -461,6 +461,11 @@ plantestsuite("samba3.blackbox.rpcclient_srvsvc", "simpleserver",
+                "$USERNAME", "$PASSWORD", "$SERVER",
+                os.path.join(bindir(), "rpcclient"), "tmp"])
+ 
++plantestsuite("samba3.blackbox.rpcclient.pw-nt-hash", "simpleserver",
++              [os.path.join(samba3srcdir, "script/tests/test_rpcclient_pw_nt_hash.sh"),
++               "$USERNAME", "$PASSWORD", "$SERVER",
++               os.path.join(bindir(), "rpcclient")])
++
+ options_list = ["", "-e"]
+ for options in options_list:
+     plantestsuite("samba3.blackbox.smbclient_krb5 old ccache %s" % options, "ktest:local",
+-- 
+2.9.0
+

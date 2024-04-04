@@ -347,10 +347,6 @@ static int dhcpv6_set_addresses(struct connman_network *network)
 	if (err < 0)
 		goto err;
 
-	err = __connman_ipconfig_gateway_add(ipconfig_ipv6);
-	if (err < 0)
-		goto err;
-
 	return 0;
 
 err:
@@ -475,10 +471,12 @@ static void check_dhcpv6(struct nd_router_advert *reply,
 	 */
 	if (reply->nd_ra_flags_reserved & ND_RA_FLAG_MANAGED) {
 		__connman_dhcpv6_start(network, prefixes, dhcpv6_callback);
-	} else if (reply->nd_ra_flags_reserved & ND_RA_FLAG_OTHER) {
-		__connman_dhcpv6_start_info(network, dhcpv6_info_callback);
-		network->connecting = false;
 	} else {
+		if (reply->nd_ra_flags_reserved & ND_RA_FLAG_OTHER)
+			__connman_dhcpv6_start_info(network,
+							dhcpv6_info_callback);
+
+		g_slist_free_full(prefixes, g_free);
 		network->connecting = false;
 	}
 

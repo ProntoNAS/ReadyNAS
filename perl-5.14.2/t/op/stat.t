@@ -90,6 +90,7 @@ sleep 3 if $funky_FAT_timestamps;
 print FOO "Now is the time for all good men to come to.\n";
 close(FOO);
 
+stat($tmpfile) if $^O =~ /^gnukfreebsd/;       # Work around Debian Bug#796798
 sleep 2;
 
 

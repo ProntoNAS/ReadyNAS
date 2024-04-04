@@ -115,7 +115,7 @@ idna_strerror (Idna_rc rc)
       break;
 
     case IDNA_ICONV_ERROR:
-      p = _("System iconv failed");
+      p = _("Could not convert string in locale encoding");
       break;
 
     case IDNA_MALLOC_ERROR:

@@ -547,6 +547,8 @@ sub _lwp_fetch {
 
     };
 
+    local @INC = @INC;
+    pop @INC if $INC[-1] eq '.';
     if( can_load(modules => $use_list) ) {
 
         ### setup the uri object
@@ -600,6 +602,8 @@ sub _httptiny_fetch {
 
     };
 
+    local @INC = @INC;
+    pop @INC if $INC[-1] eq '.';
     if( can_load(modules => $use_list) ) {
 
         my $uri = $self->uri;
@@ -643,6 +647,8 @@ sub _httplite_fetch {
 
     # https://github.com/dagolden/cpanpm/compare/master...private%2Fuse-http-lite
 
+    local @INC = @INC;
+    pop @INC if $INC[-1] eq '.';
     if( can_load(modules => $use_list) ) {
 
         my $uri = $self->uri;
@@ -719,6 +725,8 @@ sub _iosock_fetch {
         'IO::Select'       => '0.0',
     };
 
+    local @INC = @INC;
+    pop @INC if $INC[-1] eq '.';
     if( can_load(modules => $use_list) ) {
         my $sock = IO::Socket::INET->new( 
             PeerHost => $self->host,
@@ -803,6 +811,8 @@ sub _netftp_fetch {
     ### required modules ###
     my $use_list = { 'Net::FTP' => 0 };
 
+    local @INC = @INC;
+    pop @INC if $INC[-1] eq '.';
     if( can_load( modules => $use_list ) ) {
 
         ### make connection ###

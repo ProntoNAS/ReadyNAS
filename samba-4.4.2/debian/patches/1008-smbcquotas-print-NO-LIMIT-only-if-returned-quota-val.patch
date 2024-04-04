@@ -1,0 +1,36 @@
+From 61e0f4b31485c3c9438fc623d130289c86d674f7 Mon Sep 17 00:00:00 2001
+From: Uri Simchoni <uri@samba.org>
+Date: Wed, 30 Mar 2016 14:20:44 +0300
+Subject: [PATCH 1008/1096] smbcquotas: print "NO LIMIT" only if returned quota
+ value is 0.
+
+If the user being queried has no quota, the server returns 0 as
+its quota. This is the observed smbd and Windows behavior, which
+is also documented in [MS-FSA] 2.5.1.20.
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11815
+
+Signed-off-by: Uri Simchoni <uri@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+(cherry picked from commit 9d6d62010be2a54b6828cc4cc9c13b5657c8b4a0)
+(cherry picked from commit a6a45324eb37cd50f3158b4763820c540397a4dc)
+---
+ source3/utils/smbcquotas.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/source3/utils/smbcquotas.c b/source3/utils/smbcquotas.c
+index 9e64319..e6f1dfb 100644
+--- a/source3/utils/smbcquotas.c
++++ b/source3/utils/smbcquotas.c
+@@ -236,7 +236,7 @@ static const char *quota_str_static(uint64_t val, bool special, bool _numeric)
+ {
+ 	const char *result;
+ 
+-	if (!_numeric&&special&&(val == SMB_NTQUOTAS_NO_LIMIT)) {
++	if (!_numeric && special && val == 0) {
+ 		return "NO LIMIT";
+ 	}
+ 	result = talloc_asprintf(talloc_tos(), "%"PRIu64, val);
+-- 
+2.9.0
+

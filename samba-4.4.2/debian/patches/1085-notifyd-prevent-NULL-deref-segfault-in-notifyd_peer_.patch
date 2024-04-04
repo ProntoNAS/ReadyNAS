@@ -1,0 +1,44 @@
+From f62301ea06fba06916264b2159bb3b8deb341c44 Mon Sep 17 00:00:00 2001
+From: Michael Adam <obnox@samba.org>
+Date: Fri, 20 May 2016 12:57:48 +0200
+Subject: [PATCH 1085/1096] notifyd: prevent NULL deref segfault in
+ notifyd_peer_destructor
+
+It seems it could happen that p->db == NULL in the list
+from notifyd_clean_peers_next(). This has been seen in
+a ctdb cluster when an node-internal ctdb interface is
+brought down.
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11930
+
+Signed-off-by: Michael Adam <obnox@samba.org>
+Reviewed-by: Volker Lendecke <vl@samba.org>
+
+Autobuild-User(master): Volker Lendecke <vl@samba.org>
+Autobuild-Date(master): Fri May 20 17:32:55 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 1c76746b637bc1867f85ba94786b89f22d1b0c32)
+(cherry picked from commit c4c86063c9fa789809cf88ac1ed56ab8deb2f737)
+---
+ source3/smbd/notifyd/notifyd.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/source3/smbd/notifyd/notifyd.c b/source3/smbd/notifyd/notifyd.c
+index 49fb9c9..45b029b 100644
+--- a/source3/smbd/notifyd/notifyd.c
++++ b/source3/smbd/notifyd/notifyd.c
+@@ -1246,7 +1246,10 @@ static int notifyd_peer_destructor(struct notifyd_peer *p)
+ 	struct notifyd_state *state = p->state;
+ 	size_t i;
+ 
+-	dbwrap_traverse_read(p->db, notifyd_db_del_syswatches, NULL, NULL);
++	if (p->db != NULL) {
++		dbwrap_traverse_read(p->db, notifyd_db_del_syswatches,
++				     NULL, NULL);
++	}
+ 
+ 	for (i = 0; i<state->num_peers; i++) {
+ 		if (p == state->peers[i]) {
+-- 
+2.9.0
+

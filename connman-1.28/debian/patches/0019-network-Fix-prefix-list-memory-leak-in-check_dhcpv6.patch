@@ -1,0 +1,33 @@
+From 1447dc9f8c0d2d7715837bc27e028fe55f92e56f Mon Sep 17 00:00:00 2001
+From: Slava Monich <slava.monich@jolla.com>
+Date: Wed, 1 Apr 2015 22:26:03 +0300
+Subject: [PATCH 19/22] network: Fix prefix list memory leak in check_dhcpv6()
+
+(cherry picked from commit d75d796f8add5b55550ecc06bebf26d470af44fd)
+---
+ src/network.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/network.c b/src/network.c
+index f61f698..badb770 100644
+--- a/src/network.c
++++ b/src/network.c
+@@ -471,10 +471,12 @@ static void check_dhcpv6(struct nd_router_advert *reply,
+ 	 */
+ 	if (reply->nd_ra_flags_reserved & ND_RA_FLAG_MANAGED) {
+ 		__connman_dhcpv6_start(network, prefixes, dhcpv6_callback);
+-	} else if (reply->nd_ra_flags_reserved & ND_RA_FLAG_OTHER) {
+-		__connman_dhcpv6_start_info(network, dhcpv6_info_callback);
+-		network->connecting = false;
+ 	} else {
++		if (reply->nd_ra_flags_reserved & ND_RA_FLAG_OTHER)
++			__connman_dhcpv6_start_info(network,
++							dhcpv6_info_callback);
++
++		g_slist_free_full(prefixes, g_free);
+ 		network->connecting = false;
+ 	}
+ 
+-- 
+1.9.1
+

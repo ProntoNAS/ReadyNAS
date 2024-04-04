@@ -1,0 +1,37 @@
+From fa10b5c56eaccc61566babca11f6eec06bc8933c Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 15 Jul 2015 12:26:47 -0700
+Subject: [PATCH 7/8] Handle fpathconf() errors.
+
+In one place snapper calls fpathconf(.., _PC_NAME_MAX) to determine the size of
+a buffer used to hold readdir_r() results.  fpathconf() may return -1 on error,
+but this fpathconf() call's return value is unchecked.  This can result in
+allocating a buffer that is too small for readdir_r()'s results, resulting in
+out-of-bounds memory access.
+
+Fix it by falling back to using NAME_MAX if fpathconf(.., _PC_NAME_MAX) fails.
+
+Signed-off-by: Justin Maggard <jmaggard@netgear.com>
+---
+ snapper/FileUtils.cc | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/snapper/FileUtils.cc b/snapper/FileUtils.cc
+index c92b3f9..599911e 100644
+--- a/snapper/FileUtils.cc
++++ b/snapper/FileUtils.cc
+@@ -207,7 +207,10 @@ namespace snapper
+ 
+ 	vector<string> ret;
+ 
+-	size_t len = offsetof(struct dirent, d_name) + fpathconf(dirfd, _PC_NAME_MAX) + 1;
++	long sz = fpathconf(dirfd, _PC_NAME_MAX);
++	if (sz == -1)
++	    sz = NAME_MAX;
++	size_t len = offsetof(struct dirent, d_name) + sz + 1;
+ 	struct dirent* ep = (struct dirent*) malloc(len);
+ 	struct dirent* epp;
+ 
+-- 
+1.9.1
+

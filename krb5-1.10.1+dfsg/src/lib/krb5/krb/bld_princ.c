@@ -48,8 +48,9 @@ krb5int_build_principal_va(krb5_context context,
     if (!data) { retval = ENOMEM; }
 
     if (!retval) {
-        r = strdup(realm);
-        if (!r) { retval = ENOMEM; }
+        r = k5alloc(rlen + 1, &retval);
+        if (r != NULL && rlen > 0)
+            memcpy(r, realm, rlen);
     }
 
     if (!retval && first) {

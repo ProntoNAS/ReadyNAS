@@ -40,6 +40,7 @@ __BEGIN_DECLS
 #define	LOCK_SH	1	/* Shared lock.  */
 #define	LOCK_EX	2 	/* Exclusive lock.  */
 #define	LOCK_UN	8	/* Unlock.  */
+#define	__LOCK_ATOMIC	16	/* Atomic update.  */
 
 /* Can be OR'd in to one of the above.  */
 #define	LOCK_NB	4	/* Don't block when locking.  */

@@ -1,0 +1,42 @@
+From c1d64476308c3cc59fa6cf74cc78c022ac7f3f3e Mon Sep 17 00:00:00 2001
+From: Stefan Metzmacher <metze@samba.org>
+Date: Wed, 20 Apr 2016 18:44:21 +0200
+Subject: [PATCH 1026/1096] auth/ntlmssp: don't require NTLMSSP_SIGN for smb
+ connections
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Enforcement of SMB signing is done at the SMB layer.
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11850
+
+Signed-off-by: Stefan Metzmacher <metze@samba.org>
+Reviewed-by: Andreas Schneider <asn@samba.org>
+Reviewed-by: Günther Deschner <gd@samba.org>
+(cherry picked from commit d97b347d041f9b5c0aa71f35526cbefd56f3500b)
+(cherry picked from commit e72697d8bcc12592285cf4d27158134e4bf19266)
+---
+ auth/ntlmssp/ntlmssp_client.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/auth/ntlmssp/ntlmssp_client.c b/auth/ntlmssp/ntlmssp_client.c
+index 8b367fc..b423f20 100644
+--- a/auth/ntlmssp/ntlmssp_client.c
++++ b/auth/ntlmssp/ntlmssp_client.c
+@@ -843,8 +843,11 @@ NTSTATUS gensec_ntlmssp_client_start(struct gensec_security *gensec_security)
+ 		 * Without this, Windows will not create the master key
+ 		 * that it thinks is only used for NTLMSSP signing and
+ 		 * sealing.  (It is actually pulled out and used directly)
++		 *
++		 * We don't require this here as some servers (e.g. NetAPP)
++		 * doesn't support this.
+ 		 */
+-		ntlmssp_state->required_flags |= NTLMSSP_NEGOTIATE_SIGN;
++		ntlmssp_state->neg_flags |= NTLMSSP_NEGOTIATE_SIGN;
+ 	}
+ 	if (gensec_security->want_features & GENSEC_FEATURE_SIGN) {
+ 		ntlmssp_state->required_flags |= NTLMSSP_NEGOTIATE_SIGN;
+-- 
+2.9.0
+

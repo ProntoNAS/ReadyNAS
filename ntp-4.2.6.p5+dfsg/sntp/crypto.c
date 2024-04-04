@@ -58,7 +58,7 @@ auth_md5(
 	if (!hash_len)
 		authentic = FALSE;
 	else
-		authentic = !memcmp(digest, pkt_data + pkt_size + 4,
+		authentic = !CRYPTO_memcmp(digest, pkt_data + pkt_size + 4,
 				    hash_len);
 	return authentic;
 }

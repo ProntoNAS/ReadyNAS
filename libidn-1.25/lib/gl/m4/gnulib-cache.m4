@@ -27,7 +27,7 @@
 
 
 # Specification in the form of a command-line invocation:
-#   gnulib-tool --import --dir=. --local-dir=lib/gl/override --lib=libgnu --source-base=lib/gl --m4-base=lib/gl/m4 --doc-base=doc --tests-base=lib/gltests --aux-dir=build-aux --with-tests --avoid=iconv-h-tests --avoid=string-tests --avoid=wchar-tests --lgpl=2 --no-conditional-dependencies --libtool --macro-prefix=lgl --no-vc-files gettext-h lib-msvc-compat lib-symbol-versions lib-symbol-visibility stdint striconv strverscmp
+#   gnulib-tool --import --dir=. --local-dir=lib/gl/override --lib=libgnu --source-base=lib/gl --m4-base=lib/gl/m4 --doc-base=doc --tests-base=lib/gltests --aux-dir=build-aux --with-tests --avoid=iconv-h-tests --avoid=string-tests --avoid=wchar-tests --lgpl=2 --no-conditional-dependencies --libtool --macro-prefix=lgl --no-vc-files gettext-h lib-msvc-compat lib-symbol-versions lib-symbol-visibility stdint striconv strverscmp unistr/u8-check
 
 # Specification in the form of a few gnulib-tool.m4 macro invocations:
 gl_LOCAL_DIR([lib/gl/override])
@@ -39,6 +39,7 @@ gl_MODULES([
   stdint
   striconv
   strverscmp
+  unistr/u8-check
 ])
 gl_AVOID([iconv-h-tests string-tests wchar-tests])
 gl_SOURCE_BASE([lib/gl])

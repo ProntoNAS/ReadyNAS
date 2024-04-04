@@ -27,6 +27,8 @@ Exporter::export_ok_tags('all');
 
 BEGIN
 {
+   local @INC = @INC;
+   pop @INC if $INC[-1] eq '.';
    eval ' use IO::Uncompress::Adapter::Inflate 2.033 ;';
    eval ' use IO::Uncompress::Adapter::Bunzip2 2.033 ;';
    eval ' use IO::Uncompress::Adapter::LZO 2.033 ;';

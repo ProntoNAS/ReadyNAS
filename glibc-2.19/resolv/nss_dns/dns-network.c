@@ -129,7 +129,7 @@ _nss_dns_getnetbyname_r (const char *name, struct netent *result,
   net_buffer.buf = orig_net_buffer = (querybuf *) alloca (1024);
 
   anslen = __libc_res_nsearch (&_res, qbuf, C_IN, T_PTR, net_buffer.buf->buf,
-			       1024, &net_buffer.ptr, NULL, NULL, NULL);
+			       1024, &net_buffer.ptr, NULL, NULL, NULL, NULL);
   if (anslen < 0)
     {
       /* Nothing found.  */
@@ -205,7 +205,7 @@ _nss_dns_getnetbyaddr_r (uint32_t net, int type, struct netent *result,
   net_buffer.buf = orig_net_buffer = (querybuf *) alloca (1024);
 
   anslen = __libc_res_nquery (&_res, qbuf, C_IN, T_PTR, net_buffer.buf->buf,
-			      1024, &net_buffer.ptr, NULL, NULL, NULL);
+			      1024, &net_buffer.ptr, NULL, NULL, NULL, NULL);
   if (anslen < 0)
     {
       /* Nothing found.  */
@@ -398,8 +398,8 @@ getanswer_r (const querybuf *answer, int anslen, struct netent *result,
 
 	case BYNAME:
 	  {
-	    char **ap = result->n_aliases++;
-	    while (*ap != NULL)
+	    char **ap;
+	    for (ap = result->n_aliases; *ap != NULL; ++ap)
 	      {
 		/* Check each alias name for being of the forms:
 		   4.3.2.1.in-addr.arpa		= net 1.2.3.4

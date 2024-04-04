@@ -1,0 +1,54 @@
+From 62e2d2d88e471390641bdb686a42598edddb45ab Mon Sep 17 00:00:00 2001
+From: Craig Small <csmall@enc.com.au>
+Date: Thu, 22 May 2014 21:56:42 +1000
+Subject: [PATCH 08/21] Fix some segfaults due to freeing too early
+
+---
+ src/killall.c | 3 +--
+ src/prtstat.c | 2 +-
+ 2 files changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/src/killall.c b/src/killall.c
+index b1a6d18..1b8e878 100644
+--- a/src/killall.c
++++ b/src/killall.c
+@@ -438,7 +438,6 @@ kill_all (int signal, int names, char **namelist, struct passwd *pwent)
+               break;
+             }
+           }
+-	  free(command_buf);
+           (void) fclose(file);
+ 	  if (exact && !okay)
+ 	    {
+@@ -529,7 +528,6 @@ kill_all (int signal, int names, char **namelist, struct passwd *pwent)
+ 	  found_name = j;
+ 	  break;
+ 	}  
+-        free(reglist);
+         free(name_len);
+         
+         if (names && found_name==-1)
+@@ -571,6 +569,7 @@ kill_all (int signal, int names, char **namelist, struct passwd *pwent)
+ 	  fprintf (stderr, "%s(%d): %s\n", got_long ? command :
+ 	    	comm, id, strerror (errno));
+     }
++  free(reglist);
+   free(pgids);
+   if (!quiet)
+     for (i = 0; i < names; i++)
+diff --git a/src/prtstat.c b/src/prtstat.c
+index 0a6ace4..fee5f61 100644
+--- a/src/prtstat.c
++++ b/src/prtstat.c
+@@ -214,7 +214,7 @@ static void print_stat(const int pid, const opt_type options)
+   char *bptr;
+   FILE *fp;
+ 
+-  struct proc_info *pr;
++  struct proc_info *pr = NULL;
+ 
+   if ( (asprintf(&pathname, "/proc/%d/stat",(int)pid)) < 0) {
+ 	perror(_("asprintf in print_stat failed.\n"));
+-- 
+2.5.2
+

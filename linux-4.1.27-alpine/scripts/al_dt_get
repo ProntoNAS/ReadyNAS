@@ -1,0 +1,60 @@
+#!/bin/bash
+
+export BASEDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
+
+dt_alpine_v1_dtsi=alpine.dtsi
+dt_alpine_v1_skeleton=skeleton64.dtsi
+
+dt_alpine_v2_dtsi=alpine_v2.dtsi
+dt_alpine_v2_skeleton=skeleton64.dtsi
+
+
+dt_alpine_v1_list=(
+alpine_db_m0
+alpine_db
+alpine_db_no_arch_timer
+alpine_db_al212
+alpine_db_al314
+alpine_db_pcie
+alpine_db_pcie_no_arch_timer
+alpine_sdnic
+alpine_sdnic_nand
+alpine_k2s
+alpine_security_box)
+
+dt_alpine_v2_list=(
+alpine_v2_tdp
+alpine_v2_evp
+alpine_v2_k2_25
+alpine_v2_k2_10)
+
+pushd $BASEDIR
+
+#Copy Alpine V1 DTs
+git clone http://gerrit.il.annapurnalabs.com:8080/dt
+
+cp dt/$dt_alpine_v1_dtsi ../arch/arm/boot/dts
+cp dt/$dt_alpine_v1_skeleton ../arch/arm/boot/dts
+
+for i in ${dt_alpine_v1_list[@]}; do
+  cp dt/${i}.dts ../arch/arm/boot/dts
+  sed -i '2s/^/dtb-$(CONFIG_ARCH_ALPINE) += '"${i}"'.dtb\n/' ../arch/arm/boot/dts/Makefile
+done
+
+#Copy Alpine V2 DTs
+rm -rf ../arch/arm64/boot/dts/al/
+mkdir -p ../arch/arm64/boot/dts/al/
+
+sed -i '1s/^/dts-dirs += al\n/' ../arch/arm64/boot/dts/Makefile
+
+for i in ${dt_alpine_v2_list[@]}; do
+  cp dt/${i}.dts ../arch/arm64/boot/dts/al/
+done
+
+cp dt/$dt_alpine_v2_dtsi ../arch/arm64/boot/dts/al/
+cp dt/$dt_alpine_v2_skeleton ../arch/arm64/boot/dts/al/
+
+rm -rf dt
+popd
+
+

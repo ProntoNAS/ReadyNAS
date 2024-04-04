@@ -1,0 +1,51 @@
+From 05a66f193ccf3878f204f79845ff90672fb640ec Mon Sep 17 00:00:00 2001
+From: Werner Fink <werner@suse.de>
+Date: Sun, 15 Mar 2015 08:39:12 +1100
+Subject: [PATCH 17/21] Avoid possible crash and memory leak in killall
+
+By reading the current HEAD I stumbled on a memory leak in killall.c
+as well as a not assigned pointer got_long in load_proc_cmdline()
+which may lead to SIGSEGV.
+
+References: [patches:#67] https://sourceforge.net/p/psmisc/bugs/67
+Signed-off-by: Werner Fink <werner@suse.de>
+---
+ src/killall.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/killall.c b/src/killall.c
+index 31cc412..90532ff 100644
+--- a/src/killall.c
++++ b/src/killall.c
+@@ -375,9 +375,10 @@ load_proc_cmdline(const pid_t pid, const char *comm, char **command, int *got_lo
+ 	if (verbose)
+ 	    fprintf (stderr, _("killall: skipping partial match %s(%d)\n"),
+ 		    comm, pid);
+-	return -1;
+ 	*got_long = okay;
++	return -1;
+     }
++    *got_long = okay;
+     return 0;
+ }
+ 
+@@ -469,6 +470,7 @@ kill_all (int signal, int name_count, char **namelist, struct passwd *pwent)
+ 	  exit (1);
+ 	}
+   }
++    got_long = 0;
+     for (i = 0; i < pids; i++)
+     {
+ 	pid_t id;
+@@ -501,6 +503,8 @@ kill_all (int signal, int name_count, char **namelist, struct passwd *pwent)
+ 	if ( older_than   && process_age_sec && (process_age_sec < older_than ) )
+ 	    continue;
+ 
++        if (command)
++            free(command);
+         got_long = 0;
+         command = NULL;		/* make gcc happy */
+         if (length == COMM_LEN - 1)
+-- 
+2.5.2
+

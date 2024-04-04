@@ -36,6 +36,7 @@ $Config{startperl}
 
 print OUT <<'!NO!SUBS!';
 
+BEGIN { pop @INC if $INC[-1] eq '.' }
 use strict;
 
 use Config;

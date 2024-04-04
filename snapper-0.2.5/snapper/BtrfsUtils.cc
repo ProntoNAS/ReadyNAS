@@ -107,7 +107,15 @@ namespace snapper
 	strncpy(args.name, name.c_str(), sizeof(args.name) - 1);
 
 	if (ioctl(fddst, BTRFS_IOC_SUBVOL_CREATE, &args) != 0)
+	{
+	    if (errno == EEXIST)
+	    {
+		struct stat x;
+		if (fstatat(fddst, args.name, &x, 0) == 0 && is_subvolume(x))
+		    return;
+	    }
 	    throw runtime_error_with_errno("ioctl(BTRFS_IOC_SUBVOL_CREATE) failed", errno);
+	}
     }
 
 

@@ -23,7 +23,7 @@
 #include <pt-internal.h>
 
 int
-pthread_setspecific (pthread_key_t key, const void *value)
+__pthread_setspecific (pthread_key_t key, const void *value)
 {
   error_t err;
   struct __pthread *self = _pthread_self ();
@@ -45,3 +45,4 @@ pthread_setspecific (pthread_key_t key, const void *value)
       
   return 0;
 }
+strong_alias (__pthread_setspecific, pthread_setspecific);

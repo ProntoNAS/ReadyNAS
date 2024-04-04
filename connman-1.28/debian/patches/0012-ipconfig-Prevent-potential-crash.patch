@@ -1,0 +1,40 @@
+From 56548ebe4c036f3bcee99122e762e43c6e1df07b Mon Sep 17 00:00:00 2001
+From: Patrik Flykt <patrik.flykt@linux.intel.com>
+Date: Fri, 27 Feb 2015 11:30:33 +0200
+Subject: [PATCH 12/22] ipconfig: Prevent potential crash
+
+Both service and peer code store their data structures as ipconfig opaque
+data. ipconfig cannot know which data structure is stored and must not
+cast it to a service structure.
+
+Fix the issue by looking up the service by interface index instead. Keep
+the rest of the checks in the code as before.
+
+(cherry picked from commit 46f4e5c21397d6ca7a203e1dcead2fb67a684f86)
+---
+ src/ipconfig.c | 9 +++------
+ 1 file changed, 3 insertions(+), 6 deletions(-)
+
+diff --git a/src/ipconfig.c b/src/ipconfig.c
+index ac783e5..0f548e3 100644
+--- a/src/ipconfig.c
++++ b/src/ipconfig.c
+@@ -444,12 +444,9 @@ static void update_stats(struct connman_ipdevice *ipdevice,
+ 	if (!ipdevice->config_ipv4 && !ipdevice->config_ipv6)
+ 		return;
+ 
+-	if (ipdevice->config_ipv4)
+-		service = __connman_ipconfig_get_data(ipdevice->config_ipv4);
+-	else if (ipdevice->config_ipv6)
+-		service = __connman_ipconfig_get_data(ipdevice->config_ipv6);
+-	else
+-		return;
++	service = __connman_service_lookup_from_index(ipdevice->index);
++
++	DBG("service %p", service);
+ 
+ 	if (!service)
+ 		return;
+-- 
+1.9.1
+

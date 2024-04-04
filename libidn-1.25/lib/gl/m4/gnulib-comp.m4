@@ -111,6 +111,8 @@ AC_DEFUN([lgl_EARLY],
   # Code from module unistd:
   # Code from module unistd-tests:
   # Code from module unistr/base:
+  # Code from module unistr/u8-check:
+  # Code from module unistr/u8-check-tests:
   # Code from module unistr/u8-mbtoucr:
   # Code from module unistr/u8-mbtoucr-tests:
   # Code from module unistr/u8-uctomb:
@@ -172,6 +174,7 @@ if test $HAVE_STRVERSCMP = 0; then
 fi
 gl_STRING_MODULE_INDICATOR([strverscmp])
 gl_LIBUNISTRING_LIBHEADER([0.9.2], [unistr.h])
+gl_LIBUNISTRING_MODULE([0.9], [unistr/u8-check])
 gl_MODULE_INDICATOR([unistr/u8-mbtoucr])
 gl_LIBUNISTRING_MODULE([0.9], [unistr/u8-mbtoucr])
 gl_MODULE_INDICATOR([unistr/u8-uctomb])
@@ -399,6 +402,7 @@ AC_DEFUN([lgl_FILE_LIST], [
   lib/string.in.h
   lib/strverscmp.c
   lib/unistr.in.h
+  lib/unistr/u8-check.c
   lib/unistr/u8-mbtoucr.c
   lib/unistr/u8-uctomb-aux.c
   lib/unistr/u8-uctomb.c
@@ -493,6 +497,7 @@ AC_DEFUN([lgl_FILE_LIST], [
   tests/test-unsetenv.c
   tests/test-verify.c
   tests/test-verify.sh
+  tests/unistr/test-u8-check.c
   tests/unistr/test-u8-mbtoucr.c
   tests/unistr/test-u8-uctomb.c
   tests=lib/alloca.in.h

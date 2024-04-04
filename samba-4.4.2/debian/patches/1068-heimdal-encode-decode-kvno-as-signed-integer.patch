@@ -1,0 +1,119 @@
+From cc38b05b6c85c58f520f8a46e95ea0029139a668 Mon Sep 17 00:00:00 2001
+From: Uri Simchoni <uri@samba.org>
+Date: Thu, 5 May 2016 23:40:22 +0300
+Subject: [PATCH 1068/1096] heimdal: encode/decode kvno as signed integer
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This patch changes the encoding/decoding of kvno (key version number)
+in blobs and packets to signed integer, for compatibility with Windows.
+Reportedly, MIT Kerberos does the same.
+
+This patch effectively reverts commit 1124c4872dfb81bec9c4b527b8927ca35e39a599
+in the heimdal tree.
+
+According to the Kerberos spec (RFC 4120 5.2.9), the kvno field
+in encrypted data object is an unsigned integer that fits in
+32 bits. The Heimdal Kerberos component bundled with Samba
+conforms to this. However, Windows deviates from the standard
+and encodes kvno as a signed integer, and this creates
+interoperability issues.
+
+ASN.1 DER has no special encoding for unsigned integer. A 32-bit
+unsigned integer is encoded as a signed integer, so while a signed
+32-bit integer (covering the range of -0x80000000..0x7fffffff) is
+encoded using up to 4 bytes, an unsigned integer (covering
+0..0xffffffff) could require 5 bytes.
+
+Normally, kvno for a given account starts at 1 and increments on
+password changes. Kerberos defined this as unsigned because there's
+no meaning for negative version numbers, so the standard writers figured
+4 billion versions is better than 2 billion. It was not
+expected for a kvno to really go past 0x7fffffff and the disctinction
+usually does not matter. However, RODCs use kvnos which
+have the most-significant bit set.
+
+In Active Directory, RODCs have a private secret for the krbtgt,
+because the assumption is that the RODC is less secure, and
+recovering the domain krbtgt secret from the RODC would compromise
+the security of the entire domain. The kvno field is being used
+to identify the private krbtgt account that owns the key - the
+upper 16 bits are the RODC id, and the lower 16 bits identify
+the key version number for this specific RODC. It's common to
+have an RODC id greater than 0x8000, and therefore to have a
+kvno larger than 0x7fffffff, which would be DER-encoded using
+5 bytes.
+
+Windows encodes kvno as signed integer - basically taking the
+32 bits and treating them as a signed integer rather than an
+unsigned integer. This means that in Windows a kvno can
+always be encoded using 4 bytes, and Windows DCs reject a kvno
+encoded using more than 4 bytes without even generating an error
+response (the DC assumes it's an attack).
+
+Heimdal re-encodes the TGT when it creates a TGS request. Obviously
+it cannot decode and encode the encrypted parts but it does re-encode
+the plain parts, which include the kvno. That leads to a 5-byte
+kvno in the TGS request, which is rejected without an error
+response.
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11900
+
+Signed-off-by: Uri Simchoni <uri@samba.org>
+Reviewed-by: Stefan Metzmacher <metze@samba.org>
+Reviewed-by: Ralph Boehme <slow@samba.org>
+
+Autobuild-User(master): Ralph Böhme <slow@samba.org>
+Autobuild-Date(master): Sat May  7 21:14:21 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 6379737b7ddc6ccb752238c5820cc62e76a8da17)
+(cherry picked from commit 6823ef7b13545832628f92d71840495eb6ccae00)
+---
+ source4/heimdal/kdc/misc.c         | 2 +-
+ source4/heimdal/lib/asn1/krb5.asn1 | 2 +-
+ source4/torture/rpc/lsa.c          | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/source4/heimdal/kdc/misc.c b/source4/heimdal/kdc/misc.c
+index b0bc38a..6fd5119 100644
+--- a/source4/heimdal/kdc/misc.c
++++ b/source4/heimdal/kdc/misc.c
+@@ -40,7 +40,7 @@ _kdc_db_fetch(krb5_context context,
+ 	      krb5_kdc_configuration *config,
+ 	      krb5_const_principal principal,
+ 	      unsigned flags,
+-	      krb5uint32 *kvno_ptr,
++	      krb5int32 *kvno_ptr,
+ 	      HDB **db,
+ 	      hdb_entry_ex **h)
+ {
+diff --git a/source4/heimdal/lib/asn1/krb5.asn1 b/source4/heimdal/lib/asn1/krb5.asn1
+index f3ae6bba..c2f40c0 100644
+--- a/source4/heimdal/lib/asn1/krb5.asn1
++++ b/source4/heimdal/lib/asn1/krb5.asn1
+@@ -360,7 +360,7 @@ LastReq ::= SEQUENCE OF SEQUENCE {
+ 
+ EncryptedData ::= SEQUENCE {
+ 	etype[0] 		ENCTYPE, -- EncryptionType
+-	kvno[1]			krb5uint32 OPTIONAL,
++	kvno[1]			krb5int32 OPTIONAL,
+ 	cipher[2]		OCTET STRING -- ciphertext
+ }
+ 
+diff --git a/source4/torture/rpc/lsa.c b/source4/torture/rpc/lsa.c
+index 2bc9649..6fd2b80 100644
+--- a/source4/torture/rpc/lsa.c
++++ b/source4/torture/rpc/lsa.c
+@@ -3183,7 +3183,7 @@ static bool check_pw_with_krb5(struct torture_context *tctx,
+ 	const char *old_password = cli_credentials_get_old_password(credentials);
+ 	int kvno = cli_credentials_get_kvno(credentials);
+ 	int expected_kvno = 0;
+-	krb5uint32 t_kvno = 0;
++	krb5int32 t_kvno = 0;
+ 	const char *host = torture_setting_string(tctx, "host", NULL);
+ 	krb5_error_code k5ret;
+ 	krb5_boolean k5ok;
+-- 
+2.9.0
+

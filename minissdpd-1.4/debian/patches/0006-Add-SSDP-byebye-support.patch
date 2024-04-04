@@ -1,0 +1,181 @@
+From d64442e73ac14f6ffe1163403274faeeded85306 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Tue, 1 Sep 2015 15:06:39 -0700
+Subject: [PATCH 6/8] Add SSDP byebye support.
+
+---
+ minissdpd.c      | 49 ++++++++++++++++++++++++++++++++-----------------
+ openssdpsocket.c | 11 +++--------
+ 2 files changed, 35 insertions(+), 25 deletions(-)
+
+diff --git a/minissdpd.c b/minissdpd.c
+index 0944f24..4a226f3 100644
+--- a/minissdpd.c
++++ b/minissdpd.c
+@@ -351,7 +351,7 @@ removeDevice(const struct header * headers)
+ 		pp = &p->next;
+ 		p = *pp;	/* p = p->next; */
+ 	}
+-	syslog(LOG_WARNING, "device not found for removing : %.*s", headers[HEADER_USN].l, headers[HEADER_USN].p);
++	syslog(LOG_INFO, "device not found for removing : %.*s", headers[HEADER_USN].l, headers[HEADER_USN].p);
+ 	return 0;
+ }
+ 
+@@ -473,7 +473,7 @@ processMSEARCH(int s, const char * st, int st_len,
+ }
+ 
+ static void
+-SendSSDPNotify(int s, struct service *serv)
++SendSSDPNotify(int s, struct service *serv, const char *nts)
+ {
+ 	struct sockaddr_in sockname;
+         char bufr[512];
+@@ -499,13 +499,13 @@ SendSSDPNotify(int s, struct service *serv)
+ 			serv->server,
+ 			serv->st,
+ 			serv->usn,
+-			nts_to_str(NTS_SSDP_ALIVE));
++			nts);
+ 	if (l >= (int)sizeof(bufr))
+ 	{
+-		syslog(LOG_WARNING, "SendSSDPNotifies(): truncated output");
++		syslog(LOG_WARNING, "SendSSDPNotify(): truncated output");
+ 		l = sizeof(bufr);
+ 	}
+-	syslog(LOG_DEBUG, "Sending ssdp:alive for %s/%s/%s [%d]", serv->st, serv->location, serv->usn, s);
++	syslog(LOG_DEBUG, "Sending %s for %s/%s/%s [%d]", nts, serv->st, serv->location, serv->usn, s);
+ 	n = sendto(s, bufr, l, 0,
+ 		(struct sockaddr *)&sockname, sizeof(struct sockaddr_in));
+ 	if (n < 0)
+@@ -513,19 +513,23 @@ SendSSDPNotify(int s, struct service *serv)
+ }
+ 
+ void
+-SendSSDPNotifies(int s)
++SendSSDPNotifies(int s, const char *nts, struct service *serv)
+ {
+-	struct service * serv;
+ 	int dup;
+ 
+ 	for (dup = 0; dup < 2; dup++)
+ 	{
+ 		if (dup)
+ 			usleep(200000);
+-		for(serv = servicelisthead.lh_first;
+-		    serv;
+-		    serv = serv->entries.le_next)
+-			SendSSDPNotify(s, serv);
++		if (serv)
++			SendSSDPNotify(s, serv, nts);
++		else for(serv = servicelisthead.lh_first;
++			 serv;
++			 serv = serv->entries.le_next)
++		{
++			SendSSDPNotify(s, serv, nts);
++			usleep(random()>>20);
++		}
+ 	}
+ }
+ 
+@@ -577,7 +581,7 @@ ParseSSDPPacket(int s, const char * p, ssize_t n,
+ 	if(get_lan_for_peer(addr) == NULL) {
+ 		char addr_str[64];
+ 		sockaddr_to_string(addr, addr_str, sizeof(addr_str));
+-		syslog(LOG_WARNING, "peer %s is not from a LAN",
++		syslog(LOG_INFO, "peer %s is not from a LAN",
+ 		       addr_str);
+ 		return 0;
+ 	}
+@@ -1009,16 +1013,19 @@ void processRequest(struct reqelem * req)
+ 				serv->location = newserv->location;
+ 				free(newserv);
+ 				for(lan_addr = lan_addrs.lh_first; lan_addr; lan_addr = lan_addr->list.le_next)
+-					SendSSDPNotify(lan_addr->s_notify, serv);
++					SendSSDPNotify(lan_addr->s_notify, serv, nts_to_str(NTS_SSDP_ALIVE));
+ 				newserv = NULL;
+ 				return;
+ 			}
+ 		}
+ 		/* Inserting new service */
+ 		LIST_INSERT_HEAD(&servicelisthead, newserv, entries);
+-		newserv = NULL;
+ 		for(lan_addr = lan_addrs.lh_first; lan_addr; lan_addr = lan_addr->list.le_next)
+-			SendSSDPNotifies(lan_addr->s_notify);
++		{
++			SendSSDPNotifies(lan_addr->s_notify, nts_to_str(NTS_SSDP_BYEBYE), newserv);
++			SendSSDPNotifies(lan_addr->s_notify, nts_to_str(NTS_SSDP_ALIVE), newserv);
++		}
++		newserv = NULL;
+ 		break;
+ 	default:
+ 		syslog(LOG_WARNING, "Unknown request type %d", type);
+@@ -1314,6 +1321,9 @@ int main(int argc, char * * argv)
+ 	}
+ #endif
+ 
++	for(lan_addr = lan_addrs.lh_first; lan_addr; lan_addr = lan_addr->list.le_next)
++		SendSSDPNotifies(lan_addr->s_notify, nts_to_str(NTS_SSDP_BYEBYE), NULL);
++
+ 	/* daemonize or in any case get pid ! */
+ 	if(debug_flag)
+ 		pid = getpid();
+@@ -1384,7 +1394,7 @@ int main(int argc, char * * argv)
+ 		gettimeofday(&now, NULL);
+ 		if(now.tv_sec >= lastnotify.tv_sec + 120) {
+ 			for(lan_addr = lan_addrs.lh_first; lan_addr; lan_addr = lan_addr->list.le_next)
+-				SendSSDPNotifies(lan_addr->s_notify);
++				SendSSDPNotifies(lan_addr->s_notify, nts_to_str(NTS_SSDP_ALIVE), NULL);
+ 			memcpy(&lastnotify, &now, sizeof(struct timeval));
+ 			timeout.tv_sec = 120;
+ 			timeout.tv_usec = 0;
+@@ -1507,11 +1517,16 @@ int main(int argc, char * * argv)
+ 			ProcessInterfaceWatch(s_ifacewatch, s_ssdp, s_ssdp6);
+ 		}
+ 	}
+-	syslog(LOG_DEBUG, "quitting...");
++	syslog(LOG_NOTICE, "quitting...");
+ 	finalize_sendto();
+ 
+ 	/* closing and cleaning everything */
+ quit:
++	for(lan_addr = lan_addrs.lh_first; lan_addr; lan_addr = lan_addr->list.le_next) {
++		SendSSDPNotifies(lan_addr->s_notify, nts_to_str(NTS_SSDP_BYEBYE), NULL);
++		close(lan_addr->s_notify);
++	}
++
+ 	if(s_ssdp >= 0) {
+ 		close(s_ssdp);
+ 		s_ssdp = -1;
+diff --git a/openssdpsocket.c b/openssdpsocket.c
+index f44315a..78d721d 100644
+--- a/openssdpsocket.c
++++ b/openssdpsocket.c
+@@ -39,7 +39,7 @@ extern struct lan_addr_list lan_addrs;
+ int
+ AddDropMulticastMembership(int s, struct lan_addr_s * lan_addr, int ipv6, int drop)
+ {
+-	struct ip_mreq imr;	/* Ip multicast membership */
++	struct ip_mreqn imr;	/* Ip multicast membership */
+ #ifdef ENABLE_IPV6
+ 	struct ipv6_mreq mr;
+ #else	/* ENABLE_IPV6 */
+@@ -78,14 +78,9 @@ AddDropMulticastMembership(int s, struct lan_addr_s * lan_addr, int ipv6, int dr
+ 	{
+ #endif /* ENABLE_IPV6 */
+ 		/* setting up imr structure */
++		memset(&imr, 0, sizeof(imr));
+ 		imr.imr_multiaddr.s_addr = inet_addr(SSDP_MCAST_ADDR);
+-		imr.imr_interface.s_addr = lan_addr->addr.s_addr;
+-		if(imr.imr_interface.s_addr == INADDR_NONE)
+-		{
+-			syslog(LOG_ERR, "no IPv4 address for interface %s",
+-			       lan_addr->ifname);
+-			return -1;
+-		}
++		imr.imr_ifindex = lan_addr->index;
+ 
+ 		if (setsockopt(s, IPPROTO_IP, drop ? IP_DROP_MEMBERSHIP : IP_ADD_MEMBERSHIP,
+ 		    (void *)&imr, sizeof(struct ip_mreq)) < 0)
+-- 
+1.9.1
+

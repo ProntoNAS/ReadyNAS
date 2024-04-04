@@ -80,7 +80,7 @@ MD5authdecrypt(
 		    "MAC decrypt: MAC length error");
 		return (0);
 	}
-	return (!memcmp(digest, (char *)pkt + length + 4, len));
+	return (!CRYPTO_memcmp(digest, (char *)pkt + length + 4, len));
 }
 
 /*

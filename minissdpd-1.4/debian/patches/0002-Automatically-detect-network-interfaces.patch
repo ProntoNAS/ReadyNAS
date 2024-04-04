@@ -1,0 +1,120 @@
+From d2e65db6895d33411959c29b49fdd415593f812e Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 12 Aug 2015 13:48:37 -0700
+Subject: [PATCH 2/8] Automatically detect network interfaces.
+
+---
+ minissdpd.c | 60 ++++++++++++++++++++++++++++++++++++++++--------------------
+ 1 file changed, 40 insertions(+), 20 deletions(-)
+
+diff --git a/minissdpd.c b/minissdpd.c
+index a1efcf5..49e044a 100644
+--- a/minissdpd.c
++++ b/minissdpd.c
+@@ -31,6 +31,7 @@
+ #include <pwd.h>
+ #include <grp.h>
+ #endif
++#include <dirent.h>
+ 
+ #include "getifaddr.h"
+ #include "upnputils.h"
+@@ -111,9 +112,8 @@ parselanaddr(struct lan_addr_s * lan_addr, const char * str)
+ 		/* not starting with a digit : suppose it is an interface name */
+ 		memcpy(lan_addr->ifname, str, n);
+ 		lan_addr->ifname[n] = '\0';
+-		if(getifaddr(lan_addr->ifname, lan_addr->str, sizeof(lan_addr->str),
+-		             &lan_addr->addr, &lan_addr->mask) < 0)
+-			goto parselan_error;
++		getifaddr(lan_addr->ifname, lan_addr->str, sizeof(lan_addr->str),
++		             &lan_addr->addr, &lan_addr->mask);
+ 		/*printf("%s => %s\n", lan_addr->ifname, lan_addr->str);*/
+ 	} else {
+ 		if(n>15)
+@@ -1043,6 +1043,39 @@ void ssdpDiscoverAll(int s, int ipv6)
+ 	}
+ }
+ 
++static void get_ifaces(void)
++{
++	DIR *dir;
++	struct dirent _de;
++	struct dirent *de;
++
++	dir = opendir("/sys/class/net");
++	if (!dir)
++		return;
++	while (readdir_r(dir, &_de, &de) == 0)
++	{
++		struct lan_addr_s * lan_addr;
++		if (!de)
++			break;
++		if (strncmp(de->d_name, "eth", 3) && strncmp(de->d_name, "bond", 4))
++			continue;
++		if (strlen(de->d_name) > 6)
++			continue;
++		lan_addr = calloc(1, sizeof(struct lan_addr_s));
++		if(lan_addr == NULL) {
++			fprintf(stderr, "malloc(%d) FAILED\n", (int)sizeof(struct lan_addr_s));
++			break;
++		}
++		if(parselanaddr(lan_addr, de->d_name) != 0) {
++			fprintf(stderr, "can't parse \"%s\" as a valid address or interface name\n", de->d_name);
++			free(lan_addr);
++		} else {
++			LIST_INSERT_HEAD(&lan_addrs, lan_addr, list);
++		}
++	}
++	closedir(dir);
++}
++
+ /* main(): program entry point */
+ int main(int argc, char * * argv)
+ {
+@@ -1100,19 +1133,7 @@ int main(int argc, char * * argv)
+ 				fprintf(stderr, "option %s needs an argument.\n", argv[i]);
+ 				break;
+ 			}
+-			if(0==strcmp(argv[i], "-i")) {
+-				lan_addr = malloc(sizeof(struct lan_addr_s));
+-				if(lan_addr == NULL) {
+-					fprintf(stderr, "malloc(%d) FAILED\n", (int)sizeof(struct lan_addr_s));
+-					break;
+-				}
+-				if(parselanaddr(lan_addr, argv[++i]) != 0) {
+-					fprintf(stderr, "can't parse \"%s\" as a valid address or interface name\n", argv[i]);
+-					free(lan_addr);
+-				} else {
+-					LIST_INSERT_HEAD(&lan_addrs, lan_addr, list);
+-				}
+-			} else if(0==strcmp(argv[i], "-s"))
++			if(0==strcmp(argv[i], "-s"))
+ 				sockpath = argv[++i];
+ 			else if(0==strcmp(argv[i], "-p"))
+ 				pidfilename = argv[++i];
+@@ -1122,6 +1143,7 @@ int main(int argc, char * * argv)
+ 				fprintf(stderr, "unknown commandline option %s.\n", argv[i]);
+ 		}
+ 	}
++	get_ifaces();
+ 	if(lan_addrs.lh_first == NULL)
+ 	{
+ 		fprintf(stderr,
+@@ -1129,12 +1151,10 @@ int main(int argc, char * * argv)
+ #ifdef ENABLE_IPV6
+ 		        "[-6] "
+ #endif /* ENABLE_IPV6 */
+-		        "[-s socket] [-p pidfile] [-t TTL] "
+-		        "-i <interface> [-i <interface2>] ...\n",
++		        "[-s socket] [-p pidfile] [-t TTL]\n",
+ 		        argv[0]);
+ 		fprintf(stderr,
+-		        "\n  <interface> is either an IPv4 address with mask such as\n"
+-		        "  192.168.1.42/255.255.255.0, or an interface name such as eth0.\n");
++		        "\n  No network interface found, please check your ethernet cable.\n");
+ 		fprintf(stderr,
+ 		        "\n  By default, socket will be open as %s\n"
+ 		        "  and pid written to file %s\n",
+-- 
+1.9.1
+

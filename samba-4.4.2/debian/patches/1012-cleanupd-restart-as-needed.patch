@@ -1,0 +1,86 @@
+From c5568b9667433b5a646441bda0b14177c3d00180 Mon Sep 17 00:00:00 2001
+From: Ralph Boehme <slow@samba.org>
+Date: Tue, 19 Apr 2016 12:55:19 +0200
+Subject: [PATCH 1012/1096] cleanupd: restart as needed
+
+Bug: https://bugzilla.samba.org/show_bug.cgi?id=11855
+
+Signed-off-by: Ralph Boehme <slow@samba.org>
+Reviewed-by: Volker Lendecke <vl@samba.org>
+
+Autobuild-User(master): Volker Lendecke <vl@samba.org>
+Autobuild-Date(master): Tue Apr 19 20:35:33 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 052b8555510bf1f72c7ea777c44294264bbb67d4)
+
+Autobuild-User(v4-4-test): Karolin Seeger <kseeger@samba.org>
+Autobuild-Date(v4-4-test): Wed Apr 27 13:42:24 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 2184ae79e7a8b17cd7720ccc7649ae9c02cbf1b6)
+---
+ source3/smbd/server.c | 35 +++++++++++++++++++++++++----------
+ 1 file changed, 25 insertions(+), 10 deletions(-)
+
+diff --git a/source3/smbd/server.c b/source3/smbd/server.c
+index 42fcad6..b7948b4 100644
+--- a/source3/smbd/server.c
++++ b/source3/smbd/server.c
+@@ -468,6 +468,10 @@ static bool cleanupd_init(struct messaging_context *msg, bool interactive,
+ 
+ 		DBG_DEBUG("Started cleanupd pid=%d\n", (int)pid);
+ 
++		if (am_parent != NULL) {
++			add_child_pid(am_parent, pid);
++		}
++
+ 		*ppid = pid_to_procid(pid);
+ 		return true;
+ 	}
+@@ -557,16 +561,6 @@ static void remove_child_pid(struct smbd_parent_context *parent,
+ 	struct iovec iov[2];
+ 	NTSTATUS status;
+ 
+-	iov[0] = (struct iovec) { .iov_base = (uint8_t *)&pid,
+-				  .iov_len = sizeof(pid) };
+-	iov[1] = (struct iovec) { .iov_base = (uint8_t *)&unclean_shutdown,
+-				  .iov_len = sizeof(bool) };
+-
+-	status = messaging_send_iov(parent->msg_ctx, parent->cleanupd,
+-				    MSG_SMB_NOTIFY_CLEANUP,
+-				    iov, ARRAY_SIZE(iov), NULL, 0);
+-	DEBUG(10, ("messaging_send_iov returned %s\n", nt_errstr(status)));
+-
+ 	for (child = parent->children; child != NULL; child = child->next) {
+ 		if (child->pid == pid) {
+ 			struct smbd_child_pid *tmp = child;
+@@ -583,6 +577,27 @@ static void remove_child_pid(struct smbd_parent_context *parent,
+ 		return;
+ 	}
+ 
++	if (child->pid == procid_to_pid(&parent->cleanupd)) {
++		bool ok;
++
++		DBG_WARNING("Restarting cleanupd\n");
++		ok = cleanupd_init(parent->msg_ctx, false, &parent->cleanupd);
++		if (!ok) {
++			DBG_ERR("Failed to restart cleanupd\n");
++		}
++		return;
++	}
++
++	iov[0] = (struct iovec) { .iov_base = (uint8_t *)&pid,
++				  .iov_len = sizeof(pid) };
++	iov[1] = (struct iovec) { .iov_base = (uint8_t *)&unclean_shutdown,
++				  .iov_len = sizeof(bool) };
++
++	status = messaging_send_iov(parent->msg_ctx, parent->cleanupd,
++				    MSG_SMB_NOTIFY_CLEANUP,
++				    iov, ARRAY_SIZE(iov), NULL, 0);
++	DEBUG(10, ("messaging_send_iov returned %s\n", nt_errstr(status)));
++
+ 	if (unclean_shutdown) {
+ 		/* a child terminated uncleanly so tickle all
+ 		   processes to see if they can grab any of the
+-- 
+2.9.0
+

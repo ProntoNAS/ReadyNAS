@@ -79,7 +79,7 @@ extern int nfd_do_scsi;
 static void init_sys_param(int enable)
 {
 	if (staggered_spinup) 
-		param_set("/sys/module/scsi_mod/parameters/spinup_debug", enable);
+		param_set("/sys/module/scsi_mod/parameters/staggered_spinup", enable);
 }
 
 static void hup_handler(int i)
@@ -138,9 +138,7 @@ int main(int argc, char *argv[])
 
 	char buffer[512];
 	char model[17];
-	char *rn25_irq="55";
-	char *rn_x86_irq="40";
-	char *irq=0;
+	char *irq = NULL;
 
 	FILE *boot_info = fopen("/proc/sys/dev/boot/info", "r");
 	if (boot_info) {
@@ -148,16 +146,12 @@ int main(int argc, char *argv[])
 		while (!feof(boot_info)) {
 			if (sscanf(buffer, "model: %16[^\n]", model) == 1) {
 				INFO("Found model: '%s'", model);
-				if (strcmp(model, "ReadyNAS 25") == 0)  {
-					//irq = rn25_irq;
-				}
-				else if (strcmp(model, "ReadyNAS 314") == 0)  {
+				if (strcmp(model, "ReadyNAS 104") == 0 ||
+				    strcmp(model, "ReadyNAS 204") == 0 ||
+				    strcmp(model, "ReadyNAS 214") == 0 ||
+				    strcmp(model, "ReadyNAS 314") == 0)
 					staggered_spinup = 1;
-					//irq = rn_x86_irq;
-				}
-				else if (strcmp(model, "ReadyNAS 104") == 0) {
-					staggered_spinup = 1;
-				}
+				break;
 			}
 			fgets(buffer, sizeof(buffer)-1, boot_info);
 		}

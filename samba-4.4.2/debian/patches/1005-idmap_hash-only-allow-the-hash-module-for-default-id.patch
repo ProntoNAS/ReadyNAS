@@ -1,0 +1,42 @@
+From 57cf84553d33e6517e0fb66d0038dcdf72a6e8dd Mon Sep 17 00:00:00 2001
+From: Michael Adam <obnox@samba.org>
+Date: Mon, 14 Mar 2016 17:07:34 +0100
+Subject: [PATCH 1005/1096] idmap_hash: only allow the hash module for default
+ idmap config.
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11786
+
+This module only makes sense as the default idmap config
+("idmap config * : backend = hash" ...)
+
+Pair-Programmed-With: Guenther Deschner <gd@samba.org>
+
+Signed-off-by: Michael Adam <obnox@samba.org>
+Signed-off-by: Guenther Deschner <gd@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+(cherry picked from commit fb0c85b52ca27b9511ff41f108fabe030b828ba4)
+---
+ source3/winbindd/idmap_hash/idmap_hash.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/source3/winbindd/idmap_hash/idmap_hash.c b/source3/winbindd/idmap_hash/idmap_hash.c
+index ed9cc20..0aba36c 100644
+--- a/source3/winbindd/idmap_hash/idmap_hash.c
++++ b/source3/winbindd/idmap_hash/idmap_hash.c
+@@ -112,6 +112,13 @@ static NTSTATUS idmap_hash_initialize(struct idmap_domain *dom)
+ 	size_t num_domains = 0;
+ 	int i;
+ 
++	if (!strequal(dom->name, "*")) {
++		DBG_ERR("Error: idmap_hash configured for domain '%s'. "
++			"But the hash module can only be used for the default "
++			"idmap configuration.\n", dom->name);
++		return NT_STATUS_INVALID_PARAMETER;
++	}
++
+ 	/* If the domain SID hash table has been initialized, assume
+ 	   that we completed this function previously */
+ 
+-- 
+2.9.0
+

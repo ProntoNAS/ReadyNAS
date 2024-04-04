@@ -1,0 +1,80 @@
+From 6dcdfc869ca232662c6c6553b17b096fd27d13b2 Mon Sep 17 00:00:00 2001
+From: Ralph Boehme <slow@samba.org>
+Date: Thu, 23 Jun 2016 12:23:33 +0200
+Subject: [PATCH 3/8] s3/smbd: add helper func dos_mode_from_name()
+
+This just moves the computation of "hide dot files" files to a helper
+functions without changing overall behaviour.
+
+Bug: https://bugzilla.samba.org/show_bug.cgi?id=11992
+
+Signed-off-by: Ralph Boehme <slow@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+(cherry picked from commit c8c67c9a2a6347e36f4628e2d0260bd6c58d8c65)
+---
+ source3/smbd/dosmode.c | 42 ++++++++++++++++++++++++++----------------
+ 1 file changed, 26 insertions(+), 16 deletions(-)
+
+diff --git a/source3/smbd/dosmode.c b/source3/smbd/dosmode.c
+index ecc211c..92b953d 100644
+--- a/source3/smbd/dosmode.c
++++ b/source3/smbd/dosmode.c
+@@ -552,6 +552,31 @@ err_out:
+ 	return status;
+ }
+ 
++static uint32_t dos_mode_from_name(connection_struct *conn,
++				   const struct smb_filename *smb_fname)
++{
++	const char *p = NULL;
++	uint32_t result = 0;
++
++	if (lp_hide_dot_files(SNUM(conn))) {
++		p = strrchr_m(smb_fname->base_name, '/');
++		if (p) {
++			p++;
++		} else {
++			p = smb_fname->base_name;
++		}
++
++		/* Only . and .. are not hidden. */
++		if ((p[0] == '.') &&
++		    !((p[1] == '\0') || (p[1] == '.' && p[2] == '\0')))
++		{
++			result |= FILE_ATTRIBUTE_HIDDEN;
++		}
++	}
++
++	return result;
++}
++
+ /****************************************************************************
+  Change a unix mode to a dos mode.
+  May also read the create timespec into the stat struct in smb_fname
+@@ -569,22 +594,7 @@ uint32_t dos_mode(connection_struct *conn, struct smb_filename *smb_fname)
+ 		return 0;
+ 	}
+ 
+-	/* First do any modifications that depend on the path name. */
+-	/* hide files with a name starting with a . */
+-	if (lp_hide_dot_files(SNUM(conn))) {
+-		const char *p = strrchr_m(smb_fname->base_name,'/');
+-		if (p) {
+-			p++;
+-		} else {
+-			p = smb_fname->base_name;
+-		}
+-
+-		/* Only . and .. are not hidden. */
+-		if (p[0] == '.' && !((p[1] == '\0') ||
+-				(p[1] == '.' && p[2] == '\0'))) {
+-			result |= FILE_ATTRIBUTE_HIDDEN;
+-		}
+-	}
++	result |= dos_mode_from_name(conn, smb_fname);
+ 
+ 	/* Get the DOS attributes from an EA by preference. */
+ 	if (!get_ea_dos_attribute(conn, smb_fname, &result)) {
+-- 
+2.9.0
+

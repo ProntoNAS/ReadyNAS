@@ -1,0 +1,101 @@
+Description: Multiple buffer overflows in the png_set_PLTE and png_get_PLTE functions
+ .
+ Prevent writing over-length PLTE chunk. Silently truncate over-length
+ PLTE chunk while reading
+ .
+ CVE-2015-8126
+Origin: upstream, https://github.com/glennrp/libpng/commit/475bab6170f651b9863e9fc1b8ffd6cd89a45aa0
+Bug-Debian: https://bugs.debian.org/805113
+Forwarded: not-needed
+Author: Glenn Randers-Pehrson <glennrp@users.sourceforge.net>
+Last-Update: 2015-11-17
+Applied-Upstream: v1.2.54
+---
+--- a/pngrutil.c
++++ b/pngrutil.c
+@@ -503,7 +503,7 @@ void /* PRIVATE */
+ png_handle_PLTE(png_structp png_ptr, png_infop info_ptr, png_uint_32 length)
+ {
+    png_color palette[PNG_MAX_PALETTE_LENGTH];
+-   int num, i;
++   int max_palette_length, num, i;
+ #ifdef PNG_POINTER_INDEXING_SUPPORTED
+    png_colorp pal_ptr;
+ #endif
+@@ -555,8 +555,19 @@ png_handle_PLTE(png_structp png_ptr, png
+       }
+    }
+ 
++   max_palette_length = (png_ptr->color_type == PNG_COLOR_TYPE_PALETTE) ?
++      (1 << png_ptr->bit_depth) : PNG_MAX_PALETTE_LENGTH;
++
++   /* The cast is safe because 'length' is less than 3*PNG_MAX_PALETTE_LENGTH */
+    num = (int)length / 3;
+ 
++   /* If the palette has 256 or fewer entries but is too large for the bit depth,
++    * we don't issue an error, to preserve the behavior of previous libpng versions.
++    * We silently truncate the unused extra palette entries here.
++    */
++   if (num > max_palette_length)
++      num = max_palette_length;
++
+ #ifdef PNG_POINTER_INDEXING_SUPPORTED
+    for (i = 0, pal_ptr = palette; i < num; i++, pal_ptr++)
+    {
+--- a/pngset.c
++++ b/pngset.c
+@@ -446,12 +446,17 @@ png_set_PLTE(png_structp png_ptr, png_in
+    png_colorp palette, int num_palette)
+ {
+ 
++   png_uint_32 max_palette_length;
++
+    png_debug1(1, "in %s storage function", "PLTE");
+ 
+    if (png_ptr == NULL || info_ptr == NULL)
+       return;
+ 
+-   if (num_palette < 0 || num_palette > PNG_MAX_PALETTE_LENGTH)
++   max_palette_length = (png_ptr->color_type == PNG_COLOR_TYPE_PALETTE) ?
++      (1 << png_ptr->bit_depth) : PNG_MAX_PALETTE_LENGTH;
++
++   if (num_palette < 0 || num_palette > (int) max_palette_length)
+    {
+       if (info_ptr->color_type == PNG_COLOR_TYPE_PALETTE)
+          png_error(png_ptr, "Invalid palette length");
+@@ -471,8 +476,8 @@ png_set_PLTE(png_structp png_ptr, png_in
+ #endif
+ 
+    /* Changed in libpng-1.2.1 to allocate PNG_MAX_PALETTE_LENGTH instead
+-    * of num_palette entries, in case of an invalid PNG file that has
+-    * too-large sample values.
++    * of num_palette entries, in case of an invalid PNG file or incorrect
++    * call to png_set_PLTE() with too-large sample values.
+     */
+    png_ptr->palette = (png_colorp)png_calloc(png_ptr,
+       PNG_MAX_PALETTE_LENGTH * png_sizeof(png_color));
+--- a/pngwutil.c
++++ b/pngwutil.c
+@@ -575,17 +575,20 @@ png_write_PLTE(png_structp png_ptr, png_
+ #ifdef PNG_USE_LOCAL_ARRAYS
+    PNG_PLTE;
+ #endif
+-   png_uint_32 i;
++   png_uint_32 max_palette_length, i;
+    png_colorp pal_ptr;
+    png_byte buf[3];
+ 
+    png_debug(1, "in png_write_PLTE");
+ 
++   max_palette_length = (png_ptr->color_type == PNG_COLOR_TYPE_PALETTE) ?
++      (1 << png_ptr->bit_depth) : PNG_MAX_PALETTE_LENGTH;
++
+    if ((
+ #ifdef PNG_MNG_FEATURES_SUPPORTED
+         !(png_ptr->mng_features_permitted & PNG_FLAG_MNG_EMPTY_PLTE) &&
+ #endif
+-        num_pal == 0) || num_pal > 256)
++        num_pal == 0) || num_pal > max_palette_length)
+    {
+      if (png_ptr->color_type == PNG_COLOR_TYPE_PALETTE)
+      {

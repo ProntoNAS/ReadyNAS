@@ -1,0 +1,47 @@
+From fc4920b792ef15e94eb438b4a6bb5e7c053e9f10 Mon Sep 17 00:00:00 2001
+From: Craig Small <csmall@enc.com.au>
+Date: Thu, 25 Jun 2015 21:39:47 +1000
+Subject: [PATCH 21/21] killall: fix alloc on command
+
+The command variable wasn't assigned before it was freed in the
+loop. This change fixes that.
+---
+ src/killall.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/killall.c b/src/killall.c
+index 90532ff..617b38b 100644
+--- a/src/killall.c
++++ b/src/killall.c
+@@ -435,7 +435,7 @@ kill_all (int signal, int name_count, char **namelist, struct passwd *pwent)
+     struct stat st;
+     NAMEINFO *name_info = NULL;
+     char *path, comm[COMM_LEN];
+-    char *command;
++    char *command = NULL;
+     pid_t *pid_table, *pid_killed;
+     pid_t *pgids = NULL;
+     int i, j, length, got_long, error;
+@@ -503,8 +503,6 @@ kill_all (int signal, int name_count, char **namelist, struct passwd *pwent)
+ 	if ( older_than   && process_age_sec && (process_age_sec < older_than ) )
+ 	    continue;
+ 
+-        if (command)
+-            free(command);
+         got_long = 0;
+         command = NULL;		/* make gcc happy */
+         if (length == COMM_LEN - 1)
+@@ -612,6 +610,10 @@ kill_all (int signal, int name_count, char **namelist, struct passwd *pwent)
+ 	else if (errno != ESRCH || interactive)
+ 	    fprintf (stderr, "%s(%d): %s\n", got_long ? command :
+ 		    comm, id, strerror (errno));
++        if (command) {
++            free(command);
++	    command = NULL;
++	}
+     }
+     free(reglist);
+     free(pgids);
+-- 
+2.5.2
+

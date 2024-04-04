@@ -64,6 +64,16 @@ static const struct pthread_functions pthread_functions =
     .ptr_pthread_setcancelstate = __pthread_setcancelstate,
     .ptr_pthread_setcanceltype = __pthread_setcanceltype,
     .ptr___pthread_get_cleanup_stack = __pthread_get_cleanup_stack,
+    .ptr_pthread_once = __pthread_once,
+    .ptr_pthread_rwlock_rdlock = __pthread_rwlock_rdlock,
+    .ptr_pthread_rwlock_wrlock = __pthread_rwlock_wrlock,
+    .ptr_pthread_rwlock_unlock = __pthread_rwlock_unlock,
+    .ptr_pthread_key_create = __pthread_key_create,
+    .ptr_pthread_getspecific = __pthread_getspecific,
+    .ptr_pthread_setspecific = __pthread_setspecific,
+    .ptr__IO_flockfile = _cthreads_flockfile,
+    .ptr__IO_funlockfile = _cthreads_funlockfile,
+    .ptr__IO_ftrylockfile = _cthreads_ftrylockfile,
   };
 #endif /* IS_IN_libpthread */
 

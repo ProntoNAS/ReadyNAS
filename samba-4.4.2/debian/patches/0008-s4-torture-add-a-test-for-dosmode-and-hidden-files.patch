@@ -1,0 +1,284 @@
+From 993f3ba8f7a1def3b69d61c3e459f403ef86f9b5 Mon Sep 17 00:00:00 2001
+From: Ralph Boehme <slow@samba.org>
+Date: Thu, 23 Jun 2016 19:13:05 +0200
+Subject: [PATCH 8/8] s4/torture: add a test for dosmode and hidden files
+
+Bug: https://bugzilla.samba.org/show_bug.cgi?id=11992
+
+Signed-off-by: Ralph Boehme <slow@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+(cherry picked from commit 2db5c10ac59d5362e81c50d9a854071477de9c12)
+---
+ selftest/target/Samba3.pm          |   7 ++
+ source3/selftest/tests.py          |   2 +
+ source4/selftest/tests.py          |   5 +-
+ source4/torture/smb2/dosmode.c     | 183 +++++++++++++++++++++++++++++++++++++
+ source4/torture/smb2/smb2.c        |   1 +
+ source4/torture/smb2/wscript_build |   2 +-
+ 6 files changed, 197 insertions(+), 3 deletions(-)
+ create mode 100644 source4/torture/smb2/dosmode.c
+
+diff --git a/selftest/target/Samba3.pm b/selftest/target/Samba3.pm
+index 8ff1e7c..b278dfa 100755
+--- a/selftest/target/Samba3.pm
++++ b/selftest/target/Samba3.pm
+@@ -550,6 +550,13 @@ sub setup_simpleserver($$)
+         vfs objects = aio_fork
+         read only = no
+         vfs_aio_fork:erratic_testing_mode=yes
++
++[dosmode]
++	path = $prefix_abs/share
++	vfs objects =
++	store dos attributes = yes
++	hide files = /hidefile/
++	hide dot files = yes
+ ";
+ 
+ 	my $vars = $self->provision($path,
+diff --git a/source3/selftest/tests.py b/source3/selftest/tests.py
+index 753cff6..d35a2a3 100755
+--- a/source3/selftest/tests.py
++++ b/source3/selftest/tests.py
+@@ -405,6 +405,8 @@ for t in tests:
+     elif t == "smb2.notify":
+         plansmbtorture4testsuite(t, "nt4_dc", '//$SERVER_IP/tmp -U$USERNAME%$PASSWORD --signing=required')
+         plansmbtorture4testsuite(t, "ad_dc", '//$SERVER/tmp -U$USERNAME%$PASSWORD --signing=required')
++    elif t == "smb2.dosmode":
++        plansmbtorture4testsuite(t, "simpleserver", '//$SERVER/dosmode -U$USERNAME%$PASSWORD')
+     else:
+         plansmbtorture4testsuite(t, "nt4_dc", '//$SERVER_IP/tmp -U$USERNAME%$PASSWORD')
+         plansmbtorture4testsuite(t, "ad_dc", '//$SERVER/tmp -U$USERNAME%$PASSWORD')
+diff --git a/source4/selftest/tests.py b/source4/selftest/tests.py
+index c829608..2c46931 100755
+--- a/source4/selftest/tests.py
++++ b/source4/selftest/tests.py
+@@ -300,8 +300,9 @@ for t in nbt_tests:
+ # Tests against the NTVFS POSIX backend
+ ntvfsargs = ["--option=torture:sharedelay=100000", "--option=torture:oplocktimeout=3", "--option=torture:writetimeupdatedelay=500000"]
+ 
+-# smb2.change_notify_disabled must only run against env fileserver-notify-disabled
+-smb2 = filter(lambda x: "smb2.change_notify_disabled" not in x, smbtorture4_testsuites("smb2."))
++# Filter smb2 tests that should not run against ad_dc_ntvfs
++smb2_s3only = ["smb2.change_notify_disabled", "smb2.dosmode"]
++smb2 = [x for x in smbtorture4_testsuites("smb2.") if x not in smb2_s3only]
+ 
+ #The QFILEINFO-IPC test needs to be on ipc$
+ raw = filter(lambda x: "raw.qfileinfo.ipc" not in x, smbtorture4_testsuites("raw."))
+diff --git a/source4/torture/smb2/dosmode.c b/source4/torture/smb2/dosmode.c
+new file mode 100644
+index 0000000..7808ca6
+--- /dev/null
++++ b/source4/torture/smb2/dosmode.c
+@@ -0,0 +1,183 @@
++/*
++   Unix SMB/CIFS implementation.
++
++   SMB2 setinfo individual test suite
++
++   Copyright (C) Ralph Boehme 2016
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#include "includes.h"
++#include "system/time.h"
++#include "libcli/smb2/smb2.h"
++#include "libcli/smb2/smb2_calls.h"
++
++#include "torture/torture.h"
++#include "torture/smb2/proto.h"
++
++/*
++  test dosmode and hidden files
++*/
++bool torture_smb2_dosmode(struct torture_context *tctx)
++{
++	bool ret = true;
++	NTSTATUS status;
++	struct smb2_tree *tree = NULL;
++	const char *dname = "torture_dosmode";
++	const char *fname = "torture_dosmode\\file";
++	const char *hidefile = "torture_dosmode\\hidefile";
++	const char *dotfile = "torture_dosmode\\.dotfile";
++	struct smb2_handle h1 = {{0}};
++	struct smb2_create io;
++	union smb_setfileinfo sfinfo;
++	union smb_fileinfo finfo2;
++
++	torture_comment(tctx, "Checking dosmode with \"hide files\" "
++			"and \"hide dot files\"\n");
++
++	if (!torture_smb2_connection(tctx, &tree)) {
++		return false;
++	}
++
++	smb2_deltree(tree, dname);
++
++	status = torture_smb2_testdir(tree, dname, &h1);
++	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
++					"torture_smb2_testdir failed");
++
++	ZERO_STRUCT(io);
++	io.in.desired_access = SEC_FLAG_MAXIMUM_ALLOWED;
++	io.in.file_attributes   = FILE_ATTRIBUTE_NORMAL;
++	io.in.create_disposition = NTCREATEX_DISP_CREATE;
++	io.in.create_options = 0;
++	io.in.fname = fname;
++
++	status = smb2_create(tree, tctx, &io);
++	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
++					"smb2_create failed");
++
++	ZERO_STRUCT(sfinfo);
++	sfinfo.basic_info.in.attrib = FILE_ATTRIBUTE_HIDDEN;
++	sfinfo.generic.level = RAW_SFILEINFO_BASIC_INFORMATION;
++	sfinfo.generic.in.file.handle = io.out.file.handle;
++	status = smb2_setinfo_file(tree, &sfinfo);
++	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
++					"smb2_setinfo_filefailed");
++
++	ZERO_STRUCT(finfo2);
++	finfo2.generic.level = RAW_FILEINFO_BASIC_INFORMATION;
++	finfo2.generic.in.file.handle = io.out.file.handle;
++	status = smb2_getinfo_file(tree, tctx, &finfo2);
++	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
++					"smb2_getinfo_file failed");
++	torture_assert_int_equal_goto(tctx, finfo2.all_info2.out.attrib & FILE_ATTRIBUTE_HIDDEN,
++				      FILE_ATTRIBUTE_HIDDEN, ret, done,
++				      "FILE_ATTRIBUTE_HIDDEN is not set");
++
++	smb2_util_close(tree, io.out.file.handle);
++
++	/* This must fail with attribute mismatch */
++	ZERO_STRUCT(io);
++	io.in.desired_access = SEC_FLAG_MAXIMUM_ALLOWED;
++	io.in.file_attributes   = FILE_ATTRIBUTE_NORMAL;
++	io.in.create_disposition = NTCREATEX_DISP_OVERWRITE_IF;
++	io.in.create_options = 0;
++	io.in.fname = fname;
++
++	status = smb2_create(tree, tctx, &io);
++	torture_assert_ntstatus_equal_goto(tctx, status, NT_STATUS_ACCESS_DENIED,
++					   ret, done,"smb2_create failed");
++
++	/* Create a file in "hide files" */
++	ZERO_STRUCT(io);
++	io.in.desired_access = SEC_FLAG_MAXIMUM_ALLOWED;
++	io.in.file_attributes   = FILE_ATTRIBUTE_NORMAL;
++	io.in.create_disposition = NTCREATEX_DISP_CREATE;
++	io.in.create_options = 0;
++	io.in.fname = hidefile;
++
++	status = smb2_create(tree, tctx, &io);
++	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
++					"smb2_create failed");
++
++	ZERO_STRUCT(finfo2);
++	finfo2.generic.level = RAW_FILEINFO_BASIC_INFORMATION;
++	finfo2.generic.in.file.handle = io.out.file.handle;
++	status = smb2_getinfo_file(tree, tctx, &finfo2);
++	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
++					"smb2_getinfo_file failed");
++	torture_assert_int_equal_goto(tctx, finfo2.all_info2.out.attrib & FILE_ATTRIBUTE_HIDDEN,
++				      FILE_ATTRIBUTE_HIDDEN, ret, done,
++				      "FILE_ATTRIBUTE_HIDDEN is not set");
++
++	smb2_util_close(tree, io.out.file.handle);
++
++	/* Overwrite a file in "hide files", should pass */
++	ZERO_STRUCT(io);
++	io.in.desired_access = SEC_FLAG_MAXIMUM_ALLOWED;
++	io.in.file_attributes   = FILE_ATTRIBUTE_NORMAL;
++	io.in.create_disposition = NTCREATEX_DISP_OVERWRITE_IF;
++	io.in.create_options = 0;
++	io.in.fname = hidefile;
++
++	status = smb2_create(tree, tctx, &io);
++	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
++					"smb2_create failed");
++	smb2_util_close(tree, io.out.file.handle);
++
++	/* Create a "hide dot files" */
++	ZERO_STRUCT(io);
++	io.in.desired_access = SEC_FLAG_MAXIMUM_ALLOWED;
++	io.in.file_attributes   = FILE_ATTRIBUTE_NORMAL;
++	io.in.create_disposition = NTCREATEX_DISP_CREATE;
++	io.in.create_options = 0;
++	io.in.fname = dotfile;
++
++	status = smb2_create(tree, tctx, &io);
++	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
++					"smb2_create failed");
++
++	ZERO_STRUCT(finfo2);
++	finfo2.generic.level = RAW_FILEINFO_BASIC_INFORMATION;
++	finfo2.generic.in.file.handle = io.out.file.handle;
++	status = smb2_getinfo_file(tree, tctx, &finfo2);
++	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
++					"smb2_getinfo_file failed");
++	torture_assert_int_equal_goto(tctx, finfo2.all_info2.out.attrib & FILE_ATTRIBUTE_HIDDEN,
++				      FILE_ATTRIBUTE_HIDDEN, ret, done,
++				      "FILE_ATTRIBUTE_HIDDEN is not set");
++
++	smb2_util_close(tree, io.out.file.handle);
++
++	/* Overwrite a "hide dot files", should pass */
++	ZERO_STRUCT(io);
++	io.in.desired_access = SEC_FLAG_MAXIMUM_ALLOWED;
++	io.in.file_attributes   = FILE_ATTRIBUTE_NORMAL;
++	io.in.create_disposition = NTCREATEX_DISP_OVERWRITE_IF;
++	io.in.create_options = 0;
++	io.in.fname = dotfile;
++
++	status = smb2_create(tree, tctx, &io);
++	torture_assert_ntstatus_ok_goto(tctx, status, ret, done,
++					"smb2_create failed");
++	smb2_util_close(tree, io.out.file.handle);
++
++done:
++	if (!smb2_util_handle_empty(h1)) {
++		smb2_util_close(tree, h1);
++	}
++	smb2_deltree(tree, dname);
++	return ret;
++}
+diff --git a/source4/torture/smb2/smb2.c b/source4/torture/smb2/smb2.c
+index 90029c7..be632cc 100644
+--- a/source4/torture/smb2/smb2.c
++++ b/source4/torture/smb2/smb2.c
+@@ -170,6 +170,7 @@ NTSTATUS torture_smb2_init(void)
+ 	torture_suite_add_1smb2_test(suite, "hold-oplock", test_smb2_hold_oplock);
+ 	torture_suite_add_suite(suite, torture_smb2_session_init());
+ 	torture_suite_add_suite(suite, torture_smb2_replay_init());
++	torture_suite_add_simple_test(suite, "dosmode", torture_smb2_dosmode);
+ 
+ 	torture_suite_add_suite(suite, torture_smb2_doc_init());
+ 
+diff --git a/source4/torture/smb2/wscript_build b/source4/torture/smb2/wscript_build
+index 1c593ef..f404356 100644
+--- a/source4/torture/smb2/wscript_build
++++ b/source4/torture/smb2/wscript_build
+@@ -4,7 +4,7 @@ bld.SAMBA_MODULE('TORTURE_SMB2',
+ 	source='''connect.c scan.c util.c getinfo.c setinfo.c lock.c notify.c
+ 	smb2.c durable_open.c durable_v2_open.c oplock.c dir.c lease.c create.c
+ 	acls.c read.c compound.c streams.c ioctl.c rename.c
+-	session.c delete-on-close.c replay.c notify_disabled.c''',
++	session.c delete-on-close.c replay.c notify_disabled.c dosmode.c''',
+ 	subsystem='smbtorture',
+ 	deps='LIBCLI_SMB2 POPT_CREDENTIALS torture NDR_IOCTL',
+ 	internal_module=True,
+-- 
+2.9.0
+

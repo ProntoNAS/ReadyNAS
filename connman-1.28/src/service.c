@@ -1295,14 +1295,18 @@ static void add_nameserver_route(int family, int index, char *nameserver,
 static void nameserver_add_routes(int index, char **nameservers,
 					const char *gw)
 {
-	int i, family;
+	int i, ns_family, gw_family;
+
+	gw_family = connman_inet_check_ipaddress(gw);
+	if (gw_family < 0)
+		return;
 
 	for (i = 0; nameservers[i]; i++) {
-		family = connman_inet_check_ipaddress(nameservers[i]);
-		if (family < 0)
+		ns_family = connman_inet_check_ipaddress(nameservers[i]);
+		if (ns_family < 0 || ns_family != gw_family)
 			continue;
 
-		add_nameserver_route(family, index, nameservers[i], gw);
+		add_nameserver_route(ns_family, index, nameservers[i], gw);
 	}
 }
 
@@ -4181,13 +4185,13 @@ static void set_error(struct connman_service *service,
 	if (!service->path)
 		return;
 
+	if (!allow_property_changed(service))
+		return;
+
 	str = error2string(service->error);
 
 	if (!str)
 		str = "";
-
-	if (!allow_property_changed(service))
-		return;
 
 	connman_dbus_property_changed_basic(service->path,
 				CONNMAN_SERVICE_INTERFACE, "Error",

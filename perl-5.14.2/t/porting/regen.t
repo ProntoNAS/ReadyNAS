@@ -56,5 +56,5 @@ OUTER: foreach my $file (@files) {
 }
 
 foreach (@progs, 'regen.pl') {
-  system "$^X $_ --tap";
+  system "$^X -I. $_ --tap";
 }

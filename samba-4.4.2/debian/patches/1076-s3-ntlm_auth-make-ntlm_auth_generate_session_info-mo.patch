@@ -1,0 +1,99 @@
+From 7b72a1ae6a5bb1606e01b2ec9359336f3b30e006 Mon Sep 17 00:00:00 2001
+From: Stefan Metzmacher <metze@samba.org>
+Date: Wed, 11 May 2016 17:59:32 +0200
+Subject: [PATCH 1076/1096] s3:ntlm_auth: make
+ ntlm_auth_generate_session_info() more complete
+
+The generate_session_info() function maybe called more than once
+per session.
+
+Some may try to look/dereference session_info->security_token,
+so we provide simplified token.
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11914
+
+Signed-off-by: Stefan Metzmacher <metze@samba.org>
+(cherry picked from commit da98554ba7bee77cd88f2a9018e06c094ecc0745)
+---
+ source3/utils/ntlm_auth.c | 51 ++++++++++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 46 insertions(+), 5 deletions(-)
+
+diff --git a/source3/utils/ntlm_auth.c b/source3/utils/ntlm_auth.c
+index 27cb416..b65493b 100644
+--- a/source3/utils/ntlm_auth.c
++++ b/source3/utils/ntlm_auth.c
+@@ -27,6 +27,7 @@
+ #include "includes.h"
+ #include "lib/param/param.h"
+ #include "popt_common.h"
++#include "libcli/security/security.h"
+ #include "utils/ntlm_auth.h"
+ #include "../libcli/auth/libcli_auth.h"
+ #include "auth/ntlmssp/ntlmssp.h"
+@@ -710,18 +711,58 @@ static NTSTATUS ntlm_auth_generate_session_info(struct auth4_context *auth_conte
+ 						uint32_t session_info_flags,
+ 						struct auth_session_info **session_info_out)
+ {
+-	char *unix_username = (char *)server_returned_info;
+-	struct auth_session_info *session_info = talloc_zero(mem_ctx, struct auth_session_info);
+-	if (!session_info) {
++	const char *unix_username = (const char *)server_returned_info;
++	bool ok;
++	struct dom_sid *sids = NULL;
++	struct auth_session_info *session_info = NULL;
++
++	session_info = talloc_zero(mem_ctx, struct auth_session_info);
++	if (session_info == NULL) {
+ 		return NT_STATUS_NO_MEMORY;
+ 	}
+ 
+ 	session_info->unix_info = talloc_zero(session_info, struct auth_user_info_unix);
+-	if (!session_info->unix_info) {
++	if (session_info->unix_info == NULL) {
++		TALLOC_FREE(session_info);
++		return NT_STATUS_NO_MEMORY;
++	}
++	session_info->unix_info->unix_name = talloc_strdup(session_info->unix_info,
++							   unix_username);
++	if (session_info->unix_info->unix_name == NULL) {
++		TALLOC_FREE(session_info);
++		return NT_STATUS_NO_MEMORY;
++	}
++
++	session_info->security_token = talloc_zero(session_info, struct security_token);
++	if (session_info->security_token == NULL) {
+ 		TALLOC_FREE(session_info);
+ 		return NT_STATUS_NO_MEMORY;
+ 	}
+-	session_info->unix_info->unix_name = talloc_steal(session_info->unix_info, unix_username);
++
++	sids = talloc_zero_array(session_info->security_token,
++				 struct dom_sid, 3);
++	if (sids == NULL) {
++		TALLOC_FREE(session_info);
++		return NT_STATUS_NO_MEMORY;
++	}
++	ok = dom_sid_parse(SID_WORLD, &sids[0]);
++	if (!ok) {
++		TALLOC_FREE(session_info);
++		return NT_STATUS_INTERNAL_ERROR;
++	}
++	ok = dom_sid_parse(SID_NT_NETWORK, &sids[1]);
++	if (!ok) {
++		TALLOC_FREE(session_info);
++		return NT_STATUS_INTERNAL_ERROR;
++	}
++	ok = dom_sid_parse(SID_NT_AUTHENTICATED_USERS, &sids[2]);
++	if (!ok) {
++		TALLOC_FREE(session_info);
++		return NT_STATUS_INTERNAL_ERROR;
++	}
++
++	session_info->security_token->num_sids = talloc_array_length(sids);
++	session_info->security_token->sids = sids;
+ 
+ 	*session_info_out = session_info;
+ 
+-- 
+2.9.0
+

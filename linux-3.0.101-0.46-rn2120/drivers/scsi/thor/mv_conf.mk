@@ -1,1 +1,0 @@
-SUPPORT_THOR=y

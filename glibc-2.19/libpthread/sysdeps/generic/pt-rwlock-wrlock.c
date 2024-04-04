@@ -28,7 +28,8 @@ extern int __pthread_rwlock_timedwrlock_internal (struct __pthread_rwlock *rwloc
 
 /* Acquire RWLOCK for writing.  */
 int
-pthread_rwlock_wrlock (struct __pthread_rwlock *rwlock)
+__pthread_rwlock_wrlock (struct __pthread_rwlock *rwlock)
 {
   return __pthread_rwlock_timedwrlock_internal (rwlock, 0);
 }
+strong_alias (__pthread_rwlock_wrlock, pthread_rwlock_wrlock);

@@ -282,7 +282,7 @@ tst-xlocale2-ENV = $(TEST_MBWC_ENV)
 tst-strfmon1-ENV = $(TEST_MBWC_ENV)
 tst-strptime-ENV = $(TEST_MBWC_ENV)
 
-tst-setlocale-ENV = LOCPATH=$(common-objpfx)localedata LC_ALL=ja_JP.EUC-JP
+tst-setlocale-ENV = LOCPATH=$(common-objpfx)localedata LC_ALL=ja_JP.EUC-
 
 bug-iconv-trans-ENV = LOCPATH=$(common-objpfx)localedata
 

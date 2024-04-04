@@ -57,6 +57,7 @@ print OUT <<'!NO!SUBS!';
 my @patches = Config::local_patches();
 my $patch_tags = join "", map /(\S+)/ ? "+$1 " : (), @patches;
 
+BEGIN { pop @INC if $INC[-1] eq '.' }
 use warnings;
 no warnings 'once'; # Eventually, the $::opt_ stuff should get cleaned up
 use strict;

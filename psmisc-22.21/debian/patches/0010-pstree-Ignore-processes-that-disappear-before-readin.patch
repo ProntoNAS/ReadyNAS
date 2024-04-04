@@ -1,0 +1,57 @@
+From 8b3113dbc6ad756559fe040f701586dda8989f93 Mon Sep 17 00:00:00 2001
+From: Martin Schwenke <martin@meltin.net>
+Date: Wed, 26 Feb 2014 06:55:21 +1100
+Subject: [PATCH 10/21] pstree: Ignore processes that disappear before reading
+ cmdline
+
+The worst case here is that the user has specific a PID on the
+command-line, read_proc() fails to read cmdline for an irrelevant,
+transient process and fails.
+
+It is better to simply ignore processes that have disappeared.  That
+way pstree can provide useful output in more cases.
+
+An alternative is to read cmdline only for processes that the user is
+interested in.  However, this probably increases the chances of an
+interesting process exiting before the cmdline is read.
+
+Signed-off-by: Martin Schwenke <martin@meltin.net>
+---
+ src/pstree.c | 20 +++++++++++++++-----
+ 1 file changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/src/pstree.c b/src/pstree.c
+index b5b71cd..5540fe2 100644
+--- a/src/pstree.c
++++ b/src/pstree.c
+@@ -941,12 +941,22 @@ static void read_proc(void)
+               else {
+                 sprintf(path, "%s/%d/cmdline", PROC_BASE, pid);
+                 if ((fd = open(path, O_RDONLY)) < 0) {
+-                  perror(path);
+-                  exit(1);
+-                }
++		  /* If this fails then the process is gone.  If a PID
++		   * was specified on the command-line then we might
++		   * not even be interested in the current process.
++		   * There's no sensible way of dealing with this race
++		   * so we might as well behave as if the current
++		   * process did not exist.  */
++		  (void) fclose(file);
++		  free(path);
++		  continue;
++		}
+                 if ((size = read(fd, buffer, buffer_size)) < 0) {
+-                  perror(path);
+-                  exit(1);
++			/* As above. */
++		  close(fd);
++		  (void) fclose(file);
++		  free(path);
++		  continue;
+                 }
+                 (void) close(fd);
+                 /* If we have read the maximum screen length of args, bring it back by one to stop overflow */
+-- 
+2.5.2
+

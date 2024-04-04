@@ -179,11 +179,21 @@ __init_cpu_features (void)
     }
 
   /* Disable Intel TSX (HLE and RTM) due to erratum HSD136/HSW136
-     on Haswell processors, to work around outdated microcode that
-     doesn't disable the broken feature by default */
+     on all Haswell processors, except Haswell-EX/Xeon E7-v3 (306F4),
+     to work around outdated microcode that doesn't disable the
+     broken feature by default.
+
+     Disable TSX on Broadwell, due to errata BDM53/BDW51/BDD51/
+     BDE42.  The errata documentation states that RTM is unusable,
+     and that it should not be advertised by CPUID at all on any
+     such processors.  Unfortunately, it _is_ advertised in some
+     (older) microcode versions.  Exceptions: Broadwell-E (406Fx),
+     likely already fixed at launch */
   if (kind == arch_kind_intel && family == 6 &&
       ((model == 63 && stepping <= 2) || (model == 60 && stepping <= 3) ||
-       (model == 69 && stepping <= 1) || (model == 70 && stepping <= 1)))
+       (model == 69 && stepping <= 1) || (model == 70 && stepping <= 1) ||
+       (model == 61 && stepping <= 4) || (model == 71 && stepping <= 1) ||
+       (model == 86 && stepping <= 2) ))
     __cpu_features.cpuid[COMMON_CPUID_INDEX_7].ebx &= ~(bit_RTM | bit_HLE);
 
   __cpu_features.family = family;

@@ -1,0 +1,236 @@
+/*
+ * Device Tree file for NETGEAR ReadyNAS 35
+ *
+ * Copyright (C) 2015, NETGEAR
+ *
+ * Justin Maggard <justin.maggard@netgear.com>
+ *
+ * This file is licensed under the terms of the GNU General Public
+ * License version 2.  This program is licensed "as is" without any
+ * warranty of any kind, whether express or implied.
+ */
+
+/dts-v1/;
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/gpio/gpio.h>
+#include "armada-380.dtsi"
+
+/ {
+	model = "NETGEAR ReadyNAS 35";
+	compatible = "netgear,readynas-35", "marvell,armada380", "marvell,armada-370-xp";
+
+	chosen {
+		bootargs = "console=ttyS0,115200 earlyprintk";
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0x00000000 0x20000000>; /* 512 MB */
+	};
+
+	soc {
+		ranges = <MBUS_ID(0xf0, 0x01) 0 0xf1000000 0x100000
+			  MBUS_ID(0x01, 0x1d) 0 0xfff00000 0x100000>;
+
+		internal-regs {
+			spi@10600 {
+				status = "okay";
+
+				spi-flash@0 {
+					#address-cells = <1>;
+					#size-cells = <1>;
+					compatible = "w25q32";
+					reg = <0>; /* Chip select 0 */
+					spi-max-frequency = <108000000>;
+				};
+			};
+
+			i2c@11000 {
+				status = "okay";
+				clock-frequency = <100000>;
+			};
+
+			i2c@11100 {
+				status = "okay";
+				clock-frequency = <100000>;
+			};
+
+			serial@12000 {
+				status = "okay";
+			};
+
+			usb@50000 {
+				status = "ok";
+			};
+
+			ethernet@70000 {
+				status = "okay";
+				phy = <&phy0>;
+				phy-mode = "rgmii-id";
+			};
+
+			mdio {
+				phy0: ethernet-phy@0 {
+					reg = <0>;
+				};
+
+				phy1: ethernet-phy@1 {
+					reg = <1>;
+				};
+			};
+
+			sata@a8000 {
+				status = "okay";
+			};
+
+			flash@d0000 {
+				status = "okay";
+				num-cs = <1>;
+				marvell,nand-keep-config;
+				marvell,nand-enable-arbiter;
+				nand-on-flash-bbt;
+				nand-ecc-strength = <4>;
+				nand-ecc-step-size = <512>;
+
+				partition@0 {
+					label = "u-boot";
+					reg = <0x0000000 0x180000>;  /* 1.5MB */
+				};
+
+				partition@1a0000 {
+					label = "u-boot-env";
+					reg = <0x01a0000 0x20000>;   /* 128KB */
+					read-only;
+				};
+
+				partition@200000 {
+					label = "uImage";
+					reg = <0x0200000 0x600000>;  /* 6MB */
+				};
+
+				partition@800000 {
+					label = "minirootfs";
+					reg = <0x0800000 0x400000>;  /* 4MB */
+				};
+
+				partition@c00000 {
+					label = "ubifs";
+					reg = <0x0c00000 0x7200000>; /* 100MB */
+				};
+
+				partition@7e00000 {
+					label = "dtb";
+					reg = <0x7e00000 0x20000>;   /* 128KB */
+				};
+			};
+
+			sdhci@d8000 {
+				broken-cd;
+				wp-inverted;
+				bus-width = <8>;
+				status = "okay";
+				no-1-8-v;
+			};
+
+			usb3@f0000 {
+				status = "okay";
+			};
+
+			usb3@f8000 {
+				status = "okay";
+			};
+		};
+
+		pcie-controller {
+			status = "okay";
+			/*
+			 * The two PCIe units are accessible through
+			 * standard PCIe slots on the board.
+			 */
+			pcie@1,0 {
+				/* Port 0, Lane 0 */
+				status = "okay";
+			};
+			pcie@2,0 {
+				/* Port 1, Lane 0 */
+				status = "okay";
+			};
+		};
+	};
+
+	gpio-leds{
+		compatible = "gpio-leds";
+		backup {
+			gpios = <&gpio1 11 GPIO_ACTIVE_LOW>;
+			label = "backup";
+			default-state = "off";
+		};
+		power {
+			gpios = <&gpio1 17 GPIO_ACTIVE_LOW>;
+			label = "pwr";
+			default-state = "keep";
+		};
+		sata1 {
+			gpios = <&gpio1 5 GPIO_ACTIVE_LOW>;
+			label = "sata1";
+			default-state = "keep";
+		};
+		sata2 {
+			gpios = <&gpio1 7 GPIO_ACTIVE_LOW>;
+			label = "sata2";
+			default-state = "keep";
+		};
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		button@1 {
+			label = "BT Reset";
+			linux,code = <0x198>;
+			gpios = <&gpio0 19 GPIO_ACTIVE_LOW>;
+			debounce-interval = <0x64>;
+		};
+		button@2 {
+			label = "BT Power";
+			linux,code = <0x74>;
+			gpios = <&gpio1 13 GPIO_ACTIVE_HIGH>;
+			debounce-interval = <0x64>;
+		};
+		button@3 {
+			label = "BT Backup";
+			linux,code = <0x165>;
+			gpios = <&gpio0 20 GPIO_ACTIVE_LOW>;
+			debounce-interval = <0x64>;
+		};
+	};
+
+	gpio-poweroff {
+		compatible = "gpio-poweroff";
+		gpios = <&gpio1 27 GPIO_ACTIVE_LOW>;
+	};
+
+	gpio-hdds-power {
+		compatible = "gpio-hdds-power";
+		power-sata1 {
+			present-gpio = <&gpio0 24 GPIO_ACTIVE_LOW>;
+			power-gpio = <&gpio0 29 GPIO_ACTIVE_HIGH>;
+			led-gpio = <&gpio1 5 GPIO_ACTIVE_LOW>;
+			label = "power-sata1";
+		};
+		power-sata2 {
+			gpios = <&gpio0 26 GPIO_ACTIVE_LOW &gpio1 27 GPIO_ACTIVE_HIGH>;
+			present-gpio = <&gpio0 26 GPIO_ACTIVE_LOW>;
+			power-gpio = <&gpio1 26 GPIO_ACTIVE_HIGH>;
+			led-gpio = <&gpio1 7 GPIO_ACTIVE_LOW>;
+			label = "power-sata2";
+		};
+	};
+
+	pwm-fan-armada-38x {
+		compatible = "pwm-fan-armada-38x";
+		ctrl-gpio = <&gpio0 2 GPIO_ACTIVE_HIGH>;
+		fb-gpio   = <&gpio0 3 GPIO_ACTIVE_HIGH>;
+	};
+};

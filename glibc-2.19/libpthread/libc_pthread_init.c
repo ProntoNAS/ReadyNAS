@@ -30,5 +30,6 @@ __libc_pthread_init (functions)
      can be done with one memory access instead of two.  */
   memcpy (&__libc_pthread_functions, functions,
 	  sizeof (__libc_pthread_functions));
+  __libc_pthread_functions_init = 1;
 #endif
 }

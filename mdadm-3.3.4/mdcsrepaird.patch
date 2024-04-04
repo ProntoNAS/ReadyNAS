@@ -1,0 +1,4418 @@
+diff --git a/Makefile b/Makefile
+index a02a97f..865f266 100644
+--- a/Makefile
++++ b/Makefile
+@@ -98,6 +98,8 @@ CFLAGS += -DUSE_PTHREADS
+ MON_LDFLAGS += -pthread
+ endif
+ 
++CFLAGS += -I/usr/include/libxml2
++
+ # If you want a static binary, you might uncomment these
+ # LDFLAGS = -static
+ # STRIP = -s
+@@ -105,6 +107,7 @@ endif
+ INSTALL = /usr/bin/install
+ DESTDIR =
+ BINDIR  = /sbin
++SBINDIR  = /usr/sbin
+ MANDIR  = /usr/share/man
+ MAN4DIR = $(MANDIR)/man4
+ MAN5DIR = $(MANDIR)/man5
+@@ -164,6 +167,7 @@ check_rundir:
+ 	fi
+ 
+ everything: all mdadm.static swap_super test_stripe raid6check \
++	mdcsrepair mdcsrepaird	\
+ 	mdassemble mdassemble.auto mdassemble.static mdassemble.man \
+ 	mdadm.Os mdadm.O2 man
+ everything-test: all mdadm.static swap_super test_stripe \
+@@ -205,6 +209,12 @@ test_stripe : restripe.c xmalloc.o mdadm.h
+ raid6check : raid6check.o mdadm.h $(CHECK_OBJS)
+ 	$(CC) $(CXFLAGS) $(LDFLAGS) -o raid6check raid6check.o $(CHECK_OBJS)
+ 
++mdcsrepair : mdcsrepair.o mdadm.h $(CHECK_OBJS) crc32c-sb8.o
++	$(CC) $(CXFLAGS) $(LDFLAGS) -o mdcsrepair mdcsrepair.o $(CHECK_OBJS) crc32c-sb8.o crc32.o
++
++mdcsrepaird : mdcsrepaird.o mdadm.h lib.o
++	$(CC) $(CXFLAGS) $(LDFLAGS) -o mdcsrepaird mdcsrepaird.o $(CHECK_OBJS) -lxml2 -lpthread -lnl
++
+ mdassemble : $(ASSEMBLE_SRCS) $(INCL)
+ 	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) $(ASSEMBLE_FLAGS) -o mdassemble $(ASSEMBLE_SRCS)  $(STATICSRC)
+ 
+@@ -258,9 +268,11 @@ $(MON_OBJS) : $(INCL) mdmon.h
+ sha1.o : sha1.c sha1.h md5.h
+ 	$(CC) $(CFLAGS) -DHAVE_STDINT_H -o sha1.o -c sha1.c
+ 
+-install : mdadm mdmon install-man install-udev
++install : mdadm mdmon mdcsrepair mdcsrepaird install-man install-udev
+ 	$(INSTALL) -D $(STRIP) -m 755 mdadm $(DESTDIR)$(BINDIR)/mdadm
+ 	$(INSTALL) -D $(STRIP) -m 755 mdmon $(DESTDIR)$(BINDIR)/mdmon
++	$(INSTALL) -D $(STRIP) -m 755 mdcsrepair $(DESTDIR)$(SBINDIR)/mdcsrepair
++	$(INSTALL) -D $(STRIP) -m 755 mdcsrepaird $(DESTDIR)$(SBINDIR)/mdcsrepaird
+ 
+ install-static : mdadm.static install-man
+ 	$(INSTALL) -D $(STRIP) -m 755 mdadm.static $(DESTDIR)$(BINDIR)/mdadm
+@@ -317,7 +329,8 @@ clean :
+ 	mdassemble mdassemble.static mdassemble.auto mdassemble.uclibc \
+ 	mdassemble.klibc swap_super \
+ 	init.cpio.gz mdadm.uclibc.static test_stripe raid6check raid6check.o mdmon \
+-	mdadm.8
++	mdadm.8 \
++	mdcsrepair mdcsrepaird crc32c-sb8.o mdcsrepair.o mdcsrepaird.o
+ 
+ dist : clean
+ 	./makedist
+diff --git a/crc32c-sb8.c b/crc32c-sb8.c
+new file mode 100644
+index 0000000..343835f
+--- /dev/null
++++ b/crc32c-sb8.c
+@@ -0,0 +1,620 @@
++/*
++ * Copied from patched kernel cryptographic API.
++ *
++ * CRC32C chksum
++ * High Octane CRC32C calculation with the Intel Slicing-by-8 Algorithm
++ *
++ * Copyright (c) 2013 NETGEAR, Inc.
++ *
++ * This is an implementation of the following Intel 2006 white paper:
++ *	High Octane CRC Generation with the Intel Slicing-by-8 Algorithm
++ * http://download.intel.com/technology/comms/perfnet/download/slicing-by-8.pdf
++ *
++ * This algorithm resulted 2x faster than a conventional byte-by-bye table-
++ * look-up algorithm on a Marvell ARMADA370 ARM platform with a cost of 8x
++ * table size.
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by the Free
++ * Software Foundation; either version 2 of the License, or (at your option)
++ * any later version.
++ *
++ */
++
++#include <sys/types.h>
++#include <asm/types.h>
++typedef __u32 u32;
++typedef __u64 u64;
++typedef __u16 u16;
++typedef __u8 u8;
++
++/*
++   poly = 0x82f63b78   # crc32c
++   crc0 = Array.new
++   (0..255).each {|i|
++     crc0[i] = i
++     (0..7).each {|j|
++       crc0[i] = (crc0[i] >> 1 ) ^ ((crc0[i] & 1)==0 ? 0 : poly)
++     }
++     printf "#{format("0x%08xL, ", crc0[i])}"
++     printf "\n" if (i%8)==7
++   }
++
++   crc = crc0.dup
++   (1..7).each {|k|
++     puts
++     (0..255).each {|i|
++       crc[i] = (crc[i] >> 8) ^ crc0[crc[i] & 255]
++       printf "#{format("%0x08xL, ", crc[i])}"
++       puts if (i%8)==7
++     }
++   }
++ */
++
++static const u32 crc32c_table[256*8] = {
++	0x00000000L, 0xF26B8303L, 0xE13B70F7L, 0x1350F3F4L,
++	0xC79A971FL, 0x35F1141CL, 0x26A1E7E8L, 0xD4CA64EBL,
++	0x8AD958CFL, 0x78B2DBCCL, 0x6BE22838L, 0x9989AB3BL,
++	0x4D43CFD0L, 0xBF284CD3L, 0xAC78BF27L, 0x5E133C24L,
++	0x105EC76FL, 0xE235446CL, 0xF165B798L, 0x030E349BL,
++	0xD7C45070L, 0x25AFD373L, 0x36FF2087L, 0xC494A384L,
++	0x9A879FA0L, 0x68EC1CA3L, 0x7BBCEF57L, 0x89D76C54L,
++	0x5D1D08BFL, 0xAF768BBCL, 0xBC267848L, 0x4E4DFB4BL,
++	0x20BD8EDEL, 0xD2D60DDDL, 0xC186FE29L, 0x33ED7D2AL,
++	0xE72719C1L, 0x154C9AC2L, 0x061C6936L, 0xF477EA35L,
++	0xAA64D611L, 0x580F5512L, 0x4B5FA6E6L, 0xB93425E5L,
++	0x6DFE410EL, 0x9F95C20DL, 0x8CC531F9L, 0x7EAEB2FAL,
++	0x30E349B1L, 0xC288CAB2L, 0xD1D83946L, 0x23B3BA45L,
++	0xF779DEAEL, 0x05125DADL, 0x1642AE59L, 0xE4292D5AL,
++	0xBA3A117EL, 0x4851927DL, 0x5B016189L, 0xA96AE28AL,
++	0x7DA08661L, 0x8FCB0562L, 0x9C9BF696L, 0x6EF07595L,
++	0x417B1DBCL, 0xB3109EBFL, 0xA0406D4BL, 0x522BEE48L,
++	0x86E18AA3L, 0x748A09A0L, 0x67DAFA54L, 0x95B17957L,
++	0xCBA24573L, 0x39C9C670L, 0x2A993584L, 0xD8F2B687L,
++	0x0C38D26CL, 0xFE53516FL, 0xED03A29BL, 0x1F682198L,
++	0x5125DAD3L, 0xA34E59D0L, 0xB01EAA24L, 0x42752927L,
++	0x96BF4DCCL, 0x64D4CECFL, 0x77843D3BL, 0x85EFBE38L,
++	0xDBFC821CL, 0x2997011FL, 0x3AC7F2EBL, 0xC8AC71E8L,
++	0x1C661503L, 0xEE0D9600L, 0xFD5D65F4L, 0x0F36E6F7L,
++	0x61C69362L, 0x93AD1061L, 0x80FDE395L, 0x72966096L,
++	0xA65C047DL, 0x5437877EL, 0x4767748AL, 0xB50CF789L,
++	0xEB1FCBADL, 0x197448AEL, 0x0A24BB5AL, 0xF84F3859L,
++	0x2C855CB2L, 0xDEEEDFB1L, 0xCDBE2C45L, 0x3FD5AF46L,
++	0x7198540DL, 0x83F3D70EL, 0x90A324FAL, 0x62C8A7F9L,
++	0xB602C312L, 0x44694011L, 0x5739B3E5L, 0xA55230E6L,
++	0xFB410CC2L, 0x092A8FC1L, 0x1A7A7C35L, 0xE811FF36L,
++	0x3CDB9BDDL, 0xCEB018DEL, 0xDDE0EB2AL, 0x2F8B6829L,
++	0x82F63B78L, 0x709DB87BL, 0x63CD4B8FL, 0x91A6C88CL,
++	0x456CAC67L, 0xB7072F64L, 0xA457DC90L, 0x563C5F93L,
++	0x082F63B7L, 0xFA44E0B4L, 0xE9141340L, 0x1B7F9043L,
++	0xCFB5F4A8L, 0x3DDE77ABL, 0x2E8E845FL, 0xDCE5075CL,
++	0x92A8FC17L, 0x60C37F14L, 0x73938CE0L, 0x81F80FE3L,
++	0x55326B08L, 0xA759E80BL, 0xB4091BFFL, 0x466298FCL,
++	0x1871A4D8L, 0xEA1A27DBL, 0xF94AD42FL, 0x0B21572CL,
++	0xDFEB33C7L, 0x2D80B0C4L, 0x3ED04330L, 0xCCBBC033L,
++	0xA24BB5A6L, 0x502036A5L, 0x4370C551L, 0xB11B4652L,
++	0x65D122B9L, 0x97BAA1BAL, 0x84EA524EL, 0x7681D14DL,
++	0x2892ED69L, 0xDAF96E6AL, 0xC9A99D9EL, 0x3BC21E9DL,
++	0xEF087A76L, 0x1D63F975L, 0x0E330A81L, 0xFC588982L,
++	0xB21572C9L, 0x407EF1CAL, 0x532E023EL, 0xA145813DL,
++	0x758FE5D6L, 0x87E466D5L, 0x94B49521L, 0x66DF1622L,
++	0x38CC2A06L, 0xCAA7A905L, 0xD9F75AF1L, 0x2B9CD9F2L,
++	0xFF56BD19L, 0x0D3D3E1AL, 0x1E6DCDEEL, 0xEC064EEDL,
++	0xC38D26C4L, 0x31E6A5C7L, 0x22B65633L, 0xD0DDD530L,
++	0x0417B1DBL, 0xF67C32D8L, 0xE52CC12CL, 0x1747422FL,
++	0x49547E0BL, 0xBB3FFD08L, 0xA86F0EFCL, 0x5A048DFFL,
++	0x8ECEE914L, 0x7CA56A17L, 0x6FF599E3L, 0x9D9E1AE0L,
++	0xD3D3E1ABL, 0x21B862A8L, 0x32E8915CL, 0xC083125FL,
++	0x144976B4L, 0xE622F5B7L, 0xF5720643L, 0x07198540L,
++	0x590AB964L, 0xAB613A67L, 0xB831C993L, 0x4A5A4A90L,
++	0x9E902E7BL, 0x6CFBAD78L, 0x7FAB5E8CL, 0x8DC0DD8FL,
++	0xE330A81AL, 0x115B2B19L, 0x020BD8EDL, 0xF0605BEEL,
++	0x24AA3F05L, 0xD6C1BC06L, 0xC5914FF2L, 0x37FACCF1L,
++	0x69E9F0D5L, 0x9B8273D6L, 0x88D28022L, 0x7AB90321L,
++	0xAE7367CAL, 0x5C18E4C9L, 0x4F48173DL, 0xBD23943EL,
++	0xF36E6F75L, 0x0105EC76L, 0x12551F82L, 0xE03E9C81L,
++	0x34F4F86AL, 0xC69F7B69L, 0xD5CF889DL, 0x27A40B9EL,
++	0x79B737BAL, 0x8BDCB4B9L, 0x988C474DL, 0x6AE7C44EL,
++	0xBE2DA0A5L, 0x4C4623A6L, 0x5F16D052L, 0xAD7D5351L,
++
++	0x00000000L, 0x13a29877L, 0x274530eeL, 0x34e7a899L,
++	0x4e8a61dcL, 0x5d28f9abL, 0x69cf5132L, 0x7a6dc945L,
++	0x9d14c3b8L, 0x8eb65bcfL, 0xba51f356L, 0xa9f36b21L,
++	0xd39ea264L, 0xc03c3a13L, 0xf4db928aL, 0xe7790afdL,
++	0x3fc5f181L, 0x2c6769f6L, 0x1880c16fL, 0x0b225918L,
++	0x714f905dL, 0x62ed082aL, 0x560aa0b3L, 0x45a838c4L,
++	0xa2d13239L, 0xb173aa4eL, 0x859402d7L, 0x96369aa0L,
++	0xec5b53e5L, 0xfff9cb92L, 0xcb1e630bL, 0xd8bcfb7cL,
++	0x7f8be302L, 0x6c297b75L, 0x58ced3ecL, 0x4b6c4b9bL,
++	0x310182deL, 0x22a31aa9L, 0x1644b230L, 0x05e62a47L,
++	0xe29f20baL, 0xf13db8cdL, 0xc5da1054L, 0xd6788823L,
++	0xac154166L, 0xbfb7d911L, 0x8b507188L, 0x98f2e9ffL,
++	0x404e1283L, 0x53ec8af4L, 0x670b226dL, 0x74a9ba1aL,
++	0x0ec4735fL, 0x1d66eb28L, 0x298143b1L, 0x3a23dbc6L,
++	0xdd5ad13bL, 0xcef8494cL, 0xfa1fe1d5L, 0xe9bd79a2L,
++	0x93d0b0e7L, 0x80722890L, 0xb4958009L, 0xa737187eL,
++	0xff17c604L, 0xecb55e73L, 0xd852f6eaL, 0xcbf06e9dL,
++	0xb19da7d8L, 0xa23f3fafL, 0x96d89736L, 0x857a0f41L,
++	0x620305bcL, 0x71a19dcbL, 0x45463552L, 0x56e4ad25L,
++	0x2c896460L, 0x3f2bfc17L, 0x0bcc548eL, 0x186eccf9L,
++	0xc0d23785L, 0xd370aff2L, 0xe797076bL, 0xf4359f1cL,
++	0x8e585659L, 0x9dface2eL, 0xa91d66b7L, 0xbabffec0L,
++	0x5dc6f43dL, 0x4e646c4aL, 0x7a83c4d3L, 0x69215ca4L,
++	0x134c95e1L, 0x00ee0d96L, 0x3409a50fL, 0x27ab3d78L,
++	0x809c2506L, 0x933ebd71L, 0xa7d915e8L, 0xb47b8d9fL,
++	0xce1644daL, 0xddb4dcadL, 0xe9537434L, 0xfaf1ec43L,
++	0x1d88e6beL, 0x0e2a7ec9L, 0x3acdd650L, 0x296f4e27L,
++	0x53028762L, 0x40a01f15L, 0x7447b78cL, 0x67e52ffbL,
++	0xbf59d487L, 0xacfb4cf0L, 0x981ce469L, 0x8bbe7c1eL,
++	0xf1d3b55bL, 0xe2712d2cL, 0xd69685b5L, 0xc5341dc2L,
++	0x224d173fL, 0x31ef8f48L, 0x050827d1L, 0x16aabfa6L,
++	0x6cc776e3L, 0x7f65ee94L, 0x4b82460dL, 0x5820de7aL,
++	0xfbc3faf9L, 0xe861628eL, 0xdc86ca17L, 0xcf245260L,
++	0xb5499b25L, 0xa6eb0352L, 0x920cabcbL, 0x81ae33bcL,
++	0x66d73941L, 0x7575a136L, 0x419209afL, 0x523091d8L,
++	0x285d589dL, 0x3bffc0eaL, 0x0f186873L, 0x1cbaf004L,
++	0xc4060b78L, 0xd7a4930fL, 0xe3433b96L, 0xf0e1a3e1L,
++	0x8a8c6aa4L, 0x992ef2d3L, 0xadc95a4aL, 0xbe6bc23dL,
++	0x5912c8c0L, 0x4ab050b7L, 0x7e57f82eL, 0x6df56059L,
++	0x1798a91cL, 0x043a316bL, 0x30dd99f2L, 0x237f0185L,
++	0x844819fbL, 0x97ea818cL, 0xa30d2915L, 0xb0afb162L,
++	0xcac27827L, 0xd960e050L, 0xed8748c9L, 0xfe25d0beL,
++	0x195cda43L, 0x0afe4234L, 0x3e19eaadL, 0x2dbb72daL,
++	0x57d6bb9fL, 0x447423e8L, 0x70938b71L, 0x63311306L,
++	0xbb8de87aL, 0xa82f700dL, 0x9cc8d894L, 0x8f6a40e3L,
++	0xf50789a6L, 0xe6a511d1L, 0xd242b948L, 0xc1e0213fL,
++	0x26992bc2L, 0x353bb3b5L, 0x01dc1b2cL, 0x127e835bL,
++	0x68134a1eL, 0x7bb1d269L, 0x4f567af0L, 0x5cf4e287L,
++	0x04d43cfdL, 0x1776a48aL, 0x23910c13L, 0x30339464L,
++	0x4a5e5d21L, 0x59fcc556L, 0x6d1b6dcfL, 0x7eb9f5b8L,
++	0x99c0ff45L, 0x8a626732L, 0xbe85cfabL, 0xad2757dcL,
++	0xd74a9e99L, 0xc4e806eeL, 0xf00fae77L, 0xe3ad3600L,
++	0x3b11cd7cL, 0x28b3550bL, 0x1c54fd92L, 0x0ff665e5L,
++	0x759baca0L, 0x663934d7L, 0x52de9c4eL, 0x417c0439L,
++	0xa6050ec4L, 0xb5a796b3L, 0x81403e2aL, 0x92e2a65dL,
++	0xe88f6f18L, 0xfb2df76fL, 0xcfca5ff6L, 0xdc68c781L,
++	0x7b5fdfffL, 0x68fd4788L, 0x5c1aef11L, 0x4fb87766L,
++	0x35d5be23L, 0x26772654L, 0x12908ecdL, 0x013216baL,
++	0xe64b1c47L, 0xf5e98430L, 0xc10e2ca9L, 0xd2acb4deL,
++	0xa8c17d9bL, 0xbb63e5ecL, 0x8f844d75L, 0x9c26d502L,
++	0x449a2e7eL, 0x5738b609L, 0x63df1e90L, 0x707d86e7L,
++	0x0a104fa2L, 0x19b2d7d5L, 0x2d557f4cL, 0x3ef7e73bL,
++	0xd98eedc6L, 0xca2c75b1L, 0xfecbdd28L, 0xed69455fL,
++	0x97048c1aL, 0x84a6146dL, 0xb041bcf4L, 0xa3e32483L,
++
++	0x00000000L, 0xa541927eL, 0x4f6f520dL, 0xea2ec073L,
++	0x9edea41aL, 0x3b9f3664L, 0xd1b1f617L, 0x74f06469L,
++	0x38513ec5L, 0x9d10acbbL, 0x773e6cc8L, 0xd27ffeb6L,
++	0xa68f9adfL, 0x03ce08a1L, 0xe9e0c8d2L, 0x4ca15aacL,
++	0x70a27d8aL, 0xd5e3eff4L, 0x3fcd2f87L, 0x9a8cbdf9L,
++	0xee7cd990L, 0x4b3d4beeL, 0xa1138b9dL, 0x045219e3L,
++	0x48f3434fL, 0xedb2d131L, 0x079c1142L, 0xa2dd833cL,
++	0xd62de755L, 0x736c752bL, 0x9942b558L, 0x3c032726L,
++	0xe144fb14L, 0x4405696aL, 0xae2ba919L, 0x0b6a3b67L,
++	0x7f9a5f0eL, 0xdadbcd70L, 0x30f50d03L, 0x95b49f7dL,
++	0xd915c5d1L, 0x7c5457afL, 0x967a97dcL, 0x333b05a2L,
++	0x47cb61cbL, 0xe28af3b5L, 0x08a433c6L, 0xade5a1b8L,
++	0x91e6869eL, 0x34a714e0L, 0xde89d493L, 0x7bc846edL,
++	0x0f382284L, 0xaa79b0faL, 0x40577089L, 0xe516e2f7L,
++	0xa9b7b85bL, 0x0cf62a25L, 0xe6d8ea56L, 0x43997828L,
++	0x37691c41L, 0x92288e3fL, 0x78064e4cL, 0xdd47dc32L,
++	0xc76580d9L, 0x622412a7L, 0x880ad2d4L, 0x2d4b40aaL,
++	0x59bb24c3L, 0xfcfab6bdL, 0x16d476ceL, 0xb395e4b0L,
++	0xff34be1cL, 0x5a752c62L, 0xb05bec11L, 0x151a7e6fL,
++	0x61ea1a06L, 0xc4ab8878L, 0x2e85480bL, 0x8bc4da75L,
++	0xb7c7fd53L, 0x12866f2dL, 0xf8a8af5eL, 0x5de93d20L,
++	0x29195949L, 0x8c58cb37L, 0x66760b44L, 0xc337993aL,
++	0x8f96c396L, 0x2ad751e8L, 0xc0f9919bL, 0x65b803e5L,
++	0x1148678cL, 0xb409f5f2L, 0x5e273581L, 0xfb66a7ffL,
++	0x26217bcdL, 0x8360e9b3L, 0x694e29c0L, 0xcc0fbbbeL,
++	0xb8ffdfd7L, 0x1dbe4da9L, 0xf7908ddaL, 0x52d11fa4L,
++	0x1e704508L, 0xbb31d776L, 0x511f1705L, 0xf45e857bL,
++	0x80aee112L, 0x25ef736cL, 0xcfc1b31fL, 0x6a802161L,
++	0x56830647L, 0xf3c29439L, 0x19ec544aL, 0xbcadc634L,
++	0xc85da25dL, 0x6d1c3023L, 0x8732f050L, 0x2273622eL,
++	0x6ed23882L, 0xcb93aafcL, 0x21bd6a8fL, 0x84fcf8f1L,
++	0xf00c9c98L, 0x554d0ee6L, 0xbf63ce95L, 0x1a225cebL,
++	0x8b277743L, 0x2e66e53dL, 0xc448254eL, 0x6109b730L,
++	0x15f9d359L, 0xb0b84127L, 0x5a968154L, 0xffd7132aL,
++	0xb3764986L, 0x1637dbf8L, 0xfc191b8bL, 0x595889f5L,
++	0x2da8ed9cL, 0x88e97fe2L, 0x62c7bf91L, 0xc7862defL,
++	0xfb850ac9L, 0x5ec498b7L, 0xb4ea58c4L, 0x11abcabaL,
++	0x655baed3L, 0xc01a3cadL, 0x2a34fcdeL, 0x8f756ea0L,
++	0xc3d4340cL, 0x6695a672L, 0x8cbb6601L, 0x29faf47fL,
++	0x5d0a9016L, 0xf84b0268L, 0x1265c21bL, 0xb7245065L,
++	0x6a638c57L, 0xcf221e29L, 0x250cde5aL, 0x804d4c24L,
++	0xf4bd284dL, 0x51fcba33L, 0xbbd27a40L, 0x1e93e83eL,
++	0x5232b292L, 0xf77320ecL, 0x1d5de09fL, 0xb81c72e1L,
++	0xccec1688L, 0x69ad84f6L, 0x83834485L, 0x26c2d6fbL,
++	0x1ac1f1ddL, 0xbf8063a3L, 0x55aea3d0L, 0xf0ef31aeL,
++	0x841f55c7L, 0x215ec7b9L, 0xcb7007caL, 0x6e3195b4L,
++	0x2290cf18L, 0x87d15d66L, 0x6dff9d15L, 0xc8be0f6bL,
++	0xbc4e6b02L, 0x190ff97cL, 0xf321390fL, 0x5660ab71L,
++	0x4c42f79aL, 0xe90365e4L, 0x032da597L, 0xa66c37e9L,
++	0xd29c5380L, 0x77ddc1feL, 0x9df3018dL, 0x38b293f3L,
++	0x7413c95fL, 0xd1525b21L, 0x3b7c9b52L, 0x9e3d092cL,
++	0xeacd6d45L, 0x4f8cff3bL, 0xa5a23f48L, 0x00e3ad36L,
++	0x3ce08a10L, 0x99a1186eL, 0x738fd81dL, 0xd6ce4a63L,
++	0xa23e2e0aL, 0x077fbc74L, 0xed517c07L, 0x4810ee79L,
++	0x04b1b4d5L, 0xa1f026abL, 0x4bdee6d8L, 0xee9f74a6L,
++	0x9a6f10cfL, 0x3f2e82b1L, 0xd50042c2L, 0x7041d0bcL,
++	0xad060c8eL, 0x08479ef0L, 0xe2695e83L, 0x4728ccfdL,
++	0x33d8a894L, 0x96993aeaL, 0x7cb7fa99L, 0xd9f668e7L,
++	0x9557324bL, 0x3016a035L, 0xda386046L, 0x7f79f238L,
++	0x0b899651L, 0xaec8042fL, 0x44e6c45cL, 0xe1a75622L,
++	0xdda47104L, 0x78e5e37aL, 0x92cb2309L, 0x378ab177L,
++	0x437ad51eL, 0xe63b4760L, 0x0c158713L, 0xa954156dL,
++	0xe5f54fc1L, 0x40b4ddbfL, 0xaa9a1dccL, 0x0fdb8fb2L,
++	0x7b2bebdbL, 0xde6a79a5L, 0x3444b9d6L, 0x91052ba8L,
++
++	0x00000000L, 0xdd45aab8L, 0xbf672381L, 0x62228939L,
++	0x7b2231f3L, 0xa6679b4bL, 0xc4451272L, 0x1900b8caL,
++	0xf64463e6L, 0x2b01c95eL, 0x49234067L, 0x9466eadfL,
++	0x8d665215L, 0x5023f8adL, 0x32017194L, 0xef44db2cL,
++	0xe964b13dL, 0x34211b85L, 0x560392bcL, 0x8b463804L,
++	0x924680ceL, 0x4f032a76L, 0x2d21a34fL, 0xf06409f7L,
++	0x1f20d2dbL, 0xc2657863L, 0xa047f15aL, 0x7d025be2L,
++	0x6402e328L, 0xb9474990L, 0xdb65c0a9L, 0x06206a11L,
++	0xd725148bL, 0x0a60be33L, 0x6842370aL, 0xb5079db2L,
++	0xac072578L, 0x71428fc0L, 0x136006f9L, 0xce25ac41L,
++	0x2161776dL, 0xfc24ddd5L, 0x9e0654ecL, 0x4343fe54L,
++	0x5a43469eL, 0x8706ec26L, 0xe524651fL, 0x3861cfa7L,
++	0x3e41a5b6L, 0xe3040f0eL, 0x81268637L, 0x5c632c8fL,
++	0x45639445L, 0x98263efdL, 0xfa04b7c4L, 0x27411d7cL,
++	0xc805c650L, 0x15406ce8L, 0x7762e5d1L, 0xaa274f69L,
++	0xb327f7a3L, 0x6e625d1bL, 0x0c40d422L, 0xd1057e9aL,
++	0xaba65fe7L, 0x76e3f55fL, 0x14c17c66L, 0xc984d6deL,
++	0xd0846e14L, 0x0dc1c4acL, 0x6fe34d95L, 0xb2a6e72dL,
++	0x5de23c01L, 0x80a796b9L, 0xe2851f80L, 0x3fc0b538L,
++	0x26c00df2L, 0xfb85a74aL, 0x99a72e73L, 0x44e284cbL,
++	0x42c2eedaL, 0x9f874462L, 0xfda5cd5bL, 0x20e067e3L,
++	0x39e0df29L, 0xe4a57591L, 0x8687fca8L, 0x5bc25610L,
++	0xb4868d3cL, 0x69c32784L, 0x0be1aebdL, 0xd6a40405L,
++	0xcfa4bccfL, 0x12e11677L, 0x70c39f4eL, 0xad8635f6L,
++	0x7c834b6cL, 0xa1c6e1d4L, 0xc3e468edL, 0x1ea1c255L,
++	0x07a17a9fL, 0xdae4d027L, 0xb8c6591eL, 0x6583f3a6L,
++	0x8ac7288aL, 0x57828232L, 0x35a00b0bL, 0xe8e5a1b3L,
++	0xf1e51979L, 0x2ca0b3c1L, 0x4e823af8L, 0x93c79040L,
++	0x95e7fa51L, 0x48a250e9L, 0x2a80d9d0L, 0xf7c57368L,
++	0xeec5cba2L, 0x3380611aL, 0x51a2e823L, 0x8ce7429bL,
++	0x63a399b7L, 0xbee6330fL, 0xdcc4ba36L, 0x0181108eL,
++	0x1881a844L, 0xc5c402fcL, 0xa7e68bc5L, 0x7aa3217dL,
++	0x52a0c93fL, 0x8fe56387L, 0xedc7eabeL, 0x30824006L,
++	0x2982f8ccL, 0xf4c75274L, 0x96e5db4dL, 0x4ba071f5L,
++	0xa4e4aad9L, 0x79a10061L, 0x1b838958L, 0xc6c623e0L,
++	0xdfc69b2aL, 0x02833192L, 0x60a1b8abL, 0xbde41213L,
++	0xbbc47802L, 0x6681d2baL, 0x04a35b83L, 0xd9e6f13bL,
++	0xc0e649f1L, 0x1da3e349L, 0x7f816a70L, 0xa2c4c0c8L,
++	0x4d801be4L, 0x90c5b15cL, 0xf2e73865L, 0x2fa292ddL,
++	0x36a22a17L, 0xebe780afL, 0x89c50996L, 0x5480a32eL,
++	0x8585ddb4L, 0x58c0770cL, 0x3ae2fe35L, 0xe7a7548dL,
++	0xfea7ec47L, 0x23e246ffL, 0x41c0cfc6L, 0x9c85657eL,
++	0x73c1be52L, 0xae8414eaL, 0xcca69dd3L, 0x11e3376bL,
++	0x08e38fa1L, 0xd5a62519L, 0xb784ac20L, 0x6ac10698L,
++	0x6ce16c89L, 0xb1a4c631L, 0xd3864f08L, 0x0ec3e5b0L,
++	0x17c35d7aL, 0xca86f7c2L, 0xa8a47efbL, 0x75e1d443L,
++	0x9aa50f6fL, 0x47e0a5d7L, 0x25c22ceeL, 0xf8878656L,
++	0xe1873e9cL, 0x3cc29424L, 0x5ee01d1dL, 0x83a5b7a5L,
++	0xf90696d8L, 0x24433c60L, 0x4661b559L, 0x9b241fe1L,
++	0x8224a72bL, 0x5f610d93L, 0x3d4384aaL, 0xe0062e12L,
++	0x0f42f53eL, 0xd2075f86L, 0xb025d6bfL, 0x6d607c07L,
++	0x7460c4cdL, 0xa9256e75L, 0xcb07e74cL, 0x16424df4L,
++	0x106227e5L, 0xcd278d5dL, 0xaf050464L, 0x7240aedcL,
++	0x6b401616L, 0xb605bcaeL, 0xd4273597L, 0x09629f2fL,
++	0xe6264403L, 0x3b63eebbL, 0x59416782L, 0x8404cd3aL,
++	0x9d0475f0L, 0x4041df48L, 0x22635671L, 0xff26fcc9L,
++	0x2e238253L, 0xf36628ebL, 0x9144a1d2L, 0x4c010b6aL,
++	0x5501b3a0L, 0x88441918L, 0xea669021L, 0x37233a99L,
++	0xd867e1b5L, 0x05224b0dL, 0x6700c234L, 0xba45688cL,
++	0xa345d046L, 0x7e007afeL, 0x1c22f3c7L, 0xc167597fL,
++	0xc747336eL, 0x1a0299d6L, 0x782010efL, 0xa565ba57L,
++	0xbc65029dL, 0x6120a825L, 0x0302211cL, 0xde478ba4L,
++	0x31035088L, 0xec46fa30L, 0x8e647309L, 0x5321d9b1L,
++	0x4a21617bL, 0x9764cbc3L, 0xf54642faL, 0x2803e842L,
++
++	0x00000000L, 0x38116facL, 0x7022df58L, 0x4833b0f4L,
++	0xe045beb0L, 0xd854d11cL, 0x906761e8L, 0xa8760e44L,
++	0xc5670b91L, 0xfd76643dL, 0xb545d4c9L, 0x8d54bb65L,
++	0x2522b521L, 0x1d33da8dL, 0x55006a79L, 0x6d1105d5L,
++	0x8f2261d3L, 0xb7330e7fL, 0xff00be8bL, 0xc711d127L,
++	0x6f67df63L, 0x5776b0cfL, 0x1f45003bL, 0x27546f97L,
++	0x4a456a42L, 0x725405eeL, 0x3a67b51aL, 0x0276dab6L,
++	0xaa00d4f2L, 0x9211bb5eL, 0xda220baaL, 0xe2336406L,
++	0x1ba8b557L, 0x23b9dafbL, 0x6b8a6a0fL, 0x539b05a3L,
++	0xfbed0be7L, 0xc3fc644bL, 0x8bcfd4bfL, 0xb3debb13L,
++	0xdecfbec6L, 0xe6ded16aL, 0xaeed619eL, 0x96fc0e32L,
++	0x3e8a0076L, 0x069b6fdaL, 0x4ea8df2eL, 0x76b9b082L,
++	0x948ad484L, 0xac9bbb28L, 0xe4a80bdcL, 0xdcb96470L,
++	0x74cf6a34L, 0x4cde0598L, 0x04edb56cL, 0x3cfcdac0L,
++	0x51eddf15L, 0x69fcb0b9L, 0x21cf004dL, 0x19de6fe1L,
++	0xb1a861a5L, 0x89b90e09L, 0xc18abefdL, 0xf99bd151L,
++	0x37516aaeL, 0x0f400502L, 0x4773b5f6L, 0x7f62da5aL,
++	0xd714d41eL, 0xef05bbb2L, 0xa7360b46L, 0x9f2764eaL,
++	0xf236613fL, 0xca270e93L, 0x8214be67L, 0xba05d1cbL,
++	0x1273df8fL, 0x2a62b023L, 0x625100d7L, 0x5a406f7bL,
++	0xb8730b7dL, 0x806264d1L, 0xc851d425L, 0xf040bb89L,
++	0x5836b5cdL, 0x6027da61L, 0x28146a95L, 0x10050539L,
++	0x7d1400ecL, 0x45056f40L, 0x0d36dfb4L, 0x3527b018L,
++	0x9d51be5cL, 0xa540d1f0L, 0xed736104L, 0xd5620ea8L,
++	0x2cf9dff9L, 0x14e8b055L, 0x5cdb00a1L, 0x64ca6f0dL,
++	0xccbc6149L, 0xf4ad0ee5L, 0xbc9ebe11L, 0x848fd1bdL,
++	0xe99ed468L, 0xd18fbbc4L, 0x99bc0b30L, 0xa1ad649cL,
++	0x09db6ad8L, 0x31ca0574L, 0x79f9b580L, 0x41e8da2cL,
++	0xa3dbbe2aL, 0x9bcad186L, 0xd3f96172L, 0xebe80edeL,
++	0x439e009aL, 0x7b8f6f36L, 0x33bcdfc2L, 0x0badb06eL,
++	0x66bcb5bbL, 0x5eadda17L, 0x169e6ae3L, 0x2e8f054fL,
++	0x86f90b0bL, 0xbee864a7L, 0xf6dbd453L, 0xcecabbffL,
++	0x6ea2d55cL, 0x56b3baf0L, 0x1e800a04L, 0x269165a8L,
++	0x8ee76becL, 0xb6f60440L, 0xfec5b4b4L, 0xc6d4db18L,
++	0xabc5decdL, 0x93d4b161L, 0xdbe70195L, 0xe3f66e39L,
++	0x4b80607dL, 0x73910fd1L, 0x3ba2bf25L, 0x03b3d089L,
++	0xe180b48fL, 0xd991db23L, 0x91a26bd7L, 0xa9b3047bL,
++	0x01c50a3fL, 0x39d46593L, 0x71e7d567L, 0x49f6bacbL,
++	0x24e7bf1eL, 0x1cf6d0b2L, 0x54c56046L, 0x6cd40feaL,
++	0xc4a201aeL, 0xfcb36e02L, 0xb480def6L, 0x8c91b15aL,
++	0x750a600bL, 0x4d1b0fa7L, 0x0528bf53L, 0x3d39d0ffL,
++	0x954fdebbL, 0xad5eb117L, 0xe56d01e3L, 0xdd7c6e4fL,
++	0xb06d6b9aL, 0x887c0436L, 0xc04fb4c2L, 0xf85edb6eL,
++	0x5028d52aL, 0x6839ba86L, 0x200a0a72L, 0x181b65deL,
++	0xfa2801d8L, 0xc2396e74L, 0x8a0ade80L, 0xb21bb12cL,
++	0x1a6dbf68L, 0x227cd0c4L, 0x6a4f6030L, 0x525e0f9cL,
++	0x3f4f0a49L, 0x075e65e5L, 0x4f6dd511L, 0x777cbabdL,
++	0xdf0ab4f9L, 0xe71bdb55L, 0xaf286ba1L, 0x9739040dL,
++	0x59f3bff2L, 0x61e2d05eL, 0x29d160aaL, 0x11c00f06L,
++	0xb9b60142L, 0x81a76eeeL, 0xc994de1aL, 0xf185b1b6L,
++	0x9c94b463L, 0xa485dbcfL, 0xecb66b3bL, 0xd4a70497L,
++	0x7cd10ad3L, 0x44c0657fL, 0x0cf3d58bL, 0x34e2ba27L,
++	0xd6d1de21L, 0xeec0b18dL, 0xa6f30179L, 0x9ee26ed5L,
++	0x36946091L, 0x0e850f3dL, 0x46b6bfc9L, 0x7ea7d065L,
++	0x13b6d5b0L, 0x2ba7ba1cL, 0x63940ae8L, 0x5b856544L,
++	0xf3f36b00L, 0xcbe204acL, 0x83d1b458L, 0xbbc0dbf4L,
++	0x425b0aa5L, 0x7a4a6509L, 0x3279d5fdL, 0x0a68ba51L,
++	0xa21eb415L, 0x9a0fdbb9L, 0xd23c6b4dL, 0xea2d04e1L,
++	0x873c0134L, 0xbf2d6e98L, 0xf71ede6cL, 0xcf0fb1c0L,
++	0x6779bf84L, 0x5f68d028L, 0x175b60dcL, 0x2f4a0f70L,
++	0xcd796b76L, 0xf56804daL, 0xbd5bb42eL, 0x854adb82L,
++	0x2d3cd5c6L, 0x152dba6aL, 0x5d1e0a9eL, 0x650f6532L,
++	0x081e60e7L, 0x300f0f4bL, 0x783cbfbfL, 0x402dd013L,
++	0xe85bde57L, 0xd04ab1fbL, 0x9879010fL, 0xa0686ea3L,
++
++	0x00000000L, 0xef306b19L, 0xdb8ca0c3L, 0x34bccbdaL,
++	0xb2f53777L, 0x5dc55c6eL, 0x697997b4L, 0x8649fcadL,
++	0x6006181fL, 0x8f367306L, 0xbb8ab8dcL, 0x54bad3c5L,
++	0xd2f32f68L, 0x3dc34471L, 0x097f8fabL, 0xe64fe4b2L,
++	0xc00c303eL, 0x2f3c5b27L, 0x1b8090fdL, 0xf4b0fbe4L,
++	0x72f90749L, 0x9dc96c50L, 0xa975a78aL, 0x4645cc93L,
++	0xa00a2821L, 0x4f3a4338L, 0x7b8688e2L, 0x94b6e3fbL,
++	0x12ff1f56L, 0xfdcf744fL, 0xc973bf95L, 0x2643d48cL,
++	0x85f4168dL, 0x6ac47d94L, 0x5e78b64eL, 0xb148dd57L,
++	0x370121faL, 0xd8314ae3L, 0xec8d8139L, 0x03bdea20L,
++	0xe5f20e92L, 0x0ac2658bL, 0x3e7eae51L, 0xd14ec548L,
++	0x570739e5L, 0xb83752fcL, 0x8c8b9926L, 0x63bbf23fL,
++	0x45f826b3L, 0xaac84daaL, 0x9e748670L, 0x7144ed69L,
++	0xf70d11c4L, 0x183d7addL, 0x2c81b107L, 0xc3b1da1eL,
++	0x25fe3eacL, 0xcace55b5L, 0xfe729e6fL, 0x1142f576L,
++	0x970b09dbL, 0x783b62c2L, 0x4c87a918L, 0xa3b7c201L,
++	0x0e045bebL, 0xe13430f2L, 0xd588fb28L, 0x3ab89031L,
++	0xbcf16c9cL, 0x53c10785L, 0x677dcc5fL, 0x884da746L,
++	0x6e0243f4L, 0x813228edL, 0xb58ee337L, 0x5abe882eL,
++	0xdcf77483L, 0x33c71f9aL, 0x077bd440L, 0xe84bbf59L,
++	0xce086bd5L, 0x213800ccL, 0x1584cb16L, 0xfab4a00fL,
++	0x7cfd5ca2L, 0x93cd37bbL, 0xa771fc61L, 0x48419778L,
++	0xae0e73caL, 0x413e18d3L, 0x7582d309L, 0x9ab2b810L,
++	0x1cfb44bdL, 0xf3cb2fa4L, 0xc777e47eL, 0x28478f67L,
++	0x8bf04d66L, 0x64c0267fL, 0x507ceda5L, 0xbf4c86bcL,
++	0x39057a11L, 0xd6351108L, 0xe289dad2L, 0x0db9b1cbL,
++	0xebf65579L, 0x04c63e60L, 0x307af5baL, 0xdf4a9ea3L,
++	0x5903620eL, 0xb6330917L, 0x828fc2cdL, 0x6dbfa9d4L,
++	0x4bfc7d58L, 0xa4cc1641L, 0x9070dd9bL, 0x7f40b682L,
++	0xf9094a2fL, 0x16392136L, 0x2285eaecL, 0xcdb581f5L,
++	0x2bfa6547L, 0xc4ca0e5eL, 0xf076c584L, 0x1f46ae9dL,
++	0x990f5230L, 0x763f3929L, 0x4283f2f3L, 0xadb399eaL,
++	0x1c08b7d6L, 0xf338dccfL, 0xc7841715L, 0x28b47c0cL,
++	0xaefd80a1L, 0x41cdebb8L, 0x75712062L, 0x9a414b7bL,
++	0x7c0eafc9L, 0x933ec4d0L, 0xa7820f0aL, 0x48b26413L,
++	0xcefb98beL, 0x21cbf3a7L, 0x1577387dL, 0xfa475364L,
++	0xdc0487e8L, 0x3334ecf1L, 0x0788272bL, 0xe8b84c32L,
++	0x6ef1b09fL, 0x81c1db86L, 0xb57d105cL, 0x5a4d7b45L,
++	0xbc029ff7L, 0x5332f4eeL, 0x678e3f34L, 0x88be542dL,
++	0x0ef7a880L, 0xe1c7c399L, 0xd57b0843L, 0x3a4b635aL,
++	0x99fca15bL, 0x76ccca42L, 0x42700198L, 0xad406a81L,
++	0x2b09962cL, 0xc439fd35L, 0xf08536efL, 0x1fb55df6L,
++	0xf9fab944L, 0x16cad25dL, 0x22761987L, 0xcd46729eL,
++	0x4b0f8e33L, 0xa43fe52aL, 0x90832ef0L, 0x7fb345e9L,
++	0x59f09165L, 0xb6c0fa7cL, 0x827c31a6L, 0x6d4c5abfL,
++	0xeb05a612L, 0x0435cd0bL, 0x308906d1L, 0xdfb96dc8L,
++	0x39f6897aL, 0xd6c6e263L, 0xe27a29b9L, 0x0d4a42a0L,
++	0x8b03be0dL, 0x6433d514L, 0x508f1eceL, 0xbfbf75d7L,
++	0x120cec3dL, 0xfd3c8724L, 0xc9804cfeL, 0x26b027e7L,
++	0xa0f9db4aL, 0x4fc9b053L, 0x7b757b89L, 0x94451090L,
++	0x720af422L, 0x9d3a9f3bL, 0xa98654e1L, 0x46b63ff8L,
++	0xc0ffc355L, 0x2fcfa84cL, 0x1b736396L, 0xf443088fL,
++	0xd200dc03L, 0x3d30b71aL, 0x098c7cc0L, 0xe6bc17d9L,
++	0x60f5eb74L, 0x8fc5806dL, 0xbb794bb7L, 0x544920aeL,
++	0xb206c41cL, 0x5d36af05L, 0x698a64dfL, 0x86ba0fc6L,
++	0x00f3f36bL, 0xefc39872L, 0xdb7f53a8L, 0x344f38b1L,
++	0x97f8fab0L, 0x78c891a9L, 0x4c745a73L, 0xa344316aL,
++	0x250dcdc7L, 0xca3da6deL, 0xfe816d04L, 0x11b1061dL,
++	0xf7fee2afL, 0x18ce89b6L, 0x2c72426cL, 0xc3422975L,
++	0x450bd5d8L, 0xaa3bbec1L, 0x9e87751bL, 0x71b71e02L,
++	0x57f4ca8eL, 0xb8c4a197L, 0x8c786a4dL, 0x63480154L,
++	0xe501fdf9L, 0x0a3196e0L, 0x3e8d5d3aL, 0xd1bd3623L,
++	0x37f2d291L, 0xd8c2b988L, 0xec7e7252L, 0x034e194bL,
++	0x8507e5e6L, 0x6a378effL, 0x5e8b4525L, 0xb1bb2e3cL,
++
++	0x00000000L, 0x68032cc8L, 0xd0065990L, 0xb8057558L,
++	0xa5e0c5d1L, 0xcde3e919L, 0x75e69c41L, 0x1de5b089L,
++	0x4e2dfd53L, 0x262ed19bL, 0x9e2ba4c3L, 0xf628880bL,
++	0xebcd3882L, 0x83ce144aL, 0x3bcb6112L, 0x53c84ddaL,
++	0x9c5bfaa6L, 0xf458d66eL, 0x4c5da336L, 0x245e8ffeL,
++	0x39bb3f77L, 0x51b813bfL, 0xe9bd66e7L, 0x81be4a2fL,
++	0xd27607f5L, 0xba752b3dL, 0x02705e65L, 0x6a7372adL,
++	0x7796c224L, 0x1f95eeecL, 0xa7909bb4L, 0xcf93b77cL,
++	0x3d5b83bdL, 0x5558af75L, 0xed5dda2dL, 0x855ef6e5L,
++	0x98bb466cL, 0xf0b86aa4L, 0x48bd1ffcL, 0x20be3334L,
++	0x73767eeeL, 0x1b755226L, 0xa370277eL, 0xcb730bb6L,
++	0xd696bb3fL, 0xbe9597f7L, 0x0690e2afL, 0x6e93ce67L,
++	0xa100791bL, 0xc90355d3L, 0x7106208bL, 0x19050c43L,
++	0x04e0bccaL, 0x6ce39002L, 0xd4e6e55aL, 0xbce5c992L,
++	0xef2d8448L, 0x872ea880L, 0x3f2bddd8L, 0x5728f110L,
++	0x4acd4199L, 0x22ce6d51L, 0x9acb1809L, 0xf2c834c1L,
++	0x7ab7077aL, 0x12b42bb2L, 0xaab15eeaL, 0xc2b27222L,
++	0xdf57c2abL, 0xb754ee63L, 0x0f519b3bL, 0x6752b7f3L,
++	0x349afa29L, 0x5c99d6e1L, 0xe49ca3b9L, 0x8c9f8f71L,
++	0x917a3ff8L, 0xf9791330L, 0x417c6668L, 0x297f4aa0L,
++	0xe6ecfddcL, 0x8eefd114L, 0x36eaa44cL, 0x5ee98884L,
++	0x430c380dL, 0x2b0f14c5L, 0x930a619dL, 0xfb094d55L,
++	0xa8c1008fL, 0xc0c22c47L, 0x78c7591fL, 0x10c475d7L,
++	0x0d21c55eL, 0x6522e996L, 0xdd279cceL, 0xb524b006L,
++	0x47ec84c7L, 0x2fefa80fL, 0x97eadd57L, 0xffe9f19fL,
++	0xe20c4116L, 0x8a0f6ddeL, 0x320a1886L, 0x5a09344eL,
++	0x09c17994L, 0x61c2555cL, 0xd9c72004L, 0xb1c40cccL,
++	0xac21bc45L, 0xc422908dL, 0x7c27e5d5L, 0x1424c91dL,
++	0xdbb77e61L, 0xb3b452a9L, 0x0bb127f1L, 0x63b20b39L,
++	0x7e57bbb0L, 0x16549778L, 0xae51e220L, 0xc652cee8L,
++	0x959a8332L, 0xfd99affaL, 0x459cdaa2L, 0x2d9ff66aL,
++	0x307a46e3L, 0x58796a2bL, 0xe07c1f73L, 0x887f33bbL,
++	0xf56e0ef4L, 0x9d6d223cL, 0x25685764L, 0x4d6b7bacL,
++	0x508ecb25L, 0x388de7edL, 0x808892b5L, 0xe88bbe7dL,
++	0xbb43f3a7L, 0xd340df6fL, 0x6b45aa37L, 0x034686ffL,
++	0x1ea33676L, 0x76a01abeL, 0xcea56fe6L, 0xa6a6432eL,
++	0x6935f452L, 0x0136d89aL, 0xb933adc2L, 0xd130810aL,
++	0xccd53183L, 0xa4d61d4bL, 0x1cd36813L, 0x74d044dbL,
++	0x27180901L, 0x4f1b25c9L, 0xf71e5091L, 0x9f1d7c59L,
++	0x82f8ccd0L, 0xeafbe018L, 0x52fe9540L, 0x3afdb988L,
++	0xc8358d49L, 0xa036a181L, 0x1833d4d9L, 0x7030f811L,
++	0x6dd54898L, 0x05d66450L, 0xbdd31108L, 0xd5d03dc0L,
++	0x8618701aL, 0xee1b5cd2L, 0x561e298aL, 0x3e1d0542L,
++	0x23f8b5cbL, 0x4bfb9903L, 0xf3feec5bL, 0x9bfdc093L,
++	0x546e77efL, 0x3c6d5b27L, 0x84682e7fL, 0xec6b02b7L,
++	0xf18eb23eL, 0x998d9ef6L, 0x2188ebaeL, 0x498bc766L,
++	0x1a438abcL, 0x7240a674L, 0xca45d32cL, 0xa246ffe4L,
++	0xbfa34f6dL, 0xd7a063a5L, 0x6fa516fdL, 0x07a63a35L,
++	0x8fd9098eL, 0xe7da2546L, 0x5fdf501eL, 0x37dc7cd6L,
++	0x2a39cc5fL, 0x423ae097L, 0xfa3f95cfL, 0x923cb907L,
++	0xc1f4f4ddL, 0xa9f7d815L, 0x11f2ad4dL, 0x79f18185L,
++	0x6414310cL, 0x0c171dc4L, 0xb412689cL, 0xdc114454L,
++	0x1382f328L, 0x7b81dfe0L, 0xc384aab8L, 0xab878670L,
++	0xb66236f9L, 0xde611a31L, 0x66646f69L, 0x0e6743a1L,
++	0x5daf0e7bL, 0x35ac22b3L, 0x8da957ebL, 0xe5aa7b23L,
++	0xf84fcbaaL, 0x904ce762L, 0x2849923aL, 0x404abef2L,
++	0xb2828a33L, 0xda81a6fbL, 0x6284d3a3L, 0x0a87ff6bL,
++	0x17624fe2L, 0x7f61632aL, 0xc7641672L, 0xaf673abaL,
++	0xfcaf7760L, 0x94ac5ba8L, 0x2ca92ef0L, 0x44aa0238L,
++	0x594fb2b1L, 0x314c9e79L, 0x8949eb21L, 0xe14ac7e9L,
++	0x2ed97095L, 0x46da5c5dL, 0xfedf2905L, 0x96dc05cdL,
++	0x8b39b544L, 0xe33a998cL, 0x5b3fecd4L, 0x333cc01cL,
++	0x60f48dc6L, 0x08f7a10eL, 0xb0f2d456L, 0xd8f1f89eL,
++	0xc5144817L, 0xad1764dfL, 0x15121187L, 0x7d113d4fL,
++
++	0x00000000L, 0x493c7d27L, 0x9278fa4eL, 0xdb448769L,
++	0x211d826dL, 0x6821ff4aL, 0xb3657823L, 0xfa590504L,
++	0x423b04daL, 0x0b0779fdL, 0xd043fe94L, 0x997f83b3L,
++	0x632686b7L, 0x2a1afb90L, 0xf15e7cf9L, 0xb86201deL,
++	0x847609b4L, 0xcd4a7493L, 0x160ef3faL, 0x5f328eddL,
++	0xa56b8bd9L, 0xec57f6feL, 0x37137197L, 0x7e2f0cb0L,
++	0xc64d0d6eL, 0x8f717049L, 0x5435f720L, 0x1d098a07L,
++	0xe7508f03L, 0xae6cf224L, 0x7528754dL, 0x3c14086aL,
++	0x0d006599L, 0x443c18beL, 0x9f789fd7L, 0xd644e2f0L,
++	0x2c1de7f4L, 0x65219ad3L, 0xbe651dbaL, 0xf759609dL,
++	0x4f3b6143L, 0x06071c64L, 0xdd439b0dL, 0x947fe62aL,
++	0x6e26e32eL, 0x271a9e09L, 0xfc5e1960L, 0xb5626447L,
++	0x89766c2dL, 0xc04a110aL, 0x1b0e9663L, 0x5232eb44L,
++	0xa86bee40L, 0xe1579367L, 0x3a13140eL, 0x732f6929L,
++	0xcb4d68f7L, 0x827115d0L, 0x593592b9L, 0x1009ef9eL,
++	0xea50ea9aL, 0xa36c97bdL, 0x782810d4L, 0x31146df3L,
++	0x1a00cb32L, 0x533cb615L, 0x8878317cL, 0xc1444c5bL,
++	0x3b1d495fL, 0x72213478L, 0xa965b311L, 0xe059ce36L,
++	0x583bcfe8L, 0x1107b2cfL, 0xca4335a6L, 0x837f4881L,
++	0x79264d85L, 0x301a30a2L, 0xeb5eb7cbL, 0xa262caecL,
++	0x9e76c286L, 0xd74abfa1L, 0x0c0e38c8L, 0x453245efL,
++	0xbf6b40ebL, 0xf6573dccL, 0x2d13baa5L, 0x642fc782L,
++	0xdc4dc65cL, 0x9571bb7bL, 0x4e353c12L, 0x07094135L,
++	0xfd504431L, 0xb46c3916L, 0x6f28be7fL, 0x2614c358L,
++	0x1700aeabL, 0x5e3cd38cL, 0x857854e5L, 0xcc4429c2L,
++	0x361d2cc6L, 0x7f2151e1L, 0xa465d688L, 0xed59abafL,
++	0x553baa71L, 0x1c07d756L, 0xc743503fL, 0x8e7f2d18L,
++	0x7426281cL, 0x3d1a553bL, 0xe65ed252L, 0xaf62af75L,
++	0x9376a71fL, 0xda4ada38L, 0x010e5d51L, 0x48322076L,
++	0xb26b2572L, 0xfb575855L, 0x2013df3cL, 0x692fa21bL,
++	0xd14da3c5L, 0x9871dee2L, 0x4335598bL, 0x0a0924acL,
++	0xf05021a8L, 0xb96c5c8fL, 0x6228dbe6L, 0x2b14a6c1L,
++	0x34019664L, 0x7d3deb43L, 0xa6796c2aL, 0xef45110dL,
++	0x151c1409L, 0x5c20692eL, 0x8764ee47L, 0xce589360L,
++	0x763a92beL, 0x3f06ef99L, 0xe44268f0L, 0xad7e15d7L,
++	0x572710d3L, 0x1e1b6df4L, 0xc55fea9dL, 0x8c6397baL,
++	0xb0779fd0L, 0xf94be2f7L, 0x220f659eL, 0x6b3318b9L,
++	0x916a1dbdL, 0xd856609aL, 0x0312e7f3L, 0x4a2e9ad4L,
++	0xf24c9b0aL, 0xbb70e62dL, 0x60346144L, 0x29081c63L,
++	0xd3511967L, 0x9a6d6440L, 0x4129e329L, 0x08159e0eL,
++	0x3901f3fdL, 0x703d8edaL, 0xab7909b3L, 0xe2457494L,
++	0x181c7190L, 0x51200cb7L, 0x8a648bdeL, 0xc358f6f9L,
++	0x7b3af727L, 0x32068a00L, 0xe9420d69L, 0xa07e704eL,
++	0x5a27754aL, 0x131b086dL, 0xc85f8f04L, 0x8163f223L,
++	0xbd77fa49L, 0xf44b876eL, 0x2f0f0007L, 0x66337d20L,
++	0x9c6a7824L, 0xd5560503L, 0x0e12826aL, 0x472eff4dL,
++	0xff4cfe93L, 0xb67083b4L, 0x6d3404ddL, 0x240879faL,
++	0xde517cfeL, 0x976d01d9L, 0x4c2986b0L, 0x0515fb97L,
++	0x2e015d56L, 0x673d2071L, 0xbc79a718L, 0xf545da3fL,
++	0x0f1cdf3bL, 0x4620a21cL, 0x9d642575L, 0xd4585852L,
++	0x6c3a598cL, 0x250624abL, 0xfe42a3c2L, 0xb77edee5L,
++	0x4d27dbe1L, 0x041ba6c6L, 0xdf5f21afL, 0x96635c88L,
++	0xaa7754e2L, 0xe34b29c5L, 0x380faeacL, 0x7133d38bL,
++	0x8b6ad68fL, 0xc256aba8L, 0x19122cc1L, 0x502e51e6L,
++	0xe84c5038L, 0xa1702d1fL, 0x7a34aa76L, 0x3308d751L,
++	0xc951d255L, 0x806daf72L, 0x5b29281bL, 0x1215553cL,
++	0x230138cfL, 0x6a3d45e8L, 0xb179c281L, 0xf845bfa6L,
++	0x021cbaa2L, 0x4b20c785L, 0x906440ecL, 0xd9583dcbL,
++	0x613a3c15L, 0x28064132L, 0xf342c65bL, 0xba7ebb7cL,
++	0x4027be78L, 0x091bc35fL, 0xd25f4436L, 0x9b633911L,
++	0xa777317bL, 0xee4b4c5cL, 0x350fcb35L, 0x7c33b612L,
++	0x866ab316L, 0xcf56ce31L, 0x14124958L, 0x5d2e347fL,
++	0xe54c35a1L, 0xac704886L, 0x7734cfefL, 0x3e08b2c8L,
++	0xc451b7ccL, 0x8d6dcaebL, 0x56294d82L, 0x1f1530a5L
++};
++
++static u32 __crc32c_le(u32 crc, unsigned char const *data, size_t length)
++{
++	int n;
++	u32 *data32;
++
++	if (length < 8)
++		goto small;
++
++	/* Take care of 4-byte unaligned data at the beginning. */
++	n = 4 - (((unsigned long)data) & 3);
++	if (n < 4) {
++		length -= n;
++		while (n--)
++			crc = crc32c_table[(crc ^ *data++) & 0xff] ^ (crc >> 8);
++	}
++
++	data32 = (u32 *)data;
++	while (length >= 8) {
++		u32 t = *data32++ ^ crc;
++
++		crc  = crc32c_table[(7 << 8) + ((t >>  0) & 0xff)];
++		crc ^= crc32c_table[(6 << 8) + ((t >>  8) & 0xff)];
++		crc ^= crc32c_table[(5 << 8) + ((t >> 16) & 0xff)];
++		crc ^= crc32c_table[(4 << 8) + ((t >> 24) & 0xff)];
++		t = *data32++;
++		crc ^= crc32c_table[(3 << 8) + ((t >>  0) & 0xff)];
++		crc ^= crc32c_table[(2 << 8) + ((t >>  8) & 0xff)];
++		crc ^= crc32c_table[(1 << 8) + ((t >> 16) & 0xff)];
++		crc ^= crc32c_table[(0 << 8) + ((t >> 24) & 0xff)];
++		length -= 8;
++	}
++
++	/* Remaining stuff up to 7 bytes. */
++	data = (u8 *)data32;
++small:
++	while (length-- > 0)
++		crc = crc32c_table[(crc ^ *data++) & 0xff] ^ (crc >> 8);
++
++	return crc;
++}
++
++u32 crc32c_le(u32 crc, unsigned char const *data, size_t length)
++{
++	return __crc32c_le(crc, data, length);
++}
+diff --git a/mdcsrepair.8 b/mdcsrepair.8
+new file mode 100644
+index 0000000..677eecc
+--- /dev/null
++++ b/mdcsrepair.8
+@@ -0,0 +1,202 @@
++.\" See file COPYING in distribution for details.
++.TH MDCSREPAIR 8 "" v0.1
++.SH NAME
++mdcsrepair \- automatic disk corruption repairer using filesystem checksum
++
++.SH SYNOPSIS
++
++.BI mdcsrepair " [options] /dev/mdX start length badchksum goodchksum"
++
++.BI mdcsrepaird " [options]"
++
++.SH DESCRIPTION
++.BR mdcsrepair
++automatically repairs a corrupted RAID disk data block
++reported by the filesystem's data error detection mechanism
++such as BTRFS's checksumming (CRC) by reconstructing the correct data
++from RAID redundancy..
++
++.BR mdcsrepair
++is a stand-alone program run for each repair request.
++.BR mdcsrepair
++is normally spawned by the
++.BR mdcsrepaird
++daemon that listens to kernel messages about
++detected data corruptions via
++.IR netlink (7).
++
++.BR mdcsrepair
++currently supports RAID levels 1 (mirroring),
++5 (parity),
++6 (double-parity),
++and 10 (mirroring+striping).
++
++The target RAID disk system may have one or more failed disks
++(except for RAID level 5), but
++it must still keep redundancy for data reconstruction.
++
++.SH MDCSREPAIR ARGUMENTS
++.TP
++.B /dev/mdX
++The RAID device to repair.
++.TP
++.B start
++The starting byte position of the RAID device block to repair in decimal.
++.TP
++.B length
++The byte size of the RAID device block to repair in decimal.
++.TP
++.B badchksum
++The hexadecimal string of the detected (computed) checksum for the block.
++.TP
++.B goodchksum
++The hexadecimal string of the expected (recorded) checksum for the block.
++
++.SH MDCSREPAIR OPTIONS
++.TP
++.B \-B | \-\-invert-bad-chksum
++Inverts
++.IR badchksum
++bits for comparison.
++.TP
++.B \-G | \-\-invert-good-chksum
++Inverts
++.IR goodchksum
++bits for comparison.
++.TP
++.B \-X | \-\-xdebug
++Checks only if the RAID device really shows the badchksum symptom.
++.TP
++.B \-d | \-\-debug
++Prints out debug messages to stdout and log messages to stderr.
++.TP
++\fB\-b | \-\-bad-chksum=\fR\fIalgorithm\fR
++Algorithm name of the bad checksum computation (default is "crc32c_le").
++.TP
++\fB\-g | \-\-good-chksum=\fR\fIalgorithm\fR
++Algorithm name of the good checksum computation (default is "crc32c_le").
++.TP
++.B \-h | \-\-help
++Prints out help message.
++.TP
++.B \-l | \-\-log
++Logs to system log.
++.TP
++.B \-n | \-\-dry-run
++Will not modify disk contents.
++.TP
++.B \-v | \-\-verbose
++Prints out verbose messages to stdout.
++
++.SH MDCSREPAIRD OPTIONS
++.TP
++.B \-d
++Prints out debug messages to stdout and log messages to stderr.
++.TP
++\fB\-g\fR \fIseconds\fR
++Interval in seconds between internal rate control list garbage collections
++(default is 5 seconds).
++.TP
++.B \-h
++Prints out help message.
++.TP
++.B \-l
++Logs to system log (a \fB\-l\fR option is also passed to \fBmdcsrepair\fR).
++.TP
++.B \-n
++Disables spawning of \fBmdcsrepair\fR.
++.TP
++\fB\-o\fR \fI"mdcsrepair options"\fR
++Passes additional options to \fBmdcsrepair\fR.
++.TP
++\fB\-p\fR \fIrepairer\fR
++Uses an alternate repairer program name instead of \fBmdcsrepair\fR.
++.TP
++.B \-r
++Disables duplicated repair request rate limiting
++(i.e. all requests are processed
++even if duplicated in a short period of time).
++.TP
++.B \-v
++Prints out verbose messages to stdout.
++.TP
++.B \-x
++Prints out the XML message strings passed from the kernel to stdout.
++
++.SH KERNEL INTERFACE
++The \fBmdcsrepaird\fR daemon listens on a generic \fBnetlink\fR(7) socket
++with an identifier string of "VFS_MDCSREPAIR" to
++receive repair request in XML messages.
++Below are example XML messages whose content should be self-explanatory.
++
++<?xml version="1.0" encoding="UTF-8"?>
++  <mdcsrepair_netlink>
++    <data offset="65568" length="4064" position="disk"/>
++    <checksum expected="90e199da" computed="90e199da" length="4"
++      algorithm="crc32c_le"/>
++    <device major="9" minor="91" filesystem="btrfs"/>
++    <file inode="0"/>
++    <place function="btrfs_check_super_csum"/>
++.br
++  </mdcsrepair_netlink>
++
++<?xml version="1.0" encoding="UTF-8"?>
++  <mdcsrepair_netlink>
++    <data offset="5099520" length="4096" position="disk"/>
++    <checksum expected="b10998e0" computed="b10998e0" length="4"
++      algorithm="crc32c_le"/>
++    <device major="9" minor="91" filesystem="btrfs"/>
++    <file inode="569"/>
++    <place function="scrub_checksum_data"/>
++.br
++  </mdcsrepair_netlink>
++
++<?xml version="1.0" encoding="UTF-8"?>
++  <mdcsrepair_netlink>
++    <data offset="122880" length="4096" position="file"/>
++    <checksum expected="324399b0" computed="324399b0" length="4"
++      algorithm="crc32c_le"/>
++    <device major="0" minor="35" filesystem="btrfs"/>
++    <file inode="513"/>
++    <place function="btrfs_readpage_end_io_hook"/>
++.br
++  </mdcsrepair_netlink>
++
++XML messages are assembled and transmitted by special filesystem
++patch code. \fBBtrfs\fR is currently the only file system with such a patch.
++
++Depending on the request origin, kernel (filesystem) may be able to
++pass only indirect information for the repair, such as
++.TP
++.B anon vs. real device ID
++0:35 vs. 9:91 in the above examples.
++.TP
++.B file-relative vs. absolute on-disk position
++position="file" vs. position="disk" in the above examples.
++.PP
++It is the responsibility of the user space \fBmdcsrepaird\fR code to
++map these values to appropriate ones
++that \fBmdcsrepair\fR can correctly process.
++.SH FILES
++.TP
++.B /sys/block/\fImd-device\fB/md/stripe_cache_invalidate\fR
++The Linux RAID system holds data in stripe cache.
++In order to synchronize the RAID device read-outs to component device
++read-outs, \fBmdcsrepair\fR uses this entry
++that accepts an absolute RAID disk position in decimal to invalidate
++the stripe cache page containing the designated disk position.
++.TP
++.B /proc/fs/btrfs/mdcsrepair
++This entry accepts a string in the form of "\fIfile\fR\fB:\fR\fIfunction\fR"
++for debugging purposes.
++The kernel internal code for checksum checking compares the current
++function name and its source file name with the string and, if they match,
++submits a repair request even if there is no checksum error.
++A nil string in either part is considered as a wildcard,
++thus "\fB:\fR" would match
++any function in any file that performs checksum checking.
++.SH AUTHOR
++Hiro Sugawara
++
++.SH SEE ALSO
++.BR raid6check (8),
+diff --git a/mdcsrepair.c b/mdcsrepair.c
+new file mode 100644
+index 0000000..9597088
+--- /dev/null
++++ b/mdcsrepair.c
+@@ -0,0 +1,1297 @@
++/*
++ * mdcsrepair - repair of checksum-mismatching block for RAID-1/5/6/10
++ *
++ * This program code was greatly inspired by:
++ * raid6check - extended consistency check for RAID-6
++ * http://git.neil.brown.name/git?p=mdadm.git;a=blob_plain;f=raid6check.c;h=587ac3a8106335fd130ace7a56d74b62e32fb0d0;hb=3b9c96032c35515bda415dea54654cdb8af539eb
++ *
++ * Copyright (C) 2014 NETGEAR
++ * Copyright (C) 2014 Hiro Sugawara
++ *
++ *    This program is free software; you can redistribute it and/or modify
++ *    it under the terms of the GNU General Public License as published by
++ *    the Free Software Foundation; either version 2 of the License, or
++ *    (at your option) any later version.
++ *
++ *    This program is distributed in the hope that it will be useful,
++ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *    GNU General Public License for more details.
++ *
++ *    You should have received a copy of the GNU General Public License
++ *    along with this program; if not, write to the Free Software
++ *    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ *
++ *    Author: Piergiorgio Sartor
++ *    Based on "restripe.c" from "mdadm" codebase
++ */
++
++#include "mdadm.h"
++#include <stdint.h>
++#include <signal.h>
++#include <sys/mman.h>
++#include <getopt.h>
++#include <err.h>
++
++static int debug, do_modify = 1, verbose, forceQ, lopt;
++
++#define debug_printf(...)	\
++	{	\
++		if (debug) printf(__VA_ARGS__);	\
++	} while (0)
++
++#define verbose_printf(...)	\
++	{	\
++		if (verbose) printf(__VA_ARGS__);	\
++	} while (0)
++
++#define verbose_fprintf(...)	\
++	{	\
++		if (verbose) fprintf(__VA_ARGS__);	\
++	} while (0)
++
++#define THISORNUL(s) (s ? s : "")
++
++static void __warn(const char *fmt, ...)
++{
++	va_list ap;
++
++	va_start(ap, fmt);
++	if (!lopt || debug)
++		vwarn(fmt, ap);
++	va_end(ap);
++	va_start(ap, fmt);
++	if (lopt) {
++		char *msg;
++
++		vasprintf(&msg, fmt, ap);
++		syslog(LOG_WARNING, "%s: %s", msg, strerror(errno));
++		free(msg);
++	}
++	va_end(ap);
++}
++
++static void __warnx(const char *fmt, ...)
++{
++	va_list ap;
++
++	va_start(ap, fmt);
++	if (!lopt || debug)
++		vwarnx(fmt, ap);
++	va_end(ap);
++	va_start(ap, fmt);
++	if (lopt)
++		vsyslog(LOG_WARNING, fmt, ap);
++	va_end(ap);
++}
++
++#define __err(ec, ...)	do {__warn(__VA_ARGS__); exit((ec)); } while (0)
++#define __errx(ec, ...)	do {__warnx(__VA_ARGS__); exit((ec)); } while (0)
++
++#define	CHKSUM_INVERT	1
++typedef unsigned long u32;
++extern u32 crc32c_le(u32 seed, const uint8_t *data, size_t length);
++static void __crc32c(const uint8_t *data, size_t len, uint8_t *result,
++		unsigned int flags)
++{
++	u32 res = crc32c_le(~0, data, len);
++	if (flags & CHKSUM_INVERT)
++		res = ~res;
++	memcpy(result, &res, sizeof res);
++}
++
++extern u32 crc32(u32 seed, const uint8_t *data, size_t length);
++static void __crc32(const uint8_t *data, size_t len, uint8_t *result,
++		unsigned int flags)
++{
++	u32 res = crc32(~0, data, len);
++	if (flags & CHKSUM_INVERT)
++		res = ~res;
++	memcpy(result, &res, sizeof res);
++}
++
++static struct chksum {
++	const char *name;
++	void (*summer)(const uint8_t *, size_t, uint8_t *, unsigned int);
++	size_t len;
++	unsigned int flags;
++	uint8_t *value;
++} chksummer[] = {
++	{/* Default at top */
++		"crc32c_le",
++		__crc32c,
++		4,
++		0,
++		NULL,
++	},
++	{
++		"crc32_le",
++		__crc32,
++		4,
++		0,
++		NULL,
++	},
++	{ NULL, NULL, 0, 0, NULL, },
++};
++
++/*
++ * Convention:
++ *	slot = Physical disk layout indexed by md
++ *	disk = same as slot
++ *	cinx = chunk index. Logical chunk index 0...N-1,P,Q
++ */
++enum {BAD, GOOD};
++struct mdrepair {
++	unsigned long long mdstart;
++	ssize_t length;
++	int (*repairer)(struct mdinfo *info, struct mdrepair *rep);
++	struct chksum chksum[2];
++	unsigned long long tot_stripes;
++	unsigned long long start_stripe;
++	int dslots_per_stripe;
++	int near_copies;
++	int far_copies;	/* negative for "offset" */
++	int max_failed_disks;
++	const char *mddev;
++	int mdfd;
++
++	int data_disks;
++	int bad_cinx, bad_disk;
++
++	uint8_t **buf;
++	char **disk_name;
++	int *fd;
++	unsigned long long *disk_start;
++
++	uint8_t **buf_by_cinx;
++	int *cinx2disk;
++};
++
++#define	BUF(rep, n)	(&(rep)->buf[(rep)->length * (n)])
++
++static void set_chksummer(struct chksum *cs, const char *name)
++{
++	struct chksum *cst = &chksummer[0];
++	while (cst->name) {
++		if (!strcmp(cst->name, name)) {
++			*cs = *cst;
++			return;
++		}
++		cst++;
++	}
++	__errx(1, "invalid chksummer name '%s'", name);
++}
++
++void make_tables(void);
++int geo_map(int block, unsigned long long stripe, int raid_disks,
++	    int level, int layout);
++void qsyndrome(uint8_t *p, uint8_t *q, uint8_t **sources, int disks, int size);
++void make_tables(void);
++void ensure_zero_has_size(int chunk_size);
++extern uint8_t *zero;
++void raid6_datap_recov(int disks, size_t bytes, int faila, uint8_t **ptrs);
++void raid6_2data_recov(int disks, size_t bytes, int faila, int failb,
++		       uint8_t **ptrs);
++void xor_blocks(char *target, char **sources, int disks, int size);
++
++static void flush_stripe_cache(struct mdinfo *info, struct mdrepair *rep)
++{
++	switch (info->array.level) {
++	case 5:
++	case 6:
++		break;
++	default:
++		return;
++	}
++	while (sysfs_set_num(info, NULL,
++			"stripe_cache_invalidate", rep->mdstart))
++		if (errno == EBUSY)
++			usleep(1000);
++		else {
++			__warn("failed to flush stripe cache %s @ %llu",
++				rep->mddev, rep->mdstart);
++			break;
++		}
++}
++
++static void flush_vm_cache(void)
++{
++	system("echo 3 >/proc/sys/vm/drop_caches");
++}
++
++static void send_notification(const struct mdrepair *rep, const char *path, int status)
++{
++	char vol[64];
++	char *p;
++
++	if (path) {
++		strncpy(vol, path + 1, sizeof(vol));
++		vol[63] = '\0';
++		p = strchr(vol, '/');
++		if (p)
++			*p = '\0';
++	} else
++		vol[0] = '\0';
++
++	signal(SIGCHLD, SIG_IGN);
++	if (!fork()) {
++		execl("/usr/bin/rnutil", "bit_rot_event", vol,
++			THISORNUL(rep->disk_name[rep->bad_disk]), THISORNUL(path),
++			status ? "1" : "0", NULL);
++		exit(1);
++	}
++}
++
++static int lock_stripe(struct mdinfo *info, struct mdrepair *rep,
++		unsigned long long mdstart, sighandler_t *sig) {
++	int rv;
++	if (mlockall(MCL_CURRENT | MCL_FUTURE))
++		return 2;
++
++	sig[0] = signal(SIGTERM, SIG_IGN);
++	sig[1] = signal(SIGINT, SIG_IGN);
++	sig[2] = signal(SIGQUIT, SIG_IGN);
++
++	mdstart /= info->array.chunk_size * rep->dslots_per_stripe;
++	mdstart *= info->array.chunk_size * rep->dslots_per_stripe;
++	unsigned long long mdend = mdstart +
++			info->array.chunk_size * rep->dslots_per_stripe;
++
++	rv = sysfs_set_num(info, NULL, "suspend_lo", mdstart);
++	rv |= sysfs_set_num(info, NULL, "suspend_hi", mdend);
++	return rv * 256;
++}
++
++static int unlock_all_stripes(struct mdinfo *info, sighandler_t *sig) {
++	int rv;
++	rv = sysfs_set_num(info, NULL, "suspend_lo", 0x7FFFFFFFFFFFFFFFULL);
++	rv |= sysfs_set_num(info, NULL, "suspend_hi", 0);
++	rv |= sysfs_set_num(info, NULL, "suspend_lo", 0);
++
++	signal(SIGQUIT, sig[2]);
++	signal(SIGINT, sig[1]);
++	signal(SIGTERM, sig[0]);
++
++	if(munlockall() != 0)
++		return 3;
++	return rv * 256;
++}
++
++#define CHKSUM_BAD_OK(rep, cinx)	\
++		(!chksumcmp(&(rep)->chksum[BAD],	\
++				(rep)->buf_by_cinx[(cinx)], (rep)->length))
++#define CHKSUM_GOOD_OK(rep, cinx)	\
++		(!chksumcmp(&(rep)->chksum[GOOD],	\
++				(rep)->buf_by_cinx[(cinx)], (rep)->length))
++
++#define	cinxP(info)	((info)->array.raid_disks - 2)
++#define	cinxQ(info)	((info)->array.raid_disks - 1)
++#define	diskP(info, rep)	((rep)->cinx2disk[cinxP(info)])
++#define	diskQ(info, rep)	((rep)->cinx2disk[cinxQ(info)])
++
++enum PQX {P = -1, Q = -2};
++#define updateP(info, rep)	updatePQX((info), (rep), P)
++#define updateQ(info, rep)	updatePQX((info), (rep), Q)
++#define updateX(info, rep, x)	updatePQX((info), (rep), (x))
++
++static int updatePQX(struct mdinfo *info, struct mdrepair *rep, enum PQX pqx)
++{
++	int cinx = pqx;
++	int rv = 0;
++
++	switch (pqx) {
++	case P:
++		cinx = cinxP(info); break;
++	case Q:
++		cinx = cinxQ(info); break;
++	}
++
++	int disk = rep->cinx2disk[cinx];
++	errno = 0;
++	if (!do_modify)
++		return 0;
++	if (pwrite(rep->fd[disk], rep->buf[disk],
++		rep->length, rep->disk_start[disk]) != rep->length) {
++		rv = errno;
++		__warn("failed to write %ld bytes to %s @ %llu",
++			rep->length, rep->disk_name[disk],
++			rep->disk_start[disk]);
++	} else {
++		fsync(rep->fd[disk]);
++		flush_vm_cache();
++	}
++	return rv;
++}
++
++static void printchksum(const uint8_t *val, size_t len)
++{
++	while (len--)
++		printf("%02x", *val++);
++}
++
++static int chksumcmp(struct chksum *cs, uint8_t *data, size_t len)
++{
++	uint8_t *buffer = xmalloc(cs->len);
++	cs->summer(data, len, buffer, cs->flags);
++	int rv = memcmp(cs->value, buffer, cs->len);
++
++	if (debug) {
++		printf("Expected: ");
++		printchksum(cs->value, cs->len);
++		printf(" Computed: ");
++		printchksum(buffer, cs->len);
++		printf("\n");
++	}
++	free(buffer);
++	return rv;
++}
++
++static void raid56_map_cinx(struct mdinfo *info, struct mdrepair *rep)
++{
++	int i;
++	int diskP = geo_map(-1, rep->start_stripe, info->array.raid_disks,
++				info->array.level, info->array.layout);
++
++	rep->bad_cinx = (rep->mdstart/info->array.chunk_size) %
++				rep->dslots_per_stripe;
++	rep->bad_disk = geo_map(rep->bad_cinx, rep->start_stripe,
++					info->array.raid_disks,
++					info->array.level, info->array.layout);
++	rep->data_disks = info->array.raid_disks - (info->array.level - 4);
++
++	for (i = 0; i < rep->data_disks; i++) {
++		rep->cinx2disk[i] = geo_map(i, rep->start_stripe,
++					info->array.raid_disks,
++					info->array.level, info->array.layout);
++		rep->buf_by_cinx[i] = rep->buf[rep->cinx2disk[i]];
++	}
++
++	rep->cinx2disk[rep->data_disks] = diskP;
++	rep->buf_by_cinx[rep->data_disks] = rep->buf[diskP];
++
++	if (info->array.level == 6) {
++		int diskQ = geo_map(-2, rep->start_stripe,
++				info->array.raid_disks,
++				info->array.level, info->array.layout);
++		rep->cinx2disk[rep->data_disks + 1] = diskQ;
++		rep->buf_by_cinx[rep->data_disks + 1] = rep->buf[diskQ];
++	}
++}
++
++static void raid56_list_comp_disks(struct mdinfo *info, struct mdrepair *rep)
++{
++	int i;
++
++	printf("Component disks...\n");
++	for (i = 0; i < info->array.raid_disks; i++) {
++		const char *xb = "";
++		if (i == rep->bad_cinx)
++			xb = "*";
++
++		if (i == rep->data_disks)
++			printf("[P]");
++		else if (i == rep->data_disks + 1)
++			printf("[Q]");
++		else
++			printf("[%d%s]", i, xb);
++		printf("(%s) ",
++			(rep->fd[rep->cinx2disk[i]] >= 0) ? 
++			strrchr(rep->disk_name[rep->cinx2disk[i]], '/') + 1
++				: "F");
++	}
++	printf("\n");
++}
++
++static void list_cinx_except_bad_plus_pq(struct mdrepair *rep, int bad_cinx,
++					enum PQX pqx)
++{
++	int i;
++
++	for (i = 0; i < rep->data_disks; i++)
++		if (i != bad_cinx)
++			printf("[%d]", i);
++	switch (pqx) {
++	case P:
++		printf(" [P]"); break;
++	case Q:
++		printf(" [Q]"); break;
++	}
++}
++
++static void raid5_compute(struct mdinfo *info, struct mdrepair *rep,
++			int bad_cinx)
++{
++	/* Use bad chunk buffer for XOR. */
++	uint8_t *d = rep->buf_by_cinx[bad_cinx];
++	rep->buf_by_cinx[bad_cinx] = (uint8_t *)zero;
++
++	xor_blocks((char *)d, (char **)rep->buf_by_cinx,
++		info->array.raid_disks - (info->array.level - 5), rep->length);
++
++	rep->buf_by_cinx[bad_cinx] = d;
++}
++
++static int raid5_repair(struct mdinfo *info, struct mdrepair *rep)
++{
++	raid56_map_cinx(info, rep);
++	if (debug) {
++		raid56_list_comp_disks(info, rep);
++		printf("%s BAD  @ %llu ",
++			rep->disk_name[rep->bad_disk],
++			rep->disk_start[rep->bad_disk]);
++	}
++
++	if (!CHKSUM_BAD_OK(rep, rep->bad_cinx)) {
++		__warnx("%s @ %llu data read-out mismatches bad checksum.",
++			rep->disk_name[rep->bad_disk],
++			rep->disk_start[rep->bad_disk]);
++		return 1;
++	}
++
++	raid5_compute(info, rep, rep->bad_cinx);
++
++	if (debug) {
++		list_cinx_except_bad_plus_pq(rep, rep->bad_cinx, P);
++		printf("XORed GOOD @ %llu ", rep->disk_start[rep->bad_disk]);
++	}
++	if (!CHKSUM_GOOD_OK(rep, rep->bad_cinx)) {
++		__warnx("reconstructed data mismatches good checksum %s @ %llu",
++			rep->mddev, rep->mdstart);
++		return 1;
++	}
++
++	verbose_printf("Fixing: XOR => %s [%d]\n",
++				rep->disk_name[rep->bad_disk], rep->bad_cinx);
++	return updateX(info, rep, rep->bad_cinx);
++}
++
++/*
++ * RAID6 repair is the most complicated.
++ * White paper at https://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=1&ved=0CCQQFjAA&url=https%3A%2F%2Fwww.kernel.org%2Fpub%2Flinux%2Fkernel%2Fpeople%2Fhpa%2Fraid6.pdf&ei=yxn1UpOAKdCNrQHU7oGQBw&usg=AFQjCNEmQUesuWr5kxRdu9nURW0BwbSNdQ describes its mathematical nature and practical implemenation.
++ * Here are some digests of the algorithm.
++ * First, legend:
++ *   We have N (D0, D1, ..., DN-1) data drives + P and Q parity drives on the
++ *   stripe we are repairing. x is the suspicious driver letter (Dx).
++ *   SUM[Dn] stands for XOR of all data drives with suspicious and failed
++ *   (missing, fi any) drives' data all zeroed.
++ *   Likewise, Pxy and Qxy are P-parity and Q-syndrome of all Dn's with
++ *   suspicious and failed drives' data zeroed, respectively.
++ *   g is a Galoi generator represented by a polinominal
++ *   X7+X4+x3+x2+1.
++ *   g(n) means aplalying this generator n times.
++ *
++ * There are 6 distinctive case:
++ * CASE 1: All disks alive. Dx suspicious.
++ *         Match comes from Dn (n!=x) and P
++ *         DX=SUM[Dn]+P  ...(A)
++ *         Dx and Q corrected.
++ * CASE 2: All disks alive. Dx suspicious.
++ *         Match comes from Dn (n!=x) and Q
++ *         Dx=(SUM[g(n)*Dn]+Q)*g(-x)  ...(B)
++ *         Dx and P corrected.
++ * CASE 3: One data disk (Dy, not Dx) dead. Dx suspicious.
++ *         Match comes from Dn (n!=x && n!=y), P and Q
++ *         Dx=A*(P+Pxy)+B*(Q+Qxy)  ...(C)
++ *         Dx corrected.
++ * CASE 4: One data disk (Dx itself) dead. Dx suspicious.
++ *         Match comes from Dn (n!=x) and Q
++ *         Dx=(SUM[g(n)*Dn]+Q)*g(-x)  ...(B)
++ *         P corrected.
++ * CASE 5: Q disk dead. Dx suspicious.
++ *         Match comes from Dn (n!=x) and P
++ *         DX=SUM[Dn]+P  ...(A)
++ *         Dx corrected.
++ * CASE 6: P disk dead. Dx suspicious.
++ *         Match comes from Dn (n!=x) and Q
++ *         Dx=(SUM[g(n)*Dn]+Q)*g(-x)  ...(B)
++ *         Dx corrected.
++ */
++
++static void raid6_comp_from_n_Q(struct mdinfo *info, struct mdrepair *rep,
++				int bad_cinx)
++{
++	raid6_datap_recov(info->array.raid_disks, rep->length,
++			bad_cinx, (uint8_t **)rep->buf_by_cinx);
++}
++
++static void raid6_comp_from_P_Q(struct mdinfo *info, struct mdrepair *rep,
++				int bad_cinx, int failed_cinx)
++{
++	/* Failed disks must be in order. */
++	int faila = min(bad_cinx, failed_cinx);
++	int failb = max(bad_cinx, failed_cinx);
++	raid6_2data_recov(info->array.raid_disks, rep->length,
++			faila, failb, (uint8_t **)rep->buf_by_cinx);
++}
++
++static int raid6_repair(struct mdinfo *info, struct mdrepair *rep)
++{
++	int rv = 0;
++
++	raid56_map_cinx(info, rep);
++	if (debug) {
++		raid56_list_comp_disks(info, rep);
++		if (rep->fd[rep->bad_disk] >= 0) {
++			printf("Designated data on a live disk.\n");
++			printf("%s BAD  @ %llu ",
++				rep->disk_name[rep->bad_disk],
++				rep->disk_start[rep->bad_disk]);
++		}
++	}
++	if (rep->fd[rep->bad_disk] >= 0 &&
++		!CHKSUM_BAD_OK(rep, rep->bad_cinx) &&
++		!debug)
++		goto nobad;
++
++	debug_printf("Failed disks: %d\n", info->array.failed_disks);
++	switch (info->array.failed_disks) {
++	case 0:
++		raid5_compute(info, rep, rep->bad_cinx);
++		if (debug) {
++			printf(
++			"Reconstruct from data disks except [%d] with P\n",
++				rep->bad_cinx);
++			list_cinx_except_bad_plus_pq(rep, rep->bad_cinx, P);
++			printf(" %s GOOD @ %llu ",
++				rep->disk_name[diskP(info, rep)],
++				rep->disk_start[diskP(info, rep)]);
++		}
++		if (CHKSUM_GOOD_OK(rep, rep->bad_cinx) && !forceQ) {
++			verbose_printf("Fixing: XOR => %s [%d]\n",
++					rep->disk_name[rep->bad_disk],
++					rep->bad_cinx);
++			if ((rv = updateX(info, rep, rep->bad_cinx)))
++				break;
++			if (debug)
++				list_cinx_except_bad_plus_pq(rep, -1, Q);
++			uint8_t *q = xmalloc(rep->length);
++			qsyndrome(rep->buf_by_cinx[cinxP(info)], q,
++					rep->buf_by_cinx,
++					rep->data_disks, rep->length);
++			int qmismatch = memcmp(q,
++					rep->buf_by_cinx[cinxQ(info)],
++					rep->length);
++			memcpy(rep->buf_by_cinx[cinxQ(info)], q, rep->length);
++			free(q);
++			debug_printf(" %s Q-syn @ %llu %smatch\n",
++				rep->disk_name[diskQ(info, rep)],
++				rep->disk_start[diskQ(info, rep)],
++				qmismatch ? "mis" : "");
++			if (!qmismatch)
++				break;
++			verbose_printf("Fixing: XOR^Q-syn => %s [Q]\n",
++					rep->disk_name[diskQ(info, rep)]);
++			if ((rv = updateQ(info, rep)))
++				break;
++		} else {/* P failed to restore. Try Q. */
++			raid6_comp_from_n_Q(info, rep, rep->bad_cinx);
++			if (debug) {
++				printf(
++			"Reconstruct from data disks except [%d] with Q\n",
++				rep->bad_cinx);
++				list_cinx_except_bad_plus_pq(rep,
++							rep->bad_cinx, Q);
++				printf(" %s GOOD @ %llu ",
++					rep->disk_name[diskQ(info, rep)],
++					rep->disk_start[diskQ(info, rep)]);
++			}
++			if (!CHKSUM_GOOD_OK(rep, rep->bad_cinx))
++				goto nogood;
++			verbose_printf("Fixing: Q-syn => %s [%d]\n",
++					rep->disk_name[rep->bad_disk],
++					rep->bad_cinx);
++			if ((rv = updateX(info, rep, rep->bad_cinx)))
++				break;
++			verbose_printf("Fixing: Q-syn => %s [P]\n",
++					rep->disk_name[diskP(info, rep)]);
++			if ((rv = updateP(info, rep)))
++				break;
++		}
++		break;
++	case 1:
++		if (rep->fd[diskQ(info, rep)] < 0) {
++			raid5_compute(info, rep, rep->bad_cinx);
++			if (debug) {
++				list_cinx_except_bad_plus_pq(rep,
++							rep->bad_cinx, P);
++				printf(" Recon'ed from P-par GOOD ");
++			}
++			if (!CHKSUM_GOOD_OK(rep, rep->bad_cinx))
++				goto nogood;
++			verbose_printf("Fixing: XOR => %s [%d]\n",
++					rep->disk_name[rep->bad_disk],
++					rep->bad_cinx);
++			rv = updateX(info, rep, rep->bad_cinx);
++		} else if (rep->fd[diskP(info, rep)] < 0) {
++			raid6_comp_from_n_Q(info, rep, rep->bad_cinx);
++			if (debug) {
++				list_cinx_except_bad_plus_pq(rep,
++							rep->bad_cinx, P);
++				printf(" Recon'ed from Q-syn GOOD ");
++			}
++			if (!CHKSUM_GOOD_OK(rep, rep->bad_cinx))
++				goto nogood;
++			verbose_printf("Fixing: Q-syn => %s [%d]\n",
++					rep->disk_name[rep->bad_disk],
++					rep->bad_cinx);
++			rv = updateX(info, rep, rep->bad_cinx);
++		} else if (rep->fd[rep->bad_disk] < 0) {
++			/* Data is reconstructed with P.
++			   First, reconstruct Dx from P. */
++			raid5_compute(info, rep, rep->bad_cinx);
++			if (debug) {
++				list_cinx_except_bad_plus_pq(rep,
++							rep->bad_cinx, Q);
++				printf(" %s BAD  @ %llu ",
++					rep->disk_name[diskP(info, rep)],
++					rep->disk_start[diskP(info, rep)]);
++			}
++			if (!CHKSUM_BAD_OK(rep, rep->bad_cinx))
++				goto nobad;
++			/* Then reconstruct Dx from Q. */
++			raid6_comp_from_n_Q(info, rep, rep->bad_cinx);
++			if (debug) {
++				list_cinx_except_bad_plus_pq(rep,
++							rep->bad_cinx, Q);
++				printf(" Recon'ed from Q-syn GOOD ");
++			}
++			if (!CHKSUM_GOOD_OK(rep, rep->bad_cinx))
++				goto nogood;
++			verbose_printf("Fixing: Q-syn => %s [P]\n",
++					rep->disk_name[diskP(info, rep)]);
++			updateP(info, rep);
++		} else {/* Non-suspicious data disk is missing.
++			   Good data to be rebuilt from remaining w/ P & Q. */
++			int f_cinx;
++
++			for (f_cinx = 0;
++				f_cinx < rep->data_disks; f_cinx++)
++				if (f_cinx != rep->bad_cinx &&
++					rep->fd[rep->cinx2disk[f_cinx]] < 0)
++					break;
++			if (f_cinx >= rep->data_disks) {
++				rv = 1;
++				__warnx("cannot find failed drive %s @ %llu",
++					rep->mddev, rep->mdstart);
++				break;
++			}
++			raid6_comp_from_P_Q(info, rep, rep->bad_cinx, f_cinx);
++			if (debug) {
++				int i;
++
++				for (i = 0; i < rep->data_disks; i++)
++					if (i != rep->bad_cinx &&
++						i != f_cinx)
++						printf("[%d]", i);
++				printf("[P][Q] Recon'ed from P&Q GOOD ");
++			}
++			if (!CHKSUM_GOOD_OK(rep, rep->bad_cinx))
++				goto nogood;
++			verbose_printf("Fixing: XOR & Q-syn => %s [%d]\n",
++					rep->disk_name[rep->bad_disk],
++					rep->bad_cinx);
++			updateX(info, rep, rep->bad_cinx);
++		}
++		break;
++	}
++
++	return rv;
++
++nobad:
++	__warnx("component read-out mismatches bad checksum %s @ %llu",
++		rep->mddev, rep->mdstart);
++	return 1;
++
++nogood:
++	__warnx("reconstructed data mismatches good checksum %s @ %llu",
++		rep->mddev, rep->mdstart);
++	return 1;
++}
++
++static int raid1_repair(struct mdinfo *info, struct mdrepair *rep)
++{
++	int bad_disk = -1, good_disk = -1, i;
++
++	if (debug) {
++		for (i = 0; i < info->array.raid_disks; i++) {
++			if (rep->disk_start[i] == ~0ULL)
++				continue;
++			printf("[%d](%s) ", i, 
++			(rep->fd[i] >= 0) ?  strrchr(rep->disk_name[i], '/') + 1
++					  : "F");
++		}
++		printf("\n");
++	}
++
++	for (i = 0; i < info->array.raid_disks; i++) {
++		if (rep->fd[i] < 0)
++			continue;
++		debug_printf("%s BAD  @ %llu ",
++				rep->disk_name[i], rep->disk_start[i]);
++		if (!chksumcmp(&rep->chksum[BAD], rep->buf[i], rep->length))
++			bad_disk = i;
++
++		debug_printf("%s GOOD @ %llu ",
++				rep->disk_name[i], rep->disk_start[i]);
++		if (!chksumcmp(&rep->chksum[GOOD], rep->buf[i], rep->length))
++			good_disk = i;
++		else
++			rep->buf_by_cinx[i] = (uint8_t *)1;
++	}
++
++	if (bad_disk < 0) {
++		__warnx("cannot find component with bad checksum %s @ %llu",
++			rep->mddev, rep->mdstart);
++		return 1;
++	}
++
++	if (good_disk < 0) {
++		__warnx("cannot find component with good checksum %s @ %llu",
++			rep->mddev, rep->mdstart);
++		return 1;
++	}
++
++	int rv = 0;
++	for (i = 0; i < info->array.raid_disks; i++)
++		if (rep->buf_by_cinx[i]) {
++			verbose_printf("Fixing: %s => %s [%d]\n",
++					rep->disk_name[good_disk],
++					rep->disk_name[i], i);
++			if (do_modify) {
++				if (pwrite64(rep->fd[i],
++					rep->buf[good_disk], rep->length,
++					rep->disk_start[i]) != rep->length) {
++					rv |= errno;
++					__warn(
++				"failed to write %ld bytes to %s @ %llu",
++						rep->length, rep->disk_name[i],
++						rep->disk_start[i]);
++				} else {
++					fsync(rep->fd[i]);
++					flush_vm_cache();
++				}
++			} 
++		}
++
++	return rv;
++}
++
++static unsigned long long
++raid10_disk_start(unsigned int disk, struct mdinfo *info, struct mdrepair *rep)
++{
++	unsigned long long chunk = ~0ULL;
++	unsigned long long ts = rep->tot_stripes;
++	unsigned long long ss = rep->start_stripe;
++	int near = rep->near_copies;
++	int far = rep->far_copies;
++	int disks = info->array.raid_disks;
++
++	if (far > 0) {/* NEAR (plus FAR) layout */
++		/* n3f1 on 5 drives example */
++		/* A0  A0  A0  A1  A1
++		   A1  A2  A2  A2  A3
++		   A3  A3  A4  A4  A4
++		   A5  A5  A5  A6  A6
++		   A6  A7  A7  A7  A8
++		   ...  */
++		/* n1f3 on 5 drives example (x: number of stripes) */
++		/* A0  A1  A2  A3  A4
++		   A5  A6  A7  A8  A9
++		   ...             Ax-1
++		   A4  A0  A1  A2  A3
++		   A9  A5  A5  A7  A8
++		   ...             Ax-2
++		   A3  A4  A0  A1  A2
++		   A8  A9  A5  A5  A7
++		   ...             Ax-3 */
++		/* n2f2 on 5 drives example */
++		/* A0  A0  A1  A1  A2
++		   A2  A3  A3  A4  A4
++		   ...
++		   A1  A2  A0  A0  A1
++		   A4  A4  A2  A3  A3
++		   ... */
++		int f, n;
++		for (f = 0; f < far; f++)
++			for (n = 0; n < near; n++)
++				if (((ss + ts*f) * near + near*f + n)%disks
++					== disk) {
++						chunk =
++						((ss + ts*f) * near + n)/disks;
++					goto done;
++				}
++	} else {/* OFFSET layout */
++		/* o3 on 5 drives example */
++		/* A0  A1  A2  A3  A4
++		   A4  A0  A1  A2  A3
++		   A3  A4  A0  A1  A2
++		   A5  A6  A7  A8  A9
++		   A9  A5  A6  A7  A8
++		   A8  A9  A5  A6  A7
++		   A10 A11 A12 A13 A14
++		   A14 A10 A11 A12 A13
++		   A13 A14 A10 A11 A12
++		   ...  */
++		int f;
++		far = abs(far);
++		for (f = 0; f < far; f++)
++			if ((ss + f) % disks == disk) {
++				chunk = (ss/disks) * far + f;
++				goto done;
++			}
++	}
++	return ~0ULL;
++
++done:
++	return chunk * info->array.chunk_size +
++			(rep->mdstart % info->array.chunk_size);
++}
++
++static int raid10_repair(struct mdinfo *info, struct mdrepair *rep)
++{
++	return raid1_repair(info, rep);
++}
++
++static void usage(FILE *fp, const char *name, int ec)
++{
++	fprintf(fp,
++"Usage: %s [options] /dev/mdX <start> <length> <badchksum> <goodchksum>\n"
++"       <start> and <length> are in decimal. <chksums> are in hexadecimal\n"
++"       -B|--invert-bad-chksum  Invert bad (computed) checksum bits\n"
++"       -G|--invert-good-chksum  Invert good (expected) checksum bits\n"
++"       -Q|--force-Q  Force to use Q when both P and Q are usable\n"
++"       -X|--xdebug   Verify bad (computed) checksum and exit\n"
++"       -d|--debug    Print out debug messages\n"
++"       -b|--bad-chksum=<name>  Bad (computed) checksum algorithm\n"
++"       -g|--good-chksum=<name> Good (expected) checksum algorithm\n"
++"       -l|--log      Log to system log\n"
++"       -n|--dry-run  Do not modify disk\n"
++"       -v|--verbose\n",
++			name);
++	exit(ec);
++}
++
++void parsechksum(const char *str, uint8_t *crc, size_t len)
++{
++	errno = EINVAL;
++	if (strlen(str) != len * 2)
++		__err(1, "Illegal checksum length (%s)", str);
++	errno = 0;
++	const char *p = str;
++	while (len--) {
++		char xdigits[3];
++
++		memcpy(xdigits, p, 2);
++		xdigits[2] = '\0';
++		p += 2;
++		*crc++ = strtoul(xdigits, NULL, 16);
++		if (errno)
++			__err(1, "Illegal checksum string (%s)", str);
++	}
++}
++
++static void exit_failed_disks(const char *mddev, int level, int avail, int all)
++{
++	__errx(3, "%s degraded - too few good drives for level %d (%d/%d)",
++		mddev, level, avail, all);
++}
++
++int main(int argc, char **argv)
++{
++	int raid_disks = 0;
++	int active_disks;
++	int chunk_size = 0;
++	unsigned long long start;
++	size_t length;
++	int i;
++	struct mdinfo *info = NULL, *comp = NULL;
++	char *prg = strrchr(argv[0], '/');
++	uint8_t *buffer = NULL;
++	uint8_t *lbuf = NULL;
++	unsigned long long comp_sizeB;
++	int xdebug = 0;
++	int invert_bad_chksum = 0, invert_good_chksum = 0;
++
++	struct mdrepair rep;
++
++	memset(&rep, sizeof rep, 0);
++	rep.chksum[BAD]  = chksummer[0];
++	rep.chksum[GOOD] = chksummer[0];
++
++	if (prg == NULL)
++		prg = argv[0];
++	else
++		prg++;
++
++	while (1) {
++		int option_index = 0;
++		static struct option long_options[] = {
++			{"Q", 0, 0, 'Q'},
++			{"invert-bad-chksum", 0, 0, 'B'},
++			{"invert-good-chksum", 0, 0, 'G'},
++			{"force-Q", 1, 0, 'Q'},
++			{"xdebug", 0, 0, 'X'},
++			{"bad-chksum", 1, 0, 'b'},
++			{"good-chksum", 1, 0, 'g'},
++			{"debug", 0, 0, 'd'},
++			{"dry-run", 0, 0, 'n'},
++			{"help", 0, 0, 'h'},
++			{"log", 0, 0, 'l'},
++			{"verbose", 0, 0, 'v'},
++			{0, 0, 0, 0},
++		};
++
++		int c = getopt_long(argc, argv, "BGQbdghlnvX",
++				long_options, &option_index);
++		if (c < 0)
++			break;
++		switch (c) {
++		case 'B':
++			invert_bad_chksum = 1;
++			break;
++		case 'G':
++			invert_good_chksum = 1;
++			break;
++		case 'Q':
++			forceQ = 1;
++			break;
++		case 'b':
++			set_chksummer(&rep.chksum[BAD], optarg);
++			break;
++		case 'g':
++			set_chksummer(&rep.chksum[GOOD], optarg);
++			break;
++		case 'd':
++			debug = 1;
++			break;
++		case 'l':
++			lopt = 1;
++			break;
++		case 'n':
++			do_modify = 0;
++			break;
++		case 'v':
++			verbose++;
++			break;
++		case 'X':
++			xdebug++;
++			break;
++		case '?':
++		case 'h':
++			usage(stdout, prg, 0);
++			break;
++		default:
++			usage(stderr, prg, 1);
++			break;
++		}
++	}
++
++	argv += optind;
++	argc -= optind;
++	if (argc != 5 && argc != 6)
++		usage(stderr, prg, argc);
++
++	if (lopt)
++		openlog(basename(prg), LOG_PID, LOG_USER);
++
++	errno = 0;
++	start = strtoull(argv[1], NULL, 10);
++	if (errno)
++		__err(1, "Bad start position (%s)", argv[2]);
++	length = strtoull(argv[2], NULL, 10);
++	if (errno)
++		__err(1, "Bad length (%s)", argv[2]);
++	rep.length = length;
++
++	rep.chksum[BAD].value = malloc(rep.chksum[BAD].len);
++	rep.chksum[GOOD].value = malloc(rep.chksum[GOOD].len);
++
++	parsechksum(argv[3], rep.chksum[BAD].value, rep.chksum[BAD].len);
++	parsechksum(argv[4], rep.chksum[GOOD].value, rep.chksum[GOOD].len);
++	if (invert_bad_chksum)
++		rep.chksum[BAD].flags |= CHKSUM_INVERT;
++	if (invert_good_chksum)
++		rep.chksum[GOOD].flags |= CHKSUM_INVERT;
++
++	errno = EAGAIN;
++	if (rep.chksum[BAD].len == rep.chksum[GOOD].len &&
++		!memcmp(rep.chksum[BAD].value, rep.chksum[GOOD].value,
++			rep.chksum[BAD].len))
++		__errx(1, "Good and bad checksums are identical");
++
++	rep.mddev = argv[0];
++	rep.mdfd = open(rep.mddev, O_RDONLY);
++	if (rep.mdfd < 0)
++		__err(2, "cannot open %s", rep.mddev);
++	lbuf = xmalloc(length);
++
++	if (xdebug) {
++		if (pread64(rep.mdfd, lbuf, length, start) != (ssize_t)length)
++			__warn("cannot read %lu bytes from %s @ %llu",
++				length, rep.mddev, start);
++		else
++			chksumcmp(&rep.chksum[BAD], lbuf, length);
++		close(rep.mdfd);
++		free(lbuf);
++		return 0;
++	}
++
++	info = sysfs_read(rep.mdfd, NULL,
++			  GET_CHUNK|
++			  GET_LEVEL|
++			  GET_LAYOUT|
++			  GET_DISKS|
++			  GET_DEGRADED |
++			  GET_COMPONENT|
++			  /*GET_CH*/
++			  GET_DEVS|
++			  GET_MISMATCH|
++			  GET_OFFSET|
++			  GET_SIZE);
++
++	if (!info)
++		__err(9, "Error reading sysfs information of %s", rep.mddev);
++
++	raid_disks = info->array.raid_disks;
++	chunk_size = info->array.chunk_size;
++	if (!chunk_size)
++		info->array.chunk_size = chunk_size = 4096;
++	rep.repairer = raid6_repair;
++	comp_sizeB = info->component_size * 512;
++	rep.tot_stripes = comp_sizeB/chunk_size;
++
++	switch (info->array.level) {
++	case 1:
++		rep.dslots_per_stripe = 1;
++		rep.max_failed_disks = raid_disks - 2;
++		rep.repairer = raid1_repair;
++		break;
++	case 5:
++		rep.repairer = raid5_repair;
++	case 6:
++		rep.dslots_per_stripe = raid_disks - (info->array.level - 4);
++		rep.max_failed_disks = info->array.level - 5;
++		break;
++	case 10:
++		rep.near_copies = info->array.layout & 0xff;
++		rep.far_copies = (info->array.layout >> 8) & 0xff;
++		if (info->array.layout & 0x10000)
++			rep.far_copies *= -1;
++		rep.dslots_per_stripe = 1;
++		rep.tot_stripes *= info->array.raid_disks;
++		rep.tot_stripes /= rep.near_copies * abs(rep.far_copies);
++		rep.repairer = raid10_repair;
++		break;
++	default:
++		errno = EINVAL;
++		err(3, "%s is not a suppoted RAID device (level=%d)",
++			rep.mddev, info->array.level);
++	}
++
++	
++	unsigned long long mdsize =
++			chunk_size * rep.tot_stripes * rep.dslots_per_stripe;
++	if (verbose) {
++		printf("        device: %s\n", rep.mddev);
++		printf("         level: %d\n", info->array.level);
++		printf("        layout: %d", info->array.layout);
++		if (info->array.level == 10) {
++			int more = 0;
++			printf(" (");
++			if (rep.far_copies < 0)
++				more += printf("%sOFFSETx%d",
++						more ? " " : "",
++						-rep.far_copies);
++			if (rep.far_copies > 1)
++				more += printf("%sFARx%d",
++						more ? " " : "",
++						rep.far_copies);
++			if (rep.near_copies > 1)
++				more += printf("%sNEARx%d",
++						more ? " " : "",
++						rep.near_copies);
++			printf(")");
++		}
++		printf("\n");
++		printf("         disks: %d\n", raid_disks);
++		/* component_size: sctrs (1KiB blks in /sys) used for stripes */
++		printf("component size: %llu (%lluMiB)\n",
++			comp_sizeB, comp_sizeB/(1024 * 1024));
++		printf(" total stripes: %llu\n", rep.tot_stripes);
++		printf("    chunk size: %d (%uKiB)\n",
++			chunk_size, chunk_size/1024);
++		printf("    total size: %llu (%lluMiB)\n",
++			mdsize, mdsize/(1024 * 1024));
++		printf("mismatch count: %d\n", info->mismatch_cnt);
++		printf("\n");
++	}
++
++	if (!debug && info->array.failed_disks > rep.max_failed_disks) {
++		exit_failed_disks(rep.mddev, 
++			info->array.level,
++			raid_disks - info->array.failed_disks,
++			raid_disks);
++	}
++
++	errno = EIO;
++	if ((start & ~(chunk_size - 1)) !=
++		((start + length - 1) & ~(chunk_size - 1)))
++		__err(1, "data cannot cross chunk (%dB) boundary", chunk_size);
++	if (start + length >= mdsize)
++		__err(1, "start + length out of range");
++
++	rep.mdstart = start;
++	if (verbose) {
++		for (i = 0, active_disks = 0, comp = info->devs;
++			comp && i < raid_disks; i++, comp = comp->next) {
++			printf(
++		"disk: %d - offset: %llu - size: %llu - name: %s - slot: %d\n",
++				i, comp->data_offset * 512,
++				comp->component_size * 512,
++				map_dev(comp->disk.major, comp->disk.minor, 0),
++				comp->disk.raid_disk);
++			if (comp->disk.raid_disk >= 0)
++				active_disks++;
++		}
++		printf("\n");
++	}
++
++	rep.disk_name = xmalloc(raid_disks * sizeof(*rep.disk_name));
++	rep.disk_start = xmalloc(raid_disks * sizeof(*rep.disk_start));
++	rep.fd = xmalloc(raid_disks * sizeof(*rep.fd));
++	buffer = xmalloc(raid_disks * length);
++	rep.buf = xmalloc(raid_disks * sizeof *rep.buf);
++
++	for (i = 0; i < raid_disks; i++) {
++		rep.fd[i] = -1;
++		rep.buf[i] = buffer + length * i;
++	}
++
++	size_t stripe_size = chunk_size * rep.dslots_per_stripe;
++	rep.start_stripe = start/stripe_size;
++	int failed_disks = 0;
++
++	for (i = 0, active_disks = 0, comp = info->devs;
++		comp && i < raid_disks; i++, comp = comp->next) {
++		int disk = comp->disk.raid_disk;
++		if (disk < 0)
++			continue;
++
++		rep.disk_name[disk] =
++			map_dev(comp->disk.major, comp->disk.minor, 0);
++		switch (info->array.level) {
++		case 1:
++		case 5:
++		case 6:
++			rep.disk_start[disk] =
++					(start/stripe_size) * chunk_size +
++					start % chunk_size;
++			break;
++		case 10:
++			rep.disk_start[disk] =
++					raid10_disk_start(disk, info, &rep);
++			if (rep.disk_start[disk] == ~0ULL)
++				continue;
++			break;
++		default:
++			__errx(1, "Unsupported RAID level (%d)",
++				info->array.level);
++		}
++
++		rep.disk_start[disk] += comp->data_offset * 512;
++		rep.fd[disk] = open(rep.disk_name[disk], O_RDWR);
++		if (rep.fd[disk] < 0) {
++			__warn("cannot open %s", rep.disk_name[disk]);
++			failed_disks++;
++		}
++
++		if (pread64(rep.fd[disk], rep.buf[disk], length,
++				rep.disk_start[disk]) != (ssize_t)length) {
++				__warn(
++			"failed to read %lu bytes from %s @ %llu",
++					length,
++					rep.disk_name[disk],
++					rep.disk_start[disk]);
++			close(rep.fd[disk]);
++			rep.fd[disk] = -1;
++			/* Reading failed. */
++			memset(rep.buf[disk], 0, length);
++		} else {
++			active_disks++;
++			fsync(rep.fd[disk]);
++		}
++	}
++
++	if (!debug && failed_disks > rep.max_failed_disks)
++		exit_failed_disks(rep.mddev, 
++			info->array.level,
++			info->array.raid_disks - failed_disks,
++			info->array.raid_disks);
++
++	make_tables();
++	ensure_zero_has_size(length);
++	rep.buf_by_cinx = xcalloc(info->array.raid_disks *
++					sizeof *rep.buf_by_cinx, 1);
++	rep.cinx2disk = xmalloc(info->array.raid_disks *
++					sizeof *rep.cinx2disk);
++
++	sighandler_t sig[3];
++	int rv = lock_stripe(info, &rep, start, sig);
++	if (rv) {
++		__warn("failed to lock stripe %s @ %llu", rep.mddev, start);
++		goto unlockall;
++	}
++
++	flush_vm_cache();
++	flush_stripe_cache(info, &rep);
++	flush_vm_cache();
++
++	if (pread64(rep.mdfd, lbuf, length, start) != (ssize_t)length) {
++		__warn("cannot read %lu bytes from %s @ %llu.",
++			length, rep.mddev, start);
++		goto unlockall;
++	}
++
++	debug_printf("%s BAD  @ %llu ", rep.mddev, start);
++	if (chksumcmp(&rep.chksum[BAD], lbuf, length)) {
++		__warnx("designated data mismatches bad checksum %s @ %llu",
++			rep.mddev, start);
++		if (!debug)
++			goto unlockall;
++	}
++
++	rv = rep.repairer(info, &rep);
++	if (rv) {
++		__warnx("repairing %s @ %llu [%s] failed.",
++			rep.mddev, start, THISORNUL(argv[5]));
++		send_notification(&rep, argv[5], 0);
++	} else {
++		flush_stripe_cache(info, &rep);
++		__warnx("repairing %s @ %llu [%s] succeeded.\n",
++			rep.mddev, start, THISORNUL(argv[5]));
++		send_notification(&rep, argv[5], 1);
++	}
++unlockall:
++	unlock_all_stripes(info, sig);
++
++	for (i = 0; i < raid_disks; i++)
++		if (rep.fd[i] >= 0)
++			close(rep.fd[i]);
++
++	free(lbuf);
++	free(rep.cinx2disk);
++	free(rep.buf_by_cinx);
++	close(rep.mdfd);
++	free(rep.buf);
++	free(buffer);
++	free(rep.fd);
++	free(rep.disk_name);
++	free(rep.disk_start);
++	free(rep.chksum[GOOD].value);
++	free(rep.chksum[BAD].value);
++
++	sysfs_free(info);
++	closelog();
++
++	return rv;
++}
+diff --git a/mdcsrepaird.c b/mdcsrepaird.c
+new file mode 100644
+index 0000000..73ea586
+--- /dev/null
++++ b/mdcsrepaird.c
+@@ -0,0 +1,863 @@
++/*
++ * mdcsrepaird - daemon for repair of checksum-mismatching block
++ * for RAID-1/5/6/10
++ *
++ * Copyright (C) 2014 NETGEAR
++ * Copyright (C) 2014,2015 Hiro Sugawara
++ *
++ *    This program is free software; you can redistribute it and/or modify
++ *    it under the terms of the GNU General Public License as published by
++ *    the Free Software Foundation; either version 2 of the License, or
++ *    (at your option) any later version.
++ *
++ *    This program is distributed in the hope that it will be useful,
++ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *    GNU General Public License for more details.
++ *
++ *    You should have received a copy of the GNU General Public License
++ *    along with this program; if not, write to the Free Software
++ *    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ *
++ *    Author: Hiro Sugawara
++ */
++
++#include "mdadm.h"
++#include <sys/types.h>
++#include <sys/wait.h>
++#include <unistd.h>
++#include <stdlib.h>
++#include <stdbool.h>
++#include <stdio.h>
++#include <string.h>
++#include <err.h>
++#include <alloca.h>
++#include <time.h>
++#include <ctype.h>
++#include <sys/socket.h>
++#include <linux/fs.h>
++#include <linux/fiemap.h>
++#include <linux/dm-ioctl.h>
++#include <libxml/parser.h>
++#include <libxml/tree.h>
++#include <pthread.h>
++
++#define	RATE_DELAY	5
++#define	GC_INTERVAL	10
++
++static bool dopt, lopt, nopt, ropt, vopt, xopt;
++static char *repairer;
++
++#define __err(ec, ...)	do {__warn(__VA_ARGS__); exit((ec));} while(0);
++#define __errx(ec, ...)	do {__warnx(__VA_ARGS__); exit((ec));} while(0);
++
++static void __warn(const char *fmt, ...)
++{
++	va_list ap;
++
++	if (!lopt || dopt) {
++		va_start(ap, fmt);
++		vwarn(fmt, ap);
++		va_end(ap);
++	}
++	if (lopt) {
++		char *msg;
++
++		va_start(ap, fmt);
++		vasprintf(&msg, fmt, ap);
++		syslog(LOG_WARNING, "%s: %s", msg, strerror(errno));
++		free(msg);
++		va_end(ap);
++	}
++}
++
++static void __warnx(const char *fmt, ...)
++{
++	va_list ap;
++
++	if (!lopt || dopt) {
++		va_start(ap, fmt);
++		vwarnx(fmt, ap);
++		va_end(ap);
++	}
++	if (lopt) {
++		va_start(ap, fmt);
++		vsyslog(LOG_WARNING, fmt, ap);
++		va_end(ap);
++	}
++}
++
++/*
++ * Determines if the given set of dev/pos/len combination has not been
++ * found recently and thus it is to be processed (rate limiting).
++ * "gonly" makes do garbage-collection only/
++ */
++static bool newrepair(const char *device,
++			const char *position, const char *length, bool gconly)
++{
++	char mykey[256];
++	time_t now = time(NULL);
++	struct ratelink *rlp, *prev = NULL, *match = NULL;
++	static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
++
++	static struct ratelink {
++		char *key;
++		time_t expire;
++		struct ratelink *next;
++	} *ratelink;
++
++	if (!gconly && snprintf(mykey, sizeof mykey, "%s %s@%s",
++			device, position, length) >= (int)sizeof mykey)
++		err(1, "%s: mykey overflowed.", __func__);
++
++	pthread_mutex_lock(&mutex);
++	rlp = ratelink;
++	while (rlp) {
++		if (rlp->expire <= now) {
++			do {
++				struct ratelink *next = rlp->next;
++				free(rlp->key);
++				free(rlp);
++				rlp = next;
++			} while (rlp);
++			if (prev)
++				prev->next = NULL;
++			else
++				ratelink = NULL;
++			break;
++		}
++		if (!gconly && !match && !strcmp(rlp->key, mykey))
++			match = rlp;
++		prev = rlp;
++		rlp = rlp->next;
++	}
++	pthread_mutex_unlock(&mutex);
++
++	if (gconly || match)
++		return false;
++
++	if (!(rlp = malloc(sizeof *rlp)) || !(rlp->key = strdup(mykey)))
++		err(1, "%s: malloc failed.", __func__);
++	rlp->expire = now + RATE_DELAY;
++	rlp->next = ratelink;
++	ratelink = rlp;
++	return true;
++}
++
++/*
++ * Garbage collector thread.
++ */
++static void *garbage_collector(void *p)
++{
++	while (true) {
++		newrepair(NULL, NULL, NULL, true);
++		while (wait(NULL) >= 0)
++			;
++		sleep(GC_INTERVAL);
++	}
++	return NULL;
++}
++
++static char *find_inum(const char *point, const char *inum)
++{
++	FILE *fp;
++	char *path = NULL, *cmd = NULL;
++
++	/* Use the much faster BTRFS-specific implementation */
++	/* if (asprintf(&cmd, "find %s -xdev -inum %s", point, inum) <= 0) { */
++	if (asprintf(&cmd, "btrfs inspect inode %s %s", inum, point) <= 0) {
++		__warn("failed to asprintf find ...");
++		return NULL;
++	}
++
++	if ((fp = popen(cmd, "r"))) {
++		char buf[PATH_MAX], *p;
++		size_t n;
++
++		p = fgets(buf, sizeof buf, fp);
++		pclose(fp);
++		if (p) {
++			n = strlen(p);
++			if (p[n - 1] == '\n')
++				p[n - 1] = '\0';
++			if (p[0])
++				path = strdup(p);
++		}
++	}
++	free(cmd);
++	return path;
++}
++
++static char *find_path_btrfs_subvol(const char *point, const char *inum,
++					dev_t adev)
++{
++	char *path = NULL, *subvol = NULL, line[PATH_MAX];
++	FILE *pp;
++
++	if (snprintf(line, sizeof line,
++			"btrfs subvol list %s | awk '{ print $NF }'",
++			point) <= 0) {
++		__warn("failed to asprintf cmd subvol list ...");
++		return NULL;
++	}
++
++	if (!(pp = popen(line, "r"))) {
++		__warn("failed to asprintf cmd subvol list ...");
++		return NULL;
++	}
++
++	while (fgets(line, sizeof line, pp)) {
++		size_t n = strlen(line);
++		struct stat st;
++
++		if (line[n - 1] == '\n')
++			line[n - 1] = '\0';
++		if (asprintf(&subvol, "%s/%s", point, line) <= 0) {
++			__warn("failed to asprintf path ...");
++			break;
++		}
++		if (!stat(subvol, &st) &&
++			st.st_dev == adev &&
++			(path = find_inum(subvol, inum)))
++			break;
++		free(subvol);
++	}
++	pclose(pp);
++	return path;
++}
++
++static void free_volume_group(char **volgroup)
++{
++	char **vg = volgroup;
++
++	if (vg) {
++		while (*vg)
++			free(*vg++);
++		free(volgroup);
++	}
++}
++
++/*
++ * Return a list of /dev/xxx belonging to the same volume group as dev does.
++ * Each volume group is like...
++Label: none  uuid: d5b5f744-cc17-4376-9643-eb3698f99f61
++	Total devices 2 FS bytes used 401.67MB
++	devid    2 size 298.50MB used 297.50MB path /dev/md91
++	devid    1 size 298.50MB used 250.75MB path /dev/md90
++ */
++static char **get_volume_group_btrfs(const char *dev)
++{
++	char **volgroup = NULL;
++	char buf[1024];
++	FILE *pp = popen("btrfs filesystem show", "r");
++
++	if (!pp) {
++		warn("failed to open 'btrfs filesystem show'");
++		return NULL;
++	}
++	while (!feof(pp)) {
++		int n = 0;
++
++		while (fgets(buf, sizeof buf, pp)) {
++			/* Trim trailing whitespaces. */
++			char *p = buf + strlen(buf) - 1;
++			while (p >= buf && isspace(*p))
++				*p-- = '\0';
++
++			/* Delimiter line? */
++			if (!buf[0] || !strncmp(buf, "Label: ", 7))
++				break;
++			for (p = buf; isspace(*p); p++)
++				;
++			if (strncmp(p, "devid ", 6))
++				continue;
++
++			/* Extrac device name and add it to the list. */
++			for (p = buf + strlen(p) - 1;
++				p >= buf &&!isspace(*p); p--)
++				;
++			volgroup = realloc(volgroup,
++						(++n + 1) * sizeof *volgroup);
++			volgroup[n - 1] = strdup(++p);
++			volgroup[n] = NULL;
++		}
++
++		if (volgroup) {
++			char **vg;
++
++			/* Look for the desired dev. */
++			for (vg = volgroup; *vg && strcmp(*vg, dev); vg++)
++				;
++			if (*vg)
++				break;
++			else {/* Not found. Release the list. */
++				free_volume_group(volgroup);
++				volgroup = NULL;
++			}
++		}
++	}
++	pclose(pp);
++
++	return volgroup;
++}
++
++/*
++ * Finds file path for given inode number under the mount/subvol point.
++ * Caller must free the returned string.
++ */
++static char *find_path(const char *point, const char *inum, const char *fs,
++			dev_t adev)
++{
++	char *path = NULL;
++	struct stat st;
++	char buf[PATH_MAX];
++	FILE *fp;
++
++	errno = 0;
++	if (!inum || !strtoull(inum, NULL, 10) || errno)
++		return NULL;
++
++	if (stat(point, &st)) {
++		__warn("failed to stat %s.", point);
++		return NULL;
++	}
++
++	if (S_ISBLK(st.st_mode)) {/* Look for mount point by device. */
++		char **volgroup = NULL;
++
++		if (!strcmp(fs, "btrfs"))
++			volgroup = get_volume_group_btrfs(point);
++		if (!(fp = fopen("/proc/mounts", "r"))) {
++			__warn("failed to open /proc/mounts.");
++			return NULL;
++		}
++		while (fgets(buf, sizeof buf, fp)) {
++			char *dev = NULL, *mnt = NULL,
++				*root = NULL, *thisfs = NULL, *dev2;
++
++			if (sscanf(buf, "%ms %ms %ms",
++					&dev, &mnt, &thisfs) != 3) {
++				__warn("/proc/mounts could not be parsed.");
++				free(dev);
++				free(mnt);
++				free(thisfs);
++				break;
++			}
++
++			if (strcmp(thisfs, fs)) {
++				free(dev);
++				free(mnt);
++				free(thisfs);
++				continue;
++			}
++
++			free(thisfs);
++
++			/* /proc/partitions may list symlink to mounted devs */
++			if (!(dev2 = realpath(dev, NULL)))
++				err(1, "failed to resolve partitions dev");
++			free(dev);
++			if (!strcmp(dev2, point))
++				root = mnt;
++			else if (volgroup) {
++				char **vg = volgroup;
++				while (*vg)
++					if (!strcmp(dev2, *vg++)) {
++						root = mnt;
++						break;
++					}
++			}
++			free(dev2);
++			if (root) {
++				struct stat st;
++				if ((!adev ||
++					(!stat(mnt, &st) &&
++						st.st_dev == adev)) &&
++					(path = find_inum(mnt, inum))) {
++					free(mnt);
++					break;
++				}
++				if (!strcmp("btrfs", fs) &&
++					adev &&
++					(path = find_path_btrfs_subvol(mnt,
++								inum, adev))) {
++					free(mnt);
++					break;
++				}
++			}
++			free(mnt);
++		}
++		fclose(fp);
++		free_volume_group(volgroup);
++	} else {
++		path = find_inum(point, inum);
++	}
++
++	return path;
++}
++
++/* ***UNTESTED**
++ * Resolve dm (device mapper) layer dev to underlying device.
++ * offset will be updated.
++ * Only "linear" mapping is supported.
++ * offset/length crossing a mapping boundary is an error.
++ */
++static char *map_dm(const char *dev, char *offset, const char *length)
++{
++	FILE *fp;
++	char *cmd;
++
++	if (asprintf(&cmd, "dmsetup table %s", dev) <=0 ) {
++		__warn("failed to asprintf dmsetup ...");
++		return NULL;
++	}
++	if (!(fp = popen(cmd, "r"))) {
++		__warn("failed to execute '%s'", cmd);
++		free(cmd);
++		return NULL;
++	}
++	free(cmd);
++
++	__u64 pos = strtoull(offset, NULL, 10);
++	__u64 len = strtoull(length, NULL, 10);
++	__u64 start, size, dmoffset;
++	char dmtype[DM_MAX_TYPE_NAME];
++	int dmmajor, dmminor;
++	char *p = NULL;
++
++	while (fscanf(fp, "%llu %llu %s %d:%d %llu",
++			&start, &size,
++			dmtype, &dmmajor, &dmminor, &dmoffset) == 6) {
++		if (strcmp(dmtype, "linear"))
++			continue;
++		if (start <= pos && pos + len <= start + size) {
++			sprintf(offset, "%llu", dmoffset + (pos - start));
++			if (asprintf(&p, "/dev/block/%d:%d", dmmajor, dmminor) <= 0) {
++				__warn("failed to asprintf /dev/block/ ...");
++				p = NULL;
++			}
++			break;
++		}
++	}
++	pclose(fp);
++
++	if (!p) {
++		__warnx("failed to resolve dm-device %s", dev);
++		return NULL;
++	}
++
++	char *p2 = realpath(p, NULL);
++	free(p);
++	return p2;
++}
++
++/*
++ * Map MAJOR:MINOR to /dev/xxx.
++ * If MAJOR is zero, MINOR is a fake device number that we cannot handle.
++ * If intra-file position, we cannot handle.
++ * If in debug mode and inode is non-NULL, possible file path is returned.
++ * Process LVM (device mapper) layer to convert offset.
++ * Caller must free the returned string and *pathp.
++ */
++static char *map2md(dev_t dev, const char *fs,
++			dev_t adev,
++			bool intrafile,
++			const char *inode, char *offset, const char *length,
++			char **pathp)
++{
++	char *devname = NULL;
++	int major = major(dev);
++	int minor = minor(dev);
++
++	if (!major(dev)) {
++		errno = ENOENT;
++		__warn("failed to map %d:%d to a device.", major, minor);
++		goto fail2;
++	}
++
++	if (intrafile) {
++		__warnx("intra-file position not supported.");
++		goto fail;
++	}
++
++	char *p = NULL;
++	if (asprintf(&p, "/dev/block/%d:%d", major, minor) <= 0) {
++		__warn("failed to asprintf /dev/block/ ...");
++		goto fail2;
++	}
++	
++	devname = realpath(p, NULL);
++	if (!devname) {
++		__warn("failed to map %d:%d to a device.", major, minor);
++		goto fail;
++	}
++	free(p);
++
++	/* If offset is intra-file position, map it to on-disk position. */
++	if (dopt && inode && *inode && atoll(inode)) {
++		char *path = find_path(devname, inode, fs, adev);
++		if (!path) {
++			errno = ENOENT;
++			__warn("cannot find file path for %s:%s",
++							devname, inode);
++			goto fail2;
++		}
++		if (pathp)
++			*pathp = path;
++		else
++			free(path);
++	}
++
++	/* If device is a dm-device, resolve to base device. */
++	if (asprintf(&p, "/sys/dev/block/%d:%d/dm/name", major, minor) <= 0) {
++		__warn("failed to asprintf /dev/block/ ...");
++		goto fail2;
++	}
++	if (!access(p, R_OK)) {
++		char *p2 = devname;
++		devname = map_dm(p2, offset, length);
++		free(p2);
++	}
++	free(p);
++
++	return devname;
++
++fail:
++	free(p);
++fail2:
++	free(devname);
++	return NULL;
++}
++
++static dev_t *devIDs;
++
++static void deviceID_list(const char *arg)
++{
++	static int num_devIDs = 0;
++	int major, minor;
++	dev_t dev;
++
++	if (sscanf(arg, "%d:%d", &major, &minor) != 2)
++		errx(1, "Malformed deivce ID for -D %s", arg);
++	dev = makedev(major, minor);
++	devIDs = realloc(devIDs, (++num_devIDs + 1) * sizeof *devIDs);
++	devIDs[num_devIDs - 1] = dev;
++	devIDs[num_devIDs] = 0;
++}
++
++static bool deviceID_filter(dev_t dev)
++{
++	dev_t *devID = devIDs;
++
++	if (!devID)
++		return true;
++
++	while (*devID)
++		if (*devID++ == dev)
++			return true;
++	return false;
++}
++
++enum {
++	DATA_OFFSET = 0,
++	DATA_LENGTH,
++	CS_EXPECTED,
++	CS_COMPUTED,
++	CS_LENGTH,
++	CS_ALGORITHM,
++	DEV_MAJOR,
++	DEV_MINOR,
++	DEV_FILESYSTEM,
++	FILE_INODE,
++	FILE_OFFSET,
++	ADEV_MAJOR,
++	ADEV_MINOR,
++
++	/* Optional */
++	DATA_POSITION,
++	PL_FUNC,
++	FL_NOEXEC,
++	ARG_SIZE
++};
++
++static char **repargv;
++static int repargc = 1;
++
++#define _strcmp(a,b)	strcmp((const char *)(a), (b))
++
++static void parseXML(const char *content)
++{
++	/* List of required elements. */
++	unsigned int remain = (1<<DATA_OFFSET)	| (1<<DATA_LENGTH) |
++				(1<<CS_EXPECTED)| (1<<CS_COMPUTED) |
++				(1<<CS_ALGORITHM) |
++				(1<<DEV_MAJOR)	| (1<<DEV_MINOR |
++				(1<<DEV_FILESYSTEM) |
++				(1<<FILE_INODE));
++	char *path = NULL;
++	char *args[ARG_SIZE];
++	xmlDocPtr doc;
++
++	if (xopt) {
++		printf("%s%s", content,
++			(content[strlen(content) - 1] == '\n') ? "" : "\n");
++	}
++
++	doc = xmlReadMemory(content, strlen(content), "noname.xml", NULL, 0);
++	if (!doc) {
++		__warnx("malformed XML: %s", content);
++		return;
++	}
++	memset(args, 0, sizeof args);
++
++	if (_strcmp(doc->children->name, "mdcsrepair") &&
++		_strcmp(doc->children->name, "mdcsrepair_procfs"))
++		goto exit;
++
++	struct _xmlNode *cslink = doc->children->children;
++
++#define SETARG(p, n, x)	\
++	(!_strcmp((p)->name, (n)) &&	\
++		((args[(x)] = (char *)(p)->children->content),	\
++		(remain &= ~(1 << (x))), 1))
++
++	while (cslink) {
++		if (!_strcmp(cslink->name, "data")) {
++			struct _xmlAttr *data = cslink->properties;
++			while (data) {
++				SETARG(data, "offset", DATA_OFFSET) ||
++				SETARG(data, "length", DATA_LENGTH) ||
++				SETARG(data, "position", DATA_POSITION);
++				data = data->next;
++			}
++		} if (!_strcmp(cslink->name, "checksum")) {
++			struct _xmlAttr *cs = cslink->properties;
++			while (cs) {
++				SETARG(cs, "expected", CS_EXPECTED) ||
++				SETARG(cs, "computed", CS_COMPUTED) ||
++				SETARG(cs, "length", CS_LENGTH) ||
++				SETARG(cs, "algorithm", CS_ALGORITHM);
++				cs = cs->next;
++			}
++		} else if (!_strcmp(cslink->name, "device")) {
++			struct _xmlAttr *device = cslink->properties;
++			while (device) {
++				SETARG(device, "major", DEV_MAJOR) ||
++				SETARG(device, "minor", DEV_MINOR) ||
++				SETARG(device, "filesystem", DEV_FILESYSTEM);
++				device = device->next;
++			}
++		} else if (!_strcmp(cslink->name, "anondevice")) {
++			struct _xmlAttr *adevice = cslink->properties;
++			while (adevice) {
++				SETARG(adevice, "major", ADEV_MAJOR) ||
++				SETARG(adevice, "minor", ADEV_MINOR);
++				adevice = adevice->next;
++			}
++		} else if (!_strcmp(cslink->name, "file")) {
++			struct _xmlAttr *file = cslink->properties;
++			while (file) {
++				SETARG(file, "inode", FILE_INODE) ||
++				SETARG(file, "offset", FILE_OFFSET);
++				file = file->next;
++			}
++		} else if (!_strcmp(cslink->name, "place")) {
++			struct _xmlAttr *place = cslink->properties;
++			while (place) {
++				SETARG(place, "function", PL_FUNC);
++				place = place->next;
++			}
++		} else if (!_strcmp(cslink->name, "flag")) {
++			struct _xmlAttr *flag = cslink->properties;
++			while (flag) {
++				SETARG(flag, "noexec", FL_NOEXEC);
++				flag = flag->next;
++			}
++		}
++		cslink = cslink->next;
++	}
++
++	if (remain) {
++		__warnx("missing arg in %s", content);
++		goto exit;
++	}
++
++	/* Get deivce file name. */
++	char offset[24];
++	char *devname = NULL;
++	dev_t adev = 0, dev = 0;
++
++	if (args[ADEV_MAJOR] && args[ADEV_MINOR])
++		adev = makedev(atoi(args[ADEV_MAJOR]), atoi(args[ADEV_MINOR]));
++	if (args[DEV_MAJOR] && args[DEV_MINOR])
++		dev = makedev(atoi(args[DEV_MAJOR]), atoi(args[DEV_MINOR]));
++
++	if (!(adev && deviceID_filter(adev)) && !(dev && deviceID_filter(dev)))
++		goto exit;
++
++	strncpy(offset, args[DATA_OFFSET], sizeof offset);
++	devname = map2md(dev,
++			args[DEV_FILESYSTEM], adev,
++			args[DATA_POSITION] &&
++				!strcmp(args[DATA_POSITION], "file"),
++			args[FILE_INODE],
++			offset, args[DATA_LENGTH], &path);
++	if (!devname)
++		goto exit;
++
++	/* We spawn repairer only if checksums mismatch and if the same
++	   defect was not reported too recently. */
++	if ((dopt || strcasecmp(args[CS_EXPECTED], args[CS_COMPUTED])) &&
++		(!ropt && newrepair(devname, offset,
++					args[DATA_LENGTH], false))) {
++
++		if (dopt) {
++			printf("[%s]", args[PL_FUNC]);
++			if (path)
++				printf(" %s:%s", args[FILE_INODE], path);
++			if (args[FILE_OFFSET])
++				printf(" @ %s", args[FILE_OFFSET]);
++			printf("\n%s %s @ %s %s %s B:%s G:%s\n",
++				devname,
++				args[DATA_LENGTH], offset,
++				args[CS_ALGORITHM], args[CS_LENGTH],
++				args[CS_COMPUTED], args[CS_EXPECTED]);
++			fflush(stdout);
++		}
++		if (!nopt && !fork()) {
++			int i, len = 0;
++			char *p;
++
++			repargv = realloc(repargv,
++					(repargc + 6) * sizeof *repargv);
++			repargv[repargc++] = devname;
++			repargv[repargc++] = offset;
++			repargv[repargc++] = args[DATA_LENGTH];
++			repargv[repargc++] = args[CS_COMPUTED];
++			repargv[repargc++] = args[CS_EXPECTED];
++			repargv[repargc] = NULL;
++
++			for (i = 0; i < repargc; i++)
++				len += strlen(repargv[i]) + 1;
++			p = alloca(len);
++			strcpy(p, repargv[0]);
++			for (i = 1; i < repargc; i++) {
++				strcat(p, " ");
++				strcat(p, repargv[i]);
++			}
++			__warnx("%s", p);
++			execvp(repairer, repargv);
++		}
++	}
++exit:
++	xmlFreeDoc(doc);
++	free(devname);
++	free(path);
++}
++
++static void help(int ec, FILE *fp, const char *argv0)
++{
++	fprintf(fp,
++"Daemon to accept checksum-based data correction requests\n"
++"Usage:\n"
++"%s [opt]\n"
++"    -D <M:n>   filter device ID (repeatable)\n"
++"    -d    debug on\n"
++"    -h    help message\n"
++"    -l    log warnings to syslog\n"
++"    -n    no repair\n"
++"    -o <opts>  data repairer program options\n"
++"    -p <prog>  data repairer program name\n"
++"    -r    no rate limiting\n"
++"    -v    verbose mode on\n"
++"    -x    show XML string\n",
++		basename(argv0));
++	exit(ec);
++}
++
++
++int main(int argc, char *argv[])
++{
++	pthread_t thid;
++	pthread_attr_t thattr;
++	int opt;
++
++	LIBXML_TEST_VERSION
++
++	repargv = calloc(2, sizeof *repargv);
++	repairer = strdup(argv[0]);
++	repairer[strlen(repairer) - 1] = '\0';	/* Remove last 'd'. */
++
++	while ((opt = getopt (argc, argv, "?D:dhlno:p:rvx")) != -1) {
++		switch (opt) {
++		case '?':
++		case 'h':
++			help(0, stdout, argv[0]);
++			break;
++		case 'D':
++			deviceID_list(optarg);
++			break;
++		case 'd':
++			dopt = true;
++			break;
++		case 'l':
++			lopt = true;
++			break;
++		case 'n':
++			nopt = 1;
++			break;
++		case 'o':
++			while ((repargv[repargc] = strtok(optarg, " "))) {
++				optarg = NULL;
++				repargv = realloc(repargv,
++					(++repargc + 1) * sizeof *repargv);
++				repargv[repargc] = NULL;
++			}
++			break;
++		case 'p':
++			repairer = optarg;
++			break;
++		case 'r':
++			ropt = true;
++			break;
++		case 'v':
++			vopt = true;
++			break;
++		case 'x':
++			xopt = true;
++			break;
++		default:
++			help(1, stderr, argv[0]);
++			break;
++		}
++	}
++
++	repargv[0] = basename(repairer);
++	if (lopt) {
++		repargv[repargc] = "-l";
++		repargv = realloc(repargv, (++repargc + 1) * sizeof *repargv);
++		repargv[repargc] = NULL;
++	}
++
++	pthread_attr_init(&thattr);
++	if (!ropt && pthread_create(&thid, &thattr, garbage_collector, NULL))
++		err(1, "failed to create a garbage collector thread.");
++
++	/* Loop to read from a PROCFS entry. */
++	while (true) {
++		char buffer[4096];
++		const char *pfspath = "/proc/fs/btrfs/mdcsevent";
++		FILE *fp = fopen(pfspath, "r");
++
++		if (!fp)
++			err(1, "cannot open %s.", pfspath);
++
++		fgets(buffer, sizeof buffer, fp);
++		fclose(fp);
++
++		parseXML(buffer);
++	}
++
++	return 0;
++}
++
+diff --git a/test-mdcs.sh b/test-mdcs.sh
+new file mode 100644
+index 0000000..cd081a7
+--- /dev/null
++++ b/test-mdcs.sh
+@@ -0,0 +1,599 @@
++#!/bin/bash
++#
++# test-mdcs.sh
++#
++#	Test mdcsrepair suite (kernel code, mdcsrepaird, and mdcsrepair)
++#	Copyright (c) 2014 NETGERA
++#	Copyright (c) 2014 Hiro Sugawara
++#
++#	Usage: [SBIN=/usr/sbin] test-mdcs.sh <level> [<level>...'
++#		level: RAID levels
++#
++
++[ "$SBIN" ] 	|| SBIN=/usr/sbin
++
++MD=/dev/md90
++MD2=/dev/md91
++
++########################################################################
++# If you want to use an array of actual HDD partitions /dev/sdb[1-8]
++# instead of loop devices, uncomment the following.
++# Partitions must exist with >=100MB in size.
++########################################################################
++##SDB=sdb
++########################################################################
++
++PROG=$SBIN/mdcsrepair
++DAEMON=$SBIN/mdcsrepaird
++FILTER="-D 9:90"
++LOGFILE=/tmp/test-mdcs.log
++MNT=/mnt
++SUBVOL=$MNT/subvol
++IMGSIZE=100M
++
++if [ -z "$*" ]
++then
++	cat <<_END >&2
++Tests MDCSREPIR feature.
++Creates loop devices /data/img/loop-img.[0-7] to simulate MD components.
++
++Usage: $0 <level> [<level> ...]
++_END
++	exit 1
++fi
++
++if ! [ -x $PROG ]
++then
++	echo "Cannot find '$PROG'..." >&2
++	exit 1
++fi
++
++if ! [ -x $DAEMON ]
++then
++	echo "Cannot find '$DAEMON'..." >&2
++	exit 1
++fi
++
++for level in $@
++do
++	eval RAID$level=yes
++done
++
++drop_caches() {
++	echo 3 >/proc/sys/vm/drop_caches
++}
++
++flush_caches() {
++	sync
++	sleep 1
++	echo 3 >/proc/sys/vm/drop_caches
++}
++
++create_img() {
++	local s=$1
++	echo "Creating ${s}B disk images /data/img/loop-img.*..."
++	mkdir -p /data/img
++	local i
++	for i in 0 1 2 3 4 5 6 7
++	do
++		truncate -s $s /data/img/loop-img.$i
++	done
++}
++
++delete_img() {
++	rm -f /data/img/loop-img.[0-7]
++}
++
++create_loop() {
++	echo "Creating loop devices /dev/loop*..."
++	local i
++	for i in 0 1 2 3 4 5 6 7
++	do
++		losetup /dev/loop$i /data/img/loop-img.$i
++	done
++}
++
++delete_loop() {
++	losetup -d /dev/loop[0-7] 2>/dev/null
++}
++
++randomize() {
++	echo "Filling random data to loop devices..."
++	local i
++	for i in 0 1 2 3 4 5 6 7
++	do
++		[ $i -ge $1 ]	&& break
++		dd conv=fsync if=/dev/urandom of=/dev/loop$i bs=1M 2>/dev/null &
++	done
++	wait 2>/dev/null
++	drop_caches
++}
++
++# create_raid <md_dev> <level> <ndisks> [<start> <base> <chunksize> <layout>]
++create_raid() {
++	local md=$1
++	local lvl=$2
++	local n=$3
++	local n_1=$(($n - 1))
++	local start=$4
++	local base=$5
++	local chunk=$6
++	local layout=$7
++	local sysf="/sys/block/`basename $md`/md/sync_action"
++	local xopt=
++
++	[ "$start" ]	|| start=0
++	[ "$base" ]	|| base=loop
++
++	[ "$chunk" ] && xopt="--chunk=$chunk"
++	[ "$layout" ] && xopt="$xopt --layout=$layout"
++
++	local range="$(($start+1))-$(($start+${n_1}))"
++
++	echo "Creating RAID$lvl$layout deivce $md with /dev/${base}[0-${n_1}]..."
++	##randomize $n
++	echo mdadm -C $md -e 1 --level=$lvl --raid-devices=$n	\
++		$xopt /dev/${base}[${range}] /dev/${base}${start}
++	yes | mdadm -C $md -e 0.90 --level=$lvl --raid-devices=$n	\
++		$xopt /dev/${base}[${range}] /dev/${base}${start}	|| exit
++	while [ "`cat $sysf`" != idle ]
++	do
++		sleep 1
++	done
++	echo "$md created."
++}
++
++delete_raid() {
++	while [ "$1" ]
++	do
++		mdadm --stop $1 2>/dev/null
++		shift
++	done
++}
++
++mkfs_raid() {
++	mkfs.btrfs -f $1
++}
++
++mount_raid() {
++	mount -t btrfs $1 $MNT && mount -o remount,rw $MNT
++}
++
++unmount_raid() {
++	umount $1 2>/dev/null
++}
++
++create_subvol() {
++	btrfs subvol create $SUBVOL
++	btrfs subvol list $MNT
++}
++
++populate_raid() {
++	local size
++	echo "Creating random content files"
++
++	while [ "$1" ]
++	do
++		for size in 452 4520 45200
++		do
++			echo "Size: $size bytes in $1"
++			dd if=/dev/urandom of=$1/$size bs=$size count=1	\
++				2>/dev/null
++		done
++		shift
++	done
++}
++
++delete_all() {
++	echo "Releasing all resources..."
++	killall `basename $DAEMON` 2>/dev/null
++	unmount_raid $MNT
++	delete_raid $MD $MD2 2>/dev/null
++	sleep 10
++	delete_loop
++	delete_img
++}
++
++# Return computed BAD CRC
++# md_crc <md_dev> <pos> <len>
++md_crc() {
++	md=`echo $1 | sed 's|/|\\\\/|g'`
++	$PROG -n -v -d $1 $2 $3 00000000 11111111 2>/dev/null |	\
++		awk "/^$md BAD  \@ $2 Expected: / { print \$NF }"
++}
++
++# Return component disk's position
++# comp_pos <md_dev> <comp_dev> <pos> <len> [P|Q]
++comp_pos() {
++	cd=`echo $2 | sed 's|/|\\\\/|g'`
++	case "$5" in
++	P|Q)
++		$PROG -n -v -d $1 $3 $4 00000000 11111111 2>/dev/null | \
++			awk "/\[$5\] $cd GOOD \@ .+ Expected: / { print \$6 }"
++	;;
++	*)
++		$PROG -n -v -d $1 $3 $4 00000000 11111111 2>/dev/null | \
++			awk "/^$cd BAD  \@ .+ Expected: / { print \$4 }"
++	;;
++	esac
++}
++
++# List data/P/Q component device
++# comp_dev <md_dev> <pos> <len> [P|Q|E]
++comp_dev() {
++	local comp
++	local dev
++	local array="`$PROG -n -v -d $1 $2 $3 00000000 11111111 2>/dev/null | \
++		grep '^\[0'`"
++	for comp in $array X
++	do
++		case "$4" in
++		P|Q)
++			echo "$comp" | grep -q "\[$4\]" && break
++			;;
++		E)
++			echo "$comp" | grep -q "\[[[:digit:]]\]" && break
++			;;
++		*)
++			echo "$comp" | grep -q "\[[[:digit:]]\*\]" && break
++			;;
++		esac
++	done
++
++	[ -z "$comp" -o "$comp" = X ] && return
++	local name=`echo $comp | sed 's|^.*(||;s|).*||'`
++	echo "/dev/$name"
++}
++
++# List all component devices
++# comp_devs <md_dev> <pos> <len>
++comp_devs() {
++	$PROG -n -v -d $1 $2 $3 00000000 11111111 2>/dev/null | \
++		grep '^\[[[:digit:]]\]' |	\
++		sed 's|\[.\](|/dev/|g;s|)||g'
++}
++
++# Trash component device
++# zero_dd <comp_dev> <pos> <len>
++zero_dd() {
++	echo "Trashing $1 @ $2..."
++	dd conv=fsync if=/dev/zero of=$1 seek=$2 bs=1 count=$3 2>/dev/null
++	sleep 3
++	flush_caches
++}
++
++# test_header <level> "<title>"
++test_header() {
++	echo "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
++	echo "RAID$1: $2"
++	echo "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
++}
++
++debug_on() {
++	local colon=':'
++	[ "$1" ] && colon=$1
++	
++	echo $colon >/proc/fs/btrfs/mdcsrepair
++}
++
++debug_off() {
++	echo >/proc/fs/btrfs/mdcsrepair
++}
++
++test_mount() {
++	local level=$1
++	local file="fs/btrfs/disk-io.c"
++
++	test_header $level "Testing mount/super block [$file]"
++
++	rm -fr $LOGFILE
++	$DAEMON -d -n 2>/dev/null >$LOGFILE &
++	local dpid=$!
++	sleep 1
++
++	debug_on "$file:"
++	mount_raid $MD
++	unmount_raid $MNT
++	kill $dpid
++	wait 2>/dev/null
++	debug_off
++
++	local pos="`awk '{ print $4}' $LOGFILE`"
++	local len="`awk '{ print $2}' $LOGFILE`"
++
++	local cdev=`comp_dev $MD $pos $len x`
++	local cpos=`comp_pos $MD $cdev $pos $len`
++
++	echo "[$file] accesses $len bytes @$cpos on $cdev ($pos on $MD)."
++
++	zero_dd $cdev $cpos 2
++	$DAEMON -d &
++	dpid=$!
++	sleep 3
++
++	echo "Trying to mount trashed array..."
++	if mount_raid $MD
++	then
++		echo ">>>>>>>>> FAIL <<<<<<<<<<<"
++		echo "Trashing component disk $cdev did not work out."
++		exit 1
++	fi
++	echo "Filesystem mount failure as expected."
++	sleep 5
++	kill $dpid
++	wait 2>/dev/null
++
++	echo "Retrying to mount repaired array..."
++	if mount_raid $MD
++	then
++		echo "Filesystem mount succeeded."
++		echo ">>>>>>>>> SUCCESS <<<<<<<<<<<"
++		echo
++	else
++		echo ">>>>>>>>> FAIL <<<<<<<<<<<"
++		echo "Trashed component disk $cdev still affects MD."
++		exit 1
++	fi
++	unmount_raid $MNT
++}
++
++test_inode() {
++	local level=$1
++	local lister="$2"
++	local vfy1="$3"
++	local vfy2="$4"
++	local file=$5
++
++	mount_raid $MD
++	debug_on "$file:"
++
++	rm -f $LOGFILE
++	$DAEMON $FILTER -d -n 2>/dev/null >$LOGFILE &
++	local dpid=$!
++	flush_caches
++
++	$lister 2>/dev/null
++	sleep 5
++	kill $dpid
++	wait 2>/dev/null
++	debug_off
++
++	rm -f $LOGFILE.2
++	head -q -n 20 $LOGFILE >$LOGFILE.2
++	tail -q -n 20 $LOGFILE >>$LOGFILE.2
++	mv -f $LOGFILE.2 $LOGFILE
++
++	local line
++	local fut
++	local fpos
++
++	$DAEMON -d &
++	dpid=$!
++	sleep 3
++
++	local dovfy1
++	local dovfy2
++	local line1
++	while read line
++	do
++		if echo $line | grep -q '^\['
++		then
++			echo $line
++			fut=`echo $line | sed 's|^.*:||;s| .*$||'`
++			fpos=`echo $line | awk '{ print $4 }'`
++			dovfy1=`printf "$vfy1" $fut`
++			dovfy2=`printf "$vfy2" $fut`
++			continue
++		elif ! echo $line | grep -q '^/dev/'
++		then
++			continue
++		fi
++
++		local len=`echo $line | awk '{ print $2 }'`
++		local pos=`echo $line | awk '{ print $4 }'`
++		local bcrc=`echo $line| awk '{ print $7 }' |	\
++			awk -F : '{ print $2 }'`
++		local gcrc=`echo $line| awk '{ print $7 }' |	\
++			awk -F : '{ print $2 }'`
++
++		tgt=`echo $line | awk '{ print $1 }'`
++
++		if [ "$tgt" != $MD -a "$tgt" != $MD2 ]
++		then
++			echo $line
++			echo ">>>>>>>>> Untargeted device <<<<<<<<<<<"
++			echo
++			continue
++		fi
++
++		if [ "$bcrc" != "$gcrc" ]
++		then
++			echo $line
++			echo ">>>>>>>>> CRC error <<<<<<<<<<<"
++			echo
++			continue
++		fi
++
++		if [ "$fpos" ]
++		then
++			local clen=$((`stat -c %s $fut`-$fpos))
++			[ $len -lt $clen ] && clen=$len
++			if ! cmp -s -i $fpos:$pos -n $clen $fut $tgt
++			then
++				echo $line
++				echo ">>>>>>>>> Untraceable instance <<<<<<<<<<"
++				echo
++				continue
++			fi
++		fi
++
++		local cdev=`comp_dev $tgt $pos $len x`
++		local cpos=`comp_pos $tgt $cdev $pos $len`
++
++		zero_dd $cdev $cpos 2
++		echo "Accessing trashed file $fut..."
++
++		if eval "$dovfy1" 2>/dev/null
++		then
++			echo ">>>>>>>>> FAIL <<<<<<<<<<<"
++			echo "Trashing component disk $cdev did not work out."
++			exit 1
++		fi
++		echo "File access failure as expected."
++
++		sleep 2
++		echo "Re-accessing repaired file $fut..."
++		if eval "$dovfy2"
++		then
++			echo "File access succeeded."
++			echo ">>>>>>>>> SUCCESS <<<<<<<<<<<"
++			echo
++		else
++			echo "File access failed."
++			echo ">>>>>>>>> FAIL <<<<<<<<<<<"
++			echo
++			exit 1
++		fi
++	done <$LOGFILE
++
++	sleep 5
++	kill $dpid
++	wait 2>/dev/null
++	unmount_raid $MNT
++}
++
++test_find() {
++	local level=$1
++	local root=$2
++
++	file=fs/btrfs/inode.c
++	test_header $level "Testing file data blocks [$file] @$root"
++	test_inode $level	\
++		"find $root -type f -exec dd if={} of=/dev/null iflag=direct ;"\
++		"dd if=%s of=/dev/null iflag=direct"	\
++		"dd if=%s of=/dev/null iflag=direct"	\
++		$file
++}
++
++test_find_jbod() {
++	local level=$1
++	local root=$2
++
++	file=fs/btrfs/inode.c
++	test_header $level "Testing data blocks on added disk [$file] @$root"
++	echo "Adding more md device to btrfs..."
++	mount_raid $MD
++	btrfs device add $MD2 $MNT
++	echo "Creating test file spanning 2 disks..."
++        dd if=/dev/urandom of=$root/jbod bs=$IMGSIZE count=4 2>/dev/null
++	unmount_raid $MD
++
++	local filter="$FILTER"
++	FILTER="-D 9:91"
++	test_inode $level       \
++		"dd if=$MNT/jbod of=/dev/null iflag=direct"\
++		"dd if=%s of=/dev/null iflag=direct"    \
++		"dd if=%s of=/dev/null iflag=direct"    \
++		$file
++	FILTER="$filter"
++}
++
++test_scrub() {
++	local level=$1
++	local root=$2
++
++	file=fs/btrfs/scrub.c
++	test_header $level "Testing scrubbed data blocks [$file] @$root"
++	test_inode $level	\
++		"btrfs scrub start -B $root"	\
++		"! btrfs scrub start -B $root |	\
++			grep -q -E 'error details: csum|super=1'"\
++		"btrfs scrub start -B $root | grep -q 'with 0 errors'"\
++		$file
++}
++
++test_compress() {
++	local level=$1
++	local root=$2
++
++	file=fs/btrfs/compression.c
++	test_header $level "Testing compressed data blocks [$file] @$root"
++	echo "Creating a compressed file..."
++
++	local src=/etc/mime.types
++	mount_raid $MD
++	rm -f $root/compressed
++	touch $root/compressed
++	chattr +c $root/compressed
++	cat $src $src >>$root/compressed
++	unmount_raid $MNT
++
++	test_inode $level	\
++		"dd if=$root/compressed of=/dev/null iflag=direct"	\
++		"dd if=%s of=/dev/null iflag=direct"	\
++		"dd if=%s of=/dev/null iflag=direct"	\
++		$file
++}
++
++runtest() {
++	level=$1
++	delete_raid $MD $MD2
++	local ndisks=2
++
++	case $level in
++		5)	ndisks=4
++			;;
++		6)	ndisks=4
++			;;
++		*)
++			echo "Unsupported RAID level $level." >&2
++			exit 1
++			;;
++	esac
++
++	if [ "$SDB" ]
++	then
++		create_raid $MD $level $ndisks 1 $SDB
++	else
++		create_raid $MD $level $ndisks 0
++	fi
++	mkfs_raid $MD
++
++	# test_mount must run for all cases
++	test_mount $level
++
++	mount_raid $MD
++	create_subvol $SUBVOL
++	populate_raid $MNT $SUBVOL
++	unmount_raid $MNT
++
++	# Each individual test may be commented out.
++	for root in $MNT $SUBVOL
++	do
++		test_find $level $root
++		test_scrub $level $root
++		test_compress $level $root
++	done
++
++	if [ "$SDB" ]
++	then
++		create_raid $MD2 $level $ndisks 5 $SDB
++	else
++		create_raid $MD2 $level $ndisks 4
++	fi
++	test_find_jbod $level $MNT
++	delete_raid $MD $MD2
++}
++
++delete_all
++
++if [ -z "$SDB" ]
++then
++	create_img $IMGSIZE
++	create_loop
++fi
++
++[ "$RAID1" ] && runtest 1
++[ "$RAID5" ] && runtest 5
++[ "$RAID6" ] && runtest 6
++[ "$RAID10" ] && runtest 10
+diff --git a/test-mdcsrepair.sh b/test-mdcsrepair.sh
+new file mode 100644
+index 0000000..fc91b49
+--- /dev/null
++++ b/test-mdcsrepair.sh
+@@ -0,0 +1,480 @@
++#!/bin/bash
++#
++# test-mdcsrepair.sh
++#
++#	Test mdcsrepair in a variety of modes
++#	Copyright (c) 2014 NETGERA
++#	Copyright (c) 2014 Hiro Sugawara
++#
++#	Usage: [SBIN=/usr/sbin] test-mdcsrepair.sh <level> [<level>...'
++#		level: RAID levels
++#
++
++[ "$SBIN" ] 	|| SBIN=/usr/sbin
++PROG=$SBIN/`basename $0 .sh | sed 's|^test-||'`
++if [ -z "$*" ]
++then
++	cat <<_END >&2
++Tests $PROG.
++Creates loop devices /data/img/loop-img.[0-5] to simulate MD components.
++
++Usage: $0 <level> [<level> ...]
++_END
++	exit 1
++fi
++
++if ! [ -x $PROG ]
++then
++	echo "Cannot find '$PROG'..." >&2
++	exit 1
++fi
++
++MD=/dev/md90
++
++for level in $@
++do
++	eval RAID$level=yes
++done
++
++POS="41000 820000 5230000"
++LEN="100 210"
++
++drop_caches() {
++	echo 3 >/proc/sys/vm/drop_caches
++}
++
++create_img() {
++	local s=$1
++	echo "Creating ${s}B disk images /data/img/loop-img.*..."
++	mkdir -p /data/img
++	local i
++	for i in 0 1 2 3 4 5
++	do
++		truncate -s $s /data/img/loop-img.$i
++	done
++}
++
++delete_img() {
++	rm -f /data/img/loop-img.[0-5]
++}
++
++create_loop() {
++	echo "Creating loop devices /dev/loop*..."
++	local i
++	for i in 0 1 2 3 4 5
++	do
++		losetup /dev/loop$i /data/img/loop-img.$i
++	done
++}
++
++delete_loop() {
++	losetup -d /dev/loop[0-5]
++}
++
++randomize() {
++	echo "Filling random data to loop devices..."
++	local i
++	for i in 0 1 2 3 4 5
++	do
++		[ $i -ge $1 ]	&& break
++		dd conv=fsync if=/dev/urandom of=/dev/loop$i bs=1M 2>/dev/null &
++	done
++	wait
++	drop_caches
++}
++
++# create_raid <md_dev> <level> <ndisks> <chunksize> <layout>
++create_raid() {
++	local md=$1
++	local lvl=$2
++	local n=$3
++	local n_1=$(($n - 1))
++	local chunk=$4
++	local layout=$5
++	local sysf="/sys/block/`basename $md`/md/sync_action"
++	local xopt=
++	[ "$chunk" ] && xopt="--chunk=$chunk"
++	[ "$layout" ] && xopt="$xopt --layout=$layout"
++
++	echo "Creating RAID$lvl$layout deivce $md with /dev/loop[0-${n_1}]..."
++	randomize $n
++	echo mdadm -C $md -e 0.90 --level=$lvl --raid-devices=$n	\
++		$xopt /dev/loop[1-${n_1}] /dev/loop0
++	yes | mdadm -C $md -e 0.90 --level=$lvl --raid-devices=$n	\
++		$xopt /dev/loop[1-${n_1}] /dev/loop0	|| exit
++	while [ "`cat $sysf`" != idle ]
++	do
++		sleep 1
++	done
++	echo "$md created."
++}
++
++unmount_raid() {
++	local entry=`grep -q "^$1 " /proc/mounts`
++	if [ "$entry" ]
++	then
++		umount `echo $entry | awk '{ print $2 }'`
++	fi
++}
++
++delete_raid() {
++	mdadm --stop $1 2>/dev/null
++}
++
++delete_all() {
++	echo "Releasing all resources..."
++	unmount_raid $MD
++	delete_raid $MD
++	sleep 10
++	delete_loop
++	delete_img
++}
++
++# Return computed BAD CRC
++# md_crc <md_dev> <pos> <len>
++md_crc() {
++	md=`echo $1 | sed 's|/|\\\\/|g'`
++	$PROG -n -v -d $1 $2 $3 00000000 11111111 2>/dev/null |	\
++		awk "/^$md BAD  \@ $2 Expected: / { print \$NF }"
++}
++
++# Return component disk's position
++# comppos <md_dev> <comp_dev> <pos> <len> [P|Q]
++comp_pos() {
++	cd=`echo $2 | sed 's|/|\\\\/|g'`
++	case "$5" in
++	P|Q)
++		$PROG -n -v -d $1 $3 $4 00000000 11111111 2>/dev/null | \
++			awk "/\[$4\] $cd GOOD \@ .+ Expected: / { print \$6 }"
++	;;
++	*)
++		$PROG -n -v -d $1 $3 $4 00000000 11111111 2>/dev/null | \
++			awk "/^$cd BAD  \@ .+ Expected: / { print \$4 }"
++	;;
++	esac
++}
++
++# List data/P/Q component device
++# comp_dev <md_dev> <pos> <len> [P|Q|E]
++comp_dev() {
++	local comp
++	local dev
++	local array="`$PROG -n -v -d $1 $2 $3 00000000 11111111 2>/dev/null | \
++		grep '^\[0'`"
++	for comp in $array X
++	do
++		case "$4" in
++		P|Q)
++			echo "$comp" | grep -q "\[$4\]" && break
++			;;
++		E)
++			echo "$comp" | grep -q "\[[[:digit:]]\]" && break
++			;;
++		*)
++			echo "$comp" | grep -q "\[[[:digit:]]\*\]" && break
++			;;
++		esac
++	done
++
++	[ -z "$comp" -o "$comp" = X ] && return
++	local name=`echo $comp | sed 's|^.*(||;s|).*||'`
++	echo "/dev/$name"
++}
++
++# List all component devices
++# comp_devs <md_dev> <pos> <len>
++comp_devs() {
++	$PROG -n -v -d $1 $2 $3 00000000 11111111 2>/dev/null | \
++		grep '^\[[[:digit:]]\]' |	\
++		sed 's|\[.\](|/dev/|g;s|)||g'
++}
++
++# Trash component device
++# zero_dd <comp_dev> <pos> <len>
++zero_dd() {
++	echo "Trashing $1 @ $2..."
++	dd conv=fsync if=/dev/zero of=$1 seek=$2 bs=1 count=$3 2>/dev/null
++	sleep 3
++	drop_caches
++}
++
++# Test program driver
++# success_fail <pos> <len> <good_crc> program...
++success_fail() {
++	local pos=$1
++	shift
++	local len=$1
++	shift
++	local good=$1
++	shift
++
++	# Run test program
++	$@
++	local result=$?
++
++	local after=`md_crc $MD $pos $len`
++
++	if [ $result = 0 -a $after = $good ]
++	then
++		echo ">>>>>>>> SUCCESS <<<<<<<<<<<"
++	else
++		echo ">>>>>>>>> FAIL <<<<<<<<<<<"
++		return 1
++	fi
++}
++
++# test_header <level> <ndisks> <dsize> <pos> <len> [<txt>]
++test_header() {
++	echo "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
++	echo "RAID$1: $6 Corrupt @$4 $5 bytes on $2 $3B disks"
++	echo "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
++}
++
++# test_raid1 <pos> <size> <raid10txt>
++test_raid1() {
++	test_header 1$3 $ndisks $size $1 $2
++	local p=$1
++	local s=$2
++	local good=`md_crc $MD $p $s`
++
++
++	# It is unknown which component disk is used for this position.
++	# Try until trashing is found effective.
++	for comp in `comp_devs $MD $p $s`
++	do
++		local cpos=`comp_pos $MD $comp $p $s`
++		zero_dd $comp $cpos 10
++		local bad=`md_crc $MD $p $s`
++		if [ $bad != $good ]
++		then
++			success_fail $p $s $good $PROG -v -d $MD $p $s $bad $good
++			local res=$?
++			echo
++			return $res
++		fi
++		
++		# Restore component disk from MD.
++		dd conv=fsync if=$MD skip=$p of=$comp seek=$cpos	\
++			bs=1 count=10 2>/dev/null
++	done
++	echo "#### Could not simulate data corruption."
++	return 1
++}
++
++# test_raid5 <pos> <size>
++test_raid5() {
++	test_header 5 $ndisks $size $1 $2
++	local good=`md_crc $MD $1 $2`
++	local bdisk=`comp_dev $MD $1 $2`
++	local cpos=`comp_pos $MD $bdisk $1 $2`
++	zero_dd $bdisk $cpos 10
++	local bad=`md_crc $MD $1 $2`
++
++	success_fail $1 $2 $good $PROG -v -d $MD $1 $2 $bad $good
++	local res=$?
++	echo
++	return $res
++}
++
++# Restore failed disk
++restore_disk() {
++	local md=$1
++	local fdisk=$2
++	local sysf="/sys/block/`basename $md`/md/sync_action"
++	mdadm $md -a $fdisk
++	while [ `cat $sysf` != idle ]
++	do
++		sleep 1
++	done
++	echo
++}
++
++# Dx and Q have bad CRC.
++test_raid6_dq() {
++	test_header 6 $ndisks $size $1 $2 "D and Q"
++	zero_dd $ddisk $dpos 10
++	local bad=`md_crc $MD $1 $2`
++	zero_dd $qdisk $qpos 10
++
++	success_fail $1 $2 $good $PROG -v -d $MD $1 $2 $bad $good
++	local res=$?
++	echo
++	return $res
++}
++
++# Dx and P have bad CRC.
++test_raid6_dp() {
++	test_header 6 $ndisks $size $1 $2 "D and P"
++	zero_dd $ddisk $dpos 10
++	local bad=`md_crc $MD $1 $2`
++	zero_dd $pdisk $ppos 10
++
++	success_fail $1 $2 $good $PROG -v -d $MD $1 $2 $bad $good
++	local res=$?
++	echo
++	return $res
++}
++
++# Dx has bad CRC. Dy is failed.
++test_raid6_d_e() {
++	test_header 6 $ndisks $size $1 $2 "E failed and D"
++	zero_dd $ddisk $dpos 10
++	mdadm $MD -f $edisk
++	mdadm $MD -r $edisk
++	local bad=`md_crc $MD $1 $2`
++
++	success_fail $1 $2 $good $PROG -v -d $MD $1 $2 $bad $good
++	local res=$?
++	restore_disk $MD $edisk
++	return $res
++}
++
++# P has bad CRC. Dx is failed.
++test_raid6_p_d() {
++	test_header 6 $ndisks $size $1 $2 "D failed and P"
++	zero_dd $ddisk $dpos 10
++	mdadm $MD -f $edisk
++	mdadm $MD -r $edisk
++	local bad=`md_crc $MD $1 $2`
++
++	success_fail $1 $2 $good $PROG -v -d $MD $1 $2 $bad $good
++	local res=$?
++	restore_disk $MD $edisk
++	return $res
++}
++
++# Dx has bad CRC. P is failed.
++test_raid6_d_p() {
++	test_header 6 $ndisks $size $1 $2 "P failed and D"
++	zero_dd $ddisk $dpos 10
++	mdadm $MD -f $pdisk
++	mdadm $MD -r $pdisk
++	local bad=`md_crc $MD $1 $2`
++
++	success_fail $1 $2 $good $PROG -v -d $MD $1 $2 $bad $good
++	local res=$?
++	restore_disk $MD $pdisk
++	return $res
++}
++
++# Dx has bad CRC. Q is failed.
++test_raid6_d_q() {
++	test_header 6 $ndisks $size $1 $2 "Q failed and D"
++	zero_dd $ddisk $dpos 10
++	mdadm $MD -f $qdisk
++	mdadm $MD -r $qdisk
++	local bad=`md_crc $MD $1 $2`
++
++	success_fail $1 $2 $good $PROG -v -d $MD $1 $2 $bad $good
++	local res=$?
++	restore_disk $MD $qdisk
++	return $res
++}
++
++#
++# RAID6 tests various bad/fail patterns
++# test_raid6 <pos> <size>
++#
++test_raid6() {
++	local good=`md_crc $MD $1 $2`
++	local ddisk=`comp_dev $MD $1 $2`
++	local edisk=`comp_dev $MD $1 $2 E`
++	local pdisk=`comp_dev $MD $1 $2 P`
++	local qdisk=`comp_dev $MD $1 $2 Q`
++	local dpos=`comp_pos $MD $ddisk $1 $2`
++	local ppos=`comp_pos $MD $pdisk $1 $2 P`
++	local qpos=`comp_pos $MD $qdisk $1 $2 Q`
++	test_raid6_dq $@	|| return 1
++	test_raid6_dp $@	|| return 1
++	test_raid6_d_e $@	|| return 1
++	test_raid6_p_d $@	|| return 1
++	test_raid6_d_p $@	|| return 1
++	test_raid6_d_q $@	|| return 1
++}
++
++
++raid1() {
++	for ndisks in 2 3
++	do
++		delete_raid $MD
++		create_raid $MD 1 $ndisks
++		for pos in $POS
++		do
++			for len in $LEN
++			do
++				test_raid1 $pos $len	|| exit 1
++			done
++		done
++	done
++}
++
++raid5() {
++	for ndisks in 4 6
++	do
++		for chunk in 64 512
++		do
++			delete_raid $MD
++			create_raid $MD 5 $ndisks $chunk
++			for pos in $POS
++			do
++				for len in $LEN
++				do
++					test_raid5 $pos $len	|| exit 1
++				done
++			done
++		done
++	done
++}
++
++raid6() {
++	for ndisks in 5 6
++	do
++		for chunk in 64 512
++		do
++			delete_raid $MD
++			create_raid $MD 6 $ndisks $chunk
++			for pos in $POS
++			do
++				for len in $LEN
++				do
++					test_raid6 $pos $len	|| exit 1
++				done
++			done
++		done
++	done
++}
++
++# RAID10 tests various layouts
++raid10() {
++	for ndisks in 5 6
++	do
++	    for layout in n2 n3 f2 f3 o2 o3
++	    do
++		for chunk in 64 512
++		do
++			delete_raid $MD
++			create_raid $MD 10 $ndisks $chunk $layout
++			for pos in $POS
++			do
++				for len in $LEN
++				do
++				    test_raid1 $pos $len "0$layout" || exit 1
++				done
++			done
++		done
++	    done
++	done
++}
++
++for size in 10M 23M 49M
++do
++	delete_all
++
++	create_img $size
++	create_loop
++
++	[ "$RAID1" ] && raid1
++	[ "$RAID5" ] && raid5
++	[ "$RAID6" ] && raid6
++	[ "$RAID10" ] && raid10
++done
+diff --git a/trash-mdcs.sh b/trash-mdcs.sh
+new file mode 100644
+index 0000000..e884b6a
+--- /dev/null
++++ b/trash-mdcs.sh
+@@ -0,0 +1,250 @@
++#!/bin/sh
++#
++# trash-mdcs.sh
++#
++#	Trash RAID file data blocks 
++#	For demo to repair corrupted RAID component
++#	Copyright (c) 2014 NETGEAR
++#	Copyright (c) 2014,2015 Hiro Sugawara
++#
++#	Usage: [SBIN=/usr/sbin] trash-mdcs.sh <file> [<len>@<pos> ...]'
++#
++
++MYNAME=`basename $0`
++
++[ "$SBIN" ] 	|| SBIN=/usr/sbin
++PROG=$SBIN/mdcsrepair
++DAEMON=$SBIN/mdcsrepaird
++MNT=/mnt
++
++ZERO=yes
++COMPONENT=yes
++DRY=no
++
++help() {
++	cat <<_END >&2
++Demonstrates MDCSREPIR feature.
++Usage: $0 [-n][-r][-R] <file> [<size>@<pos> ...]
++       -n   Dry run - do not actually trash file
++       -r   Random data instead of zeroing
++       -R   Trash RAID instead of component(s)
++_END
++	exit 1
++}
++
++warn() {
++	echo "$MYNAME: $*" >&2
++}
++
++while true
++do
++	case "$1" in
++		-n)	DRY=yes; shift;;
++		-r)	RANDOM=no; shift;;
++		-R)	COMPONENT=no; shift;;
++		-*)	help;;
++		*)	break;;
++	esac
++done
++
++if [ -z "$*" ]
++then
++	help
++fi
++
++if ! [ -x $PROG ]
++then
++	warn "Cannot find '$PROG'..."
++	exit 1
++fi
++
++if ! [ -e $1 ]
++then
++	warn "Cannot find '$1'..."
++	exit 1
++fi
++
++flush_caches() {
++	sync
++	sleep 1
++	echo 3 >/proc/sys/vm/drop_caches
++}
++
++# Return component disk's position
++# comppos <md_dev> <comp_dev> <pos> <len> [P|Q]
++comp_pos() {
++	cd=`echo $2 | sed 's|/|\\\\/|g'`
++	case "$4" in
++	P|Q)
++		$PROG -n -v -d $1 $3 $4 00000000 11111111 2>/dev/null | \
++			awk "/\[$4\] $cd GOOD \@ .+ Expected: / { print \$6 }"
++	;;
++	*)
++		$PROG -n -v -d $1 $3 $4 00000000 11111111 2>/dev/null | \
++			awk "/^$cd BAD  \@ .+ Expected: / { print \$4 }"
++	;;
++	esac
++}
++
++# List data/P/Q component device
++# comp_dev <md_dev> <pos> <len> [P|Q|E]
++comp_dev() {
++	local comp
++	local dev
++	local array="`$PROG -n -v -d $1 $2 $3 00000000 11111111 2>/dev/null | \
++		grep '^\[0'`"
++	for comp in $array X
++	do
++		case "$4" in
++		P|Q)
++			echo "$comp" | grep -q "\[$4\]" && break
++			;;
++		E)
++			echo "$comp" | grep -q "\[[[:digit:]]\]" && break
++			;;
++		*)
++			echo "$comp" | grep -q "\[[[:digit:]]\*\]" && break
++			;;
++		esac
++	done
++
++	[ -z "$comp" -o "$comp" = X ] && return
++	local name=`echo $comp | sed 's|^.*(||;s|).*||'`
++	if [ "$name" = 'F' ]
++	then
++		warn "$1 has a failed component."
++		return
++	fi
++	echo "/dev/$name"
++}
++
++# Trash component device
++# zero_dd_lite <comp_dev> <pos> <len>
++zero_dd_lite() {
++	local source=/dev/zero
++	[ "ZERO" != yes ]	&& source=/dev/urandom
++	echo "Trashing $1 @ $2..."
++	if [ "$DRY" != yes ]
++	then
++		dd conv=fsync if=$source of=$1 seek=$2 bs=1 count=$3 2>/dev/null
++	fi
++}
++
++debug_on() {
++	local colon=':'
++	[ "$1" ] && colon=$1
++	
++	echo $colon >/proc/fs/btrfs/mdcsrepair
++}
++
++debug_off() {
++	echo >/proc/fs/btrfs/mdcsrepair
++}
++
++fsof() {
++	if ! which realpath >/dev/null 2>&1
++	then
++		apt-get -y install realpath >/dev/null 2>&1
++	fi
++
++	local f=`realpath $1`	|| exit
++
++	while [ "$f" != / ]
++	do
++		local d=`df $f | awk '! /^Filesystem/ { print $1 }'`
++		case "$d" in
++			/dev/*)
++				echo $d
++				return
++				;;
++			-)
++				f=`dirname $f`
++				;;
++			*)
++				warn "cannot examine filesystem for $f" >&2
++				exit 1
++			;;
++		esac
++	done
++}
++
++trash() {
++	local file=`realpath $1`
++	local ino=`stat --printf="%i\\n" $file`
++	local len=`echo $2 | sed 's|@.*$||'`
++	local pos=`echo $2 | sed 's|^.*@||'`
++
++	if echo "$len$pos" | grep -qvE '[[:digit:]]'
++	then
++		warn "Bad <len>@<pos> '$2'" >&2
++		exit 1
++	fi
++
++	local debug=`cat /proc/fs/btrfs/mdcsrepair`
++	#echo fs/btrfs/inode.c: >/proc/fs/btrfs/mdcsrepair
++	echo -n :$ino >/proc/fs/btrfs/mdcsrepair
++	local blklen=4096
++	local tmpfile="/tmp/trash-mdcs.$$.tmp"
++
++	while [ $len -gt 0 ]
++	do
++		local fbx=$((($pos/$blklen)*$blklen))
++		local thislen=$(($len%$blklen))
++		[ $thislen = 0 ] && thislen=$blklen
++		rm -f $tmpfile
++		$DAEMON -v -d >$tmpfile &
++		local dpid=$!
++		flush_caches
++		dd if=$file of=/dev/null bs=1 skip=$pos count=1 2>/dev/null
++		sleep 3
++		kill $dpid 2>/dev/null
++		wait 2>/dev/null
++		local fb_start=`grep -m 1 "\] $ino:$file @ $fbx\$" $tmpfile | \
++				awk '{ print $NF }'`
++		local blk_off=$(($pos-$fb_start))
++
++		local md=`grep -m 1 -A 1 "\] $ino:$file @ $fbx\$" $tmpfile | \
++				tail -1 | \
++				awk '{ print $1 }'`
++		local dpos=`grep -m 1 -A 1 "\] $ino:$file @ $fbx\$" $tmpfile | \
++				tail -1 | \
++				awk '{ print $4 }'`
++		dpos=$(($dpos+$blk_off))
++
++		if [ "$COMPONENT" = yes ]
++		then
++			local cdev=`comp_dev $md $dpos $thislen x`
++			[ "$cdev" ] || exit 1
++			local cpos=`comp_pos $md $cdev $dpos $thislen`
++			[ "$cpos" ] || exit 1
++
++			zero_dd_lite $cdev $cpos $thislen
++		else
++			zero_dd_lite $md $dpos $thislen
++		fi
++
++		len=$(($len-$thislen))
++		pos=$(($pos+$thislen))
++	done
++	echo $debug >/proc/fs/btrfs/mdcsrepair
++
++	rm -f $tmpfile
++	sleep 3
++	flush_caches
++}
++
++file2trash=$1
++shift
++
++if [ $# = 0 ]
++then
++	trash $file2trash "2@0"
++else
++	while [ $# -ge 1 ]
++	do
++		trash $file2trash $1
++		shift
++	done
++
++	##repair $file2trash
++fi

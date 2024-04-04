@@ -88,7 +88,7 @@ sub import {
             my $sigdie;
             {
                 local $SIG{__DIE__};
-                eval "require $base";
+                eval "local \@INC = \@INC; pop \@INC if \$INC[-1] eq '.'; require $base";
                 # Only ignore "Can't locate" errors from our eval require.
                 # Other fatal errors (syntax etc) must be reported.
                 die if $@ && $@ !~ /^Can't locate .*? at \(eval /;

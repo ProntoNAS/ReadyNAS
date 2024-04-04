@@ -495,6 +495,7 @@ See L<perlxs> and L<perlxstut> for additional details.
 =cut
 
 # ' # Grr
+BEGIN { pop @INC if $INC[-1] eq '.' }
 use strict;
 
 

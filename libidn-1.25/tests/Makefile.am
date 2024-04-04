@@ -27,7 +27,7 @@ libutils_a_SOURCES = utils.h utils.c
 
 ctests = tst_stringprep tst_punycode tst_idna tst_idna2 tst_idna3	\
 	tst_idna4 tst_nfkc tst_pr29 tst_strerror tst_toutf8		\
-	tst_symbols
+	tst_symbols tst_badutf8 tst_utf8crash
 if TLD
 ctests += tst_tld
 endif

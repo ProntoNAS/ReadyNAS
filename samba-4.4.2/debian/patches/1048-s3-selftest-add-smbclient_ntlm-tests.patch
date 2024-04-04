@@ -1,0 +1,104 @@
+From 4b00bf5be54459b0d2bb96a803d832b53f6be459 Mon Sep 17 00:00:00 2001
+From: Stefan Metzmacher <metze@samba.org>
+Date: Mon, 25 Apr 2016 16:12:47 +0200
+Subject: [PATCH 1048/1096] s3:selftest: add smbclient_ntlm tests
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+We test all combinations of NT1 with and without spnego and SMB3
+for user, anonymous and guest authentication.
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11849
+
+Signed-off-by: Stefan Metzmacher <metze@samba.org>
+Reviewed-by: Andreas Schneider <asn@samba.org>
+Reviewed-by: Günther Deschner <gd@samba.org>
+
+Autobuild-User(master): Stefan Metzmacher <metze@samba.org>
+Autobuild-Date(master): Thu Apr 28 20:16:45 CEST 2016 on sn-devel-144
+
+(cherry picked from commit eee88e07b3e68efb467b390536eea4155b5ced7e)
+
+Autobuild-User(v4-4-test): Stefan Metzmacher <metze@samba.org>
+Autobuild-Date(v4-4-test): Fri Apr 29 13:12:46 CEST 2016 on sn-devel-144
+
+(cherry picked from commit b9cc3bdc7f011a7761157c14cd833b10e14588d6)
+---
+ source3/script/tests/test_smbclient_ntlm.sh | 40 +++++++++++++++++++++++++++++
+ source3/selftest/tests.py                   |  4 ++-
+ 2 files changed, 43 insertions(+), 1 deletion(-)
+ create mode 100755 source3/script/tests/test_smbclient_ntlm.sh
+
+diff --git a/source3/script/tests/test_smbclient_ntlm.sh b/source3/script/tests/test_smbclient_ntlm.sh
+new file mode 100755
+index 0000000..b8fc564
+--- /dev/null
++++ b/source3/script/tests/test_smbclient_ntlm.sh
+@@ -0,0 +1,40 @@
++#!/bin/sh
++
++# this runs a smbclient based authentication tests
++
++if [ $# -lt 5 ]; then
++cat <<EOF
++Usage: test_smbclient_ntlm.sh SERVER USERNAME PASSWORD MAPTOGUEST SMBCLIENT <smbclient arguments>
++EOF
++exit 1;
++fi
++
++SERVER="$1"
++USERNAME="$2"
++PASSWORD="$3"
++MAPTOGUEST="$4"
++SMBCLIENT="$5"
++SMBCLIENT="$VALGRIND ${SMBCLIENT}"
++shift 5
++ADDARGS="$*"
++
++incdir=`dirname $0`/../../../testprogs/blackbox
++. $incdir/subunit.sh
++
++testit "smbclient username.password.NT1OLD" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -U$USERNAME%$PASSWORD -mNT1 --option=clientusespnego=no --option=clientntlmv2auth=no -c quit $ADDARGS
++testit "smbclient username.password.NT1NEW" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -U$USERNAME%$PASSWORD -mNT1 -c quit $ADDARGS
++testit "smbclient username.password.SMB3" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -U$USERNAME%$PASSWORD -mSMB3 -c quit $ADDARGS
++
++testit "smbclient anonymous.nopassword.NT1OLD" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -U% -mNT1 --option=clientusespnego=no --option=clientntlmv2auth=no -c quit $ADDARGS
++testit "smbclient anonymous.nopassword.NT1NEW" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -U% -mNT1 -c quit $ADDARGS
++testit "smbclient anonymous.nopassword.SMB3" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -U% -mSMB3 -c quit $ADDARGS
++if test x"${MAPTOGUEST}" = x"never" ; then
++	testit_expect_failure "smbclient anonymous.badpassword.NT1NEW.fail" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -U%badpassword -mNT1 -c quit $ADDARGS
++	testit_expect_failure "smbclient anonymous.badpassword.SMB3.fail" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -U%badpassword -mSMB3 -c quit $ADDARGS
++else
++	testit "smbclient anonymous.badpassword.NT1NEW.guest" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -U%badpassword -mNT1 -c quit $ADDARGS
++	testit "smbclient anonymous.badpassword.SMB3.guest" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -U%badpassword -mSMB3 -c quit $ADDARGS
++
++	testit "smbclient baduser.badpassword.NT1NEW.guest" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -Ubaduser%badpassword -mNT1 -c quit $ADDARGS
++	testit "smbclient baduser.badpassword.SMB3.guest" $SMBCLIENT //$SERVER/IPC\$ $CONFIGURATION -Ubaduser%badpassword -mSMB3 -c quit $ADDARGS
++fi
+diff --git a/source3/selftest/tests.py b/source3/selftest/tests.py
+index 03345c6..ce26212 100755
+--- a/source3/selftest/tests.py
++++ b/source3/selftest/tests.py
+@@ -129,8 +129,9 @@ for options in ["--option=clientusespnego=no", " --option=clientntlmv2auth=no --
+     env = "nt4_dc"
+     plantestsuite("samba3.blackbox.smbclient_auth.plain (%s) %s" % (env, options), env, [os.path.join(samba3srcdir, "script/tests/test_smbclient_auth.sh"), '$SERVER', '$SERVER_IP', '$DC_USERNAME', '$DC_PASSWORD', smbclient3, configuration, options])
+ 
+-for env in ["nt4_dc", "nt4_member", "ad_member", "ad_dc_ntvfs", "s4member"]:
++for env in ["nt4_dc", "nt4_member", "ad_member", "ad_dc_ntvfs", "s4member", "fl2000dc"]:
+     plantestsuite("samba3.blackbox.smbclient_machine_auth.plain (%s:local)" % env, "%s:local" % env, [os.path.join(samba3srcdir, "script/tests/test_smbclient_machine_auth.sh"), '$SERVER', smbclient3, configuration])
++    plantestsuite("samba3.blackbox.smbclient_ntlm.plain (%s)" % env, env, [os.path.join(samba3srcdir, "script/tests/test_smbclient_ntlm.sh"), '$SERVER', '$DC_USERNAME', '$DC_PASSWORD', "never", smbclient3, configuration])
+ 
+ for env in ["nt4_dc", "nt4_member", "ad_member"]:
+     plantestsuite("samba3.blackbox.smbclient_auth.plain (%s)" % env, env, [os.path.join(samba3srcdir, "script/tests/test_smbclient_auth.sh"), '$SERVER', '$SERVER_IP', '$DC_USERNAME', '$DC_PASSWORD', smbclient3, configuration])
+@@ -159,6 +160,7 @@ for env in ["maptoguest", "simpleserver"]:
+ 
+ env = "maptoguest"
+ plantestsuite("samba3.blackbox.smbclient_auth.plain (%s) bad username" % env, env, [os.path.join(samba3srcdir, "script/tests/test_smbclient_auth.sh"), '$SERVER', '$SERVER_IP', 'notmy$USERNAME', '$PASSWORD', smbclient3, configuration + " --option=clientntlmv2auth=no --option=clientlanmanauth=yes"])
++plantestsuite("samba3.blackbox.smbclient_ntlm.plain (%s)" % env, env, [os.path.join(samba3srcdir, "script/tests/test_smbclient_ntlm.sh"), '$SERVER', '$USERNAME', '$PASSWORD', "baduser", smbclient3, configuration])
+ 
+ # plain
+ for env in ["nt4_dc"]:
+-- 
+2.9.0
+

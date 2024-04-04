@@ -1,0 +1,51 @@
+From 340aae205c21df3fb9d8055a1717778d2b3f6d3d Mon Sep 17 00:00:00 2001
+From: Stefan Metzmacher <metze@samba.org>
+Date: Wed, 22 Jun 2016 16:58:03 +0200
+Subject: [PATCH 1097/1104] dcerpc.idl: add
+ DCERPC_NCACN_{REQUEST,RESPONSE}_DEFAULT_MAX_SIZE
+
+This will replace DCERPC_NCACN_PAYLOAD_MAX_SIZE (4 MByte),
+this limit is too strict for some workloads, e.g. DRSUAPI replication
+with large objects.
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11948
+
+Signed-off-by: Stefan Metzmacher <metze@samba.org>
+Reviewed-by: Andrew Bartlett <abartlet@samba.org>
+(cherry picked from commit 281e11b53f676647997fb9ce21227782529a62ad)
+(cherry picked from commit 203c0a5e4f6c84532dfec03b5666c30f004a13cf)
+---
+ librpc/idl/dcerpc.idl | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/librpc/idl/dcerpc.idl b/librpc/idl/dcerpc.idl
+index 015eb3d..5e0f919 100644
+--- a/librpc/idl/dcerpc.idl
++++ b/librpc/idl/dcerpc.idl
+@@ -537,6 +537,23 @@ interface dcerpc
+ 	const uint8 DCERPC_NCACN_PAYLOAD_OFFSET = 16;
+ 	const uint32 DCERPC_NCACN_PAYLOAD_MAX_SIZE = 0x400000; /* 4 MByte */
+ 
++	/*
++	 * See [MS-RPCE] 3.3.3.5.4 Maximum Server Input Data Size
++	 * 4 MByte is the default limit of reassembled request payload
++	 */
++	const uint32 DCERPC_NCACN_REQUEST_DEFAULT_MAX_SIZE = 0x400000;
++
++	/*
++	 * See [MS-RPCE] 3.3.2.5.2 Handling Responses
++	 *
++	 * Indicates that Windows accepts up to 0x7FFFFFFF ~2 GByte
++	 *
++	 * talloc has a limit of 256 MByte, so we need to use something smaller.
++	 *
++	 * For now we try our luck with 240 MByte.
++	 */
++	const uint32 DCERPC_NCACN_RESPONSE_DEFAULT_MAX_SIZE = 0xf000000; /* 240 MByte */
++
+ 	/* little-endian flag */
+ 	const uint8 DCERPC_DREP_LE  = 0x10;
+ 
+-- 
+2.9.0
+

@@ -1,0 +1,172 @@
+From 265fa43ee48898001130b90d3656d48af5d241aa Mon Sep 17 00:00:00 2001
+From: Allan Wirth <wirtha@users.sf.net>
+Date: Sat, 1 Mar 2014 09:09:19 +1100
+Subject: [PATCH 04/21] Full thread display for pstree an option
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Commit [9de89a] made pstree show the correct thread names. This had
+the unintended consequence of making a lot of thread views
+uncompact, as the names would be different.
+
+Allan suggested that if you want to see the real thread names, then
+explictly ask for them. I agree and pstree now has a new option -t
+for showing thread names.
+
+$ pstree 22603
+udisksd───4*[{udisksd}]
+$ pstree -t 22603
+udisksd─┬─{cleanup}
+        ├─{gdbus}
+        ├─{gmain}
+        └─{probing-thread}
+
+References: [patches:#33] https://sourceforge.net/p/psmisc/patches/33/
+Signed-off-by: Craig Small <csmall@enc.com.au>
+---
+ ChangeLog    |  2 ++
+ doc/pstree.1 |  5 ++++-
+ src/pstree.c | 25 +++++++++++++++++++------
+ 3 files changed, 25 insertions(+), 7 deletions(-)
+
+diff --git a/ChangeLog b/ChangeLog
+index e5f784c..1c88522 100644
+--- a/ChangeLog
++++ b/ChangeLog
+@@ -1,6 +1,8 @@
+ Changes in 22.22
+ ================
+ 	* Fixed typo in fuser which has -M on Debian #740275
++	* pstree by default doesn't show threadnames, use -t to show
++	  as it disables compaction. SF Patch#33
+ 
+ Changes in 22.21
+ ================
+diff --git a/doc/pstree.1 b/doc/pstree.1
+index 87add47..5e2cd9e 100644
+--- a/doc/pstree.1
++++ b/doc/pstree.1
+@@ -6,7 +6,7 @@
+ .\" the Free Software Foundation; either version 2 of the License, or
+ .\" (at your option) any later version.
+ .\"
+-.TH PSTREE 1 "2014-01-31" "psmisc" "User Commands"
++.TH PSTREE 1 "2014-03-01" "psmisc" "User Commands"
+ .SH NAME
+ pstree \- display a tree of processes
+ .SH SYNOPSIS
+@@ -22,6 +22,7 @@ pstree \- display a tree of processes
+ .RB [ \-p  , \ \-\-show\-pids ]
+ .RB [ \-s  , \ \-\-show\-parents ]
+ .RB [ \-S  , \ \-\-ns-changes ]
++.RB [ \-t  , \ \-\-thread-names ]
+ .RB [ \-u  , \ \-\-uid\-changes ]
+ .RB [ \-Z  , \ \-\-security\-context ]
+ .RB [ \-A  , \ \-\-ascii  , \ \-G  , \ \-\-vt100  , \ \-U  , \ \-\-unicode ]
+@@ -138,6 +139,8 @@ Show parent processes of the specified process.
+ .IP \fB\-S\fP
+ Show namespaces transitions.  Like \-N, the output is limited when running
+ as a regular user.
++.IP \fB\-t\fP
++Show full names for threads when available.
+ .IP \fB\-u\fP
+ Show uid transitions.  Whenever the uid of a process differs from the
+ uid of its parent, the new uid is shown in parentheses after the
+diff --git a/src/pstree.c b/src/pstree.c
+index 071e6c4..d13630f 100644
+--- a/src/pstree.c
++++ b/src/pstree.c
+@@ -78,6 +78,8 @@ extern const char *__progname;
+ 
+ #define NUM_NS 6
+ 
++#define THREAD_FORMAT        "{%.*s}"        /* Format for thread names */
++
+ typedef struct _proc {
+     char comm[COMM_LEN + 2 + 1]; /* add another 2 for thread brackets */
+     char **argv;                /* only used : argv[0] is 1st arg; undef if argc < 1 */
+@@ -133,7 +135,8 @@ static int *width = NULL;
+ static int *more = NULL;
+ 
+ static int print_args = 0, compact = 1, user_change = 0, pids = 0, pgids = 0,
+-    show_parents = 0, by_pid = 0, trunc = 1, wait_end = 0, ns_change = 0;
++    show_parents = 0, by_pid = 0, trunc = 1, wait_end = 0, ns_change = 0,
++    thread_names = 0;
+ static int show_scontext = 0;
+ static int output_width = 132;
+ static int cur_x = 1;
+@@ -803,6 +806,10 @@ static char* get_threadname(const pid_t pid, const int tid, const char *comm)
+     if (! (threadname = malloc(COMM_LEN + 2 + 1))) {
+ 	exit(2);
+     }
++    if (!thread_names) {
++        sprintf(threadname, THREAD_FORMAT, COMM_LEN, comm);
++        return threadname;
++    }
+     if (snprintf(path, PATH_MAX, "%s/%d/task/%d/stat", PROC_BASE, pid, tid) < 0)
+ 	perror("get_threadname: asprintf");
+     if ( (file = fopen(path, "r")) != NULL) {
+@@ -811,15 +818,16 @@ static char* get_threadname(const pid_t pid, const int tid, const char *comm)
+ 		    && (endcomm = strrchr(thread_comm, ')'))) {
+ 		++thread_comm;
+ 		*endcomm = '\0';
+-		sprintf(threadname, "{%.*s}", COMM_LEN, thread_comm);
++		sprintf(threadname, THREAD_FORMAT, COMM_LEN, thread_comm);
+ 		(void) fclose(file);
+ 		return threadname;
+ 	    }
+ 	}
++        fclose(file);
+     }
++
+     /* Fall back to old method */
+-    sprintf(threadname, "{%.*s}", COMM_LEN, comm);
+-    fclose(file);
++    sprintf(threadname, THREAD_FORMAT, COMM_LEN, comm);
+     return threadname;
+ }
+ 
+@@ -1008,6 +1016,7 @@ static void usage(void)
+              "  -p, --show-pids     show PIDs; implies -c\n"
+              "  -s, --show-parents  show parents of the selected process\n"
+              "  -S, --ns-changes    show namespace transitions\n"
++             "  -t, --thread-names  show full thread names\n"
+              "  -u, --uid-changes   show uid transitions\n"
+              "  -U, --unicode       use UTF-8 (Unicode) line drawing characters\n"
+              "  -V, --version       display version information\n"));
+@@ -1059,6 +1068,7 @@ int main(int argc, char **argv)
+         {"show-pgids", 0, NULL, 'g'},
+         {"show-parents", 0, NULL, 's'},
+         {"ns-changes", 0, NULL, 'S' },
++        {"thread-names", 0, NULL, 't'},
+         {"uid-changes", 0, NULL, 'u'},
+         {"unicode", 0, NULL, 'U'},
+         {"version", 0, NULL, 'V'},
+@@ -1109,11 +1119,11 @@ int main(int argc, char **argv)
+ 
+ #ifdef WITH_SELINUX
+     while ((c =
+-            getopt_long(argc, argv, "aAcGhH:nN:pglsSuUVZ", options,
++            getopt_long(argc, argv, "aAcGhH:nN:pglsStuUVZ", options,
+                         NULL)) != -1)
+ #else                                /*WITH_SELINUX */
+     while ((c =
+-            getopt_long(argc, argv, "aAcGhH:nN:pglsSuUV", options, NULL)) != -1)
++            getopt_long(argc, argv, "aAcGhH:nN:pglsStuUV", options, NULL)) != -1)
+ #endif                                /*WITH_SELINUX */
+         switch (c) {
+         case 'a':
+@@ -1180,6 +1190,9 @@ int main(int argc, char **argv)
+         case 'S':
+             ns_change = 1;
+             break;
++        case 't':
++            thread_names = 1;
++            break;
+         case 'u':
+             user_change = 1;
+             break;
+-- 
+2.5.2
+

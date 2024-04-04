@@ -1,0 +1,55 @@
+From 34ab82f20fd6f700f031982f48cabe9c4a081677 Mon Sep 17 00:00:00 2001
+From: Christian Ambach <ambi@samba.org>
+Date: Tue, 10 May 2016 19:47:02 +0200
+Subject: [PATCH 1073/1096] s3:libsmb/clifile use correct value for
+ MaxParameterCount for setting EAs
+
+Windows servers will refuse trans2 requests which use excessive
+request parameters. From [MS-CIFS|:
+<239> Section 3.3.5.2.5: Windows NT servers fail a transaction request with
+STATUS_INSUFF_SERVER_RESOURCES, if (SetupCount + MaxSetupCount +
+TotalParameterCount + MaxParameterCount + TotalDataCount + MaxDataCount)
+is greater than 65*1024.
+
+When attempting to set a large list of EAs for a file, this limit can be
+hit when using CLI_BUFFER_SIZE as MaxDataCount
+while the TRANS2_SET_PATH_INFORMATION response has no data reply,
+only parameters (section 2.2.6.7.2).
+
+Be as minimal as possible here to allow a maximum number of EAs to
+be written.
+
+Bug: https://bugzilla.samba.org/show_bug.cgi?id=11354
+Reviewed-by: Jeremy Allison <jra@samba.org>
+
+Signed-off-by: Christian Ambach <ambi@samba.org>
+
+Autobuild-User(master): Jeremy Allison <jra@samba.org>
+Autobuild-Date(master): Wed May 11 18:35:59 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 7efbe1139796bb708176cd8dddb206a0f271ec1b)
+
+Autobuild-User(v4-4-test): Karolin Seeger <kseeger@samba.org>
+Autobuild-Date(v4-4-test): Thu May 12 17:46:10 CEST 2016 on sn-devel-144
+
+(cherry picked from commit cc19ba39a99f422f9453eb133dab883b069270c0)
+---
+ source3/libsmb/clifile.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/source3/libsmb/clifile.c b/source3/libsmb/clifile.c
+index 0e790cd..684f263 100644
+--- a/source3/libsmb/clifile.c
++++ b/source3/libsmb/clifile.c
+@@ -4593,7 +4593,7 @@ static NTSTATUS cli_set_ea(struct cli_state *cli, uint16_t setup_val,
+ 	status = cli_trans(talloc_tos(), cli, SMBtrans2, NULL, -1, 0, 0,
+ 			   setup, 1, 0,
+ 			   param, param_len, 2,
+-			   data,  data_len, CLI_BUFFER_SIZE,
++			   data,  data_len, 0,
+ 			   NULL,
+ 			   NULL, 0, NULL, /* rsetup */
+ 			   NULL, 0, NULL, /* rparam */
+-- 
+2.9.0
+

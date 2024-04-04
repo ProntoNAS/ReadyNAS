@@ -13,7 +13,6 @@ require 5.004;	# keep this compatible, an old perl is all we may have before
 
 use strict;
 
-# Which scripts to run.
 
 my @scripts = qw(
 opcode.pl
@@ -26,7 +25,7 @@ embed.pl
 
 my $tap = $ARGV[0] && $ARGV[0] eq '--tap' ? '# ' : '';
 foreach my $pl (map {"regen/$_"} @scripts) {
-  my @command =  ($^X, $pl, @ARGV);
+  my @command =  ($^X, '-I.', $pl, @ARGV);
   print "$tap@command\n";
   system @command;
 }

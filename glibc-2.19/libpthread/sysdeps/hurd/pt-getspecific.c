@@ -23,7 +23,7 @@
 #include <pt-internal.h>
 
 void *
-pthread_getspecific (pthread_key_t key)
+__pthread_getspecific (pthread_key_t key)
 {
   struct __pthread *self;
 
@@ -37,3 +37,4 @@ pthread_getspecific (pthread_key_t key)
 
   return hurd_ihash_find (self->thread_specifics, key);
 }
+strong_alias (__pthread_getspecific, pthread_getspecific);

@@ -575,17 +575,20 @@ png_write_PLTE(png_structp png_ptr, png_colorp palette, png_uint_32 num_pal)
 #ifdef PNG_USE_LOCAL_ARRAYS
    PNG_PLTE;
 #endif
-   png_uint_32 i;
+   png_uint_32 max_palette_length, i;
    png_colorp pal_ptr;
    png_byte buf[3];
 
    png_debug(1, "in png_write_PLTE");
 
+   max_palette_length = (png_ptr->color_type == PNG_COLOR_TYPE_PALETTE) ?
+      (1 << png_ptr->bit_depth) : PNG_MAX_PALETTE_LENGTH;
+
    if ((
 #ifdef PNG_MNG_FEATURES_SUPPORTED
         !(png_ptr->mng_features_permitted & PNG_FLAG_MNG_EMPTY_PLTE) &&
 #endif
-        num_pal == 0) || num_pal > 256)
+        num_pal == 0) || num_pal > max_palette_length)
    {
      if (png_ptr->color_type == PNG_COLOR_TYPE_PALETTE)
      {
@@ -1282,7 +1285,7 @@ png_check_keyword(png_structp png_ptr, png_charp key, png_charpp new_key)
    {
       png_warning(png_ptr, "trailing spaces removed from keyword");
 
-      while (*kp == ' ')
+      while (key_len && *kp == ' ')
       {
          *(kp--) = '\0';
          key_len--;

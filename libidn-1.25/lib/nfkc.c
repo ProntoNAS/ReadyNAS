@@ -1002,6 +1002,8 @@ stringprep_unichar_to_utf8 (uint32_t c, char *outbuf)
   return g_unichar_to_utf8 (c, outbuf);
 }
 
+#include <unistr.h>
+
 /**
  * stringprep_utf8_to_ucs4:
  * @str: a UTF-8 encoded string
@@ -1010,9 +1012,10 @@ stringprep_unichar_to_utf8 (uint32_t c, char *outbuf)
  * @items_written: location to store the number of characters in the
  *                 result, or %NULL.
  *
- * Convert a string from UTF-8 to a 32-bit fixed width
- * representation as UCS-4, assuming valid UTF-8 input.
- * This function does no error checking on the input.
+ * Convert a string from UTF-8 to a 32-bit fixed width representation
+ * as UCS-4.  The function now performs error checking to verify that
+ * the input is valid UTF-8 (before it was documented to not do error
+ * checking).
  *
  * Return value: a pointer to a newly allocated UCS-4 string.
  *               This value must be deallocated by the caller.
@@ -1020,6 +1023,16 @@ stringprep_unichar_to_utf8 (uint32_t c, char *outbuf)
 uint32_t *
 stringprep_utf8_to_ucs4 (const char *str, ssize_t len, size_t * items_written)
 {
+  size_t n;
+
+  if (len < 0)
+    n = strlen (str);
+  else
+    n = len;
+
+  if (u8_check ((const uint8_t *) str, n))
+    return NULL;
+
   return g_utf8_to_ucs4_fast (str, (glong) len, (glong *) items_written);
 }
 

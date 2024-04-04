@@ -21,5 +21,5 @@ update-from-upstream:
 	git clone --bare $(GLIBC_GIT) $(GLIBC_CHECKOUT)
 	echo "GIT update of $(GLIBC_GIT)/$(GLIBC_BRANCH) from $(DEB_ORIG_COMMIT)" > $(GIT_UPDATES_DIFF)
 	echo "" >> $(GIT_UPDATES_DIFF)
-	(cd $(GLIBC_CHECKOUT) && git diff $(GLIBC_TAG) $(GLIBC_BRANCH)) | filterdiff -x 'manual/*' >> $(GIT_UPDATES_DIFF)
+	(cd $(GLIBC_CHECKOUT) && git diff $(GLIBC_TAG) $(GLIBC_BRANCH)) | filterdiff -x '*/manual/*' >> $(GIT_UPDATES_DIFF)
 	rm -rf $(GLIBC_CHECKOUT)

@@ -1,0 +1,182 @@
+From 6bba9b3c0a10d381b706b36ee008560c5656a4e4 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 16 Sep 2015 13:19:45 -0700
+Subject: [PATCH 1/8] Remove fstab modification.
+
+---
+ snapper/Btrfs.cc | 140 -------------------------------------------------------
+ 1 file changed, 140 deletions(-)
+
+diff --git a/snapper/Btrfs.cc b/snapper/Btrfs.cc
+index c6c6bb3..6ae4ba5 100644
+--- a/snapper/Btrfs.cc
++++ b/snapper/Btrfs.cc
+@@ -30,9 +30,6 @@
+ #include <fcntl.h>
+ #include <sys/ioctl.h>
+ #include <asm/types.h>
+-#ifdef ENABLE_ROLLBACK
+-#include <libmount/libmount.h>
+-#endif
+ #ifdef HAVE_LIBBTRFS
+ #ifdef HAVE_BTRFS_VERSION_H
+ #include <btrfs/version.h>
+@@ -117,20 +114,6 @@ namespace snapper
+ 	struct stat stat;
+ 	if (x.stat(&stat, 0) == 0)
+ 	    x.chmod(stat.st_mode & ~0027, 0);
+-
+-#ifdef ENABLE_ROLLBACK
+-	if (subvolume == "/" && add_fstab)
+-	{
+-	    try
+-	    {
+-		addToFstab();
+-	    }
+-	    catch (const runtime_error& e)
+-	    {
+-		y2err("adding to fstab failed, " << e.what());
+-	    }
+-	}
+-#endif
+     }
+ 
+ 
+@@ -139,22 +122,6 @@ namespace snapper
+     {
+ 	SDir subvolume_dir = openSubvolumeDir();
+ 
+-#ifdef ENABLE_ROLLBACK
+-	if (subvolume == "/")
+-	{
+-	    subvolume_dir.umount(".snapshots");
+-
+-	    try
+-	    {
+-		removeFromFstab();
+-	    }
+-	    catch (const runtime_error& e)
+-	    {
+-		y2err("removing from fstab failed, " << e.what());
+-	    }
+-	}
+-#endif
+-
+ 	try
+ 	{
+ 	    delete_subvolume(subvolume_dir.fd(), ".snapshots");
+@@ -1368,111 +1335,4 @@ namespace snapper
+     }
+ 
+ #endif
+-
+-
+-#ifdef ENABLE_ROLLBACK
+-
+-    class MntTable
+-    {
+-
+-    public:
+-
+-	MntTable()
+-	    : table(mnt_new_table())
+-	{
+-	    if (!table)
+-		throw runtime_error("mnt_new_table failed");
+-
+-	    mnt_table_enable_comments(table, 1);
+-	}
+-
+-	~MntTable()
+-	{
+-	    mnt_reset_table(table);
+-	}
+-
+-	void parse_fstab()
+-	{
+-	    if (mnt_table_parse_fstab(table, "/etc/fstab") != 0)
+-		throw runtime_error("mnt_table_parse_fstab failed");
+-	}
+-
+-	void replace_file()
+-	{
+-	    if (mnt_table_replace_file(table, "/etc/fstab") != 0)
+-		throw runtime_error("mnt_table_replace_file failed");
+-	}
+-
+-	struct libmnt_fs* find_target(const string& path, int directon)
+-	{
+-	    return mnt_table_find_target(table, path.c_str(), directon);
+-	}
+-
+-	void add_fs(struct libmnt_fs* fs)
+-	{
+-	    if (mnt_table_add_fs(table, fs) != 0)
+-		throw runtime_error("mnt_table_add_fs failed");
+-	}
+-
+-	void remove_fs(struct libmnt_fs* fs)
+-	{
+-	    if (mnt_table_remove_fs(table, fs) != 0)
+-		throw runtime_error("mnt_table_remove_fs failed");
+-	}
+-
+-    private:
+-
+-	struct libmnt_table* table;
+-
+-    };
+-
+-
+-    void
+-    Btrfs::addToFstab() const
+-    {
+-	SDir infos_dir = openInfosDir();
+-	unsigned long long id = get_id(infos_dir.fd());
+-	string subvol_option = get_subvolume(infos_dir.fd(), id);
+-
+-	MntTable mnt_table;
+-	mnt_table.parse_fstab();
+-
+-	libmnt_fs* root = mnt_table.find_target(subvolume, MNT_ITER_FORWARD);
+-	if (!root)
+-	    throw runtime_error("root entry not found");
+-
+-	libmnt_fs* snapshots = mnt_copy_fs(NULL, root);
+-	if (!snapshots)
+-	    throw runtime_error("mnt_copy_fs failed");
+-
+-	string mountpoint = (subvolume == "/" ? "" : subvolume) +  "/.snapshots";
+-	mnt_fs_set_target(snapshots, mountpoint.c_str());
+-
+-	char* options = mnt_fs_strdup_options(snapshots);
+-	mnt_optstr_remove_option(&options, "defaults");
+-	mnt_optstr_set_option(&options, "subvol", subvol_option.c_str());
+-	mnt_fs_set_options(snapshots, options);
+-	free(options);
+-
+-	mnt_table.add_fs(snapshots);
+-	mnt_table.replace_file();
+-    }
+-
+-
+-    void
+-    Btrfs::removeFromFstab() const
+-    {
+-	MntTable mnt_table;
+-	mnt_table.parse_fstab();
+-
+-	string mountpoint = (subvolume == "/" ? "" : subvolume) +  "/.snapshots";
+-	libmnt_fs* snapshots = mnt_table.find_target(mountpoint, MNT_ITER_FORWARD);
+-	if (!snapshots)
+-	    return;
+-
+-	mnt_table.remove_fs(snapshots);
+-	mnt_table.replace_file();
+-    }
+-
+-#endif
+ }
+-- 
+1.9.1
+

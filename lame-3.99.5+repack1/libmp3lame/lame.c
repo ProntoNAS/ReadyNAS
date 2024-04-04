@@ -822,6 +822,12 @@ lame_init_params(lame_global_flags * gfp)
     }
 #endif
 
+    if (gfp->samplerate_in < 0 || gfp->num_channels < 0) {
+        freegfc(gfc);
+        gfp->internal_flags = NULL;
+        return -1;
+    }
+
     cfg->disable_reservoir = gfp->disable_reservoir;
     cfg->lowpassfreq = gfp->lowpassfreq;
     cfg->highpassfreq = gfp->highpassfreq;

@@ -2022,6 +2022,13 @@ config_monitor(
 	while (pfilegen_token != NULL) {
 		filegen_string = keyword(*pfilegen_token);
 		filegen = filegen_get(filegen_string);
+		if (NULL == filegen) {
+			msyslog(LOG_ERR,
+				"stats %s unrecognized",
+				filegen_string);
+			pfilegen_token = next_node(pfilegen_token);
+			continue;
+		}
 
 		DPRINTF(4, ("enabling filegen for %s statistics '%s%s'\n",
 			    filegen_string, filegen->prefix, 
@@ -2035,6 +2042,13 @@ config_monitor(
 	while (my_node != NULL) {
 		filegen_file = keyword(my_node->filegen_token);
 		filegen = filegen_get(filegen_file);
+		if (NULL == filegen) {
+			msyslog(LOG_ERR,
+				"filegen category '%s' unrecognized",
+				filegen_file);
+			my_node = next_node(my_node);
+			continue;
+		}
 
 		/* Initialize the filegen variables to their pre-configurtion states */
 		filegen_flag = filegen->flag;

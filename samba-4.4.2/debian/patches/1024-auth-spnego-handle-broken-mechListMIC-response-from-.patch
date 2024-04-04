@@ -1,0 +1,52 @@
+From 1a2327b31ca149c464f02c8a33632ce5dff42618 Mon Sep 17 00:00:00 2001
+From: Stefan Metzmacher <metze@samba.org>
+Date: Sat, 23 Apr 2016 05:17:25 +0200
+Subject: [PATCH 1024/1096] auth/spnego: handle broken mechListMIC response
+ from Windows 2000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11870
+
+Signed-off-by: Stefan Metzmacher <metze@samba.org>
+Reviewed-by: Andreas Schneider <asn@samba.org>
+Reviewed-by: Günther Deschner <gd@samba.org>
+(cherry picked from commit 032c2733dea834e2c95178cdd0deb73e7bb13621)
+(cherry picked from commit f26e6c9a797751d451c2f47557d740d119302e6e)
+---
+ auth/gensec/spnego.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/auth/gensec/spnego.c b/auth/gensec/spnego.c
+index f423b70..3f30eaa 100644
+--- a/auth/gensec/spnego.c
++++ b/auth/gensec/spnego.c
+@@ -1078,6 +1078,24 @@ static NTSTATUS gensec_spnego_update(struct gensec_security *gensec_security, TA
+ 		}
+ 
+ 		if (spnego.negTokenTarg.mechListMIC.length > 0) {
++			DATA_BLOB *m = &spnego.negTokenTarg.mechListMIC;
++			const DATA_BLOB *r = &spnego.negTokenTarg.responseToken;
++
++			/*
++			 * Windows 2000 has a bug, it repeats the
++			 * responseToken in the mechListMIC field.
++			 */
++			if (m->length == r->length) {
++				int cmp;
++
++				cmp = memcmp(m->data, r->data, m->length);
++				if (cmp == 0) {
++					data_blob_free(m);
++				}
++			}
++		}
++
++		if (spnego.negTokenTarg.mechListMIC.length > 0) {
+ 			if (spnego_state->no_response_expected) {
+ 				spnego_state->needs_mic_check = true;
+ 			}
+-- 
+2.9.0
+

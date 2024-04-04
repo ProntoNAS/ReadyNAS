@@ -1,0 +1,27 @@
+#!/usr/bin/make -f
+
+CONFIGURE_COMMON_OPTS := CFLAGS=-std=c99 --with-libgsasl --with-ssl=gnutls
+
+override_dh_auto_configure:
+	mkdir -p build
+	ln -s $(CURDIR)/debian build/debian
+	ln -s $(CURDIR)/configure build/configure
+	cd build && \
+		dh_auto_configure -- \
+			${CONFIGURE_COMMON_OPTS} --without-libsecret
+
+override_dh_auto_build:
+	pod2man --center "" --date "" --release "" --section=1 \
+		debian/newaliases.pod > debian/newaliases.1
+	$(MAKE) -C build
+
+override_dh_auto_install:
+	$(MAKE) -C build install DESTDIR=$(CURDIR)/debian/tmp
+
+override_dh_auto_clean:
+	rm -rf build
+	rm -f debian/newaliases.1
+	dh_clean
+
+%:
+	dh $@ --with autotools_dev,autoreconf

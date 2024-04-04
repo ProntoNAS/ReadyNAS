@@ -1,0 +1,116 @@
+From 0a995ac7976805e06d3ae58240c8af6496381fc7 Mon Sep 17 00:00:00 2001
+From: Stefan Metzmacher <metze@samba.org>
+Date: Wed, 20 Apr 2016 18:27:34 +0200
+Subject: [PATCH 1041/1096] auth/ntlmssp: do map to guest checking after the
+ authentication
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11847
+
+Signed-off-by: Stefan Metzmacher <metze@samba.org>
+Reviewed-by: Andreas Schneider <asn@samba.org>
+Reviewed-by: Günther Deschner <gd@samba.org>
+(cherry picked from commit d667520568996471b55007a42b503edbabb1eee0)
+(cherry picked from commit eb085f389f56b6e8e270afdbd9d69485e3a2be99)
+---
+ auth/ntlmssp/gensec_ntlmssp_server.c | 16 +--------------
+ auth/ntlmssp/ntlmssp_server.c        | 40 ++++++++++++++++++++++++++++++++++++
+ 2 files changed, 41 insertions(+), 15 deletions(-)
+
+diff --git a/auth/ntlmssp/gensec_ntlmssp_server.c b/auth/ntlmssp/gensec_ntlmssp_server.c
+index ca19863..120c6e0 100644
+--- a/auth/ntlmssp/gensec_ntlmssp_server.c
++++ b/auth/ntlmssp/gensec_ntlmssp_server.c
+@@ -131,21 +131,7 @@ NTSTATUS gensec_ntlmssp_server_start(struct gensec_security *gensec_security)
+ 		ntlmssp_state->allow_lm_key = true;
+ 	}
+ 
+-	if (lpcfg_map_to_guest(gensec_security->settings->lp_ctx) != NEVER_MAP_TO_GUEST) {
+-		/*
+-		 * map to guest is not secure anyway, so
+-		 * try to make it work and don't try to
+-		 * negotiate new_spnego and MIC checking
+-		 */
+-		ntlmssp_state->force_old_spnego = true;
+-	}
+-
+-	if (role == ROLE_ACTIVE_DIRECTORY_DC) {
+-		/*
+-		 * map to guest is not supported on an AD DC.
+-		 */
+-		ntlmssp_state->force_old_spnego = false;
+-	}
++	ntlmssp_state->force_old_spnego = false;
+ 
+ 	ntlmssp_state->neg_flags =
+ 		NTLMSSP_NEGOTIATE_NTLM | NTLMSSP_NEGOTIATE_VERSION;
+diff --git a/auth/ntlmssp/ntlmssp_server.c b/auth/ntlmssp/ntlmssp_server.c
+index 17d5ade..ddee875 100644
+--- a/auth/ntlmssp/ntlmssp_server.c
++++ b/auth/ntlmssp/ntlmssp_server.c
+@@ -31,6 +31,9 @@
+ #include "auth/gensec/gensec.h"
+ #include "auth/gensec/gensec_internal.h"
+ #include "auth/common_auth.h"
++#include "param/param.h"
++#include "param/loadparm.h"
++#include "libcli/security/session.h"
+ 
+ /**
+  * Determine correct target name flags for reply, given server role
+@@ -700,6 +703,7 @@ static NTSTATUS ntlmssp_server_check_password(struct gensec_security *gensec_sec
+ 	struct ntlmssp_state *ntlmssp_state = gensec_ntlmssp->ntlmssp_state;
+ 	struct auth4_context *auth_context = gensec_security->auth_context;
+ 	NTSTATUS nt_status = NT_STATUS_NOT_IMPLEMENTED;
++	struct auth_session_info *session_info = NULL;
+ 	struct auth_usersupplied_info *user_info;
+ 
+ 	user_info = talloc_zero(ntlmssp_state, struct auth_usersupplied_info);
+@@ -736,6 +740,42 @@ static NTSTATUS ntlmssp_server_check_password(struct gensec_security *gensec_sec
+ 
+ 	NT_STATUS_NOT_OK_RETURN(nt_status);
+ 
++	if (lpcfg_map_to_guest(gensec_security->settings->lp_ctx) != NEVER_MAP_TO_GUEST
++	    && auth_context->generate_session_info != NULL)
++	{
++		NTSTATUS tmp_status;
++
++		/*
++		 * We need to check if the auth is anonymous or mapped to guest
++		 */
++		tmp_status = auth_context->generate_session_info(auth_context, mem_ctx,
++								 gensec_ntlmssp->server_returned_info,
++								 gensec_ntlmssp->ntlmssp_state->user,
++								 AUTH_SESSION_INFO_SIMPLE_PRIVILEGES,
++								 &session_info);
++		if (!NT_STATUS_IS_OK(tmp_status)) {
++			/*
++			 * We don't care about failures,
++			 * the worst result is that we try MIC checking
++			 * for a map to guest authentication.
++			 */
++			TALLOC_FREE(session_info);
++		}
++	}
++
++	if (session_info != NULL) {
++		if (security_session_user_level(session_info, NULL) < SECURITY_USER) {
++			/*
++			 * Anonymous and GUEST are not secure anyway.
++			 * avoid new_spnego and MIC checking.
++			 */
++			ntlmssp_state->new_spnego = false;
++			ntlmssp_state->neg_flags &= ~NTLMSSP_NEGOTIATE_SIGN;
++			ntlmssp_state->neg_flags &= ~NTLMSSP_NEGOTIATE_SEAL;
++		}
++		TALLOC_FREE(session_info);
++	}
++
+ 	talloc_steal(mem_ctx, user_session_key->data);
+ 	talloc_steal(mem_ctx, lm_session_key->data);
+ 
+-- 
+2.9.0
+

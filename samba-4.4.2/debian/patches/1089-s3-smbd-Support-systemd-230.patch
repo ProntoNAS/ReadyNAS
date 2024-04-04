@@ -1,0 +1,88 @@
+From 1284137f90611ff8dfc61a1e1e9f0ddf339afe96 Mon Sep 17 00:00:00 2001
+From: Alexander Bokovoy <ab@samba.org>
+Date: Wed, 25 May 2016 15:41:52 +0300
+Subject: [PATCH 1089/1096] s3-smbd: Support systemd 230
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+systemd 230 version finally deprecated libsystemd-daemon/libsystemd-journal split
+and put everything in libsystemd library.
+
+Make sure HAVE_LIBSYSTEMD define is supported in the code (we already
+have it defined by the waf).
+
+Patch is based on the code proposed by Zbigniew Jędrzejewski-Szmek
+from systemd project.
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11936
+
+Signed-off-by: Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl>
+Reviewed-by: Alexander Bokovoy <ab@samba.org>
+Reviewed-by: Andreas Schneider <asn@samba.org>
+
+Autobuild-User(master): Andreas Schneider <asn@cryptomilk.org>
+Autobuild-Date(master): Wed May 25 20:25:44 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 92b4b6b3c58e6c8bc39e5693ad30ba6f8442ca99)
+
+Autobuild-User(v4-4-test): Karolin Seeger <kseeger@samba.org>
+Autobuild-Date(v4-4-test): Tue May 31 12:35:41 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 34545900fac8b547c02d7f724226b5ce5bf9341f)
+---
+ lib/util/become_daemon.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/lib/util/become_daemon.c b/lib/util/become_daemon.c
+index 4622971..9979fad 100644
+--- a/lib/util/become_daemon.c
++++ b/lib/util/become_daemon.c
+@@ -24,7 +24,7 @@
+ #include "includes.h"
+ #include "system/filesys.h"
+ #include "system/locale.h"
+-#if HAVE_LIBSYSTEMD_DAEMON
++#if defined(HAVE_LIBSYSTEMD_DAEMON) || defined(HAVE_LIBSYSTEMD)
+ #include <systemd/sd-daemon.h>
+ #endif
+ #include "lib/util/close_low_fd.h"
+@@ -69,7 +69,7 @@ _PUBLIC_ void become_daemon(bool do_fork, bool no_process_group, bool log_stdout
+ 	if (do_fork) {
+ 		newpid = fork();
+ 		if (newpid) {
+-#if HAVE_LIBSYSTEMD_DAEMON
++#if defined(HAVE_LIBSYSTEMD_DAEMON) || defined(HAVE_LIBSYSTEMD)
+ 			sd_notifyf(0, "READY=0\nSTATUS=Starting process...\nMAINPID=%lu", (unsigned long) newpid);
+ #endif /* HAVE_LIBSYSTEMD_DAEMON */
+ 			_exit(0);
+@@ -98,7 +98,7 @@ _PUBLIC_ void become_daemon(bool do_fork, bool no_process_group, bool log_stdout
+ 
+ _PUBLIC_ void exit_daemon(const char *msg, int error)
+ {
+-#ifdef HAVE_LIBSYSTEMD_DAEMON
++#if defined(HAVE_LIBSYSTEMD_DAEMON) || defined(HAVE_LIBSYSTEMD)
+ 	if (msg == NULL) {
+ 		msg = strerror(error);
+ 	}
+@@ -117,7 +117,7 @@ _PUBLIC_ void daemon_ready(const char *name)
+ 	if (name == NULL) {
+ 		name = "Samba";
+ 	}
+-#ifdef HAVE_LIBSYSTEMD_DAEMON
++#if defined(HAVE_LIBSYSTEMD_DAEMON) || defined(HAVE_LIBSYSTEMD)
+ 	sd_notifyf(0, "READY=1\nSTATUS=%s: ready to serve connections...", name);
+ #endif
+ 	DEBUG(0, ("STATUS=daemon '%s' finished starting up and ready to serve "
+@@ -129,7 +129,7 @@ _PUBLIC_ void daemon_status(const char *name, const char *msg)
+ 	if (name == NULL) {
+ 		name = "Samba";
+ 	}
+-#ifdef HAVE_LIBSYSTEMD_DAEMON
++#if defined(HAVE_LIBSYSTEMD_DAEMON) || defined(HAVE_LIBSYSTEMD)
+ 	sd_notifyf(0, "\nSTATUS=%s: %s", name, msg);
+ #endif
+ 	DEBUG(0, ("STATUS=daemon '%s' : %s", name, msg));
+-- 
+2.9.0
+

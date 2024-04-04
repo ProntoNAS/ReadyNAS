@@ -1,0 +1,49 @@
+From 229e66cb9689ef20014ff8e5423316b19bfe6a11 Mon Sep 17 00:00:00 2001
+From: Jes Sorensen <Jes.Sorensen@redhat.com>
+Date: Tue, 16 Feb 2016 16:58:36 -0500
+Subject: [PATCH] Manage.c: Only issue change events for kernels older than
+ 2.6.28
+
+2.6.28+ kernels handle this themselves and issuing the event here can
+cause a race.
+
+Reported-by: Sebastian Parschauer <sebastian.riemer@profitbricks.com>
+Suggested-by: NeilBrown <neilb@suse.com>
+Signed-off-by: Jes Sorensen <Jes.Sorensen@redhat.com>
+---
+ Manage.c |   19 +++++++++++--------
+ 1 file changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/Manage.c b/Manage.c
+index 7e1b94b..eae96e1 100644
+--- a/Manage.c
++++ b/Manage.c
+@@ -493,14 +493,17 @@ done:
+ 		rv = 1;
+ 		goto out;
+ 	}
+-	/* prior to 2.6.28, KOBJ_CHANGE was not sent when an md array
+-	 * was stopped, so We'll do it here just to be sure.  Drop any
+-	 * partitions as well...
+-	 */
+-	if (fd >= 0)
+-		ioctl(fd, BLKRRPART, 0);
+-	if (mdi)
+-		sysfs_uevent(mdi, "change");
++
++	if (get_linux_version() < 2006028) {
++		/* prior to 2.6.28, KOBJ_CHANGE was not sent when an md array
++		 * was stopped, so We'll do it here just to be sure.  Drop any
++		 * partitions as well...
++		 */
++		if (fd >= 0)
++			ioctl(fd, BLKRRPART, 0);
++		if (mdi)
++			sysfs_uevent(mdi, "change");
++	}
+ 
+ 	if (devnm[0] && use_udev()) {
+ 		struct map_ent *mp = map_by_devnm(&map, devnm);
+-- 
+1.7.10.4
+

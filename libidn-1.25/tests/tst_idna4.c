@@ -46,7 +46,9 @@ doit (void)
   if (rc != IDNA_INVALID_LENGTH)
     fail ("unexpected rc %d\n", rc);
 
-  rc = idna_to_ascii_8z("Loading...같같같같같같같]", &out, 0);
+  rc = idna_to_ascii_8z("Loading...\xC2\xB0\xC2\xB0\xC2\xB0\xC2\xB0\xC2\xB0"
+			"\xC2\xB0\xC2\xB0\xC2\xB0\xC2\xB0\xC2\xB0\xC2\xB0"
+			"\xC2\xB0\xC2\xB0\xC2\xB0]", &out, 0);
   if (rc != IDNA_INVALID_LENGTH)
     fail ("unexpected rc %d\n", rc);
 }

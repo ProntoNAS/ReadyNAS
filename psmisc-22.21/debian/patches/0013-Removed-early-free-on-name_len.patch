@@ -1,0 +1,47 @@
+From 9e870ae6e732c85e565cbd7137dd68d123ef4f06 Mon Sep 17 00:00:00 2001
+From: Craig Small <csmall@enc.com.au>
+Date: Tue, 23 Dec 2014 08:58:47 +1100
+Subject: [PATCH 13/21] Removed early free on name_len
+
+name_len was being freed too early and in a loop so
+sometimes you would hit a double-free problem
+The locale changes were to keep efence happy though
+i suspect something strange was going on with locales there
+too.
+---
+ src/killall.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/src/killall.c b/src/killall.c
+index 1b8e878..f861649 100644
+--- a/src/killall.c
++++ b/src/killall.c
+@@ -131,8 +131,7 @@ uptime()
+       fprintf(stderr, "killall: error opening uptime file\n");	
+       exit(1);
+    }
+-   savelocale = setlocale(LC_NUMERIC, NULL);
+-   setlocale(LC_NUMERIC,"C");
++   savelocale = setlocale(LC_NUMERIC,"C");
+    if (fscanf(file, "%2047s", buf) == EOF) perror("uptime");
+    fclose(file);
+    setlocale(LC_NUMERIC,savelocale);
+@@ -528,7 +527,6 @@ kill_all (int signal, int names, char **namelist, struct passwd *pwent)
+ 	  found_name = j;
+ 	  break;
+ 	}  
+-        free(name_len);
+         
+         if (names && found_name==-1)
+ 	  continue;  /* match by process name faild */
+@@ -571,6 +569,7 @@ kill_all (int signal, int names, char **namelist, struct passwd *pwent)
+     }
+   free(reglist);
+   free(pgids);
++  free(name_len);
+   if (!quiet)
+     for (i = 0; i < names; i++)
+       if (!(found & (1 << i)))
+-- 
+2.5.2
+

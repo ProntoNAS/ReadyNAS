@@ -11201,7 +11201,7 @@
 +weak_alias (__sigtimedwait, sigtimedwait)
 --- /dev/null
 +++ b/ports/sysdeps/unix/bsd/bsd4.4/kfreebsd/fbtl/sigwait.c
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,78 @@
 +/* Copyright (C) 1997-2013 Free Software Foundation, Inc.
 +   This file is part of the GNU C Library.
 +
@@ -11234,6 +11234,8 @@
 +static int
 +do_sigwait (const sigset_t *set, int *sig)
 +{
++  int ret;
++
 +#ifdef SIGCANCEL
 +  sigset_t tmpset;
 +  if (set != NULL
@@ -11252,8 +11254,11 @@
 +      set = &tmpset;
 +    }
 +#endif
-+
-+  return INLINE_SYSCALL (sigwait, 2, set, sig);
++  do {
++      ret = INLINE_SYSCALL (sigwait, 2, set, sig);
++  } while (ret == EINTR);
++  
++  return ret;
 +}
 +
 +int

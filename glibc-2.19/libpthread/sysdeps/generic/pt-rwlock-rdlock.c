@@ -26,7 +26,8 @@ extern int __pthread_rwlock_timedrdlock_internal (struct __pthread_rwlock *rwloc
 
 /* Acquire RWLOCK for reading, block if we can't get it.  */
 int
-pthread_rwlock_rdlock (struct __pthread_rwlock *rwlock)
+__pthread_rwlock_rdlock (struct __pthread_rwlock *rwlock)
 {
   return __pthread_rwlock_timedrdlock_internal (rwlock, 0);
 }
+strong_alias (__pthread_rwlock_rdlock, pthread_rwlock_rdlock);

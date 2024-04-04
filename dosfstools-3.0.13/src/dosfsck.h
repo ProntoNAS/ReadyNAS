@@ -168,7 +168,7 @@ typedef struct {
 typedef struct {
     int nfats;
     loff_t fat_start;
-    unsigned int fat_size;	/* unit is bytes */
+    off_t fat_size;		/* unit is bytes */
     unsigned int fat_bits;	/* size of a FAT entry */
     unsigned int eff_fat_bits;	/* # of used bits in a FAT entry */
     unsigned long root_cluster;	/* 0 for old-style root dir */

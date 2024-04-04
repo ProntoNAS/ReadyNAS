@@ -1,0 +1,38 @@
+From 7739afd20d2139922330736b2a72675a233d3852 Mon Sep 17 00:00:00 2001
+From: Uri Simchoni <uri@samba.org>
+Date: Sat, 21 May 2016 22:25:32 +0300
+Subject: [PATCH 1086/1096] s3-quotas: fix sysquotas_4B quota fetching for BSD
+
+Correctly copy block hard/soft limits from the OS-specific structure
+to samba structure.
+
+BUG:https://bugzilla.samba.org/show_bug.cgi?id=11931
+
+Signed-off-by: Uri Simchoni <uri@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+(cherry picked from commit 59133295bbfd3b51953d9c86e3b533ff1d4861e3)
+(cherry picked from commit 98b9ea21cba0598dcd203a8f0a5fb42164f2f197)
+---
+ source3/lib/sysquotas_4B.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/source3/lib/sysquotas_4B.c b/source3/lib/sysquotas_4B.c
+index e3adc35..ee56432 100644
+--- a/source3/lib/sysquotas_4B.c
++++ b/source3/lib/sysquotas_4B.c
+@@ -81,6 +81,12 @@ static void xlate_qblk_to_smb(const struct dqblk * const qblk,
+ 	dp->hardlimit = XLATE_TO_BLOCKS(qblk->dqb_bhardlimit);
+ 	dp->curblocks = XLATE_TO_BLOCKS(qblk->dqb_curbytes);
+ #undef XLATE_TO_BLOCKS
++#else
++	dp->bsize = DEV_BSIZE;
++
++	dp->softlimit = qblk->dqb_bsoftlimit;
++	dp->hardlimit = qblk->dqb_bhardlimit;
++	dp->curblocks = qblk->dqb_curblocks;
+ #endif
+ 
+ 	dp->ihardlimit = qblk->dqb_ihardlimit;
+-- 
+2.9.0
+

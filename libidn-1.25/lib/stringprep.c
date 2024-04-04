@@ -380,6 +380,8 @@ stringprep (char *in,
 
       free (ucs4);
       ucs4 = stringprep_utf8_to_ucs4 (in, -1, &ucs4len);
+      if (ucs4 == NULL)
+	return STRINGPREP_ICONV_ERROR;
       maxucs4len = ucs4len + adducs4len;
       newp = realloc (ucs4, maxucs4len * sizeof (uint32_t));
       if (!newp)
@@ -402,7 +404,7 @@ stringprep (char *in,
   utf8 = stringprep_ucs4_to_utf8 (ucs4, ucs4len, 0, 0);
   free (ucs4);
   if (!utf8)
-    return STRINGPREP_MALLOC_ERROR;
+    return STRINGPREP_ICONV_ERROR;
 
   if (strlen (utf8) >= maxlen)
     {
@@ -590,6 +592,7 @@ stringprep_profile (const char *in,
  *   This usually indicate a problem in the calling application.
  * @STRINGPREP_UNKNOWN_PROFILE: The supplied profile name was not
  *   known to the library.
+ * @STRINGPREP_ICONV_ERROR: Could not convert string in locale encoding.
  * @STRINGPREP_NFKC_FAILED: The Unicode NFKC operation failed.  This
  *   usually indicate an internal error in the library.
  * @STRINGPREP_MALLOC_ERROR: The malloc() was out of memory.  This is

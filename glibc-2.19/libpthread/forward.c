@@ -25,16 +25,28 @@
 
 /* Pointers to the libc functions.  */
 struct pthread_functions __libc_pthread_functions attribute_hidden;
+int __libc_pthread_functions_init attribute_hidden;
 
 
 # define FORWARD2(name, rettype, decl, params, defaction) \
 rettype									      \
 name decl								      \
 {									      \
-  if (__libc_pthread_functions.ptr_##name == NULL)			      \
+  if (!__libc_pthread_functions_init)			      \
     defaction;								      \
 									      \
-  return __libc_pthread_functions.ptr_##name params;			      \
+  return PTHFCT_CALL (ptr_##name, params);			      \
+}
+
+/* Same as FORWARD2, only without return.  */
+# define FORWARD_NORETURN(name, rettype, decl, params, defaction) \
+rettype									      \
+name decl								      \
+{									      \
+  if (!__libc_pthread_functions_init)			      \
+    defaction;								      \
+									      \
+  PTHFCT_CALL (ptr_##name, params);			      \
 }
 
 # define FORWARD(name, decl, params, defretval) \
@@ -94,7 +106,7 @@ FORWARD (pthread_equal, (pthread_t thread1, pthread_t thread2),
 
 
 /* Use an alias to avoid warning, as pthread_exit is declared noreturn.  */
-FORWARD2 (pthread_exit, void, (void *retval), (retval), exit (EXIT_SUCCESS))
+FORWARD_NORETURN (pthread_exit, void, (void *retval), (retval), exit (EXIT_SUCCESS))
 
 
 FORWARD (pthread_getschedparam,

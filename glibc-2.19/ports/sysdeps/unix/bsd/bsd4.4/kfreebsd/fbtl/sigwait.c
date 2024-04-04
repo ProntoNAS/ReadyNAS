@@ -30,6 +30,8 @@
 static int
 do_sigwait (const sigset_t *set, int *sig)
 {
+  int ret;
+
 #ifdef SIGCANCEL
   sigset_t tmpset;
   if (set != NULL
@@ -48,8 +50,11 @@ do_sigwait (const sigset_t *set, int *sig)
       set = &tmpset;
     }
 #endif
-
-  return INLINE_SYSCALL (sigwait, 2, set, sig);
+  do {
+      ret = INLINE_SYSCALL (sigwait, 2, set, sig);
+  } while (ret == EINTR);
+  
+  return ret;
 }
 
 int

@@ -1,0 +1,58 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_HARDENING=1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+DPKG_EXPORT_BUILDFLAGS = 1
+include /usr/share/dpkg/buildflags.mk
+
+export DEB_BUILD_ARCH_OS ?= $(shell dpkg-architecture | grep DEB_BUILD_ARCH_OS | cut -d= -f2)
+
+CFLAGS += -DUSE_GETIFADDRS
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	touch $@
+
+build: build-arch build-indep
+build-arch: build-stamp
+build-indep: build-stamp
+build-stamp:
+	dh_testdir
+	$(MAKE)
+	touch $@
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp configure-stamp testcodelength.o
+
+	$(MAKE) clean
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	$(MAKE) install PREFIX=$(CURDIR)/debian/minissdpd
+	install -D -m 0644 debian/defaults $(CURDIR)/debian/minissdpd/etc/default/minissdpd
+
+binary-indep: build install
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs Changelog.txt
+	dh_installdocs README
+	dh_installman
+	dh_installinit
+	dh_strip
+	dh_compress
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure

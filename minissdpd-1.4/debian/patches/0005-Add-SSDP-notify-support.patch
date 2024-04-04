@@ -1,0 +1,301 @@
+From a21dc1dca3098d12bc774e30f401f666a6eccc40 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Wed, 12 Aug 2015 18:52:41 -0700
+Subject: [PATCH 5/8] Add SSDP notify support.
+
+---
+ ifacewatch.c     |  5 +++
+ minissdpd.c      | 97 ++++++++++++++++++++++++++++++++++++++++++++++++++------
+ minissdpdtypes.h |  1 +
+ openssdpsocket.c | 57 +++++++++++++++++++++++++++++++++
+ openssdpsocket.h |  3 ++
+ 5 files changed, 153 insertions(+), 10 deletions(-)
+
+diff --git a/ifacewatch.c b/ifacewatch.c
+index fd2c8c9..8a521db 100644
+--- a/ifacewatch.c
++++ b/ifacewatch.c
+@@ -28,6 +28,7 @@
+ 
+ #include "openssdpsocket.h"
+ #include "upnputils.h"
++#include "getifaddr.h"
+ #include "minissdpdtypes.h"
+ 
+ extern struct lan_addr_list lan_addrs;
+@@ -174,6 +175,10 @@ ProcessInterfaceWatch(int s, int s_ssdp, int s_ssdp6)
+ 				   (ifa->ifa_index == lan_addr->index)) {
+ 					getifaddr(lan_addr->ifname, lan_addr->str, sizeof(lan_addr->str),
+ 						  &lan_addr->addr, &lan_addr->mask);
++					if (!is_del) {
++						close(lan_addr->s_notify);
++						lan_addr->s_notify = OpenAndConfSSDPNotifySocket(lan_addr);
++					}
+ 					if(ifa->ifa_family == AF_INET)
+ 						AddDropMulticastMembership(s_ssdp, lan_addr, 0, is_del);
+ 					else if(ifa->ifa_family == AF_INET6)
+diff --git a/minissdpd.c b/minissdpd.c
+index 277df69..0944f24 100644
+--- a/minissdpd.c
++++ b/minissdpd.c
+@@ -44,6 +44,14 @@
+ 
+ #define SET_MAX(max, x)	if((x) > (max)) (max) = (x)
+ 
++#define PORT 1900
++#define XSTR(s) STR(s)
++#define STR(s) #s
++#define UPNP_MCAST_ADDR "239.255.255.250"
++/* for IPv6 */
++#define UPNP_MCAST_LL_ADDR "FF02::C" /* link-local */
++#define UPNP_MCAST_SL_ADDR "FF05::C" /* site-local */
++
+ /* current request management stucture */
+ struct reqelem {
+ 	int socket;
+@@ -366,7 +374,7 @@ SendSSDPMSEARCHResponse(int s, const struct sockaddr * sockname,
+ 	 *
+ 	 * have a look at the document "UPnP Device Architecture v1.1 */
+ 	l = snprintf(buf, sizeof(buf), "HTTP/1.1 200 OK\r\n"
+-		"CACHE-CONTROL: max-age=120\r\n"
++		"CACHE-CONTROL: max-age=250\r\n"
+ 		/*"DATE: ...\r\n"*/
+ 		"ST: %s\r\n"
+ 		"USN: %s\r\n"
+@@ -464,6 +472,63 @@ processMSEARCH(int s, const char * st, int st_len,
+ 	}
+ }
+ 
++static void
++SendSSDPNotify(int s, struct service *serv)
++{
++	struct sockaddr_in sockname;
++        char bufr[512];
++	int l, n;
++
++	memset(&sockname, 0, sizeof(struct sockaddr_in));
++	sockname.sin_family = AF_INET;
++	sockname.sin_port = htons(PORT);
++	sockname.sin_addr.s_addr = inet_addr(UPNP_MCAST_ADDR);
++
++	l = snprintf(bufr, sizeof(bufr),
++			"NOTIFY * HTTP/1.1\r\n"
++			"HOST: %s:%d\r\n"
++			"CACHE-CONTROL: max-age=250\r\n"
++			"LOCATION: %s\r\n"
++			"SERVER: %s\r\n"
++			"NT: %s\r\n"
++			"USN: %s\r\n"
++			"NTS: %s\r\n"
++			"\r\n",
++			UPNP_MCAST_ADDR, PORT,
++			serv->location,
++			serv->server,
++			serv->st,
++			serv->usn,
++			nts_to_str(NTS_SSDP_ALIVE));
++	if (l >= (int)sizeof(bufr))
++	{
++		syslog(LOG_WARNING, "SendSSDPNotifies(): truncated output");
++		l = sizeof(bufr);
++	}
++	syslog(LOG_DEBUG, "Sending ssdp:alive for %s/%s/%s [%d]", serv->st, serv->location, serv->usn, s);
++	n = sendto(s, bufr, l, 0,
++		(struct sockaddr *)&sockname, sizeof(struct sockaddr_in));
++	if (n < 0)
++		syslog(LOG_ERR, "sendto(udp_notify=%d, %s): %s", s, serv->location, strerror(errno));
++}
++
++void
++SendSSDPNotifies(int s)
++{
++	struct service * serv;
++	int dup;
++
++	for (dup = 0; dup < 2; dup++)
++	{
++		if (dup)
++			usleep(200000);
++		for(serv = servicelisthead.lh_first;
++		    serv;
++		    serv = serv->entries.le_next)
++			SendSSDPNotify(s, serv);
++	}
++}
++
+ /**
+  * helper function.
+  * reject any non ASCII or non printable character.
+@@ -739,6 +804,7 @@ void processRequest(struct reqelem * req)
+ 	time_t t;
+ 	struct service * newserv = NULL;
+ 	struct service * serv;
++	struct lan_addr_s * lan_addr;
+ 
+ 	n = read(req->socket, buf, sizeof(buf));
+ 	if(n<0) {
+@@ -942,6 +1008,8 @@ void processRequest(struct reqelem * req)
+ 				free(serv->location);
+ 				serv->location = newserv->location;
+ 				free(newserv);
++				for(lan_addr = lan_addrs.lh_first; lan_addr; lan_addr = lan_addr->list.le_next)
++					SendSSDPNotify(lan_addr->s_notify, serv);
+ 				newserv = NULL;
+ 				return;
+ 			}
+@@ -949,6 +1017,8 @@ void processRequest(struct reqelem * req)
+ 		/* Inserting new service */
+ 		LIST_INSERT_HEAD(&servicelisthead, newserv, entries);
+ 		newserv = NULL;
++		for(lan_addr = lan_addrs.lh_first; lan_addr; lan_addr = lan_addr->list.le_next)
++			SendSSDPNotifies(lan_addr->s_notify);
+ 		break;
+ 	default:
+ 		syslog(LOG_WARNING, "Unknown request type %d", type);
+@@ -990,14 +1060,6 @@ sigterm(int sig)
+ 	/*errno = save_errno;*/
+ }
+ 
+-#define PORT 1900
+-#define XSTR(s) STR(s)
+-#define STR(s) #s
+-#define UPNP_MCAST_ADDR "239.255.255.250"
+-/* for IPv6 */
+-#define UPNP_MCAST_LL_ADDR "FF02::C" /* link-local */
+-#define UPNP_MCAST_SL_ADDR "FF05::C" /* site-local */
+-
+ /* send the M-SEARCH request for all devices */
+ void ssdpDiscoverAll(int s, int ipv6)
+ {
+@@ -1097,7 +1159,7 @@ int main(int argc, char * * argv)
+ 	struct reqelem * reqnext;
+ 	fd_set readfds;
+ 	fd_set writefds;
+-	struct timeval now;
++	struct timeval now, lastnotify = { 0, 0 }, timeout = { 120, 0 };
+ 	int max_fd;
+ 	struct lan_addr_s * lan_addr;
+ 	int i;
+@@ -1319,6 +1381,21 @@ int main(int argc, char * * argv)
+ 			syslog(LOG_ERR, "try_sendto: %m");
+ 			break;
+ 		}
++		gettimeofday(&now, NULL);
++		if(now.tv_sec >= lastnotify.tv_sec + 120) {
++			for(lan_addr = lan_addrs.lh_first; lan_addr; lan_addr = lan_addr->list.le_next)
++				SendSSDPNotifies(lan_addr->s_notify);
++			memcpy(&lastnotify, &now, sizeof(struct timeval));
++			timeout.tv_sec = 120;
++			timeout.tv_usec = 0;
++		} else {
++			timeout.tv_sec = lastnotify.tv_sec + 120 - now.tv_sec;
++			if (now.tv_usec > lastnotify.tv_usec) {
++				timeout.tv_usec = 1000000 + lastnotify.tv_usec - now.tv_usec;
++				timeout.tv_sec--;
++			} else
++				timeout.tv_usec = lastnotify.tv_usec - now.tv_usec;
++		}
+ #ifdef ENABLE_IPV6
+ 		if((s_ssdp6 >= 0) && FD_ISSET(s_ssdp6, &readfds))
+ 		{
+diff --git a/minissdpdtypes.h b/minissdpdtypes.h
+index daf18e3..70615fc 100644
+--- a/minissdpdtypes.h
++++ b/minissdpdtypes.h
+@@ -21,6 +21,7 @@ struct lan_addr_s {
+ #endif /* ENABLE_IPV6 */
+ 	char str[16];	/* example: 192.168.0.1 */
+ 	struct in_addr addr, mask;	/* ip/mask */
++	int s_notify;			/* SSDP notify socket */
+ 	LIST_ENTRY(lan_addr_s) list;
+ };
+ LIST_HEAD(lan_addr_list, lan_addr_s);
+diff --git a/openssdpsocket.c b/openssdpsocket.c
+index 46915d8..f44315a 100644
+--- a/openssdpsocket.c
++++ b/openssdpsocket.c
+@@ -216,6 +216,7 @@ OpenAndConfSSDPReceiveSocket(int ipv6, unsigned char ttl)
+ 
+ 	for(lan_addr = lan_addrs.lh_first; lan_addr != NULL; lan_addr = lan_addr->list.le_next)
+ 	{
++		lan_addr->s_notify = OpenAndConfSSDPNotifySocket(lan_addr);
+ 		if(AddDropMulticastMembership(s, lan_addr, ipv6, 0) < 0)
+ 		{
+ 			syslog(LOG_INFO, "Failed to add IPv%d multicast membership for interface %s.",
+@@ -227,4 +228,60 @@ OpenAndConfSSDPReceiveSocket(int ipv6, unsigned char ttl)
+ 	return s;
+ }
+ 
++/* open the UDP socket used to send SSDP notifications to
++ * the multicast group reserved for them */
++int
++OpenAndConfSSDPNotifySocket(struct lan_addr_s * lan_addr)
++{
++	int s;
++	unsigned char loopchar = 0;
++	int bcast = 1;
++	uint8_t ttl = 4;
++	struct in_addr mc_if;
++	struct sockaddr_in sockname;
++
++	s = socket(PF_INET, SOCK_DGRAM, 0);
++	if (s < 0)
++	{
++		syslog(LOG_ERR, "socket(udp_notify): %m");
++		return -1;
++	}
++
++	mc_if.s_addr = lan_addr->addr.s_addr;
++
++	if (setsockopt(s, IPPROTO_IP, IP_MULTICAST_LOOP, (char *)&loopchar, sizeof(loopchar)) < 0)
++	{
++		syslog(LOG_ERR, "setsockopt(udp_notify, IP_MULTICAST_LOOP): %m");
++		close(s);
++		return -1;
++	}
++
++	if (setsockopt(s, IPPROTO_IP, IP_MULTICAST_IF, (char *)&mc_if, sizeof(mc_if)) < 0)
++	{
++		syslog(LOG_ERR, "setsockopt(udp_notify, IP_MULTICAST_IF): %m");
++		close(s);
++		return -1;
++	}
++
++	setsockopt(s, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
++
++	if (setsockopt(s, SOL_SOCKET, SO_BROADCAST, &bcast, sizeof(bcast)) < 0)
++	{
++		syslog(LOG_ERR, "setsockopt(udp_notify, SO_BROADCAST): %m");
++		close(s);
++		return -1;
++	}
++	memset(&sockname, 0, sizeof(struct sockaddr_in));
++	sockname.sin_family = AF_INET;
++	sockname.sin_addr.s_addr = lan_addr->addr.s_addr;
++
++	if (bind(s, (struct sockaddr *)&sockname, sizeof(struct sockaddr_in)) < 0)
++	{
++		syslog(LOG_ERR, "bind(udp_notify): %m");
++		close(s);
++		return -1;
++	}
++
++	return s;
++}
+ 
+diff --git a/openssdpsocket.h b/openssdpsocket.h
+index 957a928..664291f 100644
+--- a/openssdpsocket.h
++++ b/openssdpsocket.h
+@@ -29,5 +29,8 @@ OpenAndConfSSDPReceiveSocket(int ipv6, unsigned char ttl);
+ int
+ AddDropMulticastMembership(int s, struct lan_addr_s * lan_addr, int ipv6, int drop);
+ 
++int
++OpenAndConfSSDPNotifySocket(struct lan_addr_s * lan_addr);
++
+ #endif
+ 
+-- 
+1.9.1
+

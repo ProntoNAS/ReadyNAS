@@ -1,0 +1,49 @@
+From 1198fdc3379c7503b93be693a3faf0c15b2b1b8b Mon Sep 17 00:00:00 2001
+From: Ralph Boehme <slow@samba.org>
+Date: Wed, 27 Jul 2016 13:32:10 +0200
+Subject: [PATCH 19/19] HACK: libcli/auth/ntlm: remove special handling of "@"
+ in usernames
+
+546f63df5b214a1419069887ecfd9118aae8030a introduced this. Why?
+---
+ libcli/auth/ntlm_check.c | 10 ----------
+ 1 file changed, 10 deletions(-)
+
+diff --git a/libcli/auth/ntlm_check.c b/libcli/auth/ntlm_check.c
+index 7f91b52..9ac44ac 100644
+--- a/libcli/auth/ntlm_check.c
++++ b/libcli/auth/ntlm_check.c
+@@ -243,9 +243,6 @@ NTSTATUS hash_password_check(TALLOC_CTX *mem_ctx,
+ 				 username));
+ 			return NT_STATUS_WRONG_PASSWORD;
+ 		}
+-		if (strchr_m(username, '@')) {
+-			return NT_STATUS_NOT_FOUND;
+-		}
+ 
+ 		if (memcmp(client_lanman->hash, stored_lanman->hash, sizeof(stored_lanman->hash)) == 0) {
+ 			return NT_STATUS_OK;
+@@ -255,9 +252,6 @@ NTSTATUS hash_password_check(TALLOC_CTX *mem_ctx,
+ 			return NT_STATUS_WRONG_PASSWORD;
+ 		}
+ 	}
+-	if (strchr_m(username, '@')) {
+-		return NT_STATUS_NOT_FOUND;
+-	}
+ 	return NT_STATUS_WRONG_PASSWORD;
+ }
+ 
+@@ -589,10 +583,6 @@ NTSTATUS ntlm_password_check(TALLOC_CTX *mem_ctx,
+ 		DEBUG(3,("ntlm_password_check: LM password and LMv2 failed for user %s, and NT MD4 password in LM field not permitted\n",username));
+ 	}
+ 
+-	/* Try and match error codes */
+-	if (strchr_m(username, '@')) {
+-		return NT_STATUS_NOT_FOUND;
+-	}
+ 	return NT_STATUS_WRONG_PASSWORD;
+ }
+ 
+-- 
+2.9.2
+

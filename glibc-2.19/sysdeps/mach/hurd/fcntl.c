@@ -150,8 +150,8 @@ __libc_fcntl (int fd, int cmd, ...)
 	  }
 	switch (fl->l_type)
 	  {
-	  case F_RDLCK: cmd |= LOCK_SH; break;
-	  case F_WRLCK: cmd |= LOCK_EX; break;
+	  case F_RDLCK: cmd |= LOCK_SH | __LOCK_ATOMIC; break;
+	  case F_WRLCK: cmd |= LOCK_EX | __LOCK_ATOMIC; break;
 	  case F_UNLCK: cmd |= LOCK_UN; break;
 	  default:
 	    errno = EINVAL;

@@ -12,7 +12,7 @@ BEGIN {
     skip_all_without_config('d_fork');
 }
 
-plan tests => 84;
+plan tests => 83;
 
 my $STDOUT = tempfile();
 my $STDERR = tempfile();
@@ -200,8 +200,6 @@ my ($out, $err) = runperl_and_capture({}, [@dump_inc]);
 is ($err, '', 'No errors when determining @INC');
 
 my @default_inc = split /\n/, $out;
-
-is ($default_inc[-1], '.', '. is last in @INC');
 
 my $sep = $Config{path_sep};
 foreach (['nothing', ''],

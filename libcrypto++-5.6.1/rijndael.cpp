@@ -372,10 +372,12 @@ void Rijndael::Enc::ProcessAndXorBlock(const byte *inBlock, const byte *xorBlock
 	t3 = rk[7];
 	rk += 8;
 
-	// timing attack countermeasure. see comments at top for more details
+	// timing attack countermeasure. see comments at top for more details.
+	// also see http://github.com/weidai11/cryptopp/issues/146
 	const int cacheLineSize = GetCacheLineSize();
 	unsigned int i;
-	word32 u = 0;
+	volatile word32 _u = 0;
+	word32 u = _u;
 #ifdef CRYPTOPP_ALLOW_UNALIGNED_DATA_ACCESS
 	for (i=0; i<2048; i+=cacheLineSize)
 #else
@@ -448,10 +450,12 @@ void Rijndael::Dec::ProcessAndXorBlock(const byte *inBlock, const byte *xorBlock
 	t3 = rk[7];
 	rk += 8;
 
-	// timing attack countermeasure. see comments at top for more details
+	// timing attack countermeasure. see comments at top for more details.
+	// also see http://github.com/weidai11/cryptopp/issues/146
 	const int cacheLineSize = GetCacheLineSize();
 	unsigned int i;
-	word32 u = 0;
+	volatile word32 _u = 0;
+	word32 u = _u;
 #ifdef CRYPTOPP_ALLOW_UNALIGNED_DATA_ACCESS
 	for (i=0; i<2048; i+=cacheLineSize)
 #else
@@ -491,7 +495,7 @@ void Rijndael::Dec::ProcessAndXorBlock(const byte *inBlock, const byte *xorBlock
 	// timing attack countermeasure. see comments at top for more details
 	// If CRYPTOPP_ALLOW_UNALIGNED_DATA_ACCESS is defined, 
 	// QUARTER_ROUND_LD will use Td, which is already preloaded.
-	u = 0;
+	u = _u;
 	for (i=0; i<256; i+=cacheLineSize)
 		u &= *(const word32 *)(Sd+i);
 	u &= *(const word32 *)(Sd+252);

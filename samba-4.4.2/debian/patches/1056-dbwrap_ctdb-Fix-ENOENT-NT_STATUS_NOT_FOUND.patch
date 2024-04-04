@@ -1,0 +1,42 @@
+From 243692b15a3d50bf3ad3700fd2fbd1c97a1c2f32 Mon Sep 17 00:00:00 2001
+From: Volker Lendecke <vl@samba.org>
+Date: Wed, 20 Apr 2016 13:27:07 +0200
+Subject: [PATCH 1056/1096] dbwrap_ctdb: Fix ENOENT->NT_STATUS_NOT_FOUND
+
+Bug: https://bugzilla.samba.org/show_bug.cgi?id=11844
+Signed-off-by: Volker Lendecke <vl@samba.org>
+Reviewed-by: Andreas Schneider <asn@samba.org>
+
+Autobuild-User(master): Volker Lendecke <vl@samba.org>
+Autobuild-Date(master): Tue Apr 26 14:34:14 CEST 2016 on sn-devel-144
+
+(cherry picked from commit cce6b677ff90ef361c45a7b8ad3d482908c3c4a7)
+(cherry picked from commit be1c27e32b7b10c43cd7a9f75a871aac969350d3)
+---
+ source3/lib/dbwrap/dbwrap_ctdb.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/source3/lib/dbwrap/dbwrap_ctdb.c b/source3/lib/dbwrap/dbwrap_ctdb.c
+index 93df7ef..d5b8f45 100644
+--- a/source3/lib/dbwrap/dbwrap_ctdb.c
++++ b/source3/lib/dbwrap/dbwrap_ctdb.c
+@@ -1298,6 +1298,16 @@ static NTSTATUS db_ctdb_parse_record(struct db_context *db, TDB_DATA key,
+ 	ret = ctdbd_parse(messaging_ctdbd_connection(), ctx->db_id, key,
+ 			  state.ask_for_readonly_copy, parser, private_data);
+ 	if (ret != 0) {
++		if (ret == ENOENT) {
++			/*
++			 * This maps to
++			 * NT_STATUS_OBJECT_NAME_NOT_FOUND. Our upper
++			 * layers expect NT_STATUS_NOT_FOUND for "no
++			 * record around". We need to convert dbwrap
++			 * to 0/errno away from NTSTATUS ... :-)
++			 */
++			return NT_STATUS_NOT_FOUND;
++		}
+ 		return map_nt_error_from_unix(ret);
+ 	}
+ 	return NT_STATUS_OK;
+-- 
+2.9.0
+

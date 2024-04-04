@@ -1,0 +1,46 @@
+From ba378c091d95fd7d87a9cebb5c22816286c33de1 Mon Sep 17 00:00:00 2001
+From: Volker Lendecke <vl@samba.org>
+Date: Wed, 27 Apr 2016 12:15:37 +0200
+Subject: [PATCH 1014/1096] smbd: Avoid large reads beyond EOF
+
+With unix extensions and oplocks=no mount.cifs from jessie reads beyond the
+file end forever, and we are happy to return zeros....
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11878
+
+Signed-off-by: Volker Lendecke <vl@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+
+Autobuild-User(master): Jeremy Allison <jra@samba.org>
+Autobuild-Date(master): Wed Apr 27 23:57:56 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 10b0a8baa25fab70df8e6c5f0048ce0963211517)
+(cherry picked from commit 13d563abeedc608e65878aa0fcb735afb022b791)
+---
+ source3/smbd/reply.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/source3/smbd/reply.c b/source3/smbd/reply.c
+index 77d5b6e..bfa64a3 100644
+--- a/source3/smbd/reply.c
++++ b/source3/smbd/reply.c
+@@ -4074,6 +4074,16 @@ normal_read:
+ 		uint8_t headerbuf[smb_size + 2*12 + 1 /* padding byte */];
+ 		ssize_t ret;
+ 
++		if (!S_ISREG(fsp->fsp_name->st.st_ex_mode) ||
++		    (startpos > fsp->fsp_name->st.st_ex_size) ||
++		    (smb_maxcnt > (fsp->fsp_name->st.st_ex_size - startpos))) {
++			/*
++			 * We already know that we would do a short
++			 * read, so don't try the sendfile() path.
++			 */
++			goto nosendfile_read;
++		}
++
+ 		construct_reply_common_req(req, (char *)headerbuf);
+ 		setup_readX_header(req, (char *)headerbuf, smb_maxcnt);
+ 
+-- 
+2.9.0
+

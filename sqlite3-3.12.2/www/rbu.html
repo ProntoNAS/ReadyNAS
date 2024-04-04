@@ -1,0 +1,409 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<title>The RBU Extension</title>
+<style type="text/css">
+body {
+    margin: auto;
+    font-family: Verdana, sans-serif;
+    padding: 8px 1%;
+}
+
+a { color: #044a64 }
+a:visited { color: #734559 }
+
+.logo { position:absolute; margin:3px; }
+.tagline {
+  float:right;
+  text-align:right;
+  font-style:italic;
+  width:300px;
+  margin:12px;
+  margin-top:58px;
+}
+
+.menubar {
+  clear: both;
+  border-radius: 8px;
+  background: #044a64;
+  padding: 0px;
+  margin: 0px;
+  cell-spacing: 0px;
+}    
+.toolbar {
+  text-align: center;
+  line-height: 1.6em;
+  margin: 0;
+  padding: 0px 8px;
+}
+.toolbar a { color: white; text-decoration: none; padding: 6px 12px; }
+.toolbar a:visited { color: white; }
+.toolbar a:hover { color: #044a64; background: white; }
+
+.content    { margin: 5%; }
+.content dt { font-weight:bold; }
+.content dd { margin-bottom: 25px; margin-left:20%; }
+.content ul { padding:0px; padding-left: 15px; margin:0px; }
+
+/* Things for "fancyformat" documents start here. */
+.fancy img+p {font-style:italic}
+.fancy .codeblock i { color: darkblue; }
+.fancy h1,.fancy h2,.fancy h3,.fancy h4 {font-weight:normal;color:#044a64}
+.fancy h2 { margin-left: 10px }
+.fancy h3 { margin-left: 20px }
+.fancy h4 { margin-left: 30px }
+.fancy th {white-space:nowrap;text-align:left;border-bottom:solid 1px #444}
+.fancy th, .fancy td {padding: 0.2em 1ex; vertical-align:top}
+.fancy #toc a        { color: darkblue ; text-decoration: none }
+.fancy .todo         { color: #AA3333 ; font-style : italic }
+.fancy .todo:before  { content: 'TODO:' }
+.fancy p.todo        { border: solid #AA3333 1px; padding: 1ex }
+.fancy img { display:block; }
+.fancy :link:hover, .fancy :visited:hover { background: wheat }
+.fancy p,.fancy ul,.fancy ol,.fancy dl { margin: 1em 5ex }
+.fancy li p { margin: 1em 0 }
+/* End of "fancyformat" specific rules. */
+
+</style>
+  
+</head>
+<body>
+<div><!-- container div to satisfy validator -->
+
+<a href="index.html">
+<img class="logo" src="images/sqlite370_banner.gif" alt="SQLite Logo"
+ border="0"></a>
+<div><!-- IE hack to prevent disappearing logo--></div>
+<div class="tagline">Small. Fast. Reliable.<br>Choose any three.</div>
+
+<table width=100% class="menubar"><tr>
+  <td width=100%>
+  <div class="toolbar">
+    <a href="about.html">About</a>
+    <a href="sitemap.html">Sitemap</a>
+    <a href="docs.html">Documentation</a>
+    <a href="download.html">Download</a>
+    <a href="copyright.html">License</a>
+    <a href="news.html">News</a>
+    <a href="support.html">Support</a>
+  </div>
+<script>
+  gMsg = "Search SQLite Docs..."
+  function entersearch() {
+    var q = document.getElementById("q");
+    if( q.value == gMsg ) { q.value = "" }
+    q.style.color = "black"
+    q.style.fontStyle = "normal"
+  }
+  function leavesearch() {
+    var q = document.getElementById("q");
+    if( q.value == "" ) { 
+      q.value = gMsg
+      q.style.color = "#044a64"
+      q.style.fontStyle = "italic"
+    }
+  }
+  function hideorshow(btn,obj){
+    var x = document.getElementById(obj);
+    var b = document.getElementById(btn);
+    if( x.style.display!='none' ){
+      x.style.display = 'none';
+      b.innerHTML='show';
+    }else{
+      x.style.display = '';
+      b.innerHTML='hide';
+    }
+    return false;
+  }
+</script>
+<td>
+    <div style="padding:0 1em 0px 0;white-space:nowrap">
+    <form name=f method="GET" action="https://www.sqlite.org/search">
+      <input id=q name=q type=text
+       onfocus="entersearch()" onblur="leavesearch()" style="width:24ex;padding:1px 1ex; border:solid white 1px; font-size:0.9em ; font-style:italic;color:#044a64;" value="Search SQLite Docs...">
+      <input type=submit value="Go" style="border:solid white 1px;background-color:#044a64;color:white;font-size:0.9em;padding:0 1ex">
+    </form>
+    </div>
+  </table>
+
+<div class=startsearch></div>
+  
+
+
+<h1 align='center'>The RBU Extension</h1>
+
+<p>The RBU extension is an add-on for SQLite that facilitates 
+rapid incremental updates of large SQLite database files 
+on low-power devices at the edge of a network.
+
+<p>The RBU name stands for "Resumable Bulk Update".
+
+<p>Updating an SQLite database file on a remote device can normally
+be accomplished simply by sending the text of various <a href="lang_insert.html">INSERT</a>, <a href="lang_delete.html">DELETE</a>,
+and <a href="lang_update.html">UPDATE</a> commands to the device and evaluating them all inside of
+a transaction.  RBU provides some advantages over this simple approach:
+
+<ol>
+<li><b>RBU runs faster</b>
+
+<p>The most efficient way to apply changes to a B-Tree is to make
+the changes in row order.  But if an SQL table has indexes, the row
+order for the indexes will all be different from each other and from
+the row order of the original table.  RBU works around this by applying
+all changes to the table in one pass, then
+applying changes to each index in separate passes, thus updating each
+B-Trees in its optimal sequence.  For a large database file (one that
+does not fit in the OS disk cache) this procedure can result in
+two orders of magnitude faster updates.
+
+<li><b>RBU runs in the background</b>
+
+<p>The changes can be applied to the database file by a background
+process that does not interfere with read access to the database
+file.
+
+<li><b>RBU runs incrementally</b>
+
+<p>The changes can be applied to the database incrementally, with
+intervening power outages and/or system resets.  And yet the original
+unmodified data remains visible to the device until the moment that
+entire change set commits.  
+</ol>
+
+<h2>Limitations</h2>
+
+<p>The following limitations apply to RBU updates:
+
+<ul>
+<li><p>The changes must consist of <a href="lang_insert.html">INSERT</a>, <a href="lang_update.html">UPDATE</a>, and <a href="lang_delete.html">DELETE</a>
+    operations only.  CREATE and DROP operations are not
+    supported.</p></li>
+<li><p><a href="lang_insert.html">INSERT</a> statements may not use default values.</p></li>
+<li><p><a href="lang_update.html">UPDATE</a> and <a href="lang_delete.html">DELETE</a> statements must identify the target rows
+    by rowid or by non-NULL PRIMARY KEY values.</p></li>
+<li><p><a href="lang_update.html">UPDATE</a> statements may not modify PRIMARY KEY or rowid values.
+    </p></li>
+<li><p>RBU updates cannot be applied to any tables that contain a column
+       named "rbu_control".</p></li>
+<li><p>The RBU update will not fire any triggers.</p></li>
+<li><p>The RBU update will not detect or prevent foreign key or
+       CHECK constraint violations.</p></li>
+<li><p>All RBU updates us the "OR ROLLBACK" constraint handling mechanism.
+    </p></li>
+<li><p>The target database may not be in <a href="wal.html">WAL mode</a>.</p></li>
+<li><p>No other writes may occur on the target database while the
+       RBU update is being applied.  A read-lock is held on the target
+       database to prevent this.</p></li>
+</ul>
+
+
+<h2>Preparing An RBU Update File</h2>
+
+<p>All changes to be applied by RBU are stored in a separate SQLite database
+called the "RBU database".  The database that is to be modified is called
+the "target database".
+
+<p>
+For each table in the target database, the RBU database should contain a table
+named "data_&lt;<i>target-table-name</i>&gt;" with 
+the all the same columns as the
+target table, plus one additional column named "rbu_control".
+The data_% table should have no PRIMARY KEY or UNIQUE constraints, but
+each column should have the same type as the corresponding column in
+the target database.
+The rbu_control column should have no type at all. For example, if
+the target database contains:
+
+<blockquote><pre>
+CREATE TABLE t1(a INTEGER PRIMARY KEY, b TEXT, c UNIQUE);
+</pre></blockquote>
+
+<p>Then the RBU database should contain:
+
+<blockquote><pre>
+CREATE TABLE data_t1(a INTEGER, b TEXT, c, rbu_control);
+</pre></blockquote>
+
+<p>The order of the columns in the data_% table does not matter.
+
+<p>If the target database table is a virtual table or a table that has no
+PRIMARY KEY declaration, the data_% table must also contain a column 
+named "rbu_rowid". The rbu_rowid column is mapped to the tables <a href="lang_createtable.html#rowid">ROWID</a>.
+For example, if the target database contains either of the following:
+
+<blockquote><pre>
+CREATE VIRTUAL TABLE x1 USING fts3(a, b);
+CREATE TABLE x1(a, b);
+</pre></blockquote>
+
+<p>then the RBU database should contain:
+
+<blockquote><pre>
+CREATE TABLE data_x1(a, b, rbu_rowid, rbu_control);
+</pre></blockquote>
+
+<p>Virtual tables for which the "rowid" column does 
+not function like a primary key value cannot be updated using RBU.
+
+<p>
+All non-hidden columns (i.e. all columns matched by "SELECT *") of the
+target table must be present in the input table. For virtual tables,
+hidden columns are optional - they are updated by RBU if present in
+the input table, or not otherwise. For example, to write to an fts4
+table with a hidden languageid column such as:
+
+<blockquote><pre>
+CREATE VIRTUAL TABLE ft1 USING fts4(a, b, languageid='langid');
+</pre></blockquote>
+
+<p>Either of the following input table schemas may be used:
+
+<blockquote><pre>
+CREATE TABLE data_ft1(a, b, langid, rbu_rowid, rbu_control);
+CREATE TABLE data_ft1(a, b, rbu_rowid, rbu_control);
+</pre></blockquote>
+
+<p>For each row to INSERT into the target database as part of the RBU 
+update, the corresponding data_% table should contain a single record
+with the "rbu_control" column set to contain integer value 0. The
+other columns should be set to the values that make up the new record 
+to insert. 
+
+<p>If the target database table has an INTEGER PRIMARY KEY, it is not 
+possible to insert a NULL value into the IPK column. Attempting to 
+do so results in an SQLITE_MISMATCH error.
+
+<p>For each row to DELETE from the target database as part of the RBU 
+update, the corresponding data_% table should contain a single record
+with the "rbu_control" column set to contain integer value 1. The
+real primary key values of the row to delete should be stored in the
+corresponding columns of the data_% table. The values stored in the
+other columns are not used.
+
+<p>For each row to UPDATE from the target database as part of the RBU 
+update, the corresponding data_% table should contain a single record
+with the "rbu_control" column set to contain a value of type text.
+The real primary key values identifying the row to update should be 
+stored in the corresponding columns of the data_% table row, as should
+the new values of all columns being update. The text value in the 
+"rbu_control" column must contain the same number of characters as
+there are columns in the target database table, and must consist entirely
+of 'x' and '.' characters (or in some special cases 'd' - see below). For 
+each column that is being updated, the corresponding character is set to
+'x'. For those that remain as they are, the corresponding character of the
+rbu_control value should be set to '.'. For example, given the tables 
+above, the update statement:
+
+<blockquote><pre>
+UPDATE t1 SET c = 'usa' WHERE a = 4;
+</pre></blockquote>
+
+<p>is represented by the data_t1 row created by:
+
+<blockquote><pre>
+INSERT INTO data_t1(a, b, c, rbu_control) VALUES(4, NULL, 'usa', '..x');
+</pre></blockquote>
+
+<p>Instead of an 'x' character, characters of the rbu_control value specified
+for UPDATEs may also be set to 'd'. In this case, instead of updating the
+target table with the value stored in the corresponding data_% column, the
+user-defined SQL function "rbu_delta()" is invoked and the result stored in
+the target table column. rbu_delta() is invoked with two arguments - the
+original value currently stored in the target table column and the 
+value specified in the data_xxx table.
+
+<p>For example, this row:
+
+<blockquote><pre>
+INSERT INTO data_t1(a, b, c, rbu_control) VALUES(4, NULL, 'usa', '..d');
+</pre></blockquote>
+
+
+<p>is similar to an UPDATE statement such as: 
+
+<blockquote><pre>
+UPDATE t1 SET c = rbu_delta(c, 'usa') WHERE a = 4;
+</pre></blockquote>
+
+<p>If the target database table is a virtual table or a table with no PRIMARY
+KEY, the rbu_control value should not include a character corresponding 
+to the rbu_rowid value. For example, this:
+
+<blockquote><pre>
+INSERT INTO data_ft1(a, b, rbu_rowid, rbu_control) 
+  VALUES(NULL, 'usa', 12, '.x');
+</pre></blockquote>
+
+
+<p>causes a result similar to:
+
+<blockquote><pre>
+UPDATE ft1 SET b = 'usa' WHERE rowid = 12;
+</pre></blockquote>
+
+<p>The data_xxx tables themselves should have no PRIMARY KEY declarations.
+However, RBU is more efficient if reading the rows in from each data_xxx
+table in "rowid" order is roughly the same as reading them sorted by
+the PRIMARY KEY of the corresponding target database table. In other 
+words, rows should be sorted using the destination table PRIMARY KEY 
+fields before they are inserted into the data_xxx tables.
+
+<h2>C/C++ Interface</h2>
+
+<p>Enable the RBU extension by compiling the <a href="amalgamation.html">amalgamation</a> with the
+<a href="compile.html#enable_rbu">SQLITE_ENABLE_RBU</a> compile-time option.
+
+<p>The RBU extension interface allows an application to apply an RBU update 
+stored in an RBU database to an existing target database.
+The procedures is as follows:
+
+<ol>
+<li><p>
+Open an RBU handle using the sqlite3rbu_open(T,A,S) function.
+
+<p>The T argument is the name of the target database file.
+The A argument is the name of the RBU database file.
+The S argument is the name of a "state database" used to store
+state information needed to resume the update after an interruption.
+The S argument can be NULL in which case the state information
+is stored in the RBU database in various tables whose names all
+begin with "rbu_".
+
+<p>The sqlite3rbu_open(T,A,S) function returns a pointer to
+an "sqlite3rbu" object, which is then passed into the subsequent
+interfaces.
+
+
+<li><p>
+Register any required virtual table modules with the database
+handle returned by sqlite3rbu_db(X) (where argument X is the sqlite3rbu
+pointer returned from sqlite3rbu_open()).  Also, if required, register
+the rbu_delta() SQL function using 
+<a href="c3ref/create_function.html">sqlite3_create_function_v2()</a>.
+
+<li><p>
+Invoke the sqlite3rbu_step(X) function one or more times on
+the sqlite3rbu object pointer X. Each call to sqlite3rbu_step() 
+performs a single b-tree operation, so thousands of calls may be 
+required to apply a complete update.  The sqlite3rbu_step() 
+interface will return SQLITE_DONE when the update has been
+completely applied.
+
+<li><p>
+Call sqlite3rbu_close(X) to destroy the sqlite3rbu object pointer.
+If sqlite3rbu_step(X) has been called enough times to completely
+apply the update to the target database, then the RBU database
+is marked as fully applied. Otherwise, the state of the RBU 
+update application is saved in the state database (or in the RBU
+database if the name of the state database file in sqlite3rbu_open()
+is NULL) for later resumption of the update.
+</ol>
+
+<p>If an update is only partially applied to the target database by the
+time sqlite3rbu_close() is called, state information is saved 
+within the state database if it exists, or otherwise in the RBU database. 
+This allows subsequent processes to automatically
+resume the RBU update from where it left off.
+If state information is stored in the RBU database, it can be removed
+by dropping all tables whose names begin with "rbu_".
+

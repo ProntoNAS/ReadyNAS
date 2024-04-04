@@ -1,0 +1,32 @@
+commit 0292b1c22e108bd7a8d0c0468da6c8294e5db343
+Author: Master T <tom.deseyn@gmail.com>
+Date:   Thu Mar 6 18:56:38 2014 +0100
+Subject: [PATCH] core: decrement n_probing when removing announcer
+
+Decrement n_probing when removing probing announcer so group doesn't get stuck registering because n_probing can no longer decrement to zero.
+
+Signed-off-by: Master T <tom.deseyn@gmail.com>
+
+diff --git a/avahi-core/announce.c b/avahi-core/announce.c
+old mode 100644
+new mode 100755
+index ccdbf15..b0ce232
+--- a/avahi-core/announce.c
++++ b/avahi-core/announce.c
+@@ -35,8 +35,14 @@
+ #define AVAHI_PROBE_INTERVAL_MSEC 250
+ 
+ static void remove_announcer(AvahiServer *s, AvahiAnnouncer *a) {
++    AvahiEntry *e;
++
+     assert(s);
+     assert(a);
++    e = a->entry;
++
++    if (a->state == AVAHI_PROBING && e->group)
++        e->group->n_probing--;
+ 
+     if (a->time_event)
+         avahi_time_event_free(a->time_event);
+-- 
+1.7.10.4

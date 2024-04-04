@@ -818,6 +818,8 @@ sub silent_eval (&) {
 
 sub can_load {
     local($SIG{__DIE__}, $SIG{__WARN__}, $@);
+    local @INC = @INC;
+    pop @INC if $INC[-1] eq '.';
     return eval "use $_[0]; 1"
 }
 

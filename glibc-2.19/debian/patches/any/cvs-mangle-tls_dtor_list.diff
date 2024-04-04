@@ -1,0 +1,35 @@
+2015-10-06  Florian Weimer  <fweimer@redhat.com>
+
+	[BZ #19018]
+	* stdlib/cxa_thread_atexit_impl.c (__cxa_thread_atexit_impl):
+	Mangle function pointer before storing it.
+	(__call_tls_dtors): Demangle function pointer before calling it.
+
+--- a/stdlib/cxa_thread_atexit_impl.c
++++ b/stdlib/cxa_thread_atexit_impl.c
+@@ -42,6 +42,10 @@
+ int
+ __cxa_thread_atexit_impl (dtor_func func, void *obj, void *dso_symbol)
+ {
++#ifdef PTR_MANGLE
++  PTR_MANGLE (func);
++#endif
++
+   /* Prepend.  */
+   struct dtor_list *new = calloc (1, sizeof (struct dtor_list));
+   new->func = func;
+@@ -83,9 +87,13 @@
+   while (tls_dtor_list)
+     {
+       struct dtor_list *cur = tls_dtor_list;
++      dtor_func func = cur->func;
++#ifdef PTR_DEMANGLE
++      PTR_DEMANGLE (func);
++#endif
+       tls_dtor_list = tls_dtor_list->next;
+ 
+-      cur->func (cur->obj);
++      func (cur->obj);
+ 
+       __rtld_lock_lock_recursive (GL(dl_load_lock));
+ 

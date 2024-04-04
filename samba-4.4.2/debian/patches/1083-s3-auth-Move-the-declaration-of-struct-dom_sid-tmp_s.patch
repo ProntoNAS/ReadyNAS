@@ -1,0 +1,57 @@
+From 575eddbcfb7b86f28955089a8ba68831342d6c74 Mon Sep 17 00:00:00 2001
+From: Jeremy Allison <jra@samba.org>
+Date: Thu, 26 May 2016 16:31:55 -0700
+Subject: [PATCH 1083/1096] s3: auth: Move the declaration of struct dom_sid
+ tmp_sid to function level scope.
+
+It's referred to outside of the {} brace scope it was defined in by
+the following code:
+
+                uid_to_unix_users_sid(*uid, &tmp_sid);
+                user_sid = &tmp_sid;
+
+As tmp_sid was going out of scope, user_sid was
+being incorrectly set in the token sid list.
+
+I think this *may* be the root cause of:
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=10618
+
+But even if not this is an obvious error that must
+be fixed.
+
+Signed-off-by: Jeremy Allison <jra@samba.org>
+Reviewed-by: Volker Lendecke <vl@samba.org>
+
+Autobuild-User(master): Volker Lendecke <vl@samba.org>
+Autobuild-Date(master): Fri May 27 11:28:18 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 1b3b89345480d16222da00753f973e36e2e0f92d)
+(cherry picked from commit 211938fc6bb869f6ca7e2fd70e9c7e09afa7124d)
+---
+ source3/auth/token_util.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/source3/auth/token_util.c b/source3/auth/token_util.c
+index c7319ad..375905a 100644
+--- a/source3/auth/token_util.c
++++ b/source3/auth/token_util.c
+@@ -672,6 +672,7 @@ static NTSTATUS create_token_from_sid(TALLOC_CTX *mem_ctx,
+ 	TALLOC_CTX *tmp_ctx = talloc_stackframe();
+ 	gid_t *gids;
+ 	struct dom_sid *group_sids;
++	struct dom_sid tmp_sid;
+ 	uint32_t num_group_sids;
+ 	uint32_t num_gids;
+ 	uint32_t i;
+@@ -753,7 +754,6 @@ static NTSTATUS create_token_from_sid(TALLOC_CTX *mem_ctx,
+ 		*uid = sam_acct->unix_pw->pw_uid;
+ 
+ 	} else 	if (sid_check_is_in_unix_users(user_sid)) {
+-		struct dom_sid tmp_sid;
+ 		uint32_t getgroups_num_group_sids;
+ 		/* This is a unix user not in passdb. We need to ask nss
+ 		 * directly, without consulting passdb */
+-- 
+2.9.0
+

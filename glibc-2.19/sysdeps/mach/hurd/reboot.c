@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <hurd.h>
+#include <hurd/paths.h>
 #include <hurd/startup.h>
 #include <sys/reboot.h>
 
@@ -33,16 +34,11 @@ reboot (int howto)
   if (err)
     return __hurd_fail (EPERM);
 
-  for (pid_t pid = 1; pid < 3; pid++)
+  init = __file_name_lookup (_SERVERS_STARTUP, 0, 0);
+  if (init != MACH_PORT_NULL)
     {
-      err = __USEPORT (PROC, __proc_getmsgport (port, pid, &init));
-      if (!err)
-	{
-	  err = __startup_reboot (init, hostpriv, howto);
-	  __mach_port_deallocate (__mach_task_self (), init);
-	  if (!err)
-	    break;
-	}
+      err = __startup_reboot (init, hostpriv, howto);
+      __mach_port_deallocate (__mach_task_self (), init);
     }
 
   __mach_port_deallocate (__mach_task_self (), hostpriv);

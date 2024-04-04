@@ -35,6 +35,10 @@
 #include <pt-sysdep.h>
 #include <pt-machdep.h>
 
+#ifdef IS_IN_libpthread
+# include <ldsodefs.h>
+#endif
+
 /* Thread state.  */
 enum pthread_state
 {
@@ -322,18 +326,5 @@ const struct __pthread_rwlockattr __pthread_default_rwlockattr;
 
 /* Default condition attributes.  */
 const struct __pthread_condattr __pthread_default_condattr;
-
-
-#ifdef ENABLE_TLS
-
-/* From glibc.  */
-
-/* Dynamic linker TLS allocation.  */
-extern void *_dl_allocate_tls(void *);
-
-/* Dynamic linker TLS deallocation.  */
-extern void _dl_deallocate_tls(void *, int);
-
-#endif /* ENABLE_TLS */
 
 #endif /* pt-internal.h */

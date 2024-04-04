@@ -731,8 +731,7 @@ gen_md5(
 			while (1) {
 				int rc;
 
-				rc = ntp_crypto_random_buf(
-				    &temp, sizeof(temp));
+				rc = ntp_crypto_random_buf(&temp, sizeof(temp));
 				if (-1 == rc) {
 					fprintf(stderr, "ntp_crypto_random_buf() failed.\n");
 					exit (-1);

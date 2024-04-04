@@ -1,0 +1,66 @@
+From df55e720550db8cd036978cf070ebab74bc890ba Mon Sep 17 00:00:00 2001
+From: Ralph Boehme <slow@samba.org>
+Date: Thu, 23 Jun 2016 16:40:15 +0200
+Subject: [PATCH 4/8] s3/smbd: call dos_mode_from_name after
+ get_ea_dos_attribute()
+
+This doesn't change overall behaviour in any way, it just prepares for
+the next step where the IS_HIDDEN_PATH() stuff will be moved to the
+function dos_mode_from_name().
+
+It allows an optimisation by not checking "hide to files" patch if
+FILE_ATTRIBUTE_HIDDEN was already set in the DOS xattr.
+
+Bug: https://bugzilla.samba.org/show_bug.cgi?id=11992
+
+Signed-off-by: Ralph Boehme <slow@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+(backported from commit 1be877038c53c88802bc19c00a49c1974f17c4eb)
+---
+ source3/smbd/dosmode.c | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/source3/smbd/dosmode.c b/source3/smbd/dosmode.c
+index 92b953d..f614729 100644
+--- a/source3/smbd/dosmode.c
++++ b/source3/smbd/dosmode.c
+@@ -553,12 +553,15 @@ err_out:
+ }
+ 
+ static uint32_t dos_mode_from_name(connection_struct *conn,
+-				   const struct smb_filename *smb_fname)
++				   const struct smb_filename *smb_fname,
++				   uint32_t dosmode)
+ {
+ 	const char *p = NULL;
+-	uint32_t result = 0;
++	uint32_t result = dosmode;
+ 
+-	if (lp_hide_dot_files(SNUM(conn))) {
++	if (!(result & FILE_ATTRIBUTE_HIDDEN) &&
++	    lp_hide_dot_files(SNUM(conn)))
++	{
+ 		p = strrchr_m(smb_fname->base_name, '/');
+ 		if (p) {
+ 			p++;
+@@ -594,8 +597,6 @@ uint32_t dos_mode(connection_struct *conn, struct smb_filename *smb_fname)
+ 		return 0;
+ 	}
+ 
+-	result |= dos_mode_from_name(conn, smb_fname);
+-
+ 	/* Get the DOS attributes from an EA by preference. */
+ 	if (!get_ea_dos_attribute(conn, smb_fname, &result)) {
+ 		result |= dos_mode_from_sbuf(conn, smb_fname);
+@@ -615,6 +616,8 @@ uint32_t dos_mode(connection_struct *conn, struct smb_filename *smb_fname)
+ 		}
+ 	}
+ 
++	result |= dos_mode_from_name(conn, smb_fname, result);
++
+ 	/* Optimization : Only call is_hidden_path if it's not already
+ 	   hidden. */
+ 	if (!(result & FILE_ATTRIBUTE_HIDDEN) &&
+-- 
+2.9.0
+

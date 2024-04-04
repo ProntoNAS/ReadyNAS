@@ -1,0 +1,79 @@
+From 8680ac7b8c9a9bbe387aeebb04d4857a2e496b36 Mon Sep 17 00:00:00 2001
+From: Michael Adam <obnox@samba.org>
+Date: Tue, 23 Feb 2016 20:54:34 +0100
+Subject: [PATCH 1062/1096] smbd:smb2: update outstanding request counters
+ before sending a reply
+
+This is part of the channel sequence number treatment of multi-channel.
+
+Pair-Programmed-With: Guenther Deschner <gd@samba.org>
+
+Signed-off-by: Michael Adam <obnox@samba.org>
+Signed-off-by: Guenther Deschner <gd@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+(cherry picked from commit 7dbb1707d96e39bed8898db08339d3b2d768c87c)
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11809
+(cherry picked from commit 6dec7228d7af16d061d1cd1af930089ad4d23b05)
+---
+ source3/smbd/smb2_server.c | 37 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/source3/smbd/smb2_server.c b/source3/smbd/smb2_server.c
+index 01892e1..ae125df 100644
+--- a/source3/smbd/smb2_server.c
++++ b/source3/smbd/smb2_server.c
+@@ -2676,6 +2676,40 @@ NTSTATUS smbd_smb2_request_dispatch(struct smbd_smb2_request *req)
+ 	return return_value;
+ }
+ 
++static void smbd_smb2_request_reply_update_counts(struct smbd_smb2_request *req)
++{
++	struct smbXsrv_connection *xconn = req->xconn;
++	const uint8_t *inhdr;
++	uint16_t channel_sequence;
++	struct smbXsrv_open *op;
++
++	if (!req->request_counters_updated) {
++		return;
++	}
++
++	if (xconn->protocol < PROTOCOL_SMB2_22) {
++		return;
++	}
++
++	if (req->compat_chain_fsp == NULL) {
++		return;
++	}
++
++	op = req->compat_chain_fsp->op;
++	if (op == NULL) {
++		return;
++	}
++
++	inhdr = SMBD_SMB2_IN_HDR_PTR(req);
++	channel_sequence = SVAL(inhdr, SMB2_HDR_CHANNEL_SEQUENCE);
++
++	if (op->global->channel_sequence == channel_sequence) {
++		op->request_count -= 1;
++	} else {
++		op->pre_request_count -= 1;
++	}
++}
++
+ static NTSTATUS smbd_smb2_request_reply(struct smbd_smb2_request *req)
+ {
+ 	struct smbXsrv_connection *xconn = req->xconn;
+@@ -2689,6 +2723,9 @@ static NTSTATUS smbd_smb2_request_reply(struct smbd_smb2_request *req)
+ 	req->subreq = NULL;
+ 	TALLOC_FREE(req->async_te);
+ 
++	/* MS-SMB2: 3.3.4.1 Sending Any Outgoing Message */
++	smbd_smb2_request_reply_update_counts(req);
++
+ 	if (req->do_encryption &&
+ 	    (firsttf->iov_len == 0) &&
+ 	    (req->first_key.length == 0) &&
+-- 
+2.9.0
+

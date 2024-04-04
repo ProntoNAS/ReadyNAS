@@ -65,6 +65,7 @@
  *   This usually indicate a problem in the calling application.
  * STRINGPREP_UNKNOWN_PROFILE: The supplied profile name was not
  *   known to the library.
+ * STRINGPREP_ICONV_ERROR: Could not convert string in locale encoding.
  * STRINGPREP_NFKC_FAILED: The Unicode NFKC operation failed.  This
  *   usually indicate an internal error in the library.
  * STRINGPREP_MALLOC_ERROR: The malloc() was out of memory.  This is
@@ -120,6 +121,9 @@ stringprep_strerror (Stringprep_rc rc)
 
     case STRINGPREP_UNKNOWN_PROFILE:
       p = _("Unknown profile");
+      break;
+    case STRINGPREP_ICONV_ERROR:
+      p = _("Could not convert string in locale encoding.");
       break;
 
     case STRINGPREP_NFKC_FAILED:

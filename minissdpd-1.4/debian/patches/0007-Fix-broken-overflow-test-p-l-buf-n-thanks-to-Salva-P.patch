@@ -1,0 +1,53 @@
+From 54f9dd05ae86e040d6bfb71c80bbc2104bdcd191 Mon Sep 17 00:00:00 2001
+From: Justin Maggard <jmaggard@netgear.com>
+Date: Thu, 9 Jun 2016 11:27:17 -0700
+Subject: [PATCH 7/8] Fix broken overflow test (p+l > buf+n) thanks to Salva
+ Piero
+
+---
+ minissdpd.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/minissdpd.c b/minissdpd.c
+index 4a226f3..a0d1b3b 100644
+--- a/minissdpd.c
++++ b/minissdpd.c
+@@ -825,7 +825,7 @@ void processRequest(struct reqelem * req)
+ 	type = buf[0];
+ 	p = buf + 1;
+ 	DECODELENGTH_CHECKLIMIT(l, p, buf + n);
+-	if(p+l > buf+n) {
++	if(l > (unsigned)(buf+n-p)) {
+ 		syslog(LOG_WARNING, "bad request (length encoding l=%u n=%u)",
+ 		       l, (unsigned)n);
+ 		goto error;
+@@ -946,7 +946,7 @@ void processRequest(struct reqelem * req)
+ 			goto error;
+ 		}
+ 		DECODELENGTH_CHECKLIMIT(l, p, buf + n);
+-		if(p+l > buf+n) {
++		if(l > (unsigned)(buf+n-p)) {
+ 			syslog(LOG_WARNING, "bad request (length encoding)");
+ 			goto error;
+ 		}
+@@ -964,7 +964,7 @@ void processRequest(struct reqelem * req)
+ 		newserv->usn[l] = '\0';
+ 		p += l;
+ 		DECODELENGTH_CHECKLIMIT(l, p, buf + n);
+-		if(p+l > buf+n) {
++		if(l > (unsigned)(buf+n-p)) {
+ 			syslog(LOG_WARNING, "bad request (length encoding)");
+ 			goto error;
+ 		}
+@@ -982,7 +982,7 @@ void processRequest(struct reqelem * req)
+ 		newserv->server[l] = '\0';
+ 		p += l;
+ 		DECODELENGTH_CHECKLIMIT(l, p, buf + n);
+-		if(p+l > buf+n) {
++		if(l > (unsigned)(buf+n-p)) {
+ 			syslog(LOG_WARNING, "bad request (length encoding)");
+ 			goto error;
+ 		}
+-- 
+1.9.1
+

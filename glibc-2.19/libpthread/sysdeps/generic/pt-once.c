@@ -23,7 +23,7 @@
 #include <pt-internal.h>
 
 int
-pthread_once (pthread_once_t *once_control, void (*init_routine) (void))
+__pthread_once (pthread_once_t *once_control, void (*init_routine) (void))
 {
   if (once_control->run == 0)
     {
@@ -41,3 +41,4 @@ pthread_once (pthread_once_t *once_control, void (*init_routine) (void))
 
   return 0;
 }
+strong_alias (__pthread_once, pthread_once);

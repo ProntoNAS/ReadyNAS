@@ -1,0 +1,50 @@
+From ced0810cb6c81a63c97d0f1571079fb16ebd5dba Mon Sep 17 00:00:00 2001
+From: Ralph Boehme <slow@samba.org>
+Date: Thu, 23 Jun 2016 12:24:33 +0200
+Subject: [PATCH 7/8] s3/smbd: only use stored dos attributes for
+ open_match_attributes() check
+
+This changes the way we check for old vs new DOS attributes on open with
+overwrite: only check against the DOS attributes actually set by a
+client and stored in the DOS attributes xattr.
+
+With this change "hide dot files" and "hide files" continue to work with
+"store dos attributes = yes".
+
+Bug: https://bugzilla.samba.org/show_bug.cgi?id=11992
+
+Signed-off-by: Ralph Boehme <slow@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+(cherry picked from commit 36b7cff3188bbc21048c12ec971d9c2ac3666226)
+---
+ source3/smbd/open.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/source3/smbd/open.c b/source3/smbd/open.c
+index 61b7145..2d5f8d7 100644
+--- a/source3/smbd/open.c
++++ b/source3/smbd/open.c
+@@ -2517,7 +2517,19 @@ static NTSTATUS open_file_ntcreate(connection_struct *conn,
+ 	if (!posix_open) {
+ 		new_dos_attributes &= SAMBA_ATTRIBUTES_MASK;
+ 		if (file_existed) {
+-			existing_dos_attributes = dos_mode(conn, smb_fname);
++			/*
++			 * Only use strored DOS attributes for checks
++			 * against requested attributes (below via
++			 * open_match_attributes()), cf bug #11992
++			 * for details. -slow
++			 */
++			bool ok;
++			uint32_t attr = 0;
++
++			ok = get_ea_dos_attribute(conn, smb_fname, &attr);
++			if (ok) {
++				existing_dos_attributes = attr;
++			}
+ 		}
+ 	}
+ 
+-- 
+2.9.0
+

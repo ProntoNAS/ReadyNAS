@@ -1,0 +1,35 @@
+From 7c5cb8660921c1e73375d9e3869def11b09ee3ae Mon Sep 17 00:00:00 2001
+From: Craig Small <csmall@enc.com.au>
+Date: Sun, 15 Mar 2015 09:08:12 +1100
+Subject: [PATCH 18/21] fuser: -k return status based on any found
+
+In [bugs:#66] the ever-helpful "Anonymous" reported that
+fuser with -k would only return correctly if the process
+was found last and not if it was found anywhere.
+
+While I have solved this problem a different way, the report
+was enough to narrow down what was going wrong. Now fuser -k
+returns 1 if it finds any process to kill, not just if the last
+one was; just like fuser with no -k works.
+
+Signed-off-by: Craig Small <csmall@enc.com.au>
+---
+ src/fuser.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/fuser.c b/src/fuser.c
+index 4e16d67..4eeac7d 100644
+--- a/src/fuser.c
++++ b/src/fuser.c
+@@ -1397,7 +1397,7 @@ print_matches(struct names *names_head, const opt_type opts,
+ 			}
+ 		}		/* be silent */
+ 		if (opts & OPT_KILL)
+-			have_kill = kill_matched_proc(nptr->matched_procs,
++			have_kill |= kill_matched_proc(nptr->matched_procs,
+ 						      opts, sig_number);
+ 
+ 	}			/* next name */
+-- 
+2.5.2
+

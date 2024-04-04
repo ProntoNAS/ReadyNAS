@@ -1,0 +1,67 @@
+From 3b1447d6c9634490f53cc395405d4610777d44cd Mon Sep 17 00:00:00 2001
+From: Uri Simchoni <uri@samba.org>
+Date: Thu, 26 May 2016 22:52:09 +0300
+Subject: [PATCH 1093/1096] selftest: add disk-free quota tests
+
+Add a test for situation where quota accounting is enabled
+but quota enforcement is disabled (disk-free should not take
+quota into account)
+
+Add a test for situation where overall quota status reporting
+(whether or not it's enforcing) is not supported - as with NFS.
+In that case it must be assumed that if quota is configured, then
+it is also enforced (as with NFS).
+
+BUG: https://bugzilla.samba.org/show_bug.cgi?id=11937
+
+Signed-off-by: Uri Simchoni <uri@samba.org>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+(cherry picked from commit de2d624d071c338b356824d3b30ab2c9075c8528)
+(cherry picked from commit b0f727534b062e3c2d73a18cbe039860999e30c5)
+---
+ selftest/knownfail                       |  2 ++
+ source3/script/tests/test_dfree_quota.sh | 12 ++++++++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/selftest/knownfail b/selftest/knownfail
+index 997d29c..a2e5ff4 100644
+--- a/selftest/knownfail
++++ b/selftest/knownfail
+@@ -325,3 +325,5 @@
+ # we don't allow auth_level_connect anymore...
+ #
+ ^samba3.blackbox.rpcclient.*ncacn_np.*with.*connect.*rpcclient # we don't allow auth_level_connect anymore
++#new disk-free tests fail the code
++^samba3.blackbox.dfree_quota \(fileserver\).Test dfree share root quota not enforced\(fileserver\)
+diff --git a/source3/script/tests/test_dfree_quota.sh b/source3/script/tests/test_dfree_quota.sh
+index 5392d3d..26199cc 100755
+--- a/source3/script/tests/test_dfree_quota.sh
++++ b/source3/script/tests/test_dfree_quota.sh
+@@ -64,6 +64,12 @@ trygrp1:g$gid:block size = 4096:hard limit = 60:soft limit = 60:cur blocks = 55
+ trygrp2:df:block size = 4096:disk free = 10:disk size = 80
+ trygrp2:u$uid:block size = 4096:hard limit = 0:soft limit = 0:cur blocks = 41
+ trygrp2:g$gid:block size = 4096:hard limit = 60:soft limit = 60:cur blocks = 56
++notenforce:df:block size = 4096:disk free = 10:disk size = 80
++notenforce:u$uid:block size = 4096:hard limit = 40:soft limit = 40:cur blocks = 37
++notenforce:udflt:block size = 4096:qflags = 0
++nfs:df:block size = 4096:disk free = 10:disk size = 80
++nfs:u$uid:block size = 4096:hard limit = 40:soft limit = 40:cur blocks = 37
++nfs:udflt:nosys = 1
+ ABC
+ }
+ 
+@@ -170,5 +176,11 @@ test_smbclient_dfree "Test quota->dfree inode hard limit" "subdir1" "ihlimit sub
+ test_smbclient_dfree "Test quota->dfree err try group" "subdir1" "trygrp1 subdir1" "240 1024. 20" -U$USERNAME%$PASSWORD --option=clientmaxprotocol=SMB3 || failed=`expr $failed + 1`
+ test_smbclient_dfree "Test quota->dfree no-quota try group" "subdir1" "trygrp2 subdir1" "240 1024. 16" -U$USERNAME%$PASSWORD --option=clientmaxprotocol=SMB3 || failed=`expr $failed + 1`
+ 
++#quota configured but not enforced
++test_smbclient_dfree "Test dfree share root quota not enforced" "." "notenforce ." "320 1024. 40" -U$USERNAME%$PASSWORD --option=clientmaxprotocol=SMB3 || failed=`expr $failed + 1`
++
++#FS quota not implemented (NFS case)
++test_smbclient_dfree "Test dfree share root FS quota not implemented" "." "nfs ." "160 1024. 12" -U$USERNAME%$PASSWORD --option=clientmaxprotocol=SMB3 || failed=`expr $failed + 1`
++
+ setup_conf
+ exit $failed
+-- 
+2.9.0
+

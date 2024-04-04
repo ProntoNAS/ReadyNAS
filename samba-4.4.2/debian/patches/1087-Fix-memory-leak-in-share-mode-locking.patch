@@ -1,0 +1,46 @@
+From 942e6b5c55eb3d0ccdb3bc5286c2fb2c0b0ad56f Mon Sep 17 00:00:00 2001
+From: Hemanth Thummala <hemanth.thummala@nutanix.com>
+Date: Tue, 24 May 2016 23:15:04 -0700
+Subject: [PATCH 1087/1096] Fix memory leak in share mode locking.
+
+Not freeing up(and reparenting to NULL context) ndr buffer
+used for TDB updates resulting in huge memory leak when there
+in high volume of opens and closes happening on same object.
+
+Free the buffer before reparenting its parent to NULL context.
+
+https://bugzilla.samba.org/show_bug.cgi?id=11934
+
+Signed-off-by: Hemanth Thummala <hemanth.thummala@nutanix.com>
+Signed-off-by: Saji VR <saji.vr@nutanix.com>
+Reviewed-by: Jeremy Allison <jra@samba.org>
+Reviewed-by: Volker Lendecke <vl@samba.org>
+
+Autobuild-User(master): Volker Lendecke <vl@samba.org>
+Autobuild-Date(master): Fri May 27 18:43:31 CEST 2016 on sn-devel-144
+
+(cherry picked from commit 7a725eea25f905fc5f611e8f3d7cfe414d5cf913)
+(cherry picked from commit 37fa8a6470066fde2317bf76a7385f31135df737)
+---
+ source3/locking/share_mode_lock.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/source3/locking/share_mode_lock.c b/source3/locking/share_mode_lock.c
+index fe105e3..4e9de03 100644
+--- a/source3/locking/share_mode_lock.c
++++ b/source3/locking/share_mode_lock.c
+@@ -441,6 +441,11 @@ static int share_mode_data_destructor(struct share_mode_data *d)
+ 	TALLOC_FREE(d->record);
+ 
+ 	/*
++	 * Release the dptr as well before reparenting to NULL
++	 * (in-memory cache) context.
++	 */
++	TALLOC_FREE(data.dptr);
++	/*
+ 	 * Reparent d into the in-memory cache so it can be reused if the
+ 	 * sequence number matches. See parse_share_modes()
+ 	 * for details.
+-- 
+2.9.0
+

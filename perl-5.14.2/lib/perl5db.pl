@@ -2602,7 +2602,10 @@ above the current one and then displays then using C<dumpvar.pl>.
                 $cmd =~ /^y(?:\s+(\d*)\s*(.*))?$/ && do {
 
                     # See if we've got the necessary support.
-                    eval { require PadWalker; PadWalker->VERSION(0.08) }
+                    eval {
+                        local @INC = @INC;
+                        pop @INC if $INC[-1] eq '.';
+                        require PadWalker; PadWalker->VERSION(0.08) }
                       or &warn(
                         $@ =~ /locate/
                         ? "PadWalker module not found - please install\n"
@@ -8653,7 +8656,10 @@ if PadWalker could be loaded.
 
 =cut
 
-        if (not $text =~ /::/ and eval { require PadWalker } ) {
+        if (not $text =~ /::/ and eval {
+            local @INC = @INC;
+            pop @INC if $INC[-1] eq '.';
+            require PadWalker } ) {
             my $level = 1;
             while (1) {
                 my @info = caller($level);

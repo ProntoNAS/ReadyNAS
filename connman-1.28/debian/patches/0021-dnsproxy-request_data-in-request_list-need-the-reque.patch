@@ -1,0 +1,57 @@
+From 03066a1ce55ecf99bceef1546eb420d605228604 Mon Sep 17 00:00:00 2001
+From: Slava Monich <slava.monich@jolla.com>
+Date: Tue, 7 Apr 2015 18:30:41 +0300
+Subject: [PATCH 21/22] dnsproxy: request_data in request_list need the request
+ data for UDP
+
+UDP packet did not set the request and request_len properly. This is seen
+in valgrind report.
+
+==7180== Syscall param socketcall.sendto(msg) points to unaddressable byte(s)
+==7180==    at 0x4B9CE34: sendto (in /lib/libc-2.15.so)
+==7180==    by 0x79283: ns_resolv (dnsproxy.c:1644)
+==7180==    by 0x7977F: resolv (dnsproxy.c:2648)
+==7180==    by 0x7C80F: __connman_dnsproxy_flush (dnsproxy.c:2770)
+==7180==    by 0x47C37: update_nameservers (service.c:1158)
+==7180==    by 0x47F27: __connman_service_nameserver_remove (service.c:1275)
+==7180==    by 0x5D87B: dhcp_invalidate (dhcp.c:133)
+==7180==    by 0x5E677: __connman_dhcp_stop (dhcp.c:641)
+==7180==    by 0x3F9CB: set_disconnected (network.c:746)
+==7180==    by 0x4079B: connman_network_set_connected (network.c:1465)
+==7180==    by 0x21563: interface_state (wifi.c:1824)
+==7180==    by 0x2648B: callback_interface_state (supplicant.c:377)
+==7180==    by 0x2648B: interface_property (supplicant.c:1854)
+==7180==    by 0x28DBF: supplicant_dbus_property_foreach (dbus.c:145)
+==7180==    by 0x22B7F: g_supplicant_filter (supplicant.c:2636)
+==7180==    by 0x497AF4F: dbus_connection_dispatch (in /usr/lib/libdbus-1.so.3.7.12)
+==7180==    by 0x81C57: message_dispatch (mainloop.c:72)
+==7180==    by 0x48ABA8B: g_idle_dispatch (gmain.c:5251)
+==7180==    by 0x48AFB1F: g_main_dispatch (gmain.c:3066)
+==7180==    by 0x48AFB1F: g_main_context_dispatch (gmain.c:3642)
+==7180==    by 0x48AFE23: g_main_context_iterate.part.19 (gmain.c:3713)
+==7180==    by 0x48B048B: g_main_loop_run (gmain.c:3906)
+==7180==    by 0x149D3: main (main.c:761)
+==7180==  Address 0x0 is not stack'd, malloc'd or (recently) free'd|
+
+(cherry picked from commit d07600fa63cc928ed13a95ccbd29b841174ed4d2)
+---
+ src/dnsproxy.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/dnsproxy.c b/src/dnsproxy.c
+index af4d883..ba93938 100644
+--- a/src/dnsproxy.c
++++ b/src/dnsproxy.c
+@@ -3469,6 +3469,9 @@ static bool udp_listener_event(GIOChannel *channel, GIOCondition condition,
+ 		return true;
+ 	}
+ 
++	req->name = g_strdup(query);
++	req->request = g_malloc(len);
++	memcpy(req->request, buf, len);
+ 	req->timeout = g_timeout_add_seconds(5, request_timeout, req);
+ 	request_list = g_slist_append(request_list, req);
+ 
+-- 
+1.9.1
+

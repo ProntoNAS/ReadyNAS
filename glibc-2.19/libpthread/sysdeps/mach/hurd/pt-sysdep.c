@@ -39,16 +39,31 @@ void *(*_cthread_init_routine)(void) = &init_routine;
    should return a new stack pointer for the main thread.  The caller
    will switch to this new stack before doing anything serious.  */
 static void *
-init_routine (void)
+_init_routine (void *stack)
 {
   struct __pthread *thread;
   int err;
+  pthread_attr_t attr, *attrp = 0;
+
+  if (__pthread_threads)
+    /* Already initialized */
+    return 0;
 
   /* Initialize the library.  */
   __pthread_init ();
 
+  if (stack)
+    {
+      /* We are getting initialized due to dlopening a library using libpthread
+	 while the main program was not linked against libpthread.  */
+      /* Avoid allocating another stack */
+      attrp = &attr;
+      pthread_attr_init(attrp);
+      pthread_attr_setstack(attrp, __libc_stack_end, __vm_page_size);
+    }
+
   /* Create the pthread structure for the main thread (i.e. us).  */
-  err = __pthread_create_internal (&thread, 0, 0, 0);
+  err = __pthread_create_internal (&thread, attrp, 0, 0);
   assert_perror (err);
 
   /* XXX The caller copies the command line arguments and the environment
@@ -68,3 +83,16 @@ init_routine (void)
 
   return thread->mcontext.sp;
 }
+
+static void *
+init_routine (void)
+{
+  return _init_routine (0);
+}
+
+#ifdef SHARED
+__attribute__ ((constructor)) static void dynamic_init_routine(void)
+{
+  _init_routine (__libc_stack_end);
+}
+#endif

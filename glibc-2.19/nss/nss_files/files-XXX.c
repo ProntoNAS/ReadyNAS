@@ -134,7 +134,7 @@ CONCAT(_nss_files_set,ENTNAME) (int stayopen)
 
   __libc_lock_lock (lock);
 
-  status = internal_setent (stayopen);
+  status = internal_setent (1);
 
   if (status == NSS_STATUS_SUCCESS && fgetpos (stream, &position) < 0)
     {
@@ -198,9 +198,11 @@ get_contents (char *linebuf, size_t len, FILE *stream)
     {
       int curlen = ((remaining_len > (size_t) INT_MAX) ? INT_MAX
 		    : remaining_len);
-      char *p = fgets_unlocked (curbuf, curlen, stream);
 
+      /* Terminate the line so that we can test for overflow.  */
       ((unsigned char *) curbuf)[curlen - 1] = 0xff;
+
+      char *p = fgets_unlocked (curbuf, curlen, stream);
 
       /* EOF or read error.  */
       if (p == NULL)

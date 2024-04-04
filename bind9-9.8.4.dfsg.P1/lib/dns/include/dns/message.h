@@ -210,6 +210,8 @@ struct dns_message {
 	unsigned int			verify_attempted : 1;
 	unsigned int			free_query : 1;
 	unsigned int			free_saved : 1;
+	unsigned int			tkey : 1;
+	unsigned int			rdclass_set : 1;
 
 	unsigned int			opt_reserved;
 	unsigned int			sig_reserved;
@@ -1348,6 +1350,15 @@ dns_message_gettimeadjust(dns_message_t *msg);
  *
  * Requires:
  *\li	msg be a valid message.
+ */
+
+void
+dns_message_setclass(dns_message_t *msg, dns_rdataclass_t rdclass);
+/*%<
+ * Set the expected class of records in the response.
+ *
+ * Requires:
+ * \li   msg be a valid message with parsing intent.
  */
 
 ISC_LANG_ENDDECLS

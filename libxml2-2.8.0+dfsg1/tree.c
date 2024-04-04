@@ -683,7 +683,8 @@ void
 xmlSetBufferAllocationScheme(xmlBufferAllocationScheme scheme) {
     if ((scheme == XML_BUFFER_ALLOC_EXACT) ||
         (scheme == XML_BUFFER_ALLOC_DOUBLEIT) ||
-        (scheme == XML_BUFFER_ALLOC_HYBRID))
+        (scheme == XML_BUFFER_ALLOC_HYBRID) ||
+        (scheme == XML_BUFFER_ALLOC_BOUNDED))
 	xmlBufferAllocScheme = scheme;
 }
 
@@ -1585,6 +1586,7 @@ xmlStringGetNodeList(xmlDocPtr doc, const xmlChar *value) {
 			else if ((ent != NULL) && (ent->children == NULL)) {
 			    xmlNodePtr temp;
 
+			    ent->children = (xmlNodePtr) -1;
 			    ent->children = xmlStringGetNodeList(doc,
 				    (const xmlChar*)node->content);
 			    ent->owner = 1;
@@ -7148,6 +7150,19 @@ xmlBufferGrow(xmlBufferPtr buf, unsigned int len) {
     size = buf->use + len + 100;
 #endif
 
+    if (buf->alloc == XML_BUFFER_ALLOC_BOUNDED) {
+	/*
+	 * Used to provide parsing limits
+	 */
+	if ((buf->use + len >= XML_MAX_TEXT_LENGTH) ||
+	    (buf->size >= XML_MAX_TEXT_LENGTH)) {
+	    xmlTreeErrMemory("buffer error: text too long");
+	    return(0);
+	}
+	if (size >= XML_MAX_TEXT_LENGTH)
+	    size = XML_MAX_TEXT_LENGTH;
+    }
+
     if ((buf->alloc == XML_BUFFER_ALLOC_IO) && (buf->contentIO != NULL)) {
         size_t start_buf = buf->content - buf->contentIO;
 
@@ -7258,7 +7273,15 @@ xmlBufferResize(xmlBufferPtr buf, unsigned int size)
         return(0);
 
     if (buf->alloc == XML_BUFFER_ALLOC_IMMUTABLE) return(0);
-
+    if (buf->alloc == XML_BUFFER_ALLOC_BOUNDED) {
+	/*
+	 * Used to provide parsing limits
+	 */
+	if (size >= XML_MAX_TEXT_LENGTH) {
+	    xmlTreeErrMemory("buffer error: text too long");
+	    return(0);
+	}
+    }
     /* Don't resize if we don't have to */
     if (size < buf->size)
         return 1;
@@ -7452,6 +7475,15 @@ xmlBufferAddHead(xmlBufferPtr buf, const xmlChar *str, int len) {
     }
     needSize = buf->use + len + 2;
     if (needSize > buf->size){
+	if (buf->alloc == XML_BUFFER_ALLOC_BOUNDED) {
+	    /*
+	     * Used to provide parsing limits
+	     */
+	    if (needSize >= XML_MAX_TEXT_LENGTH) {
+		    xmlTreeErrMemory("buffer error: text too long");
+		    return(-1);
+	    }
+	}
         if (!xmlBufferResize(buf, needSize)){
 	    xmlTreeErrMemory("growing buffer");
             return XML_ERR_NO_MEMORY;

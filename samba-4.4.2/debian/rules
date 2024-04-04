@@ -1,0 +1,155 @@
+#!/usr/bin/make -f
+# By Jelmer Vernooij <jelmer@samba.org>
+#
+DESTDIR = $(CURDIR)/debian/tmp
+
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+
+PYVERS=$(shell pyversions -vr)
+
+DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+DEB_HOST_ARCH_OS   ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_OS)
+ifeq ($(DEB_HOST_ARCH_OS),illumos)
+export DEB_ARCH_SECURITY=$(DEB_HOST_MULTIARCH)
+else
+export DEB_ARCH_SECURITY=/
+endif
+LDB_VERSION = $(shell pkg-config --modversion ldb)
+LDB_EPOCH = $(shell dpkg-query -f '$${Version}' -W libldb-dev | sed 's/:.*//')
+LDB_NEXT_VERSION = $(shell python -c "x = '$(LDB_VERSION)'.split('.'); x[-1] = str(int(x[-1])+1); print '.'.join(x)")
+# samba ships ldb modules, which are specific to the ldb version, so we need a
+# strict dependency on the upstream ldb version
+# this also mean samba needs a rebuild when the upstream ldb version changes
+LDB_DEPENDS = "libldb1 (<< $(LDB_EPOCH):$(LDB_NEXT_VERSION)~), libldb1 (>> $(LDB_EPOCH):$(LDB_VERSION)~)"
+export PYTHON=$(shell which `pyversions -d`)
+export PYTHON_CONFIG="$(PYTHON)-config"
+WAF = $(PYTHON) ./buildtools/bin/waf
+
+# turn DEB_BUILD_OPTIONS='foo,bar' into DEB_BUILD_OPT_FOO and DEB_BUILD_OPT_BAR
+d_b_o:=$(shell echo "$$DEB_BUILD_OPTIONS"|sed 's/[^-[:alnum:]]/ /g'|tr a-z A-Z)
+$(foreach o, $(d_b_o), $(eval DEB_BUILD_OPT_$o := 1))
+
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+WAF += -j $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+endif
+
+# enable LTO -- breaks on smbtorture
+#export DEB_CFLAGS_APPEND=-flto
+#export DEB_CXXFLAGS_APPEND=-flto
+#export DEB_LDFLAGS_APPEND=-flto
+
+conf_args = \
+		--prefix=/usr \
+		--mandir=/usr/share/man \
+		--sysconfdir=/etc \
+		--localstatedir=/var \
+		--with-piddir=/var/run \
+		--with-modulesdir=/usr/lib/$(DEB_HOST_MULTIARCH)/samba/ \
+		--disable-rpath \
+		--disable-rpath-install \
+		--bundled-libraries=NONE,pytevent,iniparser,ntdb,nss_wrapper,socket_wrapper,uid_wrapper \
+		--builtin-libraries=replace,ccan,ntdb,nss_wrapper,socket_wrapper,uid_wrapper \
+		--minimum-library-version="$(shell ./debian/autodeps.py --minimum-library-version)" \
+		--libdir=/usr/lib/$(DEB_HOST_MULTIARCH) \
+		--enable-fhs \
+		--enable-avahi \
+		--with-dnsupdate \
+		--with-system-mitkrb5 \
+		--without-ad-dc
+
+ifeq ($(DEB_HOST_ARCH_OS),illumos)
+	conf_args +=	--with-static-modules=vfs_zfsacl \
+			--with-acl-support \
+			--with-quotas
+else
+	conf_args +=	--without-quotas
+endif
+
+%:
+	dh $* --with python2
+
+override_dh_auto_configure:
+	$(shell dpkg-buildflags --export=configure) $(WAF) configure \
+		$(conf_args)
+
+override_dh_auto_clean:
+	-$(WAF) clean
+	rm -f debian/*.upstart
+	find . -name "*.pyc" | xargs rm -f
+	rm -rf buildtools/bin/.waf-* .lock-wscript
+	rm -rf bin
+
+override_dh_auto_install:
+	DESTDIR="$(DESTDIR)" $(WAF) install
+
+override_dh_auto_build:
+	DESTDIR="$(DESTDIR)" $(WAF)
+
+override_dh_auto_test:
+	# Running make test requires configuration with --enable-selftest, which
+	# we don't want to do for production systems.
+
+override_dh_install:
+	# Alternatives are used
+	# Included in python-tevent
+	-rm $(DESTDIR)/usr/lib/python*/*-packages/_tevent.so
+	-rm $(DESTDIR)/usr/lib/python*/*-packages/tevent.py
+	# System ldb loads its modules from a different path
+	mkdir -p $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/ldb/modules/ldb
+	ln -sf ../../../samba/ldb $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/ldb/modules/ldb/samba
+ifeq ($(DEB_HOST_ARCH_OS),illumos)
+	mkdir -p $(DESTDIR)/lib/$(DEB_HOST_MULTIARCH)/security
+	mv $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/security/pam_winbind.so $(DESTDIR)/lib/$(DEB_HOST_MULTIARCH)/security/pam_winbind.so
+else
+	mkdir -p $(DESTDIR)/lib/security
+	mv $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/security/pam_winbind.so $(DESTDIR)/lib/security/pam_winbind.so
+endif
+	-rm $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/samba/share/ldb.so
+	mkdir -p $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/plugin/krb5
+	mv $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/winbind_krb5_locator.so \
+	   $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/plugin/krb5
+	install -D -m 0755 debian/setoption.py $(DESTDIR)/usr/share/samba/setoption.py
+	install -D -m 0755 debian/addshare.py $(DESTDIR)/usr/share/samba/addshare.py
+	# Install systemd service files.
+	mkdir -p $(DESTDIR)/lib/systemd/system
+	install -m 0644 packaging/systemd/nmb.service $(DESTDIR)/lib/systemd/system
+	install -m 0644 packaging/systemd/smb.service $(DESTDIR)/lib/systemd/system
+	install -m 0644 packaging/systemd/winbind.service $(DESTDIR)/lib/systemd/system
+	mkdir -p $(DESTDIR)/usr/lib/tmpfiles.d
+	echo "d /run/samba 0755 root root -" > $(DESTDIR)/usr/lib/tmpfiles.d/samba.conf
+	# Remove Samba 3 files for now
+	while read line; \
+	do \
+		rm -r $(DESTDIR)$$line; \
+	done < debian/samba3-files
+	while read line; \
+	do \
+		rm -r $(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/$$line; \
+	done < debian/samba3-files-lib
+	dh_install --sourcedir=$(DESTDIR) --list-missing --fail-missing
+
+override_dh_python2:
+	dh_python2 --no-guessing-versions
+
+override_dh_strip:
+	dh_strip --dbg-package=samba-dbg
+
+get-packaged-orig-source:
+	./debian/build-orig.sh
+
+override_dh_shlibdeps:
+	LD_LIBRARY_PATH=$(DESTDIR)/usr/lib/$(DEB_HOST_MULTIARCH)/samba:$$LD_LIBRARY_PATH dh_shlibdeps -a
+
+override_dh_gencontrol:
+	dh_gencontrol -- -Vldb:Depends=$(LDB_DEPENDS)
+
+override_dh_makeshlibs:
+	dh_makeshlibs -X/usr/lib/$(DEB_HOST_MULTIARCH)/samba -X/usr/lib/$(DEB_HOST_MULTIARCH)/plugin -- -c0
+
+override_dh_installinit:
+	if dpkg-vendor --derives-from ubuntu; then \
+		cp debian/samba4.upstart.in debian/samba4.upstart; \
+		dh_installinit --upstart-only; \
+	else \
+		dh_installinit; \
+	fi;
