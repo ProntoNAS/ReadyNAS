@@ -406,10 +406,7 @@ cupsdCheckJobs(void)
 
           if ((attr = ippFindAttribute(job->attrs, "job-actual-printer-uri",
 	                               IPP_TAG_URI)) != NULL)
-          {
-            _cupsStrFree(attr->values[0].string.text);
-            attr->values[0].string.text = _cupsStrAlloc(printer->uri);
-          }
+            cupsdSetString(&attr->values[0].string.text, printer->uri);
 	  else
 	    ippAddString(job->attrs, IPP_TAG_JOB, IPP_TAG_URI,
 	                 "job-actual-printer-uri", NULL, printer->uri);
@@ -1175,7 +1172,7 @@ cupsdContinueJob(cupsd_job_t *job)	/* I - Job */
       else if (stat(command, &backinfo))
 	backroot = 0;
       else
-        backroot = !(backinfo.st_mode & (S_IWGRP | S_IXGRP | S_IWOTH | S_IXOTH));
+        backroot = !(backinfo.st_mode & (S_IRWXG | S_IRWXO));
 
       argv[0] = job->printer->sanitized_device_uri;
 
@@ -1849,7 +1846,7 @@ cupsdLoadJob(cupsd_job_t *job)		/* I - Job */
           }
           else if (i >= (int)(sizeof(job->auth_env) / sizeof(job->auth_env[0])))
             break;
-
+          
 	  if (!strcmp(line, "username"))
 	    cupsdSetStringf(job->auth_env + i, "AUTH_USERNAME=%s", data);
 	  else if (!strcmp(line, "domain"))
@@ -1953,10 +1950,7 @@ cupsdMoveJob(cupsd_job_t     *job,	/* I - Job */
 
   if ((attr = ippFindAttribute(job->attrs, "job-printer-uri",
                                IPP_TAG_URI)) != NULL)
-  {
-    _cupsStrFree(attr->values[0].string.text);
-    attr->values[0].string.text = _cupsStrAlloc(p->uri);
-  }
+    cupsdSetString(&(attr->values[0].string.text), p->uri);
 
   cupsdAddEvent(CUPSD_EVENT_JOB_STOPPED, p, job,
                 "Job #%d moved from %s to %s.", job->id, olddest,
@@ -2039,7 +2033,7 @@ cupsdSaveAllJobs(void)
   strftime(temp, sizeof(temp) - 1, "%Y-%m-%d %H:%M", curdate);
 
   cupsFilePuts(fp, "# Job cache file for " CUPS_SVERSION "\n");
-  cupsFilePrintf(fp, "# Written by cupsd\n", temp);
+  cupsFilePrintf(fp, "# Written by cupsd on %s\n", temp);
   cupsFilePrintf(fp, "NextJobId %d\n", NextJobId);
 
  /*
@@ -2159,10 +2153,7 @@ cupsdSetJobHoldUntil(cupsd_job_t *job,	/* I - Job */
       attr = ippFindAttribute(job->attrs, "job-hold-until", IPP_TAG_NAME);
 
     if (attr)
-    {
-      _cupsStrFree(attr->values[0].string.text);
-      attr->values[0].string.text = _cupsStrAlloc(when);
-    }
+      cupsdSetString(&(attr->values[0].string.text), when);
     else
       attr = ippAddString(job->attrs, IPP_TAG_JOB, IPP_TAG_KEYWORD,
                           "job-hold-until", NULL, when);
@@ -2408,8 +2399,7 @@ cupsdSetJobState(
 	if (attr)
 	{
 	  attr->value_tag = IPP_TAG_KEYWORD;
-	  _cupsStrFree(attr->values[0].string.text);
-	  attr->values[0].string.text = _cupsStrAlloc("no-hold");
+	  cupsdSetString(&(attr->values[0].string.text), "no-hold");
 	}
 
     default :
@@ -4156,10 +4146,7 @@ start_job(cupsd_job_t     *job,		/* I - Job ID */
                                             "job-printer-state-message",
                                             IPP_TAG_TEXT);
   if (job->printer_message)
-  {
-    _cupsStrFree(job->printer_message->values[0].string.text);
-    job->printer_message->values[0].string.text = _cupsStrAlloc("");
-  }
+    cupsdSetString(&(job->printer_message->values[0].string.text), "");
 
   cupsdSetJobState(job, IPP_JOB_PROCESSING, CUPSD_JOB_DEFAULT, NULL);
   cupsdSetPrinterState(printer, IPP_PRINTER_PROCESSING, 0);
@@ -4721,15 +4708,10 @@ update_job_attrs(cupsd_job_t *job,	/* I - Job to update */
 
   if (job->state_value != IPP_JOB_PROCESSING &&
       job->status_level == CUPSD_LOG_INFO)
-  {
-    _cupsStrFree(job->printer_message->values[0].string.text);
-    job->printer_message->values[0].string.text = _cupsStrAlloc("");
-  }
+    cupsdSetString(&(job->printer_message->values[0].string.text), "");
   else if (job->printer->state_message[0] && do_message)
-  {
-    _cupsStrFree(job->printer_message->values[0].string.text);
-    job->printer_message->values[0].string.text = _cupsStrAlloc(job->printer->state_message);
-  }
+    cupsdSetString(&(job->printer_message->values[0].string.text),
+		   job->printer->state_message);
 
  /*
   * ... and the printer-state-reasons value...

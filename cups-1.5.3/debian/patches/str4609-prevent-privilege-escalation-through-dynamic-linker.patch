@@ -1,0 +1,342 @@
+Description: Fix privilege escalation through dynamic linker and isolated vulnerabilities
+Author: Michael Sweet <msweet@apple.com>
+Origin: vendor
+Bug: https://cups.org/str.php?L4609
+Bug-CERT-VN: VU#810572
+Bug-CVE: CVE-2015-1158 - Improper Update of Reference Count
+Bug-CVE: CVE-2015-1159 - Cross-Site Scripting
+Last-Update: 2015-06-09
+
+--- a/cgi-bin/ipp-var.c
++++ b/cgi-bin/ipp-var.c
+@@ -1230,21 +1230,7 @@
+ 	      * Rewrite URIs...
+ 	      */
+ 
+-              if (!strcmp(name, "member_uris"))
+-	      {
+-		char	url[1024];	/* URL for class member... */
+-
+-
+-		cgiRewriteURL(attr->values[i].string.text, url,
+-		              sizeof(url), NULL);
+-
+-                snprintf(valptr, sizeof(value) - (valptr - value),
+-		         "<A HREF=\"%s\">%s</A>", url,
+-			 strrchr(attr->values[i].string.text, '/') + 1);
+-	      }
+-	      else
+-		cgiRewriteURL(attr->values[i].string.text, valptr,
+-		              sizeof(value) - (valptr - value), NULL);
++	      cgiRewriteURL(attr->values[i].string.text, valptr, sizeof(value) - (valptr - value), NULL);
+               break;
+             }
+ 
+--- a/cgi-bin/template.c
++++ b/cgi-bin/template.c
+@@ -659,39 +659,7 @@
+   while (*s)
+   {
+     if (*s == '<')
+-    {
+-     /*
+-      * Pass <A HREF="url"> and </A>, otherwise quote it...
+-      */
+-
+-      if (!_cups_strncasecmp(s, "<A HREF=\"", 9))
+-      {
+-        fputs("<A HREF=\"", out);
+-	s += 9;
+-
+-	while (*s && *s != '\"')
+-	{
+-          if (*s == '&')
+-            fputs("&amp;", out);
+-	  else
+-	    putc(*s, out);
+-
+-	  s ++;
+-	}
+-
+-        if (*s)
+-	  s ++;
+-
+-	fputs("\">", out);
+-      }
+-      else if (!_cups_strncasecmp(s, "</A>", 4))
+-      {
+-        fputs("</A>", out);
+-	s += 3;
+-      }
+-      else
+-        fputs("&lt;", out);
+-    }
++      fputs("&lt;", out);
+     else if (*s == '>')
+       fputs("&gt;", out);
+     else if (*s == '\"')
+--- a/scheduler/ipp.c
++++ b/scheduler/ipp.c
+@@ -509,8 +509,8 @@
+ 	    * Remote unauthenticated user masquerading as local root...
+ 	    */
+ 
+-	    _cupsStrFree(username->values[0].string.text);
+-	    username->values[0].string.text = _cupsStrAlloc(RemoteRoot);
++            _cupsStrFree(username->values[0].string.text);
++            username->values[0].string.text = _cupsStrAlloc(RemoteRoot);
+ 	  }
+ 	}
+ 
+@@ -1648,7 +1648,10 @@
+     cupsdSetString(&job->username, con->username);
+ 
+     if (attr)
+-      cupsdSetString(&attr->values[0].string.text, con->username);
++    {
++      _cupsStrFree(attr->values[0].string.text);
++      attr->values[0].string.text = _cupsStrAlloc(con->username);
++    }
+   }
+   else if (attr)
+   {
+@@ -1699,48 +1702,11 @@
+       * Also, we can only have 1 value and it must be a name value.
+       */
+ 
+-      switch (attr->value_tag)
+-      {
+-        case IPP_TAG_STRING :
+-	case IPP_TAG_TEXTLANG :
+-	case IPP_TAG_NAMELANG :
+-	case IPP_TAG_TEXT :
+-	case IPP_TAG_NAME :
+-	case IPP_TAG_KEYWORD :
+-	case IPP_TAG_URI :
+-	case IPP_TAG_URISCHEME :
+-	case IPP_TAG_CHARSET :
+-	case IPP_TAG_LANGUAGE :
+-	case IPP_TAG_MIMETYPE :
+-	   /*
+-	    * Free old strings...
+-	    */
+-
+-	    for (i = 0; i < attr->num_values; i ++)
+-	    {
+-	      _cupsStrFree(attr->values[i].string.text);
+-	      attr->values[i].string.text = NULL;
+-	      if (attr->values[i].string.charset)
+-	      {
+-		_cupsStrFree(attr->values[i].string.charset);
+-		attr->values[i].string.charset = NULL;
+-	      }
+-            }
+-
+-	default :
+-            break;
+-      }
+-
+-     /*
+-      * Use the default connection hostname instead...
+-      */
+-
+-      attr->value_tag             = IPP_TAG_NAME;
+-      attr->num_values            = 1;
+-      attr->values[0].string.text = _cupsStrAlloc(con->http.hostname);
++      ippDeleteAttribute(job->attrs, attr);
++      ippAddString(job->attrs, IPP_TAG_JOB, IPP_TAG_NAME, "job-originating-host-name", NULL, con->http.hostname);
+     }
+-
+-    attr->group_tag = IPP_TAG_JOB;
++    else
++      attr->group_tag = IPP_TAG_JOB;
+   }
+   else
+   {
+@@ -1832,8 +1798,8 @@
+ 
+       attr = ippAddStrings(job->attrs, IPP_TAG_JOB, IPP_TAG_NAME, "job-sheets",
+                            2, NULL, NULL);
+-      attr->values[0].string.text = _cupsStrRetain(printer->job_sheets[0]);
+-      attr->values[1].string.text = _cupsStrRetain(printer->job_sheets[1]);
++      attr->values[0].string.text = _cupsStrAlloc(printer->job_sheets[0]);
++      attr->values[1].string.text = _cupsStrAlloc(printer->job_sheets[1]);
+     }
+ 
+     job->job_sheets = attr;
+@@ -1859,7 +1825,8 @@
+           * Force the leading banner to have the classification on it...
+ 	  */
+ 
+-          cupsdSetString(&attr->values[0].string.text, Classification);
++	  _cupsStrFree(attr->values[0].string.text);
++	  attr->values[0].string.text = _cupsStrAlloc(Classification);
+ 
+ 	  cupsdLogJob(job, CUPSD_LOG_NOTICE, "CLASSIFICATION FORCED "
+ 	                		     "job-sheets=\"%s,none\", "
+@@ -1876,7 +1843,8 @@
+ 	  * Can't put two different security markings on the same document!
+ 	  */
+ 
+-          cupsdSetString(&attr->values[1].string.text, attr->values[0].string.text);
++	  _cupsStrFree(attr->values[1].string.text);
++	  attr->values[1].string.text = _cupsStrAlloc(attr->values[0].string.text);
+ 
+ 	  cupsdLogJob(job, CUPSD_LOG_NOTICE, "CLASSIFICATION FORCED "
+ 	                		     "job-sheets=\"%s,%s\", "
+@@ -1916,18 +1884,26 @@
+         if (attr->num_values > 1 &&
+ 	    !strcmp(attr->values[0].string.text, attr->values[1].string.text))
+ 	{
+-          cupsdSetString(&(attr->values[0].string.text), Classification);
+-          cupsdSetString(&(attr->values[1].string.text), Classification);
++	  _cupsStrFree(attr->values[0].string.text);
++	  attr->values[0].string.text = _cupsStrAlloc(Classification);
++	  _cupsStrFree(attr->values[1].string.text);
++	  attr->values[1].string.text = _cupsStrAlloc(Classification);
+ 	}
+         else
+ 	{
+           if (attr->num_values == 1 ||
+ 	      strcmp(attr->values[0].string.text, "none"))
+-            cupsdSetString(&(attr->values[0].string.text), Classification);
++	  {
++	    _cupsStrFree(attr->values[0].string.text);
++	    attr->values[0].string.text = _cupsStrAlloc(Classification);
++	  }
+ 
+           if (attr->num_values > 1 &&
+ 	      strcmp(attr->values[1].string.text, "none"))
+-            cupsdSetString(&(attr->values[1].string.text), Classification);
++	  {
++	    _cupsStrFree(attr->values[1].string.text);
++	    attr->values[1].string.text = _cupsStrAlloc(Classification);
++	  }
+         }
+ 
+         if (attr->num_values > 1)
+@@ -4150,7 +4126,8 @@
+   if (attr)
+   {
+     attr->value_tag = IPP_TAG_KEYWORD;
+-    cupsdSetString(&(attr->values[0].string.text), "no-hold");
++    _cupsStrFree(attr->values[0].string.text);
++    attr->values[0].string.text = _cupsStrAlloc("no-hold");
+   }
+ 
+  /*
+@@ -9491,7 +9468,6 @@
+     if (format)
+     {
+       _cupsStrFree(format->values[0].string.text);
+-
+       format->values[0].string.text = _cupsStrAlloc(mimetype);
+     }
+     else
+@@ -10028,9 +10004,8 @@
+ 
+   if (attr)
+   {
+-    _cupsStrFree(attr->values[0].string.text);
+-
+     attr->value_tag = IPP_TAG_KEYWORD;
++    _cupsStrFree(attr->values[0].string.text);
+     attr->values[0].string.text = _cupsStrAlloc("no-hold");
+ 
+     cupsdAddEvent(CUPSD_EVENT_JOB_CONFIG_CHANGED, cupsdFindDest(job->dest), job,
+@@ -10719,7 +10694,6 @@
+                                     IPP_TAG_MIMETYPE)) != NULL)
+     {
+       _cupsStrFree(jformat->values[0].string.text);
+-
+       jformat->values[0].string.text = _cupsStrAlloc(mimetype);
+     }
+     else
+--- a/scheduler/job.c
++++ b/scheduler/job.c
+@@ -406,7 +406,10 @@
+ 
+           if ((attr = ippFindAttribute(job->attrs, "job-actual-printer-uri",
+ 	                               IPP_TAG_URI)) != NULL)
+-            cupsdSetString(&attr->values[0].string.text, printer->uri);
++          {
++            _cupsStrFree(attr->values[0].string.text);
++            attr->values[0].string.text = _cupsStrAlloc(printer->uri);
++          }
+ 	  else
+ 	    ippAddString(job->attrs, IPP_TAG_JOB, IPP_TAG_URI,
+ 	                 "job-actual-printer-uri", NULL, printer->uri);
+@@ -1846,7 +1849,7 @@
+           }
+           else if (i >= (int)(sizeof(job->auth_env) / sizeof(job->auth_env[0])))
+             break;
+-          
++
+ 	  if (!strcmp(line, "username"))
+ 	    cupsdSetStringf(job->auth_env + i, "AUTH_USERNAME=%s", data);
+ 	  else if (!strcmp(line, "domain"))
+@@ -1950,7 +1953,10 @@
+ 
+   if ((attr = ippFindAttribute(job->attrs, "job-printer-uri",
+                                IPP_TAG_URI)) != NULL)
+-    cupsdSetString(&(attr->values[0].string.text), p->uri);
++  {
++    _cupsStrFree(attr->values[0].string.text);
++    attr->values[0].string.text = _cupsStrAlloc(p->uri);
++  }
+ 
+   cupsdAddEvent(CUPSD_EVENT_JOB_STOPPED, p, job,
+                 "Job #%d moved from %s to %s.", job->id, olddest,
+@@ -2153,7 +2159,10 @@
+       attr = ippFindAttribute(job->attrs, "job-hold-until", IPP_TAG_NAME);
+ 
+     if (attr)
+-      cupsdSetString(&(attr->values[0].string.text), when);
++    {
++      _cupsStrFree(attr->values[0].string.text);
++      attr->values[0].string.text = _cupsStrAlloc(when);
++    }
+     else
+       attr = ippAddString(job->attrs, IPP_TAG_JOB, IPP_TAG_KEYWORD,
+                           "job-hold-until", NULL, when);
+@@ -2399,7 +2408,8 @@
+ 	if (attr)
+ 	{
+ 	  attr->value_tag = IPP_TAG_KEYWORD;
+-	  cupsdSetString(&(attr->values[0].string.text), "no-hold");
++	  _cupsStrFree(attr->values[0].string.text);
++	  attr->values[0].string.text = _cupsStrAlloc("no-hold");
+ 	}
+ 
+     default :
+@@ -4146,7 +4156,10 @@
+                                             "job-printer-state-message",
+                                             IPP_TAG_TEXT);
+   if (job->printer_message)
+-    cupsdSetString(&(job->printer_message->values[0].string.text), "");
++  {
++    _cupsStrFree(job->printer_message->values[0].string.text);
++    job->printer_message->values[0].string.text = _cupsStrAlloc("");
++  }
+ 
+   cupsdSetJobState(job, IPP_JOB_PROCESSING, CUPSD_JOB_DEFAULT, NULL);
+   cupsdSetPrinterState(printer, IPP_PRINTER_PROCESSING, 0);
+@@ -4708,10 +4721,15 @@
+ 
+   if (job->state_value != IPP_JOB_PROCESSING &&
+       job->status_level == CUPSD_LOG_INFO)
+-    cupsdSetString(&(job->printer_message->values[0].string.text), "");
++  {
++    _cupsStrFree(job->printer_message->values[0].string.text);
++    job->printer_message->values[0].string.text = _cupsStrAlloc("");
++  }
+   else if (job->printer->state_message[0] && do_message)
+-    cupsdSetString(&(job->printer_message->values[0].string.text),
+-		   job->printer->state_message);
++  {
++    _cupsStrFree(job->printer_message->values[0].string.text);
++    job->printer_message->values[0].string.text = _cupsStrAlloc(job->printer->state_message);
++  }
+ 
+  /*
+   * ... and the printer-state-reasons value...

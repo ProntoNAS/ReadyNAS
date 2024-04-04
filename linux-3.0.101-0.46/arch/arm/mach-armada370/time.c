@@ -237,14 +237,22 @@ void __init axp_time_init(unsigned int fabric_clk)
 static void axp_timer_init(void)
 {
 	u32 target_freq, freq_swing, system_freq;
-	u32 sscg_reg;
+	u32 reg;
 	int high_bound, low_bound;
 
-	target_freq = mvCpuL2ClkGet();
+	reg = MV_REG_READ(0x1871c);
+	if ((reg & 0xff) == 0x2f && !strstr(saved_command_line, "cpu=high")) {
+		MV_REG_WRITE(0x1871c, reg - 4);
+		target_freq = mvCpuL2ClkGet() / 12 * 11;
+	}
+	else if ((reg & 0xff) == 0x2b)
+		target_freq = mvCpuL2ClkGet() / 12 * 11;
+	else
+		target_freq = mvCpuL2ClkGet();
 
-	sscg_reg = MV_REG_READ(SSCG_CONF_REG);
-	high_bound = SSCG_CONF_HIGH(sscg_reg);
-	low_bound = SSCG_CONF_LOW(sscg_reg);
+	reg = MV_REG_READ(SSCG_CONF_REG);
+	high_bound = SSCG_CONF_HIGH(reg);
+	low_bound = SSCG_CONF_LOW(reg);
 	/*
 	 * Workaround for the SSCG deviation issue.
 	 * When the SSCG is in spread up or down a
@@ -262,7 +270,7 @@ static void axp_timer_init(void)
 			(target_freq / (96 * high_bound));
 	}
 
-	switch (SSCG_CONF_MODE(sscg_reg)) {
+	switch (SSCG_CONF_MODE(reg)) {
 	case SSCG_SPREAD_DOWN:
 		system_freq = target_freq - (freq_swing / 2);
 		break;

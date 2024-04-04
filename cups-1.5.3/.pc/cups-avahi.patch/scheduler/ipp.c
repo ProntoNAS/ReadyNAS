@@ -509,8 +509,8 @@ cupsdProcessIPPRequest(
 	    * Remote unauthenticated user masquerading as local root...
 	    */
 
-	    _cupsStrFree(username->values[0].string.text);
-	    username->values[0].string.text = _cupsStrAlloc(RemoteRoot);
+            _cupsStrFree(username->values[0].string.text);
+            username->values[0].string.text = _cupsStrAlloc(RemoteRoot);
 	  }
 	}
 
@@ -1648,7 +1648,10 @@ add_job(cupsd_client_t  *con,		/* I - Client connection */
     cupsdSetString(&job->username, con->username);
 
     if (attr)
-      cupsdSetString(&attr->values[0].string.text, con->username);
+    {
+      _cupsStrFree(attr->values[0].string.text);
+      attr->values[0].string.text = _cupsStrAlloc(con->username);
+    }
   }
   else if (attr)
   {
@@ -1699,48 +1702,11 @@ add_job(cupsd_client_t  *con,		/* I - Client connection */
       * Also, we can only have 1 value and it must be a name value.
       */
 
-      switch (attr->value_tag)
-      {
-        case IPP_TAG_STRING :
-	case IPP_TAG_TEXTLANG :
-	case IPP_TAG_NAMELANG :
-	case IPP_TAG_TEXT :
-	case IPP_TAG_NAME :
-	case IPP_TAG_KEYWORD :
-	case IPP_TAG_URI :
-	case IPP_TAG_URISCHEME :
-	case IPP_TAG_CHARSET :
-	case IPP_TAG_LANGUAGE :
-	case IPP_TAG_MIMETYPE :
-	   /*
-	    * Free old strings...
-	    */
-
-	    for (i = 0; i < attr->num_values; i ++)
-	    {
-	      _cupsStrFree(attr->values[i].string.text);
-	      attr->values[i].string.text = NULL;
-	      if (attr->values[i].string.charset)
-	      {
-		_cupsStrFree(attr->values[i].string.charset);
-		attr->values[i].string.charset = NULL;
-	      }
-            }
-
-	default :
-            break;
-      }
-
-     /*
-      * Use the default connection hostname instead...
-      */
-
-      attr->value_tag             = IPP_TAG_NAME;
-      attr->num_values            = 1;
-      attr->values[0].string.text = _cupsStrAlloc(con->http.hostname);
+      ippDeleteAttribute(job->attrs, attr);
+      ippAddString(job->attrs, IPP_TAG_JOB, IPP_TAG_NAME, "job-originating-host-name", NULL, con->http.hostname);
     }
-
-    attr->group_tag = IPP_TAG_JOB;
+    else
+      attr->group_tag = IPP_TAG_JOB;
   }
   else
   {
@@ -1832,8 +1798,8 @@ add_job(cupsd_client_t  *con,		/* I - Client connection */
 
       attr = ippAddStrings(job->attrs, IPP_TAG_JOB, IPP_TAG_NAME, "job-sheets",
                            2, NULL, NULL);
-      attr->values[0].string.text = _cupsStrRetain(printer->job_sheets[0]);
-      attr->values[1].string.text = _cupsStrRetain(printer->job_sheets[1]);
+      attr->values[0].string.text = _cupsStrAlloc(printer->job_sheets[0]);
+      attr->values[1].string.text = _cupsStrAlloc(printer->job_sheets[1]);
     }
 
     job->job_sheets = attr;
@@ -1859,7 +1825,8 @@ add_job(cupsd_client_t  *con,		/* I - Client connection */
           * Force the leading banner to have the classification on it...
 	  */
 
-          cupsdSetString(&attr->values[0].string.text, Classification);
+	  _cupsStrFree(attr->values[0].string.text);
+	  attr->values[0].string.text = _cupsStrAlloc(Classification);
 
 	  cupsdLogJob(job, CUPSD_LOG_NOTICE, "CLASSIFICATION FORCED "
 	                		     "job-sheets=\"%s,none\", "
@@ -1876,7 +1843,8 @@ add_job(cupsd_client_t  *con,		/* I - Client connection */
 	  * Can't put two different security markings on the same document!
 	  */
 
-          cupsdSetString(&attr->values[1].string.text, attr->values[0].string.text);
+	  _cupsStrFree(attr->values[1].string.text);
+	  attr->values[1].string.text = _cupsStrAlloc(attr->values[0].string.text);
 
 	  cupsdLogJob(job, CUPSD_LOG_NOTICE, "CLASSIFICATION FORCED "
 	                		     "job-sheets=\"%s,%s\", "
@@ -1916,18 +1884,26 @@ add_job(cupsd_client_t  *con,		/* I - Client connection */
         if (attr->num_values > 1 &&
 	    !strcmp(attr->values[0].string.text, attr->values[1].string.text))
 	{
-          cupsdSetString(&(attr->values[0].string.text), Classification);
-          cupsdSetString(&(attr->values[1].string.text), Classification);
+	  _cupsStrFree(attr->values[0].string.text);
+	  attr->values[0].string.text = _cupsStrAlloc(Classification);
+	  _cupsStrFree(attr->values[1].string.text);
+	  attr->values[1].string.text = _cupsStrAlloc(Classification);
 	}
         else
 	{
           if (attr->num_values == 1 ||
 	      strcmp(attr->values[0].string.text, "none"))
-            cupsdSetString(&(attr->values[0].string.text), Classification);
+	  {
+	    _cupsStrFree(attr->values[0].string.text);
+	    attr->values[0].string.text = _cupsStrAlloc(Classification);
+	  }
 
           if (attr->num_values > 1 &&
 	      strcmp(attr->values[1].string.text, "none"))
-            cupsdSetString(&(attr->values[1].string.text), Classification);
+	  {
+	    _cupsStrFree(attr->values[1].string.text);
+	    attr->values[1].string.text = _cupsStrAlloc(Classification);
+	  }
         }
 
         if (attr->num_values > 1)
@@ -4150,7 +4126,8 @@ authenticate_job(cupsd_client_t  *con,	/* I - Client connection */
   if (attr)
   {
     attr->value_tag = IPP_TAG_KEYWORD;
-    cupsdSetString(&(attr->values[0].string.text), "no-hold");
+    _cupsStrFree(attr->values[0].string.text);
+    attr->values[0].string.text = _cupsStrAlloc("no-hold");
   }
 
  /*
@@ -9491,7 +9468,6 @@ print_job(cupsd_client_t  *con,		/* I - Client connection */
     if (format)
     {
       _cupsStrFree(format->values[0].string.text);
-
       format->values[0].string.text = _cupsStrAlloc(mimetype);
     }
     else
@@ -10028,9 +10004,8 @@ release_job(cupsd_client_t  *con,	/* I - Client connection */
 
   if (attr)
   {
-    _cupsStrFree(attr->values[0].string.text);
-
     attr->value_tag = IPP_TAG_KEYWORD;
+    _cupsStrFree(attr->values[0].string.text);
     attr->values[0].string.text = _cupsStrAlloc("no-hold");
 
     cupsdAddEvent(CUPSD_EVENT_JOB_CONFIG_CHANGED, cupsdFindDest(job->dest), job,
@@ -10719,7 +10694,6 @@ send_document(cupsd_client_t  *con,	/* I - Client connection */
                                     IPP_TAG_MIMETYPE)) != NULL)
     {
       _cupsStrFree(jformat->values[0].string.text);
-
       jformat->values[0].string.text = _cupsStrAlloc(mimetype);
     }
     else
